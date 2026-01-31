@@ -1,0 +1,38 @@
+# Shell commands to configure & build sketch2 with Ninja (GCC / g++)
+# Run from the project root directory (the folder that contains CMakeLists.txt)
+
+# ---------
+# Release
+# ---------
+rm -rf build
+mkdir -p build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+cmake --build build
+
+# Optional: run unit tests
+ctest --test-dir build --output-on-failure
+
+# ---------
+# Debug
+# ---------
+rm -rf build-dbg && mkdir -p build-dbg
+cmake -S . -B build-dbg -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++
+cmake --build build-dbg
+
+# Optional: run unit tests
+ctest --test-dir build-dbg --output-on-failure
+
+
+cmake --build build-dbg --target utest_stor
+./bin-dbg/utest_stor
+ctest --test-dir build-dbg -R utest_stor --output-on-failure
+
+# ---------
+# Build and run stor
+# ---------
+cmake --build build-dbg --target utest_stor && ./bin-dbg/utest_stor
+
+# ---------
+# Discover targets (handy trick)
+# ---------
+cmake --build build-dbg --target help

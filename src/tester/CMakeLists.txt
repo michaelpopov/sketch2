@@ -1,0 +1,15 @@
+add_executable(tester main.cpp)
+target_link_libraries(tester PRIVATE cntrl stor comp membuf Threads::Threads)
+
+# Readline (best-effort) — you should have libreadline-dev (or equivalent) installed.
+find_library(READLINE_LIB readline)
+find_library(NCURSES_LIB ncurses)
+if (READLINE_LIB)
+  target_link_libraries(tester PRIVATE ${READLINE_LIB})
+  if (NCURSES_LIB)
+    target_link_libraries(tester PRIVATE ${NCURSES_LIB})
+  endif()
+else()
+  message(WARNING "readline library not found; 'tester' may fail to link. Install libreadline-dev.")
+  target_link_libraries(tester PRIVATE readline)
+endif()
