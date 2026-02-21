@@ -1,4 +1,5 @@
 #include <string>
+#include "utils/log.h"
 
 namespace sketch2::storage {
 std::string version() { return "storage v0 (dummy)"; }

@@ -1,3 +1,4 @@
+add_subdirectory(utils)
 add_subdirectory(storage)
 add_subdirectory(membuf)
 add_subdirectory(compute)
