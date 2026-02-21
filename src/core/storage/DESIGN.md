@@ -54,21 +54,29 @@ Format:
   header       array of vectors          array of ids
 
 header is a struct DataFileHeader.
-vector is u64 + data (see below).
+vector is data (see below).
 ids is an array of u64.
 
 Vector consists of a header u64 and data.
 Header contains vector id.
 
-|-------|-------------------------|
-   u64      data
+|----------------------------|
+      data
 
 Interface:
-    init(const InputReader&, path)
+    init(input_path, output_path)
     exec()
 
 Position of id in array ids matches position of a corresponding vector
 in array of vectors.
+
+Create an instance of InputReader and init it with input_path.
+Create a vector<u64>, resize it with InputReader::count() and populate with ids.
+Init DataFileHeader (data_file.h)
+Write output file:
+  - write header
+  - iterate over all data(index) in InputReader and write each vector
+  - write vector of ids.
 
 
 DataReader
@@ -89,10 +97,39 @@ Iterator
     next()
     eof()
 
+There is a vector of boolean flags. The size matches the number of vectors
+in the file. Each vector has a corresponding bit. 0 (false) means the vector
+is valid as it is. 1 (true) means the vector was modified.
+
+There are two modes:
+   - in place
+   - reference
+
+If the mode is "in place" then "modified" vector means it is deleted.
+If the mode is "reference" then it is required to look at the content of the vector,
+the first 8 bytes converted to u8*:
+   - nullptr means the vector is deleted
+   - otherwise it's a pointer to a new value of the vector.
+
+Iterator skips deleted vectors by checking the bitset and the value of the vector.
+
+The bitset is optional. If it is not present, there are no modifications to the content
+of the file.
 
 
 Scanner
 -------------------------
+Add an interface ICompute in compute/compute.h
+It has function 
+   virtual double dist(const u8*, const u8*, type, dim) = 0
+
+Add class ComputeL1 in compute/compute_l1.h
+It implements ICompute
+It implements dist()
+It has private functions that convert u8* to corresponding types based on type parameter.
+They implement L1 distance calculation for the type.
+dist() calls one of these internal functions and return result.
+
 A class that can find K nearest neighbors in data that is provided by Data Reader.
 At stage 1 it can use only the distance function L1.
 This class is required for closing testing loop and making sure that data interfaces

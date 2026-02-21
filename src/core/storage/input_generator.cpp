@@ -30,15 +30,21 @@ static inline void print_int_line(FILE* f, uint64_t id, size_t dim) {
 }
 
 Ret generate_input_file(const std::string& path, const GeneratorConfig& config) {
+    if (config.pattern_type != PatternType::Sequential) {
+        return Ret("Unsupported pattern type");
+    }
+    if (config.count == 0) {
+        return Ret("count must be greater than zero");
+    }
+    if (config.dim < 4 || config.dim > 4096) {
+        return Ret("dim must be in range [4, 4096]");
+    }
+
     FILE* f = fopen(path.c_str(), "w");
     if (!f) {
         return Ret("Failed to open file for writing: " + path);
     }
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
-
-    if (config.pattern_type != PatternType::Sequential) {
-        return Ret("Unsupported pattern type");
-    }
 
     fprintf(f, "%s,%lu\n", to_string(config.type), config.dim);
     

@@ -35,6 +35,31 @@ TEST_F(InputGeneratorTest, FailsOnNonSequentialPattern) {
     EXPECT_NE(0, ret.code());
 }
 
+TEST_F(InputGeneratorTest, FailsOnZeroCount) {
+    GeneratorConfig cfg{PatternType::Sequential, 0, 0, DataType::f32, 4};
+    EXPECT_NE(0, generate_input_file(path_, cfg).code());
+}
+
+TEST_F(InputGeneratorTest, FailsOnDimTooSmall) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::f32, 3};
+    EXPECT_NE(0, generate_input_file(path_, cfg).code());
+}
+
+TEST_F(InputGeneratorTest, FailsOnDimTooLarge) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::f32, 4097};
+    EXPECT_NE(0, generate_input_file(path_, cfg).code());
+}
+
+TEST_F(InputGeneratorTest, SucceedsOnMinDim) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::f32, 4};
+    EXPECT_EQ(0, generate_input_file(path_, cfg).code());
+}
+
+TEST_F(InputGeneratorTest, SucceedsOnMaxDim) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::f32, 4096};
+    EXPECT_EQ(0, generate_input_file(path_, cfg).code());
+}
+
 TEST_F(InputGeneratorTest, FailsOnBadPath) {
     GeneratorConfig cfg{PatternType::Sequential, 10, 0, DataType::f32, 4};
     Ret ret = generate_input_file("/nonexistent/dir/file.txt", cfg);
@@ -120,12 +145,12 @@ TEST_F(InputGeneratorTest, WritesExactlyDimValuesPerVector) {
     EXPECT_EQ(dim, count);
 }
 
-TEST_F(InputGeneratorTest, SingleDimVector) {
-    GeneratorConfig cfg{PatternType::Sequential, 1, 3, DataType::f32, 1};
+TEST_F(InputGeneratorTest, VectorLineFormat) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 3, DataType::f32, 4};
     generate_input_file(path_, cfg);
     auto lines = read_lines();
     ASSERT_EQ(2u, lines.size());
-    EXPECT_EQ("3 : [ 3.1 ]", lines[1]);
+    EXPECT_EQ("3 : [ 3.1, 3.1, 3.1, 3.1 ]", lines[1]);
 }
 
 // i32 tests
@@ -145,11 +170,11 @@ TEST_F(InputGeneratorTest, HeaderLineI32) {
 }
 
 TEST_F(InputGeneratorTest, I32ValueIsId) {
-    GeneratorConfig cfg{PatternType::Sequential, 1, 9, DataType::i32, 1};
+    GeneratorConfig cfg{PatternType::Sequential, 1, 9, DataType::i32, 4};
     generate_input_file(path_, cfg);
     auto lines = read_lines();
     ASSERT_EQ(2u, lines.size());
-    EXPECT_EQ("9 : [ 9 ]", lines[1]);
+    EXPECT_EQ("9 : [ 9, 9, 9, 9 ]", lines[1]);
 }
 
 TEST_F(InputGeneratorTest, I32WritesExactlyDimValuesPerVector) {
