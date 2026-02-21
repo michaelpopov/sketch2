@@ -18,6 +18,15 @@ static inline const char* to_string(DataType type) {
     }
 }
 
+static inline size_t to_size(DataType type) {
+    switch (type) {
+        case DataType::f16: return 2;
+        case DataType::f32: return 4;
+        case DataType::i32: return 4;
+        default: return 0;
+    }
+}
+
 class Ret {
 public:
     Ret(int code) : code_(code) {}
