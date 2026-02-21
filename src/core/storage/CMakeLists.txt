@@ -1,4 +1,7 @@
 add_library(stor STATIC storage.cpp)
+
+target_include_directories(stor PUBLIC ${CMAKE_SOURCE_DIR}/src)
+
 set_target_properties(stor PROPERTIES OUTPUT_NAME "stor")
 target_link_libraries(stor PUBLIC Threads::Threads)
 

@@ -4,9 +4,7 @@
 namespace sketch2 {
 
 enum class FileType : uint16_t {
-    Data, Delta, DataCatalogue,
-    // Sample, Residuals,
-    // ClusterMap, IndexCatalogue, Centroids, PQCentroids, PQData,
+    Data, Delta,
 };
 
 enum class DataType : uint16_t {
@@ -15,18 +13,16 @@ enum class DataType : uint16_t {
 
 struct BaseFileHeader {
     uint32_t magic;
-    uint16_t file_type;
-    uint16_t format_version;
+    uint16_t type;     // file type
+    uint16_t version;  // file format version
 };
 
-struct DataBaseHeader : public BaseFileHeader {
-    uint32_t file_version;
-    uint32_t file_index;
-    uint16_t data_type;
-    uint16_t dim;
-    uint32_t count;
+struct DataFileHeader : public BaseFileHeader {
     uint64_t min_id;
     uint64_t max_id;
+    uint32_t count;
+    uint16_t data;     // data type
+    uint16_t dim;
 };
 
 } // namespace sketch2
