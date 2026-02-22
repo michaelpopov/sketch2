@@ -33,6 +33,8 @@ private:
     size_t                dim_     = 0;
     std::vector<LineInfo> lines_;
     mutable std::vector<uint8_t>  buf_;   // parsed vector data, laid out contiguously
+
+    Ret init_(const std::string &path);
 };
 
 } // namespace sketch2

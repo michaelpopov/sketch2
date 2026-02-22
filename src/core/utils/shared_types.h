@@ -10,7 +10,7 @@ enum class DataType {
     i32,
 };
 
-static inline const char* to_string(DataType type) {
+static inline const char* data_type_to_string(DataType type) {
     switch (type) {
         case DataType::f16: return "f16";
         case DataType::f32: return "f32";
@@ -19,7 +19,7 @@ static inline const char* to_string(DataType type) {
     }
 }
 
-static inline size_t to_size(DataType type) {
+static inline size_t data_type_size(DataType type) {
     switch (type) {
         case DataType::f16: return 2;
         case DataType::f32: return 4;
@@ -36,6 +36,13 @@ static inline DataType data_type_from_int(int t)
         case 2: return DataType::i32;
         default: throw std::runtime_error("Invalid data type number.");
     }
+}
+
+static inline DataType data_type_from_string(const std::string &type_str) {
+    if (type_str == "f32") return DataType::f32;
+    if (type_str == "f16") return DataType::f16;
+    if (type_str == "i32") return DataType::i32;
+    throw std::runtime_error("Invalid data type string.");
 }
 
 static inline int data_type_to_int(DataType type)

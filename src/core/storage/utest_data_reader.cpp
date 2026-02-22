@@ -96,6 +96,19 @@ TEST_F(DataReaderTest, FailsOnWrongKind) {
     EXPECT_NE(0, r.init(data_path_).code());
 }
 
+TEST_F(DataReaderTest, FailsOnWrongVersion) {
+    generate(1, 0, DataType::f32, 4);
+    // version is at offset 6 (after magic and kind)
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    fseek(f, static_cast<long>(sizeof(uint32_t) + sizeof(uint16_t)), SEEK_SET);
+    uint16_t bad_version = static_cast<uint16_t>(kVersion + 1);
+    fwrite(&bad_version, sizeof(bad_version), 1, f);
+    fclose(f);
+    DataReader r;
+    EXPECT_NE(0, r.init(data_path_).code());
+}
+
 TEST_F(DataReaderTest, FailsOnTruncatedPayload) {
     generate(3, 0, DataType::f32, 4);
     FILE* f = fopen(data_path_.c_str(), "r+b");
@@ -127,10 +140,7 @@ TEST_F(DataReaderTest, TypeF32) {
 }
 
 TEST_F(DataReaderTest, TypeF16) {
-    generate(1, 0, DataType::f16, 4);
-    DataReader r;
-    EXPECT_EQ(0, r.init(data_path_).code());
-    EXPECT_EQ(DataType::f16, r.type());
+    EXPECT_THROW(generate(1, 0, DataType::f16, 4), std::runtime_error);
 }
 
 TEST_F(DataReaderTest, TypeI32) {
@@ -162,10 +172,7 @@ TEST_F(DataReaderTest, SizeF32IsCorrect) {
 }
 
 TEST_F(DataReaderTest, SizeF16IsCorrect) {
-    generate(1, 0, DataType::f16, 8);
-    DataReader r;
-    EXPECT_EQ(0, r.init(data_path_).code());
-    EXPECT_EQ(8u * 2u, r.size()); // 8 dims * 2 bytes
+    EXPECT_THROW(generate(1, 0, DataType::f16, 8), std::runtime_error);
 }
 
 TEST_F(DataReaderTest, SizeI32IsCorrect) {

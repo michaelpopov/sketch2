@@ -24,9 +24,16 @@ Ret DataWriter::exec() {
     const size_t count = reader.count();
 
     // Collect ids
+    uint64_t prev_id = 0;
     std::vector<uint64_t> ids(count);
     for (size_t i = 0; i < count; ++i) {
         ids[i] = reader.id(i);
+        if (i > 0) {
+            if (prev_id >= ids[i]) {
+                return Ret("Invalid order of ids");
+            }
+        }
+        prev_id = ids[i];
     }
 
     // Build DataFileHeader

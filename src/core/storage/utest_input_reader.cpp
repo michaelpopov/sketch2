@@ -69,28 +69,28 @@ TEST_F(InputReaderTest, SuccessReturnCode) {
 TEST_F(InputReaderTest, TypeF32) {
     generate_input_file(path_, cfg(1, 0, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(DataType::f32, r.type());
 }
 
 TEST_F(InputReaderTest, TypeF16) {
     generate_input_file(path_, cfg(1, 0, DataType::f16, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(DataType::f16, r.type());
 }
 
 TEST_F(InputReaderTest, TypeI32) {
     generate_input_file(path_, cfg(1, 0, DataType::i32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(DataType::i32, r.type());
 }
 
 TEST_F(InputReaderTest, DimIsCorrect) {
     generate_input_file(path_, cfg(1, 0, DataType::f32, 128));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(128u, r.dim());
 }
 
@@ -98,21 +98,21 @@ TEST_F(InputReaderTest, CountMatchesConfig) {
     const size_t count = 7;
     generate_input_file(path_, cfg(count, 0, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(count, r.count());
 }
 
 TEST_F(InputReaderTest, CountWithMinIdOffset) {
     generate_input_file(path_, cfg(5, 100, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(5u, r.count());
 }
 
 TEST_F(InputReaderTest, SingleVector) {
     generate_input_file(path_, cfg(1, 42, DataType::f32, 8));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(1u, r.count());
     EXPECT_EQ(DataType::f32, r.type());
     EXPECT_EQ(8u, r.dim());
@@ -123,21 +123,21 @@ TEST_F(InputReaderTest, SingleVector) {
 TEST_F(InputReaderTest, SizeF32) {
     generate_input_file(path_, cfg(1, 0, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(4u * sizeof(float), r.size());
 }
 
 TEST_F(InputReaderTest, SizeF16) {
     generate_input_file(path_, cfg(1, 0, DataType::f16, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(4u * 2u, r.size());
 }
 
 TEST_F(InputReaderTest, SizeI32) {
     generate_input_file(path_, cfg(1, 0, DataType::i32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(4u * sizeof(uint32_t), r.size());
 }
 
@@ -146,7 +146,7 @@ TEST_F(InputReaderTest, SizeI32) {
 TEST_F(InputReaderTest, DataReturnsNonNull) {
     generate_input_file(path_, cfg(3, 0, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_NE(nullptr, r.data(0));
 }
 
@@ -154,7 +154,7 @@ TEST_F(InputReaderTest, F32DataValuesAreIdPlusPointOne) {
     // generator writes value = id + 0.1 for each dimension
     generate_input_file(path_, cfg(3, 10, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     for (size_t i = 0; i < 3; ++i) {
         const float* v = reinterpret_cast<const float*>(r.data(i));
         float expected = static_cast<float>(10 + i) + 0.1f;
@@ -168,7 +168,7 @@ TEST_F(InputReaderTest, I32DataValuesAreId) {
     // generator writes id for each dimension
     generate_input_file(path_, cfg(3, 5, DataType::i32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     for (size_t i = 0; i < 3; ++i) {
         const uint32_t* v = reinterpret_cast<const uint32_t*>(r.data(i));
         uint32_t expected = static_cast<uint32_t>(5 + i);
@@ -183,7 +183,7 @@ TEST_F(InputReaderTest, I32DataValuesAreId) {
 TEST_F(InputReaderTest, IdReturnsCorrectIds) {
     generate_input_file(path_, cfg(4, 10, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     for (size_t i = 0; i < 4; ++i) {
         EXPECT_EQ(10u + i, r.id(i));
     }
@@ -192,7 +192,7 @@ TEST_F(InputReaderTest, IdReturnsCorrectIds) {
 TEST_F(InputReaderTest, IdOutOfBoundsThrows) {
     generate_input_file(path_, cfg(3, 0, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_THROW(r.id(3),   std::out_of_range);
     EXPECT_THROW(r.id(100), std::out_of_range);
 }
@@ -202,7 +202,7 @@ TEST_F(InputReaderTest, IdOutOfBoundsThrows) {
 TEST_F(InputReaderTest, IsNoDataOutOfBoundsThrows) {
     generate_input_file(path_, cfg(3, 0, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_THROW(r.is_no_data(3),   std::out_of_range);
     EXPECT_THROW(r.is_no_data(100), std::out_of_range);
 }
@@ -210,7 +210,7 @@ TEST_F(InputReaderTest, IsNoDataOutOfBoundsThrows) {
 TEST_F(InputReaderTest, DataOutOfBoundsThrows) {
     generate_input_file(path_, cfg(3, 0, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_THROW(r.data(3),   std::out_of_range);
     EXPECT_THROW(r.data(100), std::out_of_range);
 }
@@ -218,7 +218,7 @@ TEST_F(InputReaderTest, DataOutOfBoundsThrows) {
 TEST_F(InputReaderTest, IsNoDataReturnsFalseForNormalVector) {
     generate_input_file(path_, cfg(3, 0, DataType::f32, 4));
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     EXPECT_FALSE(r.is_no_data(0));
     EXPECT_FALSE(r.is_no_data(1));
     EXPECT_FALSE(r.is_no_data(2));
@@ -228,7 +228,7 @@ TEST_F(InputReaderTest, IsNoDataReturnsTrueForEmptyBrackets) {
     // Write a line with empty brackets: "5 : [  ]\n"
     write_raw("f32,4\n5 : [  ]\n");
     InputReader r;
-    r.init(path_);
+    EXPECT_EQ(0, r.init(path_).code());
     ASSERT_EQ(1u, r.count());
     EXPECT_TRUE(r.is_no_data(0));
 }

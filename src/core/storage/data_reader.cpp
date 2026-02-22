@@ -42,16 +42,19 @@ DataReader::~DataReader() {
     }
 }
 
-Ret DataReader::init(const std::string& path, ReaderMode mode,
+Ret DataReader::init(const std::string &path, ReaderMode mode, const std::vector<bool> *bitset) {
+    try {
+        return init_(path, mode, bitset);
+    } catch (const std::exception& e) {
+        return Ret(e.what());
+    }
+}
+
+Ret DataReader::init_(const std::string& path, ReaderMode mode,
                      const std::vector<bool>* bitset) {
     if (map_) {
-        munmap(const_cast<uint8_t*>(map_), map_len_);
-        map_ = nullptr;
+        return Ret("DataReader is initialized already.");
     }
-    map_len_ = 0;
-    hdr_ = nullptr;
-    ids_ = nullptr;
-    size_ = 0;
 
     int fd = open(path.c_str(), O_RDONLY);
     if (fd < 0) {
@@ -92,9 +95,12 @@ Ret DataReader::init(const std::string& path, ReaderMode mode,
     if (hdr_->kind != static_cast<uint16_t>(FileType::Data)) {
         return fail("DataReader: not a data file");
     }
+    if (hdr_->version != kVersion) {
+        return fail("DataReader: unsupported file version");
+    }
 
     type_ = data_type_from_int(hdr_->type);
-    const size_t elem_size = to_size(type_);
+    const size_t elem_size = data_type_size(type_);
     if (elem_size == 0) {
         return fail("DataReader: invalid element type size");
     }

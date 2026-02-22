@@ -15,13 +15,18 @@ InputReader::~InputReader() {
     }
 }
 
-/*
-Instructions:
-map file into memory,
-parse the first line to get the data type and dimension,
-parse the rest of the lines to get the vector id and byte offset,
-*/
 Ret InputReader::init(const std::string& path) {
+    try {
+        return init_(path);
+    } catch (const std::exception& e) {
+        return Ret(e.what());
+    }
+}
+
+Ret InputReader::init_(const std::string& path) {
+    if (map_) {
+        return Ret("Input reader is initialized already.");
+    }
     // Map file into memory
     int fd = open(path.c_str(), O_RDONLY);
     if (fd < 0) {
@@ -53,10 +58,7 @@ Ret InputReader::init(const std::string& path) {
         return Ret("Invalid header: missing comma");
     }
     std::string type_str(p, static_cast<size_t>(comma - p));
-    if      (type_str == "f32") type_ = DataType::f32;
-    else if (type_str == "f16") type_ = DataType::f16;
-    else if (type_str == "i32") type_ = DataType::i32;
-    else return Ret("Unknown data type: " + type_str);
+    type_ = data_type_from_string(type_str);
 
     char* dim_end;
     dim_ = static_cast<size_t>(strtoull(comma + 1, &dim_end, 10));
@@ -114,7 +116,7 @@ size_t InputReader::dim() const {
 }
 
 size_t InputReader::size() const {
-    return dim_ * to_size(type_);
+    return dim_ * data_type_size(type_);
 }
 
 uint64_t InputReader::id(size_t index) const {
@@ -124,15 +126,8 @@ uint64_t InputReader::id(size_t index) const {
     return lines_[index].id;
 }
 
-static uint16_t float_to_f16(float f) {
-    uint32_t x;
-    memcpy(&x, &f, sizeof(x));
-    uint16_t sign     = static_cast<uint16_t>((x >> 16) & 0x8000);
-    int      exp      = static_cast<int>((x >> 23) & 0xFF) - 127 + 15;
-    uint32_t mantissa = x & 0x7FFFFF;
-    if (exp <= 0)  return sign;
-    if (exp >= 31) return static_cast<uint16_t>(sign | 0x7C00);
-    return static_cast<uint16_t>(sign | (exp << 10) | (mantissa >> 13));
+static uint16_t float_to_f16(float) {
+    throw std::runtime_error("Conversion to f16 is not implemented yet.");
 }
 
 /*
@@ -146,31 +141,50 @@ const uint8_t* InputReader::data(size_t index) const {
         throw std::out_of_range("InputReader::data: index out of range");
     }
     const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
+    const char* end = reinterpret_cast<const char*>(map_) + map_len_;
 
     if (type_ == DataType::f32) {
         float* out = reinterpret_cast<float*>(buf_.data());
         for (size_t d = 0; d < dim_; ++d) {
+            if (p >= end) {
+                throw std::runtime_error("InputReader::data: truncated vector payload");
+            }
             char* next;
             out[d] = strtof(p, &next);
+            if (next == p) {
+                throw std::runtime_error("InputReader::data: invalid f32 token");
+            }
             p = next;
-            while (*p == ',' || *p == ' ') ++p;
+            while (p < end && (*p == ',' || *p == ' ')) ++p;
         }
     } else if (type_ == DataType::i32) {
-        uint32_t* out = reinterpret_cast<uint32_t*>(buf_.data());
+        int32_t* out = reinterpret_cast<int32_t*>(buf_.data());
         for (size_t d = 0; d < dim_; ++d) {
+            if (p >= end) {
+                throw std::runtime_error("InputReader::data: truncated vector payload");
+            }
             char* next;
-            out[d] = static_cast<uint32_t>(strtoull(p, &next, 10));
+            out[d] = static_cast<int32_t>(strtoll(p, &next, 10));
+            if (next == p) {
+                throw std::runtime_error("InputReader::data: invalid i32 token");
+            }
             p = next;
-            while (*p == ',' || *p == ' ') ++p;
+            while (p < end && (*p == ',' || *p == ' ')) ++p;
         }
     } else if (type_ == DataType::f16) {
         uint16_t* out = reinterpret_cast<uint16_t*>(buf_.data());
         for (size_t d = 0; d < dim_; ++d) {
+            if (p >= end) {
+                throw std::runtime_error("InputReader::data: truncated vector payload");
+            }
             char* next;
             float f = strtof(p, &next);
+            if (next == p) {
+                throw std::runtime_error("InputReader::data: invalid f16 token");
+            }
             out[d] = float_to_f16(f);
             p = next;
-            while (*p == ',' || *p == ' ') ++p;
+            while (p < end && (*p == ',' || *p == ' ')) ++p;
         }
     }
 

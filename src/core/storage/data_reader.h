@@ -46,8 +46,6 @@ public:
     const uint8_t* at(size_t index) const;   // lookup by position
 
 private:
-    bool is_deleted(size_t index) const;
-
     const uint8_t*           map_     = nullptr;
     size_t                   map_len_ = 0;
     const DataFileHeader*    hdr_     = nullptr;
@@ -56,6 +54,9 @@ private:
     size_t                   size_    = 0;        // size of one vector in bytes
     ReaderMode               mode_    = ReaderMode::InPlace;
     const std::vector<bool>* bitset_  = nullptr; // optional, not owned
+
+    bool is_deleted(size_t index) const;
+    Ret init_(const std::string &path, ReaderMode mode, const std::vector<bool> *bitset);
 };
 
 } // namespace sketch2

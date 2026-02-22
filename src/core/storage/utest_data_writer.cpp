@@ -149,8 +149,7 @@ TEST_F(DataWriterTest, HeaderTypeF32) {
 }
 
 TEST_F(DataWriterTest, HeaderTypeF16) {
-    run(1, 0, DataType::f16, 4);
-    EXPECT_EQ(data_type_to_int(DataType::f16), read_header().type);
+    EXPECT_THROW((void)run(1, 0, DataType::f16, 4), std::runtime_error);
 }
 
 TEST_F(DataWriterTest, HeaderTypeI32) {

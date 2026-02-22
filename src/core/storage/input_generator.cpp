@@ -46,7 +46,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
     }
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
-    fprintf(f, "%s,%lu\n", to_string(config.type), config.dim);
+    fprintf(f, "%s,%lu\n", data_type_to_string(config.type), config.dim);
     
     for (size_t i = 0; i < config.count; ++i) {
         uint64_t id= config.min_id + i;
