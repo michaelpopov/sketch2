@@ -145,17 +145,17 @@ TEST_F(DataWriterTest, HeaderDim) {
 
 TEST_F(DataWriterTest, HeaderTypeF32) {
     run(1, 0, DataType::f32, 4);
-    EXPECT_EQ(0u, read_header().type);
+    EXPECT_EQ(data_type_to_int(DataType::f32), read_header().type);
 }
 
 TEST_F(DataWriterTest, HeaderTypeF16) {
     run(1, 0, DataType::f16, 4);
-    EXPECT_EQ(1u, read_header().type);
+    EXPECT_EQ(data_type_to_int(DataType::f16), read_header().type);
 }
 
 TEST_F(DataWriterTest, HeaderTypeI32) {
     run(1, 0, DataType::i32, 4);
-    EXPECT_EQ(2u, read_header().type);
+    EXPECT_EQ(data_type_to_int(DataType::i32), read_header().type);
 }
 
 // --- ids section ---

@@ -5,17 +5,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <vector>
+#include <cassert>
+#include <iostream>
 
 namespace sketch2 {
-
-static uint16_t to_file_data_type(DataType type) {
-    switch (type) {
-        case DataType::f32: return 0;
-        case DataType::f16: return 1;
-        case DataType::i32: return 2;
-        default:            return 0;
-    }
-}
 
 Ret DataWriter::init(const std::string& input_path, const std::string& output_path) {
     input_path_  = input_path;
@@ -44,17 +37,28 @@ Ret DataWriter::exec() {
     hdr.min_id  = count > 0 ? ids.front() : 0;
     hdr.max_id  = count > 0 ? ids.back()  : 0;
     hdr.count   = static_cast<uint32_t>(count);
-    hdr.type    = to_file_data_type(reader.type());
+    hdr.type    = static_cast<uint16_t>(data_type_to_int(reader.type()));
     hdr.dim     = static_cast<uint16_t>(reader.dim());
 
+    /**************************************************
+    std::cout << "\n\n\n";
+    std::cout << "min_id=" << hdr.min_id << "\n";
+    std::cout << "max_id=" << hdr.max_id << "\n";
+    std::cout << "count= " << hdr.count << "\n";
+    std::cout << "type=  " << hdr.type << "\n";
+    std::cout << "dim=   " << hdr.dim << "\n";
+    std::cout << "\n\n\n";
+    ***************************************************/
+
     // Write output file
-    FILE* f = fopen(output_path_.c_str(), "wb");
+    FILE *f = fopen(output_path_.c_str(), "wb");
     if (!f) {
         return Ret("DataWriter: failed to open output file: " + output_path_);
     }
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
     // Write header
+    assert(sizeof(hdr) % 8 == 0);
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret("DataWriter: failed to write header");
     }

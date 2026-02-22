@@ -38,7 +38,7 @@ protected:
 
     // Write a minimal valid binary data file with raw vector bytes.
     // type_field: 0=f32, 1=f16, 2=i32  (matches DataWriter encoding)
-    void write_raw(uint16_t type_field, uint16_t dim, uint64_t min_id,
+    void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs) {
         DataFileHeader hdr{};
         hdr.magic   = kMagic;
@@ -47,7 +47,7 @@ protected:
         hdr.min_id  = min_id;
         hdr.max_id  = min_id + static_cast<uint64_t>(vecs.size()) - 1;
         hdr.count   = static_cast<uint32_t>(vecs.size());
-        hdr.type    = type_field;
+        hdr.type    = data_type_to_int(type_field);
         hdr.dim     = dim;
         FILE* f = fopen(data_path_.c_str(), "wb");
         fwrite(&hdr, sizeof(hdr), 1, f);
@@ -96,67 +96,82 @@ TEST_F(DataReaderTest, FailsOnWrongKind) {
     EXPECT_NE(0, r.init(data_path_).code());
 }
 
+TEST_F(DataReaderTest, FailsOnTruncatedPayload) {
+    generate(3, 0, DataType::f32, 4);
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(0, fseek(f, 0, SEEK_END));
+    long size = ftell(f);
+    ASSERT_GT(size, 0);
+    ASSERT_EQ(0, ftruncate(fileno(f), size - 1));
+    fclose(f);
+
+    DataReader r;
+    EXPECT_NE(0, r.init(data_path_).code());
+}
+
 // --- metadata after init ---
 
 TEST_F(DataReaderTest, SuccessReturnCode) {
     generate(3, 0, DataType::f32, 4);
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_).code());
+    const auto ret = r.init(data_path_);
+    EXPECT_EQ(0, ret) << ret.message();
 }
 
 TEST_F(DataReaderTest, TypeF32) {
     generate(1, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(DataType::f32, r.type());
 }
 
 TEST_F(DataReaderTest, TypeF16) {
     generate(1, 0, DataType::f16, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(DataType::f16, r.type());
 }
 
 TEST_F(DataReaderTest, TypeI32) {
     generate(1, 0, DataType::i32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(DataType::i32, r.type());
 }
 
 TEST_F(DataReaderTest, DimIsCorrect) {
     generate(1, 0, DataType::f32, 64);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(64u, r.dim());
 }
 
 TEST_F(DataReaderTest, CountIsCorrect) {
     generate(7, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(7u, r.count());
 }
 
 TEST_F(DataReaderTest, SizeF32IsCorrect) {
     generate(1, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(4u * 4u, r.size()); // 4 dims * 4 bytes
 }
 
 TEST_F(DataReaderTest, SizeF16IsCorrect) {
     generate(1, 0, DataType::f16, 8);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(8u * 2u, r.size()); // 8 dims * 2 bytes
 }
 
 TEST_F(DataReaderTest, SizeI32IsCorrect) {
     generate(1, 0, DataType::i32, 8);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(8u * 4u, r.size()); // 8 dims * 4 bytes
 }
 
@@ -165,14 +180,14 @@ TEST_F(DataReaderTest, SizeI32IsCorrect) {
 TEST_F(DataReaderTest, AtReturnsNonNull) {
     generate(3, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_NE(nullptr, r.at(0));
 }
 
 TEST_F(DataReaderTest, AtOutOfBoundsThrows) {
     generate(3, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_THROW(r.at(3),   std::out_of_range);
     EXPECT_THROW(r.at(100), std::out_of_range);
 }
@@ -181,7 +196,7 @@ TEST_F(DataReaderTest, AtF32VectorDataIsCorrect) {
     const size_t count = 4, min_id = 10, dim = 4;
     generate(count, min_id, DataType::f32, dim);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     for (size_t i = 0; i < count; ++i) {
         const float* v = reinterpret_cast<const float*>(r.at(i));
         float expected = static_cast<float>(min_id + i) + 0.1f;
@@ -194,7 +209,7 @@ TEST_F(DataReaderTest, AtI32VectorDataIsCorrect) {
     const size_t count = 3, min_id = 5, dim = 4;
     generate(count, min_id, DataType::i32, dim);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     for (size_t i = 0; i < count; ++i) {
         const int32_t* v = reinterpret_cast<const int32_t*>(r.at(i));
         int32_t expected = static_cast<int32_t>(min_id + i);
@@ -206,7 +221,7 @@ TEST_F(DataReaderTest, AtI32VectorDataIsCorrect) {
 TEST_F(DataReaderTest, AtConsecutivePointersSpacedBySize) {
     generate(4, 0, DataType::f32, 8);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     for (size_t i = 0; i < 3; ++i) {
         ptrdiff_t gap = r.at(i + 1) - r.at(i);
         EXPECT_EQ(static_cast<ptrdiff_t>(r.size()), gap) << "at index " << i;
@@ -218,7 +233,7 @@ TEST_F(DataReaderTest, AtConsecutivePointersSpacedBySize) {
 TEST_F(DataReaderTest, GetReturnsNullForMissingId) {
     generate(3, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(nullptr, r.get(999));
 }
 
@@ -226,7 +241,7 @@ TEST_F(DataReaderTest, GetReturnsCorrectVector) {
     const size_t min_id = 5;
     generate(3, min_id, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     for (size_t i = 0; i < 3; ++i) {
         const uint8_t* via_get = r.get(min_id + i);
         ASSERT_NE(nullptr, via_get) << "id " << min_id + i << " not found";
@@ -238,7 +253,7 @@ TEST_F(DataReaderTest, GetFirstId) {
     const size_t min_id = 7;
     generate(3, min_id, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(r.at(0), r.get(min_id));
 }
 
@@ -246,7 +261,7 @@ TEST_F(DataReaderTest, GetLastId) {
     const size_t count = 3, min_id = 7;
     generate(count, min_id, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(r.at(count - 1), r.get(min_id + count - 1));
 }
 
@@ -256,7 +271,7 @@ TEST_F(DataReaderTest, IteratorTraversesAllVectors) {
     const size_t count = 5;
     generate(count, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     size_t seen = 0;
     for (auto it = r.begin(); !it.eof(); it.next())
         ++seen;
@@ -267,7 +282,7 @@ TEST_F(DataReaderTest, IteratorIdsAreCorrect) {
     const size_t count = 4, min_id = 20;
     generate(count, min_id, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     size_t i = 0;
     for (auto it = r.begin(); !it.eof(); it.next(), ++i)
         EXPECT_EQ(min_id + i, it.id()) << "index " << i;
@@ -276,7 +291,7 @@ TEST_F(DataReaderTest, IteratorIdsAreCorrect) {
 TEST_F(DataReaderTest, IteratorDataMatchesAt) {
     generate(3, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     size_t i = 0;
     for (auto it = r.begin(); !it.eof(); it.next(), ++i)
         EXPECT_EQ(r.at(i), it.data()) << "index " << i;
@@ -285,7 +300,7 @@ TEST_F(DataReaderTest, IteratorDataMatchesAt) {
 TEST_F(DataReaderTest, IteratorSingleVector) {
     generate(1, 42, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     auto it = r.begin();
     ASSERT_FALSE(it.eof());
     EXPECT_EQ(42u, it.id());
@@ -298,7 +313,7 @@ TEST_F(DataReaderTest, IteratorF32ValuesCorrect) {
     const size_t count = 3, min_id = 2, dim = 4;
     generate(count, min_id, DataType::f32, dim);
     DataReader r;
-    r.init(data_path_);
+    EXPECT_EQ(0, r.init(data_path_).code());
     size_t i = 0;
     for (auto it = r.begin(); !it.eof(); it.next(), ++i) {
         const float* v = reinterpret_cast<const float*>(it.data());
@@ -317,7 +332,7 @@ TEST_F(DataReaderTest, InPlaceBitsetSkipsDeletedInIterator) {
     bitset[1] = true;
     bitset[3] = true;
     DataReader r;
-    r.init(data_path_, ReaderMode::InPlace, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
     std::vector<uint64_t> seen_ids;
     for (auto it = r.begin(); !it.eof(); it.next())
         seen_ids.push_back(it.id());
@@ -332,7 +347,7 @@ TEST_F(DataReaderTest, InPlaceBitsetGetReturnsNullForDeleted) {
     std::vector<bool> bitset(count, false);
     bitset[1] = true;
     DataReader r;
-    r.init(data_path_, ReaderMode::InPlace, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
     EXPECT_NE(nullptr, r.get(0));
     EXPECT_EQ(nullptr, r.get(1));
     EXPECT_NE(nullptr, r.get(2));
@@ -342,7 +357,7 @@ TEST_F(DataReaderTest, NoBitsetIteratorSeesAll) {
     const size_t count = 4;
     generate(count, 0, DataType::f32, 4);
     DataReader r;
-    r.init(data_path_, ReaderMode::InPlace, nullptr);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, nullptr).code());
     size_t seen = 0;
     for (auto it = r.begin(); !it.eof(); it.next())
         ++seen;
@@ -354,7 +369,7 @@ TEST_F(DataReaderTest, AllDeletedIteratorIsImmediatelyEof) {
     generate(count, 0, DataType::f32, 4);
     std::vector<bool> bitset(count, true);
     DataReader r;
-    r.init(data_path_, ReaderMode::InPlace, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
     EXPECT_TRUE(r.begin().eof());
 }
 
@@ -364,7 +379,7 @@ TEST_F(DataReaderTest, FirstVectorDeletedIteratorStartsAtSecond) {
     std::vector<bool> bitset(count, false);
     bitset[0] = true;
     DataReader r;
-    r.init(data_path_, ReaderMode::InPlace, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
     auto it = r.begin();
     ASSERT_FALSE(it.eof());
     EXPECT_EQ(1u, it.id());
@@ -376,7 +391,7 @@ TEST_F(DataReaderTest, LastVectorDeletedNotVisited) {
     std::vector<bool> bitset(count, false);
     bitset[count - 1] = true;
     DataReader r;
-    r.init(data_path_, ReaderMode::InPlace, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
     std::vector<uint64_t> seen_ids;
     for (auto it = r.begin(); !it.eof(); it.next())
         seen_ids.push_back(it.id());
@@ -391,7 +406,7 @@ TEST_F(DataReaderTest, CountIncludesDeleted) {
     bitset[1] = true;
     bitset[2] = true;
     DataReader r;
-    r.init(data_path_, ReaderMode::InPlace, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
     EXPECT_EQ(count, r.count()); // total, including deleted
 }
 
@@ -401,7 +416,7 @@ TEST_F(DataReaderTest, BitsetShorterThanCountNoCrash) {
     generate(count, 0, DataType::f32, 4);
     std::vector<bool> bitset(2, true);
     DataReader r;
-    r.init(data_path_, ReaderMode::InPlace, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
     size_t seen = 0;
     for (auto it = r.begin(); !it.eof(); it.next())
         ++seen;
@@ -419,11 +434,11 @@ TEST_F(DataReaderTest, ReferenceModeBitSetNullPointerIsDeleted) {
     std::vector<uint8_t> vec1(vec_size, 0);
     uint64_t nonzero = 1ULL;
     memcpy(vec1.data(), &nonzero, sizeof(nonzero));
-    write_raw(0 /* f32 */, dim, 0, {vec0, vec1});
+    write_raw(DataType::f32, dim, 0, {vec0, vec1});
 
     std::vector<bool> bitset = {true, true};
     DataReader r;
-    r.init(data_path_, ReaderMode::Reference, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::Reference, &bitset).code());
     EXPECT_EQ(nullptr, r.get(0)); // null pointer → deleted
     EXPECT_NE(nullptr, r.get(1)); // non-null pointer → alive
 }
@@ -433,11 +448,11 @@ TEST_F(DataReaderTest, ReferenceModeNoBitsetNotDeleted) {
     const uint16_t dim = 4;
     const size_t vec_size = dim * 4;
     std::vector<uint8_t> vec0(vec_size, 0);
-    write_raw(0 /* f32 */, dim, 0, {vec0});
+    write_raw(DataType::f32, dim, 0, {vec0});
 
     std::vector<bool> bitset = {false};
     DataReader r;
-    r.init(data_path_, ReaderMode::Reference, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::Reference, &bitset).code());
     EXPECT_NE(nullptr, r.get(0));
 }
 
@@ -448,11 +463,11 @@ TEST_F(DataReaderTest, ReferenceModeIteratorSkipsNullPointerVectors) {
     std::vector<uint8_t> vec1(vec_size, 0);
     uint64_t nonzero = 1ULL;
     memcpy(vec1.data(), &nonzero, sizeof(nonzero));
-    write_raw(0 /* f32 */, dim, 10, {vec0, vec1});
+    write_raw(DataType::f32, dim, 10, {vec0, vec1});
 
     std::vector<bool> bitset = {true, true};
     DataReader r;
-    r.init(data_path_, ReaderMode::Reference, &bitset);
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::Reference, &bitset).code());
 
     std::vector<uint64_t> seen_ids;
     for (auto it = r.begin(); !it.eof(); it.next())

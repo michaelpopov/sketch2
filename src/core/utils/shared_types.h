@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <stdexcept>
 
 namespace sketch2 {
 
@@ -27,7 +28,29 @@ static inline size_t to_size(DataType type) {
     }
 }
 
-class Ret {
+static inline DataType data_type_from_int(int t)
+{
+    switch (t) {
+        case 0: return DataType::f16;
+        case 1: return DataType::f32;
+        case 2: return DataType::i32;
+        default: throw std::runtime_error("Invalid data type number.");
+    }
+}
+
+static inline int data_type_to_int(DataType type)
+{
+    switch (type)
+    {
+        case DataType::f16: return 0;
+        case DataType::f32: return 1;
+        case DataType::i32: return 2;
+        default: throw std::runtime_error("Invalid data type.");
+    }
+}
+
+class Ret
+{
 public:
     Ret(int code) : code_(code) {}
     Ret(const std::string& message) : code_(-1), message_(message) {}
