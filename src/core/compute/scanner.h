@@ -19,6 +19,7 @@ public:
 
 private:
     DataReader reader_;
+    bool is_initialized_ = false;
 };
 
 } // namespace sketch2

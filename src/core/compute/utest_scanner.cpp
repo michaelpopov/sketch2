@@ -84,6 +84,12 @@ TEST_F(ScannerTest, FailsOnInvalidFile) {
     EXPECT_NE(0, s.init(data_path_).code());
 }
 
+TEST_F(ScannerTest, FindBeforeInitThrows) {
+    Scanner s;
+    auto q = f32_vec(0.0f, 4);
+    EXPECT_THROW((void)s.find(DistFunc::L1, 1, q.data()), std::runtime_error);
+}
+
 TEST_F(ScannerTest, SuccessReturnCode) {
     generate(3, 0, DataType::f32, 4);
     Scanner s;
@@ -92,20 +98,36 @@ TEST_F(ScannerTest, SuccessReturnCode) {
 
 // --- find() edge cases ---
 
-TEST_F(ScannerTest, FindCountZeroReturnsEmpty) {
+TEST_F(ScannerTest, FindCountZeroThrows) {
     generate(3, 0, DataType::f32, 4);
     Scanner s;
     s.init(data_path_);
     auto q = f32_vec(0.0f, 4);
-    EXPECT_TRUE(s.find(DistFunc::L1, 0, q.data()).empty());
+    EXPECT_THROW((void)s.find(DistFunc::L1, 0, q.data()), std::runtime_error);
 }
 
-TEST_F(ScannerTest, FindUnsupportedFuncReturnsEmpty) {
+TEST_F(ScannerTest, FindNullQueryPointerThrows) {
+    generate(3, 0, DataType::f32, 4);
+    Scanner s;
+    s.init(data_path_);
+    EXPECT_THROW((void)s.find(DistFunc::L1, 1, nullptr), std::runtime_error);
+}
+
+TEST_F(ScannerTest, FindUnsupportedFuncThrows) {
     generate(3, 0, DataType::f32, 4);
     Scanner s;
     s.init(data_path_);
     auto q = f32_vec(0.0f, 4);
-    EXPECT_TRUE(s.find(DistFunc::L2, 1, q.data()).empty());
+    EXPECT_THROW((void)s.find(DistFunc::L2, 1, q.data()), std::runtime_error);
+}
+
+TEST_F(ScannerTest, FindUnknownDistFuncThrows) {
+    generate(3, 0, DataType::f32, 4);
+    Scanner s;
+    s.init(data_path_);
+    auto q = f32_vec(0.0f, 4);
+    auto unknown = static_cast<DistFunc>(999);
+    EXPECT_THROW((void)s.find(unknown, 1, q.data()), std::runtime_error);
 }
 
 TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {
@@ -165,6 +187,18 @@ TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
     EXPECT_EQ(2u, result[2]);
+}
+
+TEST_F(ScannerTest, FindF32TieCaseDeterministicOrdering) {
+    // Stored values are id + 0.1. Query 2.6 is equidistant to ids 2 (2.1) and 3 (3.1).
+    generate(5, 0, DataType::f32, 4);
+    Scanner s;
+    s.init(data_path_);
+    auto q = f32_vec(2.6f, 4);
+    auto result = s.find(DistFunc::L1, 2, q.data());
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(2u, result[0]);
+    EXPECT_EQ(3u, result[1]);
 }
 
 TEST_F(ScannerTest, FindF32KAllReturnsSortedByDistance) {
