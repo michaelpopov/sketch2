@@ -7,6 +7,15 @@ endif()
 
 project(sketch2 LANGUAGES CXX)
 
+#----------------------------
+# Support for f16
+#----------------------------
+add_library(sketch_compile_options INTERFACE)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+  target_compile_options(sketch_compile_options INTERFACE -march=armv8.2-a+fp16)
+endif()
+
 # ---------------------------
 # Global build configuration
 # ---------------------------

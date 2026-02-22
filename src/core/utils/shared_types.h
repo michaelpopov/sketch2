@@ -1,14 +1,42 @@
 #pragma once
 #include <string>
 #include <stdexcept>
+#include <cstdint>
+
+// Support for f16 on aarch64
+#if defined(__aarch64__)
+#include <arm_neon.h> 
+#endif
 
 namespace sketch2 {
+
+#if defined(__aarch64__)
+using float16 = _Float16;
+#else
+  struct float16_t {                 // stub that can't be used as a number
+      uint16_t bits;
+  };
+#endif
 
 enum class DataType {
     f16,
     f32,
     i32,
 };
+
+static inline constexpr bool supports_f16() {
+#if defined(__aarch64__)
+    return true;
+#else
+    return false;
+#endif
+}
+
+static inline void validate_type(DataType t) {
+    if (t == DataType::f16 && !supports_f16()) {
+        throw std::runtime_error("f16 is not supported.");
+    }
+}
 
 static inline const char* data_type_to_string(DataType type) {
     switch (type) {
