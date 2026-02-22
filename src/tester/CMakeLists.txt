@@ -1,5 +1,5 @@
 add_executable(tester main.cpp)
-target_link_libraries(tester PRIVATE cntrl stor comp membuf Threads::Threads)
+target_link_libraries(tester PRIVATE cntrl stor comp membuf sketch_compile_options Threads::Threads)
 
 # Readline (best-effort) — you should have libreadline-dev (or equivalent) installed.
 find_library(READLINE_LIB readline)

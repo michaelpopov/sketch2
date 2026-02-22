@@ -1,5 +1,5 @@
 add_executable(client main.cpp)
-target_link_libraries(client PRIVATE Threads::Threads)
+target_link_libraries(client PRIVATE sketch_compile_options Threads::Threads)
 
 # Readline (best-effort) — you should have libreadline-dev (or equivalent) installed.
 find_library(READLINE_LIB readline)
