@@ -74,6 +74,9 @@ TEST_F(InputReaderTest, TypeF32) {
 }
 
 TEST_F(InputReaderTest, TypeF16) {
+    if (!supports_f16()) {
+        return;
+    }
     generate_input_file(path_, cfg(1, 0, DataType::f16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
@@ -231,4 +234,17 @@ TEST_F(InputReaderTest, IsNoDataReturnsTrueForEmptyBrackets) {
     EXPECT_EQ(0, r.init(path_).code());
     ASSERT_EQ(1u, r.count());
     EXPECT_TRUE(r.is_no_data(0));
+}
+
+TEST_F(InputReaderTest, F16DataWorks) {
+    if (!supports_f16()) {
+        return;
+    }
+    generate_input_file(path_, cfg(1, 42, DataType::f16, 4));
+    InputReader r;
+    EXPECT_EQ(0, r.init(path_).code());
+    // Should verify it doesn't throw and we get some data
+    EXPECT_NO_THROW(r.data(0));
+    const uint16_t* v = reinterpret_cast<const uint16_t*>(r.data(0));
+    EXPECT_NE(0, v[0]); // should contain parsed f16 value
 }

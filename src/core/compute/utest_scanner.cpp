@@ -267,14 +267,17 @@ TEST_F(ScannerTest, FindI32AllSortedByDistance) {
 }
 
 // --- f16 ---
-//
-// f16_to_float is not yet implemented; find() must throw std::runtime_error
-// when called on an f16 file.
 
-TEST_F(ScannerTest, FindF16ThrowsNotImplemented) {
+TEST_F(ScannerTest, FindF16Works) {
+    if (!supports_f16()) {
+        return;
+    }
     generate(3, 0, DataType::f16, 4);
     Scanner s;
     s.init(data_path_);
     auto q = f16_vec(1.1f, 4);
-    EXPECT_THROW(s.find(DistFunc::L1, 1, q.data()), std::runtime_error);
+    // Nearest should be id=1 (which has elements 1.1f)
+    auto result = s.find(DistFunc::L1, 1, q.data());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(1u, result[0]);
 }

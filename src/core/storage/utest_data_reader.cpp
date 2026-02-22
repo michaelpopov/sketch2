@@ -140,7 +140,13 @@ TEST_F(DataReaderTest, TypeF32) {
 }
 
 TEST_F(DataReaderTest, TypeF16) {
-    EXPECT_THROW(generate(1, 0, DataType::f16, 4), std::runtime_error);
+    if (!supports_f16()) {
+        return;
+    }
+    generate(1, 0, DataType::f16, 4);
+    DataReader r;
+    EXPECT_EQ(0, r.init(data_path_).code());
+    EXPECT_EQ(DataType::f16, r.type());
 }
 
 TEST_F(DataReaderTest, TypeI32) {
@@ -172,7 +178,13 @@ TEST_F(DataReaderTest, SizeF32IsCorrect) {
 }
 
 TEST_F(DataReaderTest, SizeF16IsCorrect) {
-    EXPECT_THROW(generate(1, 0, DataType::f16, 8), std::runtime_error);
+    if (!supports_f16()) {
+        return;
+    }
+    generate(1, 0, DataType::f16, 16);
+    DataReader r;
+    EXPECT_EQ(0, r.init(data_path_).code());
+    EXPECT_EQ(16u * 2u, r.size()); // 16 dims * 2 bytes
 }
 
 TEST_F(DataReaderTest, SizeI32IsCorrect) {

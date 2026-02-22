@@ -126,10 +126,6 @@ uint64_t InputReader::id(size_t index) const {
     return lines_[index].id;
 }
 
-static uint16_t float_to_f16(float) {
-    throw std::runtime_error("Conversion to f16 is not implemented yet.");
-}
-
 /*
 Instructions:
 Given an index, get a pointer to the text of vector data for that index.
@@ -172,7 +168,7 @@ const uint8_t* InputReader::data(size_t index) const {
             while (p < end && (*p == ',' || *p == ' ')) ++p;
         }
     } else if (type_ == DataType::f16) {
-        uint16_t* out = reinterpret_cast<uint16_t*>(buf_.data());
+        float16* out = reinterpret_cast<float16*>(buf_.data());
         for (size_t d = 0; d < dim_; ++d) {
             if (p >= end) {
                 throw std::runtime_error("InputReader::data: truncated vector payload");
@@ -182,7 +178,7 @@ const uint8_t* InputReader::data(size_t index) const {
             if (next == p) {
                 throw std::runtime_error("InputReader::data: invalid f16 token");
             }
-            out[d] = float_to_f16(f);
+            out[d] = static_cast<float16>(f);
             p = next;
             while (p < end && (*p == ',' || *p == ' ')) ++p;
         }
