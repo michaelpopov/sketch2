@@ -13,15 +13,13 @@ namespace sketch2 {
 #if defined(__aarch64__)
 using float16 = _Float16;
 #else
-  struct float16_t {                 // stub that can't be used as a number
-      uint16_t bits;
-  };
+    using float16 = uint16_t;
 #endif
 
 enum class DataType {
     f16,
     f32,
-    i32,
+    i16,
 };
 
 static inline constexpr bool supports_f16() {
@@ -42,7 +40,7 @@ static inline const char* data_type_to_string(DataType type) {
     switch (type) {
         case DataType::f16: return "f16";
         case DataType::f32: return "f32";
-        case DataType::i32: return "i32";
+        case DataType::i16: return "i16";
         default: return "unknown";
     }
 }
@@ -51,7 +49,7 @@ static inline size_t data_type_size(DataType type) {
     switch (type) {
         case DataType::f16: return 2;
         case DataType::f32: return 4;
-        case DataType::i32: return 4;
+        case DataType::i16: return 2;
         default: return 0;
     }
 }
@@ -61,7 +59,7 @@ static inline DataType data_type_from_int(int t)
     switch (t) {
         case 0: return DataType::f16;
         case 1: return DataType::f32;
-        case 2: return DataType::i32;
+        case 2: return DataType::i16;
         default: throw std::runtime_error("Invalid data type number.");
     }
 }
@@ -69,7 +67,7 @@ static inline DataType data_type_from_int(int t)
 static inline DataType data_type_from_string(const std::string &type_str) {
     if (type_str == "f32") return DataType::f32;
     if (type_str == "f16") return DataType::f16;
-    if (type_str == "i32") return DataType::i32;
+    if (type_str == "i16") return DataType::i16;
     throw std::runtime_error("Invalid data type string.");
 }
 
@@ -79,7 +77,7 @@ static inline int data_type_to_int(DataType type)
     {
         case DataType::f16: return 0;
         case DataType::f32: return 1;
-        case DataType::i32: return 2;
+        case DataType::i16: return 2;
         default: throw std::runtime_error("Invalid data type.");
     }
 }

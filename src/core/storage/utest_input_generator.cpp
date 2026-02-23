@@ -153,33 +153,33 @@ TEST_F(InputGeneratorTest, VectorLineFormat) {
     EXPECT_EQ("3 : [ 3.1, 3.1, 3.1, 3.1 ]", lines[1]);
 }
 
-// i32 tests
+// i16 tests
 
-TEST_F(InputGeneratorTest, I32SuccessReturnCode) {
-    GeneratorConfig cfg{PatternType::Sequential, 3, 0, DataType::i32, 4};
+TEST_F(InputGeneratorTest, I16SuccessReturnCode) {
+    GeneratorConfig cfg{PatternType::Sequential, 3, 0, DataType::i16, 4};
     Ret ret = generate_input_file(path_, cfg);
     EXPECT_EQ(0, ret.code());
 }
 
-TEST_F(InputGeneratorTest, HeaderLineI32) {
-    GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::i32, 4};
+TEST_F(InputGeneratorTest, HeaderLineI16) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::i16, 4};
     generate_input_file(path_, cfg);
     auto lines = read_lines();
     ASSERT_FALSE(lines.empty());
-    EXPECT_EQ("i32,4", lines[0]);
+    EXPECT_EQ("i16,4", lines[0]);
 }
 
-TEST_F(InputGeneratorTest, I32ValueIsId) {
-    GeneratorConfig cfg{PatternType::Sequential, 1, 9, DataType::i32, 4};
+TEST_F(InputGeneratorTest, I16ValueIsId) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 9, DataType::i16, 4};
     generate_input_file(path_, cfg);
     auto lines = read_lines();
     ASSERT_EQ(2u, lines.size());
     EXPECT_EQ("9 : [ 9, 9, 9, 9 ]", lines[1]);
 }
 
-TEST_F(InputGeneratorTest, I32WritesExactlyDimValuesPerVector) {
+TEST_F(InputGeneratorTest, I16WritesExactlyDimValuesPerVector) {
     const size_t dim = 4;
-    GeneratorConfig cfg{PatternType::Sequential, 1, 5, DataType::i32, dim};
+    GeneratorConfig cfg{PatternType::Sequential, 1, 5, DataType::i16, dim};
     generate_input_file(path_, cfg);
     auto lines = read_lines();
     ASSERT_EQ(2u, lines.size());

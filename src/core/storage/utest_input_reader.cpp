@@ -83,11 +83,11 @@ TEST_F(InputReaderTest, TypeF16) {
     EXPECT_EQ(DataType::f16, r.type());
 }
 
-TEST_F(InputReaderTest, TypeI32) {
-    generate_input_file(path_, cfg(1, 0, DataType::i32, 4));
+TEST_F(InputReaderTest, TypeI16) {
+    generate_input_file(path_, cfg(1, 0, DataType::i16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
-    EXPECT_EQ(DataType::i32, r.type());
+    EXPECT_EQ(DataType::i16, r.type());
 }
 
 TEST_F(InputReaderTest, DimIsCorrect) {
@@ -137,11 +137,11 @@ TEST_F(InputReaderTest, SizeF16) {
     EXPECT_EQ(4u * 2u, r.size());
 }
 
-TEST_F(InputReaderTest, SizeI32) {
-    generate_input_file(path_, cfg(1, 0, DataType::i32, 4));
+TEST_F(InputReaderTest, SizeI16) {
+    generate_input_file(path_, cfg(1, 0, DataType::i16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
-    EXPECT_EQ(4u * sizeof(uint32_t), r.size());
+    EXPECT_EQ(4u * sizeof(uint16_t), r.size());
 }
 
 // --- data() ---
@@ -167,14 +167,14 @@ TEST_F(InputReaderTest, F32DataValuesAreIdPlusPointOne) {
     }
 }
 
-TEST_F(InputReaderTest, I32DataValuesAreId) {
+TEST_F(InputReaderTest, I16DataValuesAreId) {
     // generator writes id for each dimension
-    generate_input_file(path_, cfg(3, 5, DataType::i32, 4));
+    generate_input_file(path_, cfg(3, 5, DataType::i16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
     for (size_t i = 0; i < 3; ++i) {
-        const uint32_t* v = reinterpret_cast<const uint32_t*>(r.data(i));
-        uint32_t expected = static_cast<uint32_t>(5 + i);
+        const int16_t* v = reinterpret_cast<const int16_t*>(r.data(i));
+        int16_t expected = static_cast<int16_t>(5 + i);
         for (size_t d = 0; d < 4; ++d) {
             EXPECT_EQ(expected, v[d]) << "vector " << i << " dim " << d;
         }

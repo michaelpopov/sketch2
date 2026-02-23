@@ -52,7 +52,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
         uint64_t id= config.min_id + i;
         if (config.type == DataType::f32 || config.type == DataType::f16) {
             print_float_line(f, id, config.dim);
-        } else if (config.type == DataType::i32) {
+        } else if (config.type == DataType::i16) {
             print_int_line(f, id, config.dim);
         } else {
             return Ret("Unsupported data type");

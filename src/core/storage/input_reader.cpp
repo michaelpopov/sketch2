@@ -153,16 +153,16 @@ const uint8_t* InputReader::data(size_t index) const {
             p = next;
             while (p < end && (*p == ',' || *p == ' ')) ++p;
         }
-    } else if (type_ == DataType::i32) {
-        int32_t* out = reinterpret_cast<int32_t*>(buf_.data());
+    } else if (type_ == DataType::i16) {
+        int16_t* out = reinterpret_cast<int16_t*>(buf_.data());
         for (size_t d = 0; d < dim_; ++d) {
             if (p >= end) {
                 throw std::runtime_error("InputReader::data: truncated vector payload");
             }
             char* next;
-            out[d] = static_cast<int32_t>(strtoll(p, &next, 10));
+            out[d] = static_cast<int16_t>(strtol(p, &next, 10));
             if (next == p) {
-                throw std::runtime_error("InputReader::data: invalid i32 token");
+                throw std::runtime_error("InputReader::data: invalid i16 token");
             }
             p = next;
             while (p < end && (*p == ',' || *p == ' ')) ++p;

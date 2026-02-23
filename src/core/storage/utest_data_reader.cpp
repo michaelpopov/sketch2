@@ -37,7 +37,7 @@ protected:
     }
 
     // Write a minimal valid binary data file with raw vector bytes.
-    // type_field: 0=f32, 1=f16, 2=i32  (matches DataWriter encoding)
+    // type_field: 0=f16, 1=f32, 2=i16  (matches DataWriter encoding)
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs) {
         DataFileHeader hdr{};
@@ -149,11 +149,11 @@ TEST_F(DataReaderTest, TypeF16) {
     EXPECT_EQ(DataType::f16, r.type());
 }
 
-TEST_F(DataReaderTest, TypeI32) {
-    generate(1, 0, DataType::i32, 4);
+TEST_F(DataReaderTest, TypeI16) {
+    generate(1, 0, DataType::i16, 4);
     DataReader r;
     EXPECT_EQ(0, r.init(data_path_).code());
-    EXPECT_EQ(DataType::i32, r.type());
+    EXPECT_EQ(DataType::i16, r.type());
 }
 
 TEST_F(DataReaderTest, DimIsCorrect) {
@@ -187,11 +187,11 @@ TEST_F(DataReaderTest, SizeF16IsCorrect) {
     EXPECT_EQ(16u * 2u, r.size()); // 16 dims * 2 bytes
 }
 
-TEST_F(DataReaderTest, SizeI32IsCorrect) {
-    generate(1, 0, DataType::i32, 8);
+TEST_F(DataReaderTest, SizeI16IsCorrect) {
+    generate(1, 0, DataType::i16, 8);
     DataReader r;
     EXPECT_EQ(0, r.init(data_path_).code());
-    EXPECT_EQ(8u * 4u, r.size()); // 8 dims * 4 bytes
+    EXPECT_EQ(8u * 2u, r.size()); // 8 dims * 2 bytes
 }
 
 // --- at() ---
@@ -224,14 +224,14 @@ TEST_F(DataReaderTest, AtF32VectorDataIsCorrect) {
     }
 }
 
-TEST_F(DataReaderTest, AtI32VectorDataIsCorrect) {
+TEST_F(DataReaderTest, AtI16VectorDataIsCorrect) {
     const size_t count = 3, min_id = 5, dim = 4;
-    generate(count, min_id, DataType::i32, dim);
+    generate(count, min_id, DataType::i16, dim);
     DataReader r;
     EXPECT_EQ(0, r.init(data_path_).code());
     for (size_t i = 0; i < count; ++i) {
-        const int32_t* v = reinterpret_cast<const int32_t*>(r.at(i));
-        int32_t expected = static_cast<int32_t>(min_id + i);
+        const int16_t* v = reinterpret_cast<const int16_t*>(r.at(i));
+        int16_t expected = static_cast<int16_t>(min_id + i);
         for (size_t d = 0; d < dim; ++d)
             EXPECT_EQ(expected, v[d]) << "vector " << i << " dim " << d;
     }

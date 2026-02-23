@@ -44,9 +44,9 @@ protected:
         return buf;
     }
 
-    std::vector<uint8_t> i32_vec(int32_t val, size_t dim) {
-        std::vector<uint8_t> buf(dim * sizeof(int32_t));
-        auto* p = reinterpret_cast<int32_t*>(buf.data());
+    std::vector<uint8_t> i16_vec(int16_t val, size_t dim) {
+        std::vector<uint8_t> buf(dim * sizeof(int16_t));
+        auto* p = reinterpret_cast<int16_t*>(buf.data());
         for (size_t i = 0; i < dim; ++i) p[i] = val;
         return buf;
     }
@@ -226,39 +226,39 @@ TEST_F(ScannerTest, FindF32NonZeroMinId) {
     EXPECT_EQ(12u, result[0]);
 }
 
-// --- i32 correctness ---
+// --- i16 correctness ---
 //
-// Sequential i32: vector id=N has all elements = N.
+// Sequential i16: vector id=N has all elements = N.
 // Query [0, 0, 0, 0] over ids [0, 1, 2], dim=4:
 //   dist(0) = 0, dist(1) = 4, dist(2) = 8
 // Expected ascending order: [0, 1, 2].
 
-TEST_F(ScannerTest, FindI32K1ReturnsNearest) {
-    generate(3, 0, DataType::i32, 4);
+TEST_F(ScannerTest, FindI16K1ReturnsNearest) {
+    generate(3, 0, DataType::i16, 4);
     Scanner s;
     s.init(data_path_);
-    auto q = i32_vec(0, 4);
+    auto q = i16_vec(0, 4);
     auto result = s.find(DistFunc::L1, 1, q.data());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(0u, result[0]);
 }
 
-TEST_F(ScannerTest, FindI32K2ReturnsCorrectOrder) {
-    generate(3, 0, DataType::i32, 4);
+TEST_F(ScannerTest, FindI16K2ReturnsCorrectOrder) {
+    generate(3, 0, DataType::i16, 4);
     Scanner s;
     s.init(data_path_);
-    auto q = i32_vec(0, 4);
+    auto q = i16_vec(0, 4);
     auto result = s.find(DistFunc::L1, 2, q.data());
     ASSERT_EQ(2u, result.size());
     EXPECT_EQ(0u, result[0]);
     EXPECT_EQ(1u, result[1]);
 }
 
-TEST_F(ScannerTest, FindI32AllSortedByDistance) {
-    generate(3, 0, DataType::i32, 4);
+TEST_F(ScannerTest, FindI16AllSortedByDistance) {
+    generate(3, 0, DataType::i16, 4);
     Scanner s;
     s.init(data_path_);
-    auto q = i32_vec(0, 4);
+    auto q = i16_vec(0, 4);
     auto result = s.find(DistFunc::L1, 3, q.data());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(0u, result[0]);
