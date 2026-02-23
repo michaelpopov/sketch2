@@ -11,9 +11,14 @@ project(sketch2 LANGUAGES CXX)
 # Support for f16
 #----------------------------
 add_library(sketch_compile_options INTERFACE)
+option(SKETCH_ENABLE_AVX2 "Enable AVX2 optimizations on x86_64" ON)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   target_compile_options(sketch_compile_options INTERFACE -march=armv8.2-a+fp16)
+endif()
+
+if(SKETCH_ENABLE_AVX2 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+  target_compile_options(sketch_compile_options INTERFACE -mavx2)
 endif()
 
 # ---------------------------

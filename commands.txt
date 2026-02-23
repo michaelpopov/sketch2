@@ -36,3 +36,9 @@ cmake --build build-dbg --target utest_stor && ./bin-dbg/utest_stor
 # Discover targets (handy trick)
 # ---------
 cmake --build build-dbg --target help
+
+
+cmake -S . -B build-noavx2 -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_AVX2=OFF
+cmake --build build-noavx2 -j
+Use separate build dirs per machine/config, e.g. build-oldcpu, build-avx2, build-aarch64.
+
