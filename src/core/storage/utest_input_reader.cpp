@@ -25,7 +25,7 @@ protected:
     }
 
     GeneratorConfig cfg(size_t count, size_t min_id, DataType type, size_t dim) {
-        return {PatternType::Sequential, count, min_id, type, dim};
+        return {PatternType::Sequential, count, min_id, type, dim, 1000};
     }
 };
 

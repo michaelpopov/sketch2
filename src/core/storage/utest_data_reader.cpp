@@ -29,7 +29,7 @@ protected:
     }
 
     void generate(size_t count, size_t min_id, DataType type, size_t dim) {
-        GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim};
+        GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000};
         generate_input_file(input_path_, cfg);
         DataWriter w;
         w.init(input_path_, data_path_);
