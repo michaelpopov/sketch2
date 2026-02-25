@@ -52,7 +52,7 @@ inline double ComputeL1::dist_f16(const uint8_t* a, const uint8_t* b, size_t dim
     const float16* vb = reinterpret_cast<const float16*>(b);
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
-        sum += std::abs(va[i] - vb[i]);
+        sum += std::abs(static_cast<double>(va[i]) - static_cast<double>(vb[i]));
     }
     return sum;
 }

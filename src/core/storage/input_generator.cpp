@@ -64,7 +64,8 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
             float value = static_cast<float>(id) + 0.1;
             print_float_line(f, id, &value, config.dim, false);
         } else if (config.type == DataType::f16) {
-            float16 value = static_cast<float16>(id) + 0.1;
+            constexpr float16 increment = static_cast<float16>(0.1);
+            float16 value = static_cast<float16>(id) + increment;
             print_float_line(f, id, &value, config.dim, false);
         } else if (config.type == DataType::i16) {
             int16_t value = static_cast<int16_t>(id);
@@ -94,7 +95,7 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
             v.next();
         }
     } else if (config.type == DataType::f16) {
-        InputVector<float16> v(config.dim, static_cast<float>(config.max_val));
+        InputVector<float16> v(config.dim, static_cast<float16>(config.max_val));
         for (size_t i = 0; i < config.count; ++i) {
             uint64_t id= config.min_id + i;
             print_float_line(f, id, v.data(), config.dim, true);

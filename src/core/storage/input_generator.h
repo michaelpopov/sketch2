@@ -36,7 +36,8 @@ public:
             return;
         }
 
-        vec_[col_] += 0.01;
+        const T increment = static_cast<T>(0.01);
+        vec_[col_] += increment;
 
         if (vec_[col_] == max_val_) {
             col_++;
