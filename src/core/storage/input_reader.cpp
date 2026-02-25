@@ -187,12 +187,6 @@ const uint8_t* InputReader::data(size_t index) const {
     return buf_.data();
 }
 
-/*
-Instructions:
-If the line for the given index contains only no characters or whitespace between [], return true.
-Otherwise return false.
-Add check of index bounds. Throw exception if index is out of bounds.
-*/
 bool InputReader::is_no_data(size_t index) const {
     if (index >= lines_.size()) {
         throw std::out_of_range("InputReader::is_no_data: index out of range");
@@ -206,6 +200,73 @@ bool InputReader::is_no_data(size_t index) const {
         ++p;
     }
     return true;
+}
+
+InputReaderView::InputReaderView(const InputReader& reader, uint64_t start, uint64_t end)
+    : reader_(reader), view_index_(0), count_(0) {
+
+    if (start > end) {
+        throw std::invalid_argument("InputReaderView: start must be <= end");
+    }
+
+    if (start == 0 && end == 0) {
+        // special case: view the whole reader
+        view_index_ = 0;
+        count_ = reader_.count();
+        return;
+    }
+
+    bool once = true;
+    for (size_t i = 0; i < reader_.count(); ++i) {
+        uint64_t id = reader_.id(i);
+        if (id >= end) {
+            break; // ids are sorted, we can stop here
+        }
+        if (id >= start) {
+            if (once) {
+                view_index_ = i;
+                once = false;
+            }
+            ++count_;
+        }
+    }
+}
+
+size_t InputReaderView::count() const {
+    return static_cast<size_t>(count_);
+}
+
+DataType InputReaderView::type() const {
+    return reader_.type();
+}
+
+size_t InputReaderView::dim() const {
+    return reader_.dim();
+}
+
+size_t InputReaderView::size() const {
+    return reader_.size();
+}
+
+uint64_t InputReaderView::id(size_t index) const {
+    if (index >= count_) {
+        throw std::out_of_range("InputReaderView::id: index out of range");
+    }
+    return reader_.id(view_index_ + index);
+}
+
+const uint8_t* InputReaderView::data(size_t index) const {
+    if (index >= count_) {
+        throw std::out_of_range("InputReaderView::data: index out of range");
+    }
+    return reader_.data(view_index_ + index);
+}
+
+bool InputReaderView::is_no_data(size_t index) const {
+    if (index >= count_) {
+        throw std::out_of_range("InputReaderView::is_no_data: index out of range");
+    }
+    return reader_.is_no_data(view_index_ + index);
 }
 
 } // namespace sketch2

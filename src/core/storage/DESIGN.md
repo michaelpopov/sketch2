@@ -142,3 +142,24 @@ Interface:
         count a requested number of ids in a returned array
         vector u8* a query vector
 
+
+StorageController
+-----------------------
+This class controls access to files. It contains meta data about files locations.
+Metadata:
+  - set of directories where data files are located
+  - range of ids per data file
+StorageController is initialized either manually by setting metadata parameters or it can
+load the values from config.ini file, which is formatted as ini file.
+
+StorageController implements 
+  - init(path), where path is a path of ini file
+  - init(const vector<string>& paths, uint64_t size), where paths are directories for data files
+       and size defines a range of ids per data file, for example size=1000 item with id=1 goes to file 0
+       and item with id 2100 goes to file 2.
+  - load(path), where path is a path of input data file
+       check the ids in the input of the file
+       create data file for each range of ids
+       each data file goes to its directory, which is defined by (file_id % number_of_dirs)
+       for each data file create DataWriter and write the file with data from the input file
+       each DataWriter writes only the items that belong to its range

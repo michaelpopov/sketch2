@@ -37,4 +37,22 @@ private:
     Ret init_(const std::string &path);
 };
 
+class InputReaderView {
+public:
+    InputReaderView(const InputReader& reader, uint64_t start, uint64_t end);
+
+    size_t   count() const;
+    DataType type()  const;
+    size_t   dim()   const;
+    size_t   size()  const; // sizeof(type) * dim
+
+    uint64_t id(size_t index) const;
+    const uint8_t* data(size_t index) const;
+    bool is_no_data(size_t index) const;
+private:
+    const InputReader& reader_;
+    size_t view_index_;
+    uint64_t count_;
+};
+
 } // namespace sketch2

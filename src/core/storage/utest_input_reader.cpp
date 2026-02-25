@@ -248,3 +248,193 @@ TEST_F(InputReaderTest, F16DataWorks) {
     const uint16_t* v = reinterpret_cast<const uint16_t*>(r.data(0));
     EXPECT_NE(0, v[0]); // should contain parsed f16 value
 }
+
+// =============================================================================
+// InputReaderView tests
+// =============================================================================
+
+class InputReaderViewTest : public ::testing::Test {
+protected:
+    std::string path_;
+
+    void SetUp() override {
+        path_ = "/tmp/sketch2_utest_irv_" + std::to_string(getpid()) + ".txt";
+    }
+
+    void TearDown() override {
+        std::remove(path_.c_str());
+    }
+
+    void write_raw(const std::string& content) {
+        std::ofstream f(path_);
+        f << content;
+    }
+
+    GeneratorConfig cfg(size_t count, size_t min_id, DataType type, size_t dim) {
+        return {PatternType::Sequential, count, min_id, type, dim, 1000};
+    }
+};
+
+// --- whole-reader view (0, 0) ---
+
+TEST_F(InputReaderViewTest, WholeViewCount) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 0, 0);
+    EXPECT_EQ(5u, v.count());
+}
+
+TEST_F(InputReaderViewTest, WholeViewMetadata) {
+    generate_input_file(path_, cfg(3, 0, DataType::f32, 8));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 0, 0);
+    EXPECT_EQ(r.type(), v.type());
+    EXPECT_EQ(r.dim(),  v.dim());
+    EXPECT_EQ(r.size(), v.size());
+}
+
+TEST_F(InputReaderViewTest, WholeViewIds) {
+    generate_input_file(path_, cfg(4, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 0, 0);
+    for (size_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(r.id(i), v.id(i));
+    }
+}
+
+TEST_F(InputReaderViewTest, WholeViewData) {
+    generate_input_file(path_, cfg(3, 5, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 0, 0);
+    for (size_t i = 0; i < 3; ++i) {
+        const float* vd = reinterpret_cast<const float*>(v.data(i));
+        float expected = static_cast<float>(5 + i) + 0.1f;
+        for (size_t d = 0; d < 4; ++d) {
+            EXPECT_NEAR(expected, vd[d], 1e-4f) << "vector " << i << " dim " << d;
+        }
+    }
+}
+
+// --- partial range ---
+
+TEST_F(InputReaderViewTest, PartialViewCount) {
+    // reader has ids 10..14, view [11, 14) -> ids 11, 12, 13
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 11, 14);
+    EXPECT_EQ(3u, v.count());
+}
+
+TEST_F(InputReaderViewTest, PartialViewIds) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 11, 14);
+    EXPECT_EQ(11u, v.id(0));
+    EXPECT_EQ(12u, v.id(1));
+    EXPECT_EQ(13u, v.id(2));
+}
+
+TEST_F(InputReaderViewTest, PartialViewData) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 11, 14);
+    for (size_t i = 0; i < 3; ++i) {
+        const float* vd = reinterpret_cast<const float*>(v.data(i));
+        float expected = static_cast<float>(11 + i) + 0.1f;
+        for (size_t d = 0; d < 4; ++d) {
+            EXPECT_NEAR(expected, vd[d], 1e-4f) << "vector " << i << " dim " << d;
+        }
+    }
+}
+
+TEST_F(InputReaderViewTest, SingleEntryAtStart) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 10, 11);
+    ASSERT_EQ(1u, v.count());
+    EXPECT_EQ(10u, v.id(0));
+}
+
+TEST_F(InputReaderViewTest, SingleEntryAtEnd) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 14, 15);
+    ASSERT_EQ(1u, v.count());
+    EXPECT_EQ(14u, v.id(0));
+}
+
+TEST_F(InputReaderViewTest, EmptyRangeNoMatch) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 20, 30);
+    EXPECT_EQ(0u, v.count());
+}
+
+// --- invalid argument ---
+
+TEST_F(InputReaderViewTest, StartGreaterThanEndThrows) {
+    generate_input_file(path_, cfg(3, 0, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_THROW((InputReaderView{r, 10, 5}), std::invalid_argument);
+}
+
+// --- out of bounds ---
+
+TEST_F(InputReaderViewTest, IdOutOfBoundsThrows) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 11, 13); // 2 entries
+    EXPECT_THROW(v.id(2),   std::out_of_range);
+    EXPECT_THROW(v.id(100), std::out_of_range);
+}
+
+TEST_F(InputReaderViewTest, DataOutOfBoundsThrows) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 11, 13);
+    EXPECT_THROW(v.data(2),   std::out_of_range);
+    EXPECT_THROW(v.data(100), std::out_of_range);
+}
+
+TEST_F(InputReaderViewTest, IsNoDataOutOfBoundsThrows) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 11, 13);
+    EXPECT_THROW(v.is_no_data(2),   std::out_of_range);
+    EXPECT_THROW(v.is_no_data(100), std::out_of_range);
+}
+
+// --- is_no_data ---
+
+TEST_F(InputReaderViewTest, IsNoDataFalseForNormalVector) {
+    generate_input_file(path_, cfg(3, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 10, 13);
+    EXPECT_FALSE(v.is_no_data(0));
+    EXPECT_FALSE(v.is_no_data(1));
+    EXPECT_FALSE(v.is_no_data(2));
+}
+
+TEST_F(InputReaderViewTest, IsNoDataTrueForEmptyBrackets) {
+    write_raw("f32,4\n10 : [ 1.0, 1.0, 1.0, 1.0 ]\n11 : [  ]\n12 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 11, 12);
+    ASSERT_EQ(1u, v.count());
+    EXPECT_TRUE(v.is_no_data(0));
+}

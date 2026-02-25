@@ -10,17 +10,22 @@
 
 namespace sketch2 {
 
-Ret DataWriter::init(const std::string& input_path, const std::string& output_path) {
+Ret DataWriter::init(const std::string& input_path, const std::string& output_path,
+    uint64_t start, uint64_t end) {
+
     input_path_  = input_path;
     output_path_ = output_path;
+    start_ = start;
+    end_ = end;
     return Ret(0);
 }
 
 Ret DataWriter::exec() {
     // Create and init InputReader from input_path
-    InputReader reader;
-    CHECK(reader.init(input_path_));
+    InputReader source;
+    CHECK(source.init(input_path_));
 
+    InputReaderView reader(source, start_, end_);
     const size_t count = reader.count();
 
     // Collect ids
