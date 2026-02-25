@@ -26,6 +26,10 @@ Ret DataWriter::exec() {
     CHECK(source.init(input_path_));
 
     InputReaderView reader(source, start_, end_);
+    return load(reader, output_path_);
+}
+
+Ret DataWriter::load(const InputReaderView& reader, const std::string& output_path) {
     const size_t count = reader.count();
 
     // Collect ids
@@ -63,9 +67,9 @@ Ret DataWriter::exec() {
     ***************************************************/
 
     // Write output file
-    FILE *f = fopen(output_path_.c_str(), "wb");
+    FILE *f = fopen(output_path.c_str(), "wb");
     if (!f) {
-        return Ret("DataWriter: failed to open output file: " + output_path_);
+        return Ret("DataWriter: failed to open output file: " + output_path);
     }
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 

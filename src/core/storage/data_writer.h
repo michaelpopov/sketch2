@@ -4,11 +4,15 @@
 
 namespace sketch2 {
 
+class InputReaderView;
+
 class DataWriter {
 public:
     Ret init(const std::string& input_path, const std::string& output_path,
         uint64_t start=0, uint64_t end=0);
     Ret exec();
+
+    Ret load(const InputReaderView& reader, const std::string& output_path);
 
 private:
     std::string input_path_;
