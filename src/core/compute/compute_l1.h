@@ -7,6 +7,8 @@
 
 #if defined(__AVX2__)
 #include "compute_l1_avx2.h"
+#elif defined(__aarch64__)
+#include "compute_l1_neon.h"
 #endif
 
 namespace sketch2 {
@@ -28,6 +30,10 @@ inline double ComputeL1::dist(const uint8_t *a, const uint8_t *b, DataType type,
     case DataType::f32: return ComputeL1_AVX2::dist_f32(a, b, dim);
     case DataType::f16: return ComputeL1_AVX2::dist_f16(a, b, dim);
     case DataType::i16: return ComputeL1_AVX2::dist_i16(a, b, dim);
+#elif defined(__aarch64__)
+    case DataType::f32: return ComputeL1_Neon::dist_f32(a, b, dim);
+    case DataType::f16: return ComputeL1_Neon::dist_f16(a, b, dim);
+    case DataType::i16: return ComputeL1_Neon::dist_i16(a, b, dim);
 #else
     case DataType::f32: return dist_f32(a, b, dim);
     case DataType::f16: return dist_f16(a, b, dim);
