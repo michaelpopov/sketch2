@@ -19,6 +19,15 @@ public:
 private:
     std::vector<std::string> dirs_;
     uint64_t range_size_ = 0;
+
+    Ret load_(const std::string& input_path);
+    bool valid_data_file(const std::string& output_path);
+    bool check_data_file_merge(const std::string& data_path, const std::string& output_path);
+    Ret  merge_data_file(const std::string& data_path, const std::string& output_path);
+    Ret  merge_delta_file(const std::string& delta_path, const std::string& output_path);
+    bool check_data_delta_merge(const std::string& data_path, const std::string& delta_path);
+    Ret  merge_data_delta_file(const std::string& data_path, const std::string& delta_path);
+    bool check_merge(const std::string& source_path, const std::string& update_path, uint64_t ratio);
 };
 
 } // namespace sketch2

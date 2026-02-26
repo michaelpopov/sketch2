@@ -42,9 +42,9 @@ public:
     size_t   count() const; // number of vectors
 
     Iterator       begin() const;
+    uint64_t       id(size_t index) const;
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     const uint8_t* at(size_t index) const;   // lookup by position
-
     size_t deleted_count() const { return hdr_->deleted_count; }
     uint64_t deleted_id(size_t index) const;
 

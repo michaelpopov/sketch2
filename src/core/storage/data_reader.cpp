@@ -162,6 +162,13 @@ DataReader::Iterator DataReader::begin() const {
     return Iterator(this, index, ids_);
 }
 
+uint64_t DataReader::id(size_t index) const {
+    if (index >= count()) {
+        throw std::out_of_range("DataReader::id: index out of range");
+    }
+    return ids_[index];
+}
+
 const uint8_t* DataReader::at(size_t index) const {
     if (index >= count()) {
         throw std::out_of_range("DataReader::at: index out of range");
