@@ -32,7 +32,7 @@ public:
         if (col_ >= vec_.size()) {
             col_ = 0;
             for (size_t i = 0; i < vec_.size(); i++) {
-                vec_[col_] = static_cast<T>(0);
+                vec_[i] = static_cast<T>(0);
             }
             return;
         }
@@ -40,7 +40,7 @@ public:
         const T increment = static_cast<T>(0.01);
         vec_[col_] += increment;
 
-        if (vec_[col_] == max_val_) {
+        if (vec_[col_] >= max_val_) {
             col_++;
         }
     }

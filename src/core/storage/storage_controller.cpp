@@ -4,7 +4,7 @@
 #include "core/storage/data_writer.h"
 #include "core/storage/input_reader.h"
 #include <cassert>
-#include "filesystem"
+#include <filesystem>
 #include <experimental/scope>
 
 namespace sketch2 {
@@ -94,7 +94,9 @@ Ret StorageController::load_and_merge(const InputReader& reader, uint64_t file_i
     // Just "promote" the temp file to become a data file.
     const std::string data_path = output_path_base + kDataExt;
     if (!std::filesystem::exists(data_path)) {
-        assert(output_reader.deleted_count() == 0);
+        if (output_reader.deleted_count() != 0) {
+            return Ret("StorageController::load_and_merge: invalide deleted items");
+        }
         std::filesystem::rename(output_path, data_path);
         return Ret(0);
     }
@@ -161,11 +163,13 @@ Ret StorageController::merge_data_file(const DataReader& data_reader, const Data
     const std::string merge_path = output_path_base + kMergeExt;
     CHECK(processor.merge_data_file(data_reader, output_reader, merge_path));
 
+    const std::string source_path = output_path_base + ext;
+    if (std::filesystem::exists(source_path)) {
+        std::filesystem::remove(source_path);
+    }
+
     const std::string data_path = output_path_base + kDataExt;
     std::filesystem::rename(merge_path, data_path);
-
-    const std::string source_path = output_path_base + ext;
-    std::filesystem::remove(source_path);
 
     return Ret(0);
 }
@@ -175,11 +179,13 @@ Ret  StorageController::merge_delta_file(const DataReader& delta_reader, const D
     const std::string merge_path = output_path_base + kMergeExt;
     CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path));
 
+    const std::string source_path = output_path_base + kTempExt;
+    if (std::filesystem::exists(source_path)) {
+        std::filesystem::remove(source_path);
+    }
+    
     const std::string delta_path = output_path_base + kDeltaExt;
     std::filesystem::rename(merge_path, delta_path);
-    
-    const std::string source_path = output_path_base + kTempExt;
-    std::filesystem::remove(source_path);
     
     return Ret(0);
 }

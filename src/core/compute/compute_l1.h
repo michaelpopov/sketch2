@@ -1,5 +1,6 @@
 #pragma once
 #include "core/compute/compute.h"
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -40,7 +41,7 @@ inline double ComputeL1::dist(const uint8_t *a, const uint8_t *b, DataType type,
     case DataType::f16: return dist_f16(a, b, dim);
     case DataType::i16: return dist_i16(a, b, dim);
 #endif
-    default:            return 0.0;
+    default:            assert(false); return 0.0;
     }
 }
 

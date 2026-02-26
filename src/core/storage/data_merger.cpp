@@ -131,7 +131,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
 
     hdr.min_id = ids.front();
     hdr.max_id = ids.back();
-    hdr.count  = ids.size();
+    hdr.count  = static_cast<uint32_t>(ids.size());
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret("DataMerger::merge_data_files: failed to write header");
     }
@@ -294,7 +294,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
             return Ret("DataMerger::merge_delta_file: failed to write deletes_array to merge file");
         }
 
-        hdr.deleted_count = deletes.size();
+        hdr.deleted_count = static_cast<uint32_t>(deletes_array.size());
     }
 
     // Overwrite header with updated values.
@@ -304,7 +304,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
 
     hdr.min_id = ids.empty() ? 0 : ids.front();
     hdr.max_id = ids.empty() ? 0 : ids.back();
-    hdr.count  = ids.size();
+    hdr.count  = static_cast<uint32_t>(ids.size());
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret("DataMerger::merge_delta_file: failed to write header");
     }

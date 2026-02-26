@@ -114,20 +114,6 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
     const size_t vectors_bytes = count * size_;
     const size_t ids_bytes = (deleted_count + count) * sizeof(uint64_t);
     if (map_len_ != sizeof(DataFileHeader) + vectors_bytes + ids_bytes) {
-        /********************************************************
-        std::cout << "\n\n\n";
-        std::cout << "hdr_->type=" << hdr_->type << "\n";
-        std::cout << "elem_size=" << elem_size << "\n";
-        std::cout << "dim=" << dim << "\n";
-        std::cout << "size_=" << size_ << "\n";
-        std::cout << "count=" << count << "\n";
-        std::cout << "\n";
-        std::cout << "map_len_=" << map_len_ << "\n";
-        std::cout << "sizeof(DataFileHeader)=" << sizeof(DataFileHeader) << "\n";
-        std::cout << "vectors_bytes=" << vectors_bytes << "\n";
-        std::cout << "ids_bytes=" << ids_bytes << "\n";
-        std::cout << "\n\n\n";
-        *********************************************************/
         return fail("DataReader: truncated or malformed data file");
     }
 

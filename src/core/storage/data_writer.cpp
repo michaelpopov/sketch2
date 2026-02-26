@@ -80,16 +80,6 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     hdr.dim           = static_cast<uint16_t>(reader.dim());
     hdr.padding       = 0;
 
-    /**************************************************
-    std::cout << "\n\n\n";
-    std::cout << "min_id=" << hdr.min_id << "\n";
-    std::cout << "max_id=" << hdr.max_id << "\n";
-    std::cout << "count= " << hdr.count << "\n";
-    std::cout << "type=  " << hdr.type << "\n";
-    std::cout << "dim=   " << hdr.dim << "\n";
-    std::cout << "\n\n\n";
-    ***************************************************/
-
     // Write output file
     FILE *f = fopen(output_path.c_str(), "wb");
     if (!f) {
