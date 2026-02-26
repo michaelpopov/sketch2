@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cstdint>
+#include <fstream>
 #include <unistd.h>
 #include <vector>
 #include "core/storage/data_file.h"
@@ -30,9 +31,18 @@ protected:
     }
 
     // Generate input and run DataWriter::exec(), return the Ret from exec()
-    Ret run(size_t count, size_t min_id, DataType type, size_t dim) {
-        GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000};
+    Ret run(size_t count, size_t min_id, DataType type, size_t dim, size_t every_n_deleted = 0) {
+        GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, every_n_deleted};
         generate_input_file(input_path_, cfg);
+        DataWriter w;
+        w.init(input_path_, output_path_);
+        return w.exec();
+    }
+
+    Ret run_raw_input(const std::string& content) {
+        std::ofstream f(input_path_);
+        f << content;
+        f.close();
         DataWriter w;
         w.init(input_path_, output_path_);
         return w.exec();
@@ -54,6 +64,20 @@ protected:
         if (f) {
             fseek(f, static_cast<long>(sizeof(DataFileHeader) + count * vec_size), SEEK_SET);
             fread(ids.data(), sizeof(uint64_t), count, f);
+            fclose(f);
+        }
+        return ids;
+    }
+
+    std::vector<uint64_t> read_deleted_ids(size_t count, size_t deleted_count, size_t vec_size) {
+        std::vector<uint64_t> ids(deleted_count);
+        FILE* f = fopen(output_path_.c_str(), "rb");
+        if (f) {
+            const size_t offset = sizeof(DataFileHeader) +
+                                  count * vec_size +
+                                  count * sizeof(uint64_t);
+            fseek(f, static_cast<long>(offset), SEEK_SET);
+            fread(ids.data(), sizeof(uint64_t), deleted_count, f);
             fclose(f);
         }
         return ids;
@@ -184,4 +208,47 @@ TEST_F(DataWriterTest, F32VectorDataIsCorrect) {
                 << "vector " << i << " dim " << d;
         }
     }
+}
+
+TEST_F(DataWriterTest, HeaderDeletedCountAndActiveCountAreCorrect) {
+    ASSERT_EQ(0, run(6, 0, DataType::f32, 4, 2).code()); // deleted ids: 2,4
+    const auto hdr = read_header();
+    EXPECT_EQ(4u, hdr.count);
+    EXPECT_EQ(2u, hdr.deleted_count);
+    EXPECT_EQ(0u, hdr.min_id);
+    EXPECT_EQ(5u, hdr.max_id);
+}
+
+TEST_F(DataWriterTest, DeletedIdsSectionIsWritten) {
+    ASSERT_EQ(0, run(6, 0, DataType::f32, 4, 2).code());
+    const auto hdr = read_header();
+    ASSERT_EQ(4u, hdr.count);
+    ASSERT_EQ(2u, hdr.deleted_count);
+
+    const size_t vec_size = 4 * sizeof(float);
+    auto ids = read_ids(hdr.count, vec_size);
+    auto deleted_ids = read_deleted_ids(hdr.count, hdr.deleted_count, vec_size);
+
+    ASSERT_EQ(4u, ids.size());
+    ASSERT_EQ(2u, deleted_ids.size());
+    EXPECT_EQ(0u, ids[0]);
+    EXPECT_EQ(1u, ids[1]);
+    EXPECT_EQ(3u, ids[2]);
+    EXPECT_EQ(5u, ids[3]);
+    EXPECT_EQ(2u, deleted_ids[0]);
+    EXPECT_EQ(4u, deleted_ids[1]);
+}
+
+TEST_F(DataWriterTest, AllDeletedInputProducesZeroActiveRangeAndCount) {
+    const std::string content =
+        "f32,4\n"
+        "100 : []\n"
+        "101 : []\n"
+        "102 : []\n";
+    ASSERT_EQ(0, run_raw_input(content).code());
+    const auto hdr = read_header();
+    EXPECT_EQ(0u, hdr.count);
+    EXPECT_EQ(3u, hdr.deleted_count);
+    EXPECT_EQ(0u, hdr.min_id);
+    EXPECT_EQ(0u, hdr.max_id);
 }

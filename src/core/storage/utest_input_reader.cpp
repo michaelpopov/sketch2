@@ -58,6 +58,12 @@ TEST_F(InputReaderTest, FailsOnUnknownType) {
     EXPECT_NE(0, ret.code());
 }
 
+TEST_F(InputReaderTest, FailsOnUnsortedIds) {
+    write_raw("f32,4\n10 : [ 1.0, 1.0, 1.0, 1.0 ]\n9 : [ 2.0, 2.0, 2.0, 2.0 ]\n");
+    InputReader r;
+    EXPECT_NE(0, r.init(path_).code());
+}
+
 // --- init success + metadata ---
 
 TEST_F(InputReaderTest, SuccessReturnCode) {
@@ -229,7 +235,7 @@ TEST_F(InputReaderTest, IsNoDataReturnsFalseForNormalVector) {
 
 TEST_F(InputReaderTest, IsNoDataReturnsTrueForEmptyBrackets) {
     // Write a line with empty brackets: "5 : [  ]\n"
-    write_raw("f32,4\n5 : [  ]\n");
+    write_raw("f32,4\n5 : []\n");
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
     ASSERT_EQ(1u, r.count());
@@ -247,6 +253,45 @@ TEST_F(InputReaderTest, F16DataWorks) {
     EXPECT_NO_THROW(r.data(0));
     const uint16_t* v = reinterpret_cast<const uint16_t*>(r.data(0));
     EXPECT_NE(0, v[0]); // should contain parsed f16 value
+}
+
+// --- is_range_present() ---
+
+TEST_F(InputReaderTest, IsRangePresentReturnsTrueForOverlap) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4)); // ids: 10..14
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_TRUE(r.is_range_present(11, 13));
+}
+
+TEST_F(InputReaderTest, IsRangePresentReturnsFalseForRangeBeforeAllIds) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_FALSE(r.is_range_present(0, 10));
+}
+
+TEST_F(InputReaderTest, IsRangePresentReturnsFalseForRangeAfterAllIds) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_FALSE(r.is_range_present(15, 20));
+}
+
+TEST_F(InputReaderTest, IsRangePresentTreatsEndAsExclusive) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_FALSE(r.is_range_present(0, 10));
+    EXPECT_TRUE(r.is_range_present(14, 15));
+}
+
+TEST_F(InputReaderTest, IsRangePresentReturnsFalseForEmptyOrInvalidRange) {
+    generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_FALSE(r.is_range_present(12, 12));
+    EXPECT_FALSE(r.is_range_present(13, 12));
 }
 
 // =============================================================================
@@ -431,7 +476,7 @@ TEST_F(InputReaderViewTest, IsNoDataFalseForNormalVector) {
 }
 
 TEST_F(InputReaderViewTest, IsNoDataTrueForEmptyBrackets) {
-    write_raw("f32,4\n10 : [ 1.0, 1.0, 1.0, 1.0 ]\n11 : [  ]\n12 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    write_raw("f32,4\n10 : [ 1.0, 1.0, 1.0, 1.0 ]\n11 : []\n12 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
     InputReader r;
     ASSERT_EQ(0, r.init(path_).code());
     InputReaderView v(r, 11, 12);

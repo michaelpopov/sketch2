@@ -108,9 +108,10 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
     const size_t dim = static_cast<size_t>(hdr_->dim);
     size_ = dim * elem_size;
     const size_t count = static_cast<size_t>(hdr_->count);
+    const size_t deleted_count = static_cast<size_t>(hdr_->deleted_count);
 
     const size_t vectors_bytes = count * size_;
-    const size_t ids_bytes = count * sizeof(uint64_t);
+    const size_t ids_bytes = (deleted_count + count) * sizeof(uint64_t);
     if (map_len_ != sizeof(DataFileHeader) + vectors_bytes + ids_bytes) {
         /********************************************************
         std::cout << "\n\n\n";
@@ -130,6 +131,7 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
     }
 
     ids_ = reinterpret_cast<const uint64_t*>(map_ + sizeof(DataFileHeader) + vectors_bytes);
+    deleted_ids_ = ids_ + count;
     mode_   = mode;
     bitset_ = bitset;
 
@@ -191,6 +193,13 @@ bool DataReader::is_deleted(size_t index) const {
     const uint8_t* ptr;
     memcpy(&ptr, vec, sizeof(ptr));
     return ptr == nullptr;
+}
+
+uint64_t DataReader::deleted_id(size_t index) const {
+    if (index >= deleted_count()) {
+        throw std::out_of_range("DataReader::deleted_id: index out of range");
+    }
+    return deleted_ids_[index];
 }
 
 } // namespace sketch2

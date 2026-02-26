@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <cstdlib>
+#include <algorithm>
 #include <stdexcept>
 
 namespace sketch2 {
@@ -77,11 +78,23 @@ Ret InputReader::init_(const std::string& path) {
     while (line < end && *line != '\n') ++line;
     if (line < end) ++line;
 
+    uint64_t prev_id = 0;
+    bool once = true;
+
     // Parse each vector line: "{id} : [ {data...} ]\n"
     while (line < end) {
         char* id_end;
         uint64_t id = strtoull(line, &id_end, 10);
         if (id_end == line) break; // blank or trailing content
+
+        if (once) {
+            once = false;
+        } else {
+            if (prev_id >= id) {
+                return Ret("Invalid order of ids");
+            }
+        }
+        prev_id = id;
 
         const char* bracket = static_cast<const char*>(
             memchr(id_end, '[', static_cast<size_t>(end - id_end)));
@@ -126,12 +139,6 @@ uint64_t InputReader::id(size_t index) const {
     return lines_[index].id;
 }
 
-/*
-Instructions:
-Given an index, get a pointer to the text of vector data for that index.
-Parse the vector data into binary format and store it in buf_ based on the data type and dimension,
-then return a pointer to the parsed data in buf_.
-*/
 const uint8_t* InputReader::data(size_t index) const {
     if (index >= lines_.size()) {
         throw std::out_of_range("InputReader::data: index out of range");
@@ -191,16 +198,32 @@ bool InputReader::is_no_data(size_t index) const {
     if (index >= lines_.size()) {
         throw std::out_of_range("InputReader::is_no_data: index out of range");
     }
-    const char* p   = reinterpret_cast<const char*>(map_) + lines_[index].offset;
-    const char* end = reinterpret_cast<const char*>(map_) + map_len_;
-    while (p < end && *p != ']' && *p != '\n') {
-        if (*p != ' ' && *p != '\t') {
-            return false;
-        }
-        ++p;
-    }
-    return true;
+    const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
+    return *p == ']';
 }
+
+// Instructions:
+// Return true if there is an overlap between range and ids, assuming ids are sorted.
+bool InputReader::is_range_present(uint64_t start_range, uint64_t end_range) const {
+    if (start_range >= end_range || lines_.empty()) {
+        return false;
+    }
+
+    const uint64_t min_id = lines_.front().id;
+    const uint64_t max_id = lines_.back().id;
+    if (end_range <= min_id || start_range > max_id) {
+        return false;
+    }
+
+    auto it = std::lower_bound(
+        lines_.begin(), lines_.end(), start_range,
+        [](const LineInfo& line, uint64_t value) { return line.id < value; });
+    return it != lines_.end() && it->id < end_range;
+}
+
+/***********************************************
+ *   InputReaderView
+ */
 
 InputReaderView::InputReaderView(const InputReader& reader, uint64_t start, uint64_t end)
     : reader_(reader), view_index_(0), count_(0) {

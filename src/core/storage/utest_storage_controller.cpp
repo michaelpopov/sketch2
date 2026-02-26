@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <unistd.h>
 #include "core/storage/input_generator.h"
 #include "core/storage/storage_controller.h"
@@ -190,4 +191,22 @@ TEST_F(StorageControllerTest, LoadMultipleRangesCorrectCounts) {
     ASSERT_EQ(0, dr1.init(dir + "/1.data").code());
     EXPECT_EQ(5u,  dr0.count());
     EXPECT_EQ(10u, dr1.count());
+}
+
+TEST_F(StorageControllerTest, LoadSkipsMissingMiddleRanges) {
+    auto dir = make_dir("d");
+    {
+        std::ofstream f(input_path_);
+        f << "f32,4\n";
+        f << "0 : [ 0.10, 0.10, 0.10, 0.10 ]\n";
+        f << "20 : [ 20.10, 20.10, 20.10, 20.10 ]\n";
+    }
+
+    StorageController sc;
+    ASSERT_EQ(0, sc.init({dir}, 10).code());
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(dir + "/0.data"));
+    EXPECT_FALSE(fs::exists(dir + "/1.data"));
+    EXPECT_TRUE(fs::exists(dir + "/2.data"));
 }

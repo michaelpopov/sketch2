@@ -49,6 +49,10 @@ static inline void print_int_line(FILE* f, uint64_t id, const int16_t* value, si
     fprintf(f, " ]\n");
 }
 
+static inline void print_deleted_line(FILE* f, uint64_t id) {
+    fprintf(f, "%lu : []\n", id);
+}
+
 static Ret generate_sequential_input_file(const std::string& path, const GeneratorConfig& config) {
     FILE* f = fopen(path.c_str(), "w");
     if (!f) {
@@ -60,6 +64,12 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
     
     for (size_t i = 0; i < config.count; ++i) {
         uint64_t id= config.min_id + i;
+
+        if (i > 0 && config.every_n_deleted > 0 && i % config.every_n_deleted == 0) {
+            print_deleted_line(f, id);
+            continue;
+        }
+
         if (config.type == DataType::f32) {
             float value = static_cast<float>(id) + 0.1;
             print_float_line(f, id, &value, config.dim, false);
@@ -91,22 +101,34 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
         InputVector<float> v(config.dim, static_cast<float>(config.max_val));
         for (size_t i = 0; i < config.count; ++i) {
             uint64_t id= config.min_id + i;
-            print_float_line(f, id, v.data(), config.dim, true);
-            v.next();
+            if (i > 0 && config.every_n_deleted > 0 && i % config.every_n_deleted == 0) {
+                print_deleted_line(f, id);
+            } else {
+                print_float_line(f, id, v.data(), config.dim, true);
+                v.next();
+            }
         }
     } else if (config.type == DataType::f16) {
         InputVector<float16> v(config.dim, static_cast<float16>(config.max_val));
         for (size_t i = 0; i < config.count; ++i) {
             uint64_t id= config.min_id + i;
-            print_float_line(f, id, v.data(), config.dim, true);
-            v.next();
+            if (i > 0 && config.every_n_deleted > 0 && i % config.every_n_deleted == 0) {
+                print_deleted_line(f, id);
+            } else {
+                print_float_line(f, id, v.data(), config.dim, true);
+                v.next();
+            }
         }
     } else if (config.type == DataType::i16) {
         InputVector<int16_t> v(config.dim, static_cast<int16_t>(config.max_val));
         for (size_t i = 0; i < config.count; ++i) {
             uint64_t id= config.min_id + i;
-            print_int_line(f, id, v.data(), config.dim, true);
-            v.next();
+            if (i > 0 && config.every_n_deleted > 0 && i % config.every_n_deleted == 0) {
+                print_deleted_line(f, id);
+            } else {
+                print_int_line(f, id, v.data(), config.dim, true);
+                v.next();
+            }
         }
     } else {
         throw std::runtime_error("generate_detailed_input_file: invalid data type");

@@ -28,8 +28,8 @@ protected:
         std::remove(data_path_.c_str());
     }
 
-    void generate(size_t count, size_t min_id, DataType type, size_t dim) {
-        GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000};
+    void generate(size_t count, size_t min_id, DataType type, size_t dim, size_t every_n_deleted = 0) {
+        GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, every_n_deleted};
         generate_input_file(input_path_, cfg);
         DataWriter w;
         w.init(input_path_, data_path_);
@@ -493,4 +493,35 @@ TEST_F(DataReaderTest, ReferenceModeIteratorSkipsNullPointerVectors) {
         seen_ids.push_back(it.id());
     ASSERT_EQ(1u, seen_ids.size());
     EXPECT_EQ(11u, seen_ids[0]);
+}
+
+// --- deleted-id section ---
+
+TEST_F(DataReaderTest, DeletedCountAndDeletedIdsAreReadable) {
+    generate(6, 0, DataType::f32, 4, 2); // deleted ids: 2,4
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_EQ(4u, r.count());
+    EXPECT_EQ(2u, r.deleted_count());
+    EXPECT_EQ(2u, r.deleted_id(0));
+    EXPECT_EQ(4u, r.deleted_id(1));
+}
+
+TEST_F(DataReaderTest, DeletedIdOutOfBoundsThrows) {
+    generate(6, 0, DataType::f32, 4, 2);
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_THROW(r.deleted_id(2), std::out_of_range);
+    EXPECT_THROW(r.deleted_id(100), std::out_of_range);
+}
+
+TEST_F(DataReaderTest, GetReturnsNullForIdsInDeletedSection) {
+    generate(6, 0, DataType::f32, 4, 2);
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_NE(nullptr, r.get(0));
+    EXPECT_EQ(nullptr, r.get(2));
+    EXPECT_NE(nullptr, r.get(3));
+    EXPECT_EQ(nullptr, r.get(4));
+    EXPECT_NE(nullptr, r.get(5));
 }

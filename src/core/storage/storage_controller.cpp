@@ -41,6 +41,10 @@ Ret StorageController::load(const std::string& input_path) {
         uint64_t range_start = file_id * range_size_;
         uint64_t range_end   = range_start + range_size_;
 
+        if (!reader.is_range_present(range_start, range_end)) {
+            continue;
+        }
+
         const std::string& dir = dirs_[static_cast<size_t>(file_id % dirs_.size())];
         std::string output_path = dir + "/" + std::to_string(file_id) + ".data";
 

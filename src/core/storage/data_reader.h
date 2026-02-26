@@ -39,17 +39,21 @@ public:
     DataType type()  const;
     size_t   dim()   const;
     size_t   size()  const; // size of one vector in bytes
-    size_t   count() const; // total number of vectors (including deleted)
+    size_t   count() const; // number of vectors
 
     Iterator       begin() const;
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     const uint8_t* at(size_t index) const;   // lookup by position
+
+    size_t deleted_count() const { return hdr_->deleted_count; }
+    uint64_t deleted_id(size_t index) const;
 
 private:
     const uint8_t*           map_     = nullptr;
     size_t                   map_len_ = 0;
     const DataFileHeader*    hdr_     = nullptr;
     const uint64_t*          ids_     = nullptr; // cached pointer to the ids section
+    const uint64_t*          deleted_ids_ = nullptr; // cached pointer to the deleted ids section
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
     ReaderMode               mode_    = ReaderMode::InPlace;

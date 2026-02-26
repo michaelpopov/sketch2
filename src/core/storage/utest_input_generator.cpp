@@ -248,6 +248,40 @@ TEST_F(InputGeneratorTest, DetailedI16WritesExactlyDimValuesPerVector) {
     EXPECT_EQ(dim - 1, count);
 }
 
+// --- deleted-item generation ---
+
+TEST_F(InputGeneratorTest, SequentialEveryNDeletedWritesEmptyBrackets) {
+    GeneratorConfig cfg{PatternType::Sequential, 6, 0, DataType::f32, 4, 1000, 2};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+    auto lines = read_lines();
+    ASSERT_EQ(7u, lines.size()); // header + 6 rows
+    EXPECT_EQ("2 : []", lines[3]);
+    EXPECT_EQ("4 : []", lines[5]);
+}
+
+TEST_F(InputGeneratorTest, SequentialEveryOneDoesNotDeleteFirstRow) {
+    GeneratorConfig cfg{PatternType::Sequential, 4, 10, DataType::f32, 4, 1000, 1};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+    auto lines = read_lines();
+    ASSERT_EQ(5u, lines.size());
+    EXPECT_NE(std::string::npos, lines[1].find("10 : [ "));
+    EXPECT_EQ("11 : []", lines[2]);
+    EXPECT_EQ("12 : []", lines[3]);
+    EXPECT_EQ("13 : []", lines[4]);
+}
+
+TEST_F(InputGeneratorTest, DetailedEveryNDeletedKeepsNonDeletedProgression) {
+    GeneratorConfig cfg{PatternType::Detailed, 5, 10, DataType::i16, 4, 1000, 2};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+    auto lines = read_lines();
+    ASSERT_EQ(6u, lines.size());
+    EXPECT_EQ("10 : [ 0, 0, 0, 0 ]", lines[1]);
+    EXPECT_EQ("11 : [ 1, 0, 0, 0 ]", lines[2]);
+    EXPECT_EQ("12 : []", lines[3]);
+    EXPECT_EQ("13 : [ 2, 0, 0, 0 ]", lines[4]);
+    EXPECT_EQ("14 : []", lines[5]);
+}
+
 // InputVector tests
 
 TEST(InputVectorTest, FloatInitializesWithZeros) {

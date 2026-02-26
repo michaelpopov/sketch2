@@ -26,6 +26,8 @@ public:
     const uint8_t* data(size_t index) const;
     bool is_no_data(size_t index) const;
 
+    bool is_range_present(uint64_t start_range, uint64_t end_range) const;
+
 private:
     const uint8_t*        map_     = nullptr;
     size_t                map_len_ = 0;
