@@ -7,7 +7,7 @@ static constexpr uint32_t kMagic   = 0x534B5632; // "SKV2"
 static constexpr uint16_t kVersion = 1;
 
 enum class FileType : uint16_t {
-    Data, Delta,
+    Data,
 };
 
 struct BaseFileHeader {

@@ -89,8 +89,8 @@ TEST_F(DataReaderTest, FailsOnWrongKind) {
     // kind is at offset 4 (after the 4-byte magic)
     FILE* f = fopen(data_path_.c_str(), "r+b");
     fseek(f, static_cast<long>(sizeof(uint32_t)), SEEK_SET);
-    uint16_t delta = static_cast<uint16_t>(FileType::Delta);
-    fwrite(&delta, sizeof(delta), 1, f);
+    uint16_t bad_kind = 0xFFFF;
+    fwrite(&bad_kind, sizeof(bad_kind), 1, f);
     fclose(f);
     DataReader r;
     EXPECT_NE(0, r.init(data_path_).code());

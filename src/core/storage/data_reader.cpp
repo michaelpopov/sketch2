@@ -92,6 +92,9 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
     {
         return fail("DataReader: invalid magic number");
     }
+    if (hdr_->kind != static_cast<uint16_t>(FileType::Data)) {
+        return fail("DataReader: not a data file");
+    }
     if (hdr_->version != kVersion) {
         return fail("DataReader: unsupported file version");
     }

@@ -35,6 +35,15 @@ protected:
     GeneratorConfig cfg(size_t count, size_t min_id, DataType type, size_t dim) {
         return {PatternType::Sequential, count, min_id, type, dim, 1000};
     }
+
+    std::string file_path(const std::string& dir, uint64_t file_id, const std::string& ext) {
+        return dir + "/" + std::to_string(file_id) + ext;
+    }
+
+    void write_input(const std::string& content) {
+        std::ofstream f(input_path_);
+        f << content;
+    }
 };
 
 // --- init error cases ---
@@ -209,4 +218,157 @@ TEST_F(StorageControllerTest, LoadSkipsMissingMiddleRanges) {
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
     EXPECT_FALSE(fs::exists(dir + "/1.data"));
     EXPECT_TRUE(fs::exists(dir + "/2.data"));
+}
+
+// --- merge and delta lifecycle ---
+
+TEST_F(StorageControllerTest, LoadHeaderOnlyInputCreatesNoFiles) {
+    auto dir = make_dir("d");
+    write_input("f32,4\n");
+
+    StorageController sc;
+    ASSERT_EQ(0, sc.init({dir}, 100).code());
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+}
+
+TEST_F(StorageControllerTest, SecondSmallLoadCreatesDeltaFile) {
+    auto dir = make_dir("d");
+    StorageController sc;
+    ASSERT_EQ(0, sc.init({dir}, 100).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    ASSERT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+
+    generate_input_file(input_path_, cfg(1, 50, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    DataReader data_reader, delta_reader;
+    ASSERT_EQ(0, data_reader.init(file_path(dir, 0, ".data")).code());
+    ASSERT_EQ(0, delta_reader.init(file_path(dir, 0, ".delta")).code());
+    EXPECT_EQ(20u, data_reader.count());
+    EXPECT_EQ(1u, delta_reader.count());
+    EXPECT_NE(nullptr, delta_reader.get(50));
+}
+
+TEST_F(StorageControllerTest, SecondLargeLoadMergesIntoDataWithoutDelta) {
+    auto dir = make_dir("d");
+    StorageController sc;
+    ASSERT_EQ(0, sc.init({dir}, 100).code());
+
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    generate_input_file(input_path_, cfg(3, 5, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+
+    DataReader merged;
+    ASSERT_EQ(0, merged.init(file_path(dir, 0, ".data")).code());
+    EXPECT_EQ(8u, merged.count());
+    EXPECT_NE(nullptr, merged.get(0));
+    EXPECT_NE(nullptr, merged.get(7));
+}
+
+TEST_F(StorageControllerTest, ExistingDeltaGetsMergedWithNewSmallUpdateAndStaysDelta) {
+    auto dir = make_dir("d");
+    StorageController sc;
+    ASSERT_EQ(0, sc.init({dir}, 100).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    generate_input_file(input_path_, cfg(1, 30, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    generate_input_file(input_path_, cfg(1, 40, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    DataReader data_reader, delta_reader;
+    ASSERT_EQ(0, data_reader.init(file_path(dir, 0, ".data")).code());
+    ASSERT_EQ(0, delta_reader.init(file_path(dir, 0, ".delta")).code());
+    EXPECT_EQ(20u, data_reader.count());
+    EXPECT_EQ(2u, delta_reader.count());
+    EXPECT_NE(nullptr, delta_reader.get(30));
+    EXPECT_NE(nullptr, delta_reader.get(40));
+}
+
+TEST_F(StorageControllerTest, LargeDeltaEventuallyMergesIntoDataAndRemovesDeltaFile) {
+    auto dir = make_dir("d");
+    StorageController sc;
+    ASSERT_EQ(0, sc.init({dir}, 100).code());
+
+    generate_input_file(input_path_, cfg(10, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    generate_input_file(input_path_, cfg(1, 80, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    generate_input_file(input_path_, cfg(5, 50, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(file_path(dir, 0, ".data")).code());
+    EXPECT_EQ(16u, data_reader.count());
+    EXPECT_NE(nullptr, data_reader.get(80));
+    EXPECT_NE(nullptr, data_reader.get(52));
+}
+
+TEST_F(StorageControllerTest, DeleteFromDeltaIsAppliedAfterDataDeltaMerge) {
+    auto dir = make_dir("d");
+    StorageController sc;
+    ASSERT_EQ(0, sc.init({dir}, 100).code());
+
+    generate_input_file(input_path_, cfg(10, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    write_input(
+        "f32,4\n"
+        "3 : []\n");
+    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    generate_input_file(input_path_, cfg(5, 50, DataType::f32, 4));
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(file_path(dir, 0, ".data")).code());
+    EXPECT_EQ(14u, data_reader.count()); // 10 original - 1 deleted + 5 inserted
+    EXPECT_EQ(nullptr, data_reader.get(3));
+    EXPECT_NE(nullptr, data_reader.get(50));
+}
+
+TEST_F(StorageControllerTest, DeltaCreatedOnlyForTouchedRange) {
+    auto dir = make_dir("d");
+    StorageController sc;
+    ASSERT_EQ(0, sc.init({dir}, 10).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4)); // files 0 and 1
+    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    ASSERT_TRUE(fs::exists(file_path(dir, 1, ".data")));
+
+    generate_input_file(input_path_, cfg(1, 2, DataType::f32, 4)); // touches only file 0
+    ASSERT_EQ(0, sc.load(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 1, ".delta")));
 }

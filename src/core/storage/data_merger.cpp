@@ -191,7 +191,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
 
     DataFileHeader hdr;
     hdr.magic         = kMagic;
-    hdr.kind          = static_cast<uint16_t>(FileType::Delta);
+    hdr.kind          = static_cast<uint16_t>(FileType::Data);
     hdr.version       = kVersion;
     hdr.min_id        = 0;
     hdr.max_id        = 0;
