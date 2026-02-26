@@ -82,7 +82,13 @@ TEST_F(InputGeneratorTest, HeaderLineF32) {
 
 TEST_F(InputGeneratorTest, HeaderLineF16) {
     GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::f16, 64, 1000};
-    generate_input_file(path_, cfg);
+    const Ret ret = generate_input_file(path_, cfg);
+    if (!supports_f16()) {
+        EXPECT_NE(0, ret.code());
+        return;
+    }
+
+    EXPECT_EQ(0, ret.code());
     auto lines = read_lines();
     ASSERT_FALSE(lines.empty());
     EXPECT_EQ("f16,64", lines[0]);

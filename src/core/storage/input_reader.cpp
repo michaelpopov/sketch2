@@ -60,6 +60,7 @@ Ret InputReader::init_(const std::string& path) {
     }
     std::string type_str(p, static_cast<size_t>(comma - p));
     type_ = data_type_from_string(type_str);
+    validate_type(type_);
 
     char* dim_end;
     dim_ = static_cast<size_t>(strtoull(comma + 1, &dim_end, 10));

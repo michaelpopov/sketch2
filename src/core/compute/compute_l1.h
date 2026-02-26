@@ -25,6 +25,7 @@ private:
 };
 
 inline double ComputeL1::dist(const uint8_t *a, const uint8_t *b, DataType type, size_t dim) {
+    validate_type(type);
     switch (type) {
 #if defined(__AVX2__)
     case DataType::f32: return ComputeL1_AVX2::dist_f32(a, b, dim);

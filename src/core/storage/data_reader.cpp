@@ -92,14 +92,12 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
     {
         return fail("DataReader: invalid magic number");
     }
-    if (hdr_->kind != static_cast<uint16_t>(FileType::Data)) {
-        return fail("DataReader: not a data file");
-    }
     if (hdr_->version != kVersion) {
         return fail("DataReader: unsupported file version");
     }
 
     type_ = data_type_from_int(hdr_->type);
+    validate_type(type_);
     const size_t elem_size = data_type_size(type_);
     if (elem_size == 0) {
         return fail("DataReader: invalid element type size");

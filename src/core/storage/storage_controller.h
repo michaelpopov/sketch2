@@ -5,6 +5,9 @@
 
 namespace sketch2 {
 
+class DataReader;
+class InputReader;
+
 class StorageController {
 public:
     // Initialize directly with a list of directories and id-range size.
@@ -21,13 +24,16 @@ private:
     uint64_t range_size_ = 0;
 
     Ret load_(const std::string& input_path);
-    bool valid_data_file(const std::string& output_path);
-    bool check_data_file_merge(const std::string& data_path, const std::string& output_path);
-    Ret  merge_data_file(const std::string& data_path, const std::string& output_path);
-    Ret  merge_delta_file(const std::string& delta_path, const std::string& output_path);
-    bool check_data_delta_merge(const std::string& data_path, const std::string& delta_path);
+    Ret load_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end);
+
+    bool check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader);
+    bool check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader);
+
+    Ret  merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
+        const std::string& output_path_base, const std::string& ext);
+    Ret  merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base);
+
     Ret  merge_data_delta_file(const std::string& data_path, const std::string& delta_path);
-    bool check_merge(const std::string& source_path, const std::string& update_path, uint64_t ratio);
 };
 
 } // namespace sketch2

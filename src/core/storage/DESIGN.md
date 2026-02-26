@@ -153,9 +153,8 @@ StorageController is initialized either manually by setting metadata parameters 
 load the values from config.ini file, which is formatted as ini file.
 
 StorageController implements 
-  - init(path), where path is a path of ini file
   - init(const vector<string>& paths, uint64_t size), where paths are directories for data files
-       and size defines a range of ids per data file, for example size=1000 item with id=1 goes to file 0
+       and size defines a range of ids per data file, for example size=1000 item with id=123 goes to file 0
        and item with id 2100 goes to file 2.
   - load(path), where path is a path of input data file
        check the ids in the input of the file
@@ -163,3 +162,36 @@ StorageController implements
        each data file goes to its directory, which is defined by (file_id % number_of_dirs)
        for each data file create DataWriter and write the file with data from the input file
        each DataWriter writes only the items that belong to its range
+
+DataMerger
+---------------------------
+We have two types of files:
+  - data files
+  - delta files.
+
+Data files contain the bulk of data. Delta files contain changes that need to be applied to data files.
+For example: data file 123.data and its delta file 123.delta.
+There are following possible cases:
+  1) no files at all - neither data file nor delta file
+  2) there is a data file but no delta file
+  3) there is a data file and delta file
+
+Transitions between these case:
+  1 -> 2 -> 3 // No data in the beginning, new data file is created, new updates are written into a delta file
+       |
+       + -> 2 // Instead of writing updates to a delta file, data file and and updates are merged into a new data file
+       |
+       + -> 3 -> 3 // Updates are written to a delta file, then new updates are merged into the delta file
+       |
+       + -> 3 -> 2 // Updates are written into a delta file, then the delta file is merged with a data file.
+
+"No files at all" is the intitial state. After data is written at least once, it does not reappear.
+"Only data file" is the state after the first time the data is written.
+    The following updates can result in maintaining this state if the volume of updates is "close" to the volume of data
+    in the data file. In this case the updates are merged into data file without generating delta file.
+    If a delta files grows to the size "close" to the data file, then a delta file is merged into data file, which results
+    in the "only data file" state again.
+"Data file and delta file" is the state after some updates for the data file is written into a delta file.
+
+The logic of making merging decisions is in StorageController::load() function.
+The merge functionality is in the DataMerger class.

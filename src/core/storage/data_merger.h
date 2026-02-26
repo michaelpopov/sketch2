@@ -8,10 +8,8 @@ namespace sketch2 {
 
 class DataMerger {
 public:
-    Ret init(const std::string& source_path, const std::string& update_path);
-    Ret merge_data_files(const std::string& path);
-    Ret merge_delta_file(const std::string& path);
-    Ret merge_data_delta_files(const std::string& path);
+    Ret merge_data_file(const DataReader& source, const DataReader& updater, const std::string& path);
+    Ret merge_delta_file(const DataReader& source, const DataReader& updater, const std::string& path);
 
 private:
     struct Item {
@@ -20,17 +18,12 @@ private:
     };
 
 private:
-    DataReader source_;
-    DataReader updater_;
+    void load_update_records(const DataReader& updater, std::vector<Item>& updater_items);
+    void load_update_deletes(const DataReader& updater, std::unordered_set<uint64_t>& deletes);
+    void write_data(FILE* f, const uint8_t* data, size_t size);
 
-    std::unordered_set<uint64_t> deletes_;
-    std::vector<Item> updater_items_;
-
-    void load_update_records();
-    void load_update_deletes();
-    void write_data(FILE* f, const uint8_t* data);
-
-    Ret merge_data_files_(const std::string& path);
+    Ret merge_data_file_(const DataReader& source, const DataReader& updater, const std::string& path);
+    Ret merge_delta_file_(const DataReader& source, const DataReader& updater, const std::string& path);
 };
 
 } // namespace sketch2

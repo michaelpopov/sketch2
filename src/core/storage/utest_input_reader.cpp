@@ -137,6 +137,13 @@ TEST_F(InputReaderTest, SizeF32) {
 }
 
 TEST_F(InputReaderTest, SizeF16) {
+    if (!supports_f16()) {
+        write_raw("f16,4\n0 : [ 0.1, 0.1, 0.1, 0.1 ]\n");
+        InputReader r;
+        EXPECT_NE(0, r.init(path_).code());
+        return;
+    }
+
     generate_input_file(path_, cfg(1, 0, DataType::f16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());

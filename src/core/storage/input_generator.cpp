@@ -14,6 +14,11 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
     if (config.dim < 4 || config.dim > 4096) {
         return Ret("dim must be in range [4, 4096]");
     }
+    try {
+        validate_type(config.type);
+    } catch (const std::exception& e) {
+        return Ret(e.what());
+    }
 
     switch (config.pattern_type) {
         case PatternType::Sequential: return generate_sequential_input_file(path, config);
