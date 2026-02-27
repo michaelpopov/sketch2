@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <unistd.h>
+#include <memory>
 #include <vector>
 #include <fstream>
 #include "core/storage/data_file.h"
@@ -16,24 +17,59 @@ class DataReaderTest : public ::testing::Test {
 protected:
     std::string input_path_;
     std::string data_path_;
+    std::string delta_input_path_;
+    std::string delta_path_;
 
     void SetUp() override {
         std::string base = "/tmp/sketch2_utest_dr_" + std::to_string(getpid());
         input_path_ = base + ".txt";
         data_path_  = base + ".bin";
+        delta_input_path_ = base + ".delta.txt";
+        delta_path_ = base + ".delta.bin";
     }
 
     void TearDown() override {
         std::remove(input_path_.c_str());
         std::remove(data_path_.c_str());
+        std::remove(delta_input_path_.c_str());
+        std::remove(delta_path_.c_str());
+    }
+
+    void generate_file(const std::string& in_path, const std::string& out_path, const GeneratorConfig& cfg) {
+        generate_input_file(in_path, cfg);
+        DataWriter w;
+        w.init(in_path, out_path);
+        w.exec();
     }
 
     void generate(size_t count, size_t min_id, DataType type, size_t dim, size_t every_n_deleted = 0) {
         GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, every_n_deleted};
-        generate_input_file(input_path_, cfg);
+        generate_file(input_path_, data_path_, cfg);
+    }
+
+    void generate_delta(size_t count, size_t min_id, DataType type, size_t dim, size_t every_n_deleted = 0) {
+        GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, every_n_deleted};
+        generate_file(delta_input_path_, delta_path_, cfg);
+    }
+
+    void generate_delta_detailed(size_t count, size_t min_id, DataType type, size_t dim, size_t max_val = 1000, size_t every_n_deleted = 0) {
+        GeneratorConfig cfg{PatternType::Detailed, count, min_id, type, dim, max_val, every_n_deleted};
+        generate_file(delta_input_path_, delta_path_, cfg);
+    }
+
+    void write_raw_to_data_file(const std::string& in_path, const std::string& out_path, const std::string& content) {
+        std::ofstream f(in_path);
+        f << content;
+        f.close();
         DataWriter w;
-        w.init(input_path_, data_path_);
-        w.exec();
+        w.init(in_path, out_path);
+        ASSERT_EQ(0, w.exec().code());
+    }
+
+    std::unique_ptr<DataReader> make_delta_reader() {
+        auto delta = std::make_unique<DataReader>();
+        EXPECT_EQ(0, delta->init(delta_path_).code());
+        return delta;
     }
 
     // Write a minimal valid binary data file with raw vector bytes.
@@ -342,157 +378,193 @@ TEST_F(DataReaderTest, IteratorF32ValuesCorrect) {
     }
 }
 
-// --- bitset / deletion (InPlace) ---
+// --- delta-based modifications ---
 
-TEST_F(DataReaderTest, InPlaceBitsetSkipsDeletedInIterator) {
-    const size_t count = 4;
-    generate(count, 0, DataType::f32, 4);
-    std::vector<bool> bitset(count, false);
-    bitset[1] = true;
-    bitset[3] = true;
+TEST_F(DataReaderTest, InPlaceWithDeltaSkipsDeletedInIterator) {
+    generate(6, 0, DataType::f32, 4);
+    generate_delta(6, 0, DataType::f32, 4, 2); // deleted ids: 2,4
+
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
     std::vector<uint64_t> seen_ids;
     for (auto it = r.begin(); !it.eof(); it.next())
         seen_ids.push_back(it.id());
-    ASSERT_EQ(2u, seen_ids.size());
+    ASSERT_EQ(4u, seen_ids.size());
     EXPECT_EQ(0u, seen_ids[0]);
-    EXPECT_EQ(2u, seen_ids[1]);
+    EXPECT_EQ(1u, seen_ids[1]);
+    EXPECT_EQ(3u, seen_ids[2]);
+    EXPECT_EQ(5u, seen_ids[3]);
 }
 
-TEST_F(DataReaderTest, InPlaceBitsetGetReturnsNullForDeleted) {
-    const size_t count = 3;
-    generate(count, 0, DataType::f32, 4);
-    std::vector<bool> bitset(count, false);
-    bitset[1] = true;
+TEST_F(DataReaderTest, InPlaceWithDeltaGetReturnsNullForDeleted) {
+    generate(6, 0, DataType::f32, 4);
+    generate_delta(6, 0, DataType::f32, 4, 2); // deleted ids: 2,4
+
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
     EXPECT_NE(nullptr, r.get(0));
-    EXPECT_EQ(nullptr, r.get(1));
-    EXPECT_NE(nullptr, r.get(2));
+    EXPECT_EQ(nullptr, r.get(2));
+    EXPECT_NE(nullptr, r.get(3));
+    EXPECT_EQ(nullptr, r.get(4));
 }
 
-TEST_F(DataReaderTest, NoBitsetIteratorSeesAll) {
+TEST_F(DataReaderTest, NoDeltaIteratorSeesAll) {
     const size_t count = 4;
     generate(count, 0, DataType::f32, 4);
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, nullptr).code());
+    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace).code());
     size_t seen = 0;
     for (auto it = r.begin(); !it.eof(); it.next())
         ++seen;
     EXPECT_EQ(count, seen);
 }
 
-TEST_F(DataReaderTest, AllDeletedIteratorIsImmediatelyEof) {
-    const size_t count = 3;
-    generate(count, 0, DataType::f32, 4);
-    std::vector<bool> bitset(count, true);
+TEST_F(DataReaderTest, InPlaceWithAllDeletedDeltaIteratorIsImmediatelyEof) {
+    generate(3, 0, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "0 : []\n"
+        "1 : []\n"
+        "2 : []\n");
+
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
     EXPECT_TRUE(r.begin().eof());
 }
 
-TEST_F(DataReaderTest, FirstVectorDeletedIteratorStartsAtSecond) {
-    const size_t count = 3;
-    generate(count, 0, DataType::f32, 4);
-    std::vector<bool> bitset(count, false);
-    bitset[0] = true;
+TEST_F(DataReaderTest, InPlaceWithDeltaFirstVectorDeletedIteratorStartsAtSecond) {
+    generate(3, 0, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "0 : []\n");
+
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
     auto it = r.begin();
     ASSERT_FALSE(it.eof());
     EXPECT_EQ(1u, it.id());
 }
 
-TEST_F(DataReaderTest, LastVectorDeletedNotVisited) {
-    const size_t count = 3;
-    generate(count, 0, DataType::f32, 4);
-    std::vector<bool> bitset(count, false);
-    bitset[count - 1] = true;
+TEST_F(DataReaderTest, InPlaceWithDeltaLastVectorDeletedNotVisited) {
+    generate(3, 0, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "2 : []\n");
+
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
     std::vector<uint64_t> seen_ids;
     for (auto it = r.begin(); !it.eof(); it.next())
         seen_ids.push_back(it.id());
-    ASSERT_EQ(count - 1, seen_ids.size());
-    EXPECT_EQ(count - 2, seen_ids.back());
+    ASSERT_EQ(2u, seen_ids.size());
+    EXPECT_EQ(0u, seen_ids[0]);
+    EXPECT_EQ(1u, seen_ids[1]);
 }
 
-TEST_F(DataReaderTest, CountIncludesDeleted) {
+TEST_F(DataReaderTest, CountIncludesDeletedWhenDeltaApplied) {
     const size_t count = 4;
     generate(count, 0, DataType::f32, 4);
-    std::vector<bool> bitset(count, false);
-    bitset[1] = true;
-    bitset[2] = true;
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "1 : []\n"
+        "2 : []\n");
+
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
-    EXPECT_EQ(count, r.count()); // total, including deleted
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    EXPECT_EQ(count, r.count());
 }
 
-TEST_F(DataReaderTest, BitsetShorterThanCountNoCrash) {
-    // Bitset covers only the first 2 vectors; remaining 3 have no bit → not deleted.
-    const size_t count = 5;
-    generate(count, 0, DataType::f32, 4);
-    std::vector<bool> bitset(2, true);
+TEST_F(DataReaderTest, DeltaIdsOutsideDataRangeAreIgnored) {
+    const size_t count = 3;
+    generate(count, 10, DataType::f32, 4); // ids: 10,11,12
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "1 : []\n"
+        "200 : []\n");
+
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace, &bitset).code());
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
     size_t seen = 0;
     for (auto it = r.begin(); !it.eof(); it.next())
         ++seen;
-    EXPECT_EQ(count - 2, seen);
+    EXPECT_EQ(count, seen);
 }
 
-// --- bitset / deletion (Reference) ---
+TEST_F(DataReaderTest, ReferenceModeDeletedFromDeltaReturnsNull) {
+    generate(3, 10, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "11 : []\n");
 
-TEST_F(DataReaderTest, ReferenceModeBitSetNullPointerIsDeleted) {
-    // vec0: first 8 bytes = null → deleted when bitset bit is set
-    // vec1: first 8 bytes = non-null → alive even when bitset bit is set
-    const uint16_t dim = 4;
-    const size_t vec_size = dim * 4; // f32: 4 bytes per element
-    std::vector<uint8_t> vec0(vec_size, 0);
-    std::vector<uint8_t> vec1(vec_size, 0);
-    uint64_t nonzero = 1ULL;
-    memcpy(vec1.data(), &nonzero, sizeof(nonzero));
-    write_raw(DataType::f32, dim, 0, {vec0, vec1});
-
-    std::vector<bool> bitset = {true, true};
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::Reference, &bitset).code());
-    EXPECT_EQ(nullptr, r.get(0)); // null pointer → deleted
-    EXPECT_NE(nullptr, r.get(1)); // non-null pointer → alive
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::Reference, make_delta_reader()).code());
+    EXPECT_NE(nullptr, r.get(10));
+    EXPECT_EQ(nullptr, r.get(11));
+    EXPECT_NE(nullptr, r.get(12));
 }
 
-TEST_F(DataReaderTest, ReferenceModeNoBitsetNotDeleted) {
-    // Null pointer bytes in the vector, but bitset bit is not set → not deleted.
-    const uint16_t dim = 4;
-    const size_t vec_size = dim * 4;
-    std::vector<uint8_t> vec0(vec_size, 0);
-    write_raw(DataType::f32, dim, 0, {vec0});
+TEST_F(DataReaderTest, ReferenceModeUpdatedValueComesFromDelta) {
+    generate(3, 10, DataType::i16, 4);
+    generate_delta_detailed(1, 11, DataType::i16, 4);
 
-    std::vector<bool> bitset = {false};
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::Reference, &bitset).code());
-    EXPECT_NE(nullptr, r.get(0));
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::Reference, make_delta_reader()).code());
+
+    const int16_t* v10 = reinterpret_cast<const int16_t*>(r.get(10));
+    const int16_t* v11 = reinterpret_cast<const int16_t*>(r.get(11));
+    const int16_t* v12 = reinterpret_cast<const int16_t*>(r.get(12));
+    ASSERT_NE(nullptr, v10);
+    ASSERT_NE(nullptr, v11);
+    ASSERT_NE(nullptr, v12);
+
+    EXPECT_EQ(10, v10[0]); // untouched
+    EXPECT_EQ(0, v11[0]);  // updated from detailed delta first vector
+    EXPECT_EQ(12, v12[0]); // untouched
 }
 
-TEST_F(DataReaderTest, ReferenceModeIteratorSkipsNullPointerVectors) {
-    const uint16_t dim = 4;
-    const size_t vec_size = dim * 4;
-    std::vector<uint8_t> vec0(vec_size, 0); // null → deleted
-    std::vector<uint8_t> vec1(vec_size, 0);
-    uint64_t nonzero = 1ULL;
-    memcpy(vec1.data(), &nonzero, sizeof(nonzero));
-    write_raw(DataType::f32, dim, 10, {vec0, vec1});
+TEST_F(DataReaderTest, ReferenceModeIteratorSkipsDeletedAndKeepsUpdated) {
+    generate(4, 10, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "11 : []\n"
+        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
 
-    std::vector<bool> bitset = {true, true};
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::Reference, &bitset).code());
+    ASSERT_EQ(0, r.init(data_path_, ReaderMode::Reference, make_delta_reader()).code());
 
     std::vector<uint64_t> seen_ids;
-    for (auto it = r.begin(); !it.eof(); it.next())
+    for (auto it = r.begin(); !it.eof(); it.next()) {
         seen_ids.push_back(it.id());
-    ASSERT_EQ(1u, seen_ids.size());
-    EXPECT_EQ(11u, seen_ids[0]);
+    }
+    ASSERT_EQ(3u, seen_ids.size());
+    EXPECT_EQ(10u, seen_ids[0]);
+    EXPECT_EQ(12u, seen_ids[1]);
+    EXPECT_EQ(13u, seen_ids[2]);
+
+    const float* v12 = reinterpret_cast<const float*>(r.get(12));
+    ASSERT_NE(nullptr, v12);
+    EXPECT_NEAR(99.0f, v12[0], 1e-5f);
+}
+
+TEST_F(DataReaderTest, InitFailsWhenDeltaTypeMismatch) {
+    generate(3, 0, DataType::f32, 4);
+    generate_delta(3, 0, DataType::i16, 4);
+    DataReader r;
+    EXPECT_NE(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+}
+
+TEST_F(DataReaderTest, InitFailsWhenDeltaDimMismatch) {
+    generate(3, 0, DataType::f32, 4);
+    generate_delta(3, 0, DataType::f32, 8);
+    DataReader r;
+    EXPECT_NE(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
 }
 
 // --- deleted-id section ---
@@ -524,4 +596,35 @@ TEST_F(DataReaderTest, GetReturnsNullForIdsInDeletedSection) {
     EXPECT_NE(nullptr, r.get(3));
     EXPECT_EQ(nullptr, r.get(4));
     EXPECT_NE(nullptr, r.get(5));
+}
+
+TEST_F(DataReaderTest, CheckConsistencyReturnsTrueForValidFile) {
+    generate(6, 0, DataType::f32, 4, 2);
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_TRUE(r.check_consistency());
+}
+
+TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
+    generate(6, 0, DataType::f32, 4, 2);
+
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+
+    DataFileHeader hdr{};
+    ASSERT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
+    const DataType type = data_type_from_int(hdr.type);
+    const size_t vec_size = static_cast<size_t>(hdr.dim) * data_type_size(type);
+    const size_t vectors_bytes = static_cast<size_t>(hdr.count) * vec_size;
+    const size_t deleted_ids_offset = sizeof(DataFileHeader) + vectors_bytes +
+                                      static_cast<size_t>(hdr.count) * sizeof(uint64_t);
+
+    ASSERT_EQ(0, fseek(f, static_cast<long>(deleted_ids_offset), SEEK_SET));
+    const uint64_t overlapped_id = 3; // 3 is in ids_ for this generated input
+    ASSERT_EQ(1u, fwrite(&overlapped_id, sizeof(overlapped_id), 1, f));
+    fclose(f);
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_FALSE(r.check_consistency());
 }

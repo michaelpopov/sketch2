@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <cassert>
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
@@ -42,16 +43,15 @@ DataReader::~DataReader() {
     }
 }
 
-Ret DataReader::init(const std::string &path, ReaderMode mode, const std::vector<bool> *bitset) {
+Ret DataReader::init(const std::string &path, ReaderMode mode, std::unique_ptr<DataReader> delta) {
     try {
-        return init_(path, mode, bitset);
+        return init_(path, mode, std::move(delta));
     } catch (const std::exception& e) {
         return Ret(e.what());
     }
 }
 
-Ret DataReader::init_(const std::string& path, ReaderMode mode,
-                     const std::vector<bool>* bitset) {
+Ret DataReader::init_(const std::string& path, ReaderMode mode, std::unique_ptr<DataReader> delta) {
     if (map_) {
         return Ret("DataReader is initialized already.");
     }
@@ -71,14 +71,14 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
         close(fd);
         return Ret("DataReader: file too small to contain a valid header");
     }
-    void* m = mmap(nullptr, map_len_, PROT_READ, MAP_PRIVATE, fd, 0);
+    void* m = mmap(nullptr, map_len_, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
     close(fd);
     if (m == MAP_FAILED) {
         return Ret("DataReader: failed to mmap file: " + path);
     }
     madvise(m, map_len_, MADV_SEQUENTIAL);
     madvise(m, map_len_, MADV_WILLNEED);
-    map_ = static_cast<const uint8_t*>(m);
+    map_ = static_cast<uint8_t*>(m);
     auto fail = [this](const std::string& message) -> Ret {
         munmap(const_cast<uint8_t*>(map_), map_len_);
         map_ = nullptr;
@@ -90,16 +90,9 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
     };
 
     hdr_ = reinterpret_cast<const DataFileHeader *>(map_);
-    if (hdr_->magic != kMagic)
-    {
-        return fail("DataReader: invalid magic number");
-    }
-    if (hdr_->kind != static_cast<uint16_t>(FileType::Data)) {
-        return fail("DataReader: not a data file");
-    }
-    if (hdr_->version != kVersion) {
-        return fail("DataReader: unsupported file version");
-    }
+    if (hdr_->magic != kMagic) return fail("DataReader: invalid magic number");
+    if (hdr_->kind != static_cast<uint16_t>(FileType::Data)) return fail("DataReader: not a data file");
+    if (hdr_->version != kVersion) return fail("DataReader: unsupported file version");
 
     type_ = data_type_from_int(hdr_->type);
     validate_type(type_);
@@ -119,10 +112,90 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
         return fail("DataReader: truncated or malformed data file");
     }
 
+    if (delta) {
+        if (!delta->hdr_) return fail("DataReader: invalid delta");
+        if (type_ != delta->type()) return fail("DataReader: invalid delta type");
+        if (size_ != delta->size()) return fail("DataReader: invalid delta dim");
+    }
+
     ids_ = reinterpret_cast<const uint64_t*>(map_ + sizeof(DataFileHeader) + vectors_bytes);
     deleted_ids_ = ids_ + count;
     mode_   = mode;
-    bitset_ = bitset;
+    delta_  = std::move(delta);
+
+    if (delta_) {
+        CHECK(init_deleted_bitset());
+        CHECK(init_updates_override());
+    }
+
+    return Ret(0);
+}
+
+Ret DataReader::init_deleted_bitset() {
+    if (!hdr_ || !ids_ || !delta_) {
+        return Ret("DataReader::init_deleted_bitset: reader is not initialized");
+    }
+
+    const uint64_t* del_ids = delta_->deleted_ids_;
+    size_t del_count = delta_->deleted_count();
+
+    bitset_.resize(hdr_->count);
+
+    const void* zero = nullptr;
+ 
+    for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
+        const uint64_t id = ids_[i];
+        while (j < del_count && del_ids[j] < id) {
+            ++j;
+        }
+
+        if (j >= del_count) {
+            break;
+        }
+
+        if (del_ids[j] == id) {
+            bitset_[i] = true;
+            if (mode_ == ReaderMode::Reference) {
+                assert(size_ > sizeof(void*));
+                uint8_t* vec_ptr = map_ + sizeof(DataFileHeader) + i * size_;
+                memcpy(vec_ptr, &zero, sizeof(zero));
+            }
+        }
+    }
+
+    return Ret(0);
+}
+
+Ret DataReader::init_updates_override() {
+    if (!hdr_ || !ids_ || !delta_) {
+        return Ret("DataReader::init_updates_override: reader is not initialized");
+    }
+
+    const uint64_t* upd_ids = delta_->ids_;
+    size_t upd_count = delta_->count();
+
+    for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
+        const uint64_t id = ids_[i];
+        while (j < upd_count && upd_ids[j] < id) {
+            ++j;
+        }
+
+        if (j >= upd_count) {
+            break;
+        }
+        
+        if (upd_ids[j] == id) {
+            uint8_t* vec_ptr = map_ + sizeof(DataFileHeader) + i * size_;
+            const uint8_t* upd_ptr = delta_->at(j);
+            if (mode_ == ReaderMode::InPlace) {
+                memcpy(vec_ptr, upd_ptr, size_);
+            } else if (mode_ == ReaderMode::Reference) {
+                assert(size_ >= sizeof(upd_ptr));
+                bitset_[i] = true;
+                memcpy(vec_ptr, &upd_ptr, sizeof(upd_ptr));
+            }
+        }
+    }
 
     return Ret(0);
 }
@@ -162,7 +235,24 @@ const uint8_t* DataReader::at(size_t index) const {
     if (index >= count()) {
         throw std::out_of_range("DataReader::at: index out of range");
     }
-    return map_ + sizeof(DataFileHeader) + index * size();
+
+    // In case of ReaderMode::InPlace always return the mmaped vector.
+    if (mode_ == ReaderMode::InPlace) {
+        return map_ + sizeof(DataFileHeader) + index * size();
+    }
+
+    // In case of ReaderMode::Reference check is a vector overwritten.
+    // If not, then return the mmaped vector.
+    if (index >= bitset_.size() || !bitset_[index]) {
+        return map_ + sizeof(DataFileHeader) + index * size();
+    }
+
+    // In case of ReaderMode::Reference when a vector is overwritten
+    // get the pointer to a new value and return it.
+    const uint8_t* vec = map_ + sizeof(DataFileHeader) + index * size();
+    const uint8_t* ptr;
+    memcpy(&ptr, vec, sizeof(ptr));
+    return ptr;
 }
 
 const uint8_t* DataReader::get(uint64_t id) const {
@@ -178,7 +268,7 @@ const uint8_t* DataReader::get(uint64_t id) const {
 }
 
 bool DataReader::is_deleted(size_t index) const {
-    if (!bitset_ || index >= bitset_->size() || !(*bitset_)[index]) {
+    if (index >= bitset_.size() || !bitset_[index]) {
         return false;
     }
     if (mode_ == ReaderMode::InPlace) {
@@ -196,6 +286,32 @@ uint64_t DataReader::deleted_id(size_t index) const {
         throw std::out_of_range("DataReader::deleted_id: index out of range");
     }
     return deleted_ids_[index];
+}
+
+bool DataReader::check_consistency() const {
+    if (!hdr_) {
+        return false;
+    }
+
+    size_t i = 0;
+    size_t j = 0;
+    const size_t ids_count = count();
+    const size_t deleted_count_ = deleted_count();
+
+    while (i < ids_count && j < deleted_count_) {
+        const uint64_t id = ids_[i];
+        const uint64_t deleted_id = deleted_ids_[j];
+
+        if (id == deleted_id) {
+            return false;
+        }
+        if (id < deleted_id) {
+            ++i;
+        } else {
+            ++j;
+        }
+    }
+    return true;
 }
 
 } // namespace sketch2

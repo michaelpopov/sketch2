@@ -99,22 +99,25 @@ Iterator
 
 There is a vector of boolean flags. The size matches the number of vectors
 in the file. Each vector has a corresponding bit. 0 (false) means the vector
-is valid as it is. 1 (true) means the vector was modified.
+is valid as it is. 1 (true) means the vector was modified. The vector is generated
+based on the content of deleted ids in provided delta.
 
 There are two modes:
    - in place
    - reference
 
-If the mode is "in place" then "modified" vector means it is deleted.
+Bitset is populated only if a delta DataReader is provided.
+
+If the mode is "in place" then
+ - "modified" vector means it is deleted
+ - bitset is not checked in this mode.
+
 If the mode is "reference" then it is required to look at the content of the vector,
 the first 8 bytes converted to u8*:
    - nullptr means the vector is deleted
    - otherwise it's a pointer to a new value of the vector.
 
 Iterator skips deleted vectors by checking the bitset and the value of the vector.
-
-The bitset is optional. If it is not present, there are no modifications to the content
-of the file.
 
 
 Scanner

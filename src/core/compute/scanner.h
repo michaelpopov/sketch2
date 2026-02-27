@@ -1,27 +1,25 @@
 #pragma once
 #include "utils/shared_types.h"
 #include "core/compute/compute.h"
-#include "core/storage/data_reader.h"
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace sketch2 {
 
+class DataReader;
+
 class Scanner {
 public:
-    Ret init(const std::string& path);
-
     // Returns up to count vector ids nearest to vec, ordered by distance.
     // func selects the distance function.
     // vec must match the type and dimension of the file.
-    std::vector<uint64_t> find(DistFunc func, size_t count, const uint8_t* vec) const;
+    Ret find(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) const;
 
 private:
-    DataReader reader_;
-    bool is_initialized_ = false;
-
-    std::vector<uint64_t> find_(DistFunc func, size_t count, const uint8_t* vec) const;
+    Ret find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) const;
 };
 
 } // namespace sketch2
