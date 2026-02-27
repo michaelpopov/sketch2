@@ -194,6 +194,25 @@ TEST_F(InputReaderTest, I16DataValuesAreId) {
     }
 }
 
+TEST_F(InputReaderTest, DataDoesNotCrossIntoNextLineWhenPayloadIsShort) {
+    write_raw(
+        "f32,4\n"
+        "10 : [ 10.1, 10.1 ]\n"
+        "11 : [ 11.1, 11.1, 11.1, 11.1 ]\n");
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_THROW((void)r.data(0), std::runtime_error);
+}
+
+TEST_F(InputReaderTest, DataFailsOnExtraTokensInPayload) {
+    write_raw(
+        "f32,4\n"
+        "10 : [ 10.1, 10.1, 10.1, 10.1, 10.1 ]\n");
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_THROW((void)r.data(0), std::runtime_error);
+}
+
 // --- id() ---
 
 TEST_F(InputReaderTest, IdReturnsCorrectIds) {

@@ -31,9 +31,8 @@ private:
 
     Ret  merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
         const std::string& output_path_base, const std::string& ext);
-    Ret  merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base);
-
-    Ret  merge_data_delta_file(const std::string& data_path, const std::string& delta_path);
+    Ret  merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader,
+        const std::string& output_path_base);
 };
 
 } // namespace sketch2

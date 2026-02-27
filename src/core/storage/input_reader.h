@@ -9,6 +9,7 @@ namespace sketch2 {
 struct LineInfo {
     uint64_t id;
     uint64_t offset; // byte offset where vector data starts in the mapped file
+    uint64_t end;    // byte offset of closing ']' for this vector
 };
 
 class InputReader {
