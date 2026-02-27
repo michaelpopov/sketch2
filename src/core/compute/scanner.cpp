@@ -12,6 +12,14 @@ Ret Scanner::init(const std::string& path) {
 }
 
 std::vector<uint64_t> Scanner::find(DistFunc func, size_t count, const uint8_t* vec) const {
+    try {
+        return find_(func, count, vec);
+    } catch (const std::exception& ex) {
+        return std::vector<uint64_t>();
+    }
+}
+
+std::vector<uint64_t> Scanner::find_(DistFunc func, size_t count, const uint8_t* vec) const {
     if (!is_initialized_) {
         throw std::runtime_error("Scanner was not initialized.");
     }
@@ -46,6 +54,7 @@ std::vector<uint64_t> Scanner::find(DistFunc func, size_t count, const uint8_t* 
             heap.pop();
             heap.push({it.id(), d});
         }
+        it.dont_need();
     }
 
     // Extract ids in ascending distance order.

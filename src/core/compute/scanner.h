@@ -20,6 +20,8 @@ public:
 private:
     DataReader reader_;
     bool is_initialized_ = false;
+
+    std::vector<uint64_t> find_(DistFunc func, size_t count, const uint8_t* vec) const;
 };
 
 } // namespace sketch2

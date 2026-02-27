@@ -84,10 +84,10 @@ TEST_F(ScannerTest, FailsOnInvalidFile) {
     EXPECT_NE(0, s.init(data_path_).code());
 }
 
-TEST_F(ScannerTest, FindBeforeInitThrows) {
+TEST_F(ScannerTest, FindBeforeInitReturnsEmpty) {
     Scanner s;
     auto q = f32_vec(0.0f, 4);
-    EXPECT_THROW((void)s.find(DistFunc::L1, 1, q.data()), std::runtime_error);
+    EXPECT_TRUE(s.find(DistFunc::L1, 1, q.data()).empty());
 }
 
 TEST_F(ScannerTest, SuccessReturnCode) {
@@ -98,36 +98,36 @@ TEST_F(ScannerTest, SuccessReturnCode) {
 
 // --- find() edge cases ---
 
-TEST_F(ScannerTest, FindCountZeroThrows) {
+TEST_F(ScannerTest, FindCountZeroReturnsEmpty) {
     generate(3, 0, DataType::f32, 4);
     Scanner s;
     s.init(data_path_);
     auto q = f32_vec(0.0f, 4);
-    EXPECT_THROW((void)s.find(DistFunc::L1, 0, q.data()), std::runtime_error);
+    EXPECT_TRUE(s.find(DistFunc::L1, 0, q.data()).empty());
 }
 
-TEST_F(ScannerTest, FindNullQueryPointerThrows) {
+TEST_F(ScannerTest, FindNullQueryPointerReturnsEmpty) {
     generate(3, 0, DataType::f32, 4);
     Scanner s;
     s.init(data_path_);
-    EXPECT_THROW((void)s.find(DistFunc::L1, 1, nullptr), std::runtime_error);
+    EXPECT_TRUE(s.find(DistFunc::L1, 1, nullptr).empty());
 }
 
-TEST_F(ScannerTest, FindUnsupportedFuncThrows) {
+TEST_F(ScannerTest, FindUnsupportedFuncReturnsEmpty) {
     generate(3, 0, DataType::f32, 4);
     Scanner s;
     s.init(data_path_);
     auto q = f32_vec(0.0f, 4);
-    EXPECT_THROW((void)s.find(DistFunc::L2, 1, q.data()), std::runtime_error);
+    EXPECT_TRUE(s.find(DistFunc::L2, 1, q.data()).empty());
 }
 
-TEST_F(ScannerTest, FindUnknownDistFuncThrows) {
+TEST_F(ScannerTest, FindUnknownDistFuncReturnsEmpty) {
     generate(3, 0, DataType::f32, 4);
     Scanner s;
     s.init(data_path_);
     auto q = f32_vec(0.0f, 4);
     auto unknown = static_cast<DistFunc>(999);
-    EXPECT_THROW((void)s.find(unknown, 1, q.data()), std::runtime_error);
+    EXPECT_TRUE(s.find(unknown, 1, q.data()).empty());
 }
 
 TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {

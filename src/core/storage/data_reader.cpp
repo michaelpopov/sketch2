@@ -34,6 +34,10 @@ uint64_t DataReader::Iterator::id() const {
     return ids_[index_];
 }
 
+void DataReader::Iterator::dont_need() const {
+    reader_->dont_need(index_);
+}
+
 // --- DataReader ---
 
 DataReader::~DataReader() {
@@ -76,6 +80,8 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode,
     if (m == MAP_FAILED) {
         return Ret("DataReader: failed to mmap file: " + path);
     }
+    madvise(m, map_len_, MADV_SEQUENTIAL);
+    madvise(m, map_len_, MADV_WILLNEED);
     map_ = static_cast<const uint8_t*>(m);
     auto fail = [this](const std::string& message) -> Ret {
         munmap(const_cast<uint8_t*>(map_), map_len_);
@@ -161,6 +167,18 @@ const uint8_t* DataReader::at(size_t index) const {
         throw std::out_of_range("DataReader::at: index out of range");
     }
     return map_ + sizeof(DataFileHeader) + index * size();
+}
+
+void DataReader::dont_need(size_t index) const {
+    if (index >= count()) return;
+    const uint8_t* ptr = at(index);
+    size_t page_size = sysconf(_SC_PAGESIZE);
+    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+    uintptr_t page_start = addr & ~(page_size - 1);
+    // Only advise if we are at the start of a page to avoid excessive syscalls
+    if (addr == page_start) {
+        madvise(reinterpret_cast<void*>(page_start), page_size, MADV_DONTNEED);
+    }
 }
 
 const uint8_t* DataReader::get(uint64_t id) const {

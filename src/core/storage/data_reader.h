@@ -20,6 +20,7 @@ public:
         bool           eof()  const;
         const uint8_t* data() const;
         uint64_t       id()   const;
+        void           dont_need() const;
 
     private:
         friend class DataReader;
@@ -45,6 +46,8 @@ public:
     uint64_t       id(size_t index) const;
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     const uint8_t* at(size_t index) const;   // lookup by position
+    void           dont_need(size_t index) const;
+    bool           is_deleted(size_t index) const;
     size_t deleted_count() const { return hdr_->deleted_count; }
     uint64_t deleted_id(size_t index) const;
 
@@ -59,7 +62,6 @@ private:
     ReaderMode               mode_    = ReaderMode::InPlace;
     const std::vector<bool>* bitset_  = nullptr; // optional, not owned
 
-    bool is_deleted(size_t index) const;
     Ret init_(const std::string &path, ReaderMode mode, const std::vector<bool> *bitset);
 };
 
