@@ -74,18 +74,18 @@ Ret StorageController::load_and_merge(const InputReader& reader, uint64_t file_i
     const std::string output_path_base = dir + "/" + std::to_string(file_id);
     const std::string output_path = output_path_base + kTempExt;
 
-    {
-        InputReaderView view(reader, range_start, range_end);
-        DataWriter writer;
-        CHECK(writer.load(view, output_path));
-    }
-
     // Clear temporary file on exit
     std::experimental::scope_exit file_guard([output_path]() {
         if (std::filesystem::exists(output_path)) {
             std::filesystem::remove(output_path);
         }
     });
+
+    {
+        InputReaderView view(reader, range_start, range_end);
+        DataWriter writer;
+        CHECK(writer.load(view, output_path));
+    }
 
     DataReader output_reader;
     CHECK(output_reader.init(output_path));
@@ -159,6 +159,11 @@ bool StorageController::check_data_delta_merge(const DataReader& data_reader, co
 
 Ret StorageController::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
         const std::string& output_path_base, const std::string& ext) {
+    const std::string source_path = output_path_base + ext;
+    if (std::filesystem::exists(source_path)) {
+        std::filesystem::remove(source_path);
+    }
+
     DataMerger processor;
     const std::string merge_path = output_path_base + kMergeExt;
     CHECK(processor.merge_data_file(data_reader, output_reader, merge_path));
@@ -166,26 +171,21 @@ Ret StorageController::merge_data_file(const DataReader& data_reader, const Data
     const std::string data_path = output_path_base + kDataExt;
     std::filesystem::rename(merge_path, data_path);
 
-    const std::string source_path = output_path_base + ext;
-    if (std::filesystem::exists(source_path)) {
-        std::filesystem::remove(source_path);
-    }
-
     return Ret(0);
 }
 
 Ret  StorageController::merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base) {
+    const std::string source_path = output_path_base + kTempExt;
+    if (std::filesystem::exists(source_path)) {
+        std::filesystem::remove(source_path);
+    }
+
     DataMerger processor;
     const std::string merge_path = output_path_base + kMergeExt;
     CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path));
     
     const std::string delta_path = output_path_base + kDeltaExt;
     std::filesystem::rename(merge_path, delta_path);
-
-    const std::string source_path = output_path_base + kTempExt;
-    if (std::filesystem::exists(source_path)) {
-        std::filesystem::remove(source_path);
-    }
 
     return Ret(0);
 }
