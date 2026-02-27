@@ -24,7 +24,7 @@ public:
     size_t   size()  const; // sizeof(type) * dim
 
     uint64_t id(size_t index) const;
-    const uint8_t* data(size_t index) const;
+    Ret data(size_t index, uint8_t* buf, size_t size) const;
     bool is_no_data(size_t index) const;
 
     bool is_range_present(uint64_t start_range, uint64_t end_range) const;
@@ -35,7 +35,6 @@ private:
     DataType              type_    = DataType::f32;
     size_t                dim_     = 0;
     std::vector<LineInfo> lines_;
-    mutable std::vector<uint8_t>  buf_;   // parsed vector data, laid out contiguously
 
     Ret init_(const std::string &path);
 };
@@ -50,7 +49,7 @@ public:
     size_t   size()  const; // sizeof(type) * dim
 
     uint64_t id(size_t index) const;
-    const uint8_t* data(size_t index) const;
+    Ret data(size_t index, uint8_t* buf, size_t size) const;
     bool is_no_data(size_t index) const;
 private:
     const InputReader& reader_;

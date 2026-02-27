@@ -95,9 +95,11 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
 
     // Write vector data
     const size_t vec_size = reader.size();
+    std::vector<uint8_t> buf(vec_size);
     for (size_t i = 0; i < count; ++i) {
         if (!reader.is_no_data(i)) {
-            if (fwrite(reader.data(i), vec_size, 1, f) != 1) {
+            CHECK(reader.data(i, buf.data(), buf.size()));
+            if (fwrite(buf.data(), vec_size, 1, f) != 1) {
                 return Ret("DataWriter: failed to write vector data at index " + std::to_string(i));
             }
         }

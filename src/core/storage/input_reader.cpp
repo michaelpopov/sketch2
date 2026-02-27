@@ -74,8 +74,6 @@ Ret InputReader::init_(const std::string& path) {
         return Ret("Invalid header: vector data size is too small");
     }
 
-    buf_.resize(size()); // pre-allocate buffer for one vector, used for parsing
-
     // Advance past the header newline
     const char* line = dim_end;
     while (line < end && *line != '\n') ++line;
@@ -155,51 +153,60 @@ uint64_t InputReader::id(size_t index) const {
     return lines_[index].id;
 }
 
-const uint8_t* InputReader::data(size_t index) const {
+Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     if (index >= lines_.size()) {
-        throw std::out_of_range("InputReader::data: index out of range");
+        return Ret("InputReader::data: index out of range");
     }
     const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
     const char* vec_end = reinterpret_cast<const char*>(map_) + lines_[index].end;
 
     if (type_ == DataType::f32) {
-        float* out = reinterpret_cast<float*>(buf_.data());
+        float* out = reinterpret_cast<float*>(buf);
+        if (size < dim_ * sizeof(*out)) {
+            return Ret("InputReader::data: invalide input buffer size");
+        }
         for (size_t d = 0; d < dim_; ++d) {
             if (p >= vec_end) {
-                throw std::runtime_error("InputReader::data: truncated vector payload");
+                return Ret("InputReader::data: truncated vector payload");
             }
             char* next;
             out[d] = strtof(p, &next);
             if (next == p || next > vec_end) {
-                throw std::runtime_error("InputReader::data: invalid f32 token");
+                return Ret("InputReader::data: invalid f32 token");
             }
             p = next;
             while (p < vec_end && (*p == ',' || *p == ' ')) ++p;
         }
     } else if (type_ == DataType::i16) {
-        int16_t* out = reinterpret_cast<int16_t*>(buf_.data());
+        int16_t* out = reinterpret_cast<int16_t*>(buf);
+        if (size < dim_ * sizeof(*out)) {
+            return Ret("InputReader::data: invalide input buffer size");
+        }
         for (size_t d = 0; d < dim_; ++d) {
             if (p >= vec_end) {
-                throw std::runtime_error("InputReader::data: truncated vector payload");
+                return Ret("InputReader::data: truncated vector payload");
             }
             char* next;
             out[d] = static_cast<int16_t>(strtol(p, &next, 10));
             if (next == p || next > vec_end) {
-                throw std::runtime_error("InputReader::data: invalid i16 token");
+                return Ret("InputReader::data: invalid i16 token");
             }
             p = next;
             while (p < vec_end && (*p == ',' || *p == ' ')) ++p;
         }
     } else if (type_ == DataType::f16) {
-        float16* out = reinterpret_cast<float16*>(buf_.data());
+        float16* out = reinterpret_cast<float16*>(buf);
+        if (size < dim_ * sizeof(*out)) {
+            return Ret("InputReader::data: invalide input buffer size");
+        }
         for (size_t d = 0; d < dim_; ++d) {
             if (p >= vec_end) {
-                throw std::runtime_error("InputReader::data: truncated vector payload");
+                return Ret("InputReader::data: truncated vector payload");
             }
             char* next;
             float f = strtof(p, &next);
             if (next == p || next > vec_end) {
-                throw std::runtime_error("InputReader::data: invalid f16 token");
+                return Ret("InputReader::data: invalid f16 token");
             }
             out[d] = static_cast<float16>(f);
             p = next;
@@ -210,10 +217,10 @@ const uint8_t* InputReader::data(size_t index) const {
     // Any non-separator payload after parsing dim values is malformed.
     while (p < vec_end && (*p == ',' || *p == ' ')) ++p;
     if (p != vec_end) {
-        throw std::runtime_error("InputReader::data: extra tokens in vector payload");
+        return Ret("InputReader::data: extra tokens in vector payload");
     }
 
-    return buf_.data();
+    return Ret(0);
 }
 
 bool InputReader::is_no_data(size_t index) const {
@@ -300,11 +307,11 @@ uint64_t InputReaderView::id(size_t index) const {
     return reader_.id(view_index_ + index);
 }
 
-const uint8_t* InputReaderView::data(size_t index) const {
+Ret InputReaderView::data(size_t index, uint8_t* buf, size_t size) const {
     if (index >= count_) {
-        throw std::out_of_range("InputReaderView::data: index out of range");
+        return Ret("InputReaderView::data: index out of range");
     }
-    return reader_.data(view_index_ + index);
+    return reader_.data(view_index_ + index, buf, size);
 }
 
 bool InputReaderView::is_no_data(size_t index) const {

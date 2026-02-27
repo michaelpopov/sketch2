@@ -210,6 +210,9 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
 
     load_update_records(updater, updater_items);
 
+    // If updater contains records with ids that appear in deletes,
+    // then remove these ids from deletes because updater brings new
+    // values.
     load_update_deletes(source, deletes);
     for (const auto& item: updater_items) {
         deletes.erase(item.id);

@@ -159,11 +159,12 @@ TEST_F(InputReaderTest, SizeI16) {
 
 // --- data() ---
 
-TEST_F(InputReaderTest, DataReturnsNonNull) {
+TEST_F(InputReaderTest, DataReturnsSuccess) {
     generate_input_file(path_, cfg(3, 0, DataType::f32, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
-    EXPECT_NE(nullptr, r.data(0));
+    std::vector<uint8_t> buf(r.size());
+    EXPECT_EQ(0, r.data(0, buf.data(), buf.size()).code());
 }
 
 TEST_F(InputReaderTest, F32DataValuesAreIdPlusPointOne) {
@@ -171,8 +172,10 @@ TEST_F(InputReaderTest, F32DataValuesAreIdPlusPointOne) {
     generate_input_file(path_, cfg(3, 10, DataType::f32, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
+    std::vector<uint8_t> buf(r.size());
     for (size_t i = 0; i < 3; ++i) {
-        const float* v = reinterpret_cast<const float*>(r.data(i));
+        EXPECT_EQ(0, r.data(i, buf.data(), buf.size()).code());
+        const float* v = reinterpret_cast<const float*>(buf.data());
         float expected = static_cast<float>(10 + i) + 0.1f;
         for (size_t d = 0; d < 4; ++d) {
             EXPECT_NEAR(expected, v[d], 1e-4f) << "vector " << i << " dim " << d;
@@ -185,8 +188,10 @@ TEST_F(InputReaderTest, I16DataValuesAreId) {
     generate_input_file(path_, cfg(3, 5, DataType::i16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
+    std::vector<uint8_t> buf(r.size());
     for (size_t i = 0; i < 3; ++i) {
-        const int16_t* v = reinterpret_cast<const int16_t*>(r.data(i));
+        EXPECT_EQ(0, r.data(i, buf.data(), buf.size()).code());
+        const int16_t* v = reinterpret_cast<const int16_t*>(buf.data());
         int16_t expected = static_cast<int16_t>(5 + i);
         for (size_t d = 0; d < 4; ++d) {
             EXPECT_EQ(expected, v[d]) << "vector " << i << " dim " << d;
@@ -201,7 +206,8 @@ TEST_F(InputReaderTest, DataDoesNotCrossIntoNextLineWhenPayloadIsShort) {
         "11 : [ 11.1, 11.1, 11.1, 11.1 ]\n");
     InputReader r;
     ASSERT_EQ(0, r.init(path_).code());
-    EXPECT_THROW((void)r.data(0), std::runtime_error);
+    std::vector<uint8_t> buf(r.size());
+    EXPECT_NE(0, r.data(0, buf.data(), buf.size()).code());
 }
 
 TEST_F(InputReaderTest, DataFailsOnExtraTokensInPayload) {
@@ -210,7 +216,8 @@ TEST_F(InputReaderTest, DataFailsOnExtraTokensInPayload) {
         "10 : [ 10.1, 10.1, 10.1, 10.1, 10.1 ]\n");
     InputReader r;
     ASSERT_EQ(0, r.init(path_).code());
-    EXPECT_THROW((void)r.data(0), std::runtime_error);
+    std::vector<uint8_t> buf(r.size());
+    EXPECT_NE(0, r.data(0, buf.data(), buf.size()).code());
 }
 
 // --- id() ---
@@ -242,12 +249,13 @@ TEST_F(InputReaderTest, IsNoDataOutOfBoundsThrows) {
     EXPECT_THROW(r.is_no_data(100), std::out_of_range);
 }
 
-TEST_F(InputReaderTest, DataOutOfBoundsThrows) {
+TEST_F(InputReaderTest, DataOutOfBoundsReturnsError) {
     generate_input_file(path_, cfg(3, 0, DataType::f32, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
-    EXPECT_THROW(r.data(3),   std::out_of_range);
-    EXPECT_THROW(r.data(100), std::out_of_range);
+    std::vector<uint8_t> buf(r.size());
+    EXPECT_NE(0, r.data(3,   buf.data(), buf.size()).code());
+    EXPECT_NE(0, r.data(100, buf.data(), buf.size()).code());
 }
 
 TEST_F(InputReaderTest, IsNoDataReturnsFalseForNormalVector) {
@@ -275,9 +283,9 @@ TEST_F(InputReaderTest, F16DataWorks) {
     generate_input_file(path_, cfg(1, 42, DataType::f16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
-    // Should verify it doesn't throw and we get some data
-    EXPECT_NO_THROW(r.data(0));
-    const uint16_t* v = reinterpret_cast<const uint16_t*>(r.data(0));
+    std::vector<uint8_t> buf(r.size());
+    EXPECT_EQ(0, r.data(0, buf.data(), buf.size()).code());
+    const uint16_t* v = reinterpret_cast<const uint16_t*>(buf.data());
     EXPECT_NE(0, v[0]); // should contain parsed f16 value
 }
 
@@ -381,8 +389,10 @@ TEST_F(InputReaderViewTest, WholeViewData) {
     InputReader r;
     ASSERT_EQ(0, r.init(path_).code());
     InputReaderView v(r, 0, 0);
+    std::vector<uint8_t> buf(v.size());
     for (size_t i = 0; i < 3; ++i) {
-        const float* vd = reinterpret_cast<const float*>(v.data(i));
+        EXPECT_EQ(0, v.data(i, buf.data(), buf.size()).code());
+        const float* vd = reinterpret_cast<const float*>(buf.data());
         float expected = static_cast<float>(5 + i) + 0.1f;
         for (size_t d = 0; d < 4; ++d) {
             EXPECT_NEAR(expected, vd[d], 1e-4f) << "vector " << i << " dim " << d;
@@ -416,8 +426,10 @@ TEST_F(InputReaderViewTest, PartialViewData) {
     InputReader r;
     ASSERT_EQ(0, r.init(path_).code());
     InputReaderView v(r, 11, 14);
+    std::vector<uint8_t> buf(v.size());
     for (size_t i = 0; i < 3; ++i) {
-        const float* vd = reinterpret_cast<const float*>(v.data(i));
+        EXPECT_EQ(0, v.data(i, buf.data(), buf.size()).code());
+        const float* vd = reinterpret_cast<const float*>(buf.data());
         float expected = static_cast<float>(11 + i) + 0.1f;
         for (size_t d = 0; d < 4; ++d) {
             EXPECT_NEAR(expected, vd[d], 1e-4f) << "vector " << i << " dim " << d;
@@ -471,13 +483,14 @@ TEST_F(InputReaderViewTest, IdOutOfBoundsThrows) {
     EXPECT_THROW(v.id(100), std::out_of_range);
 }
 
-TEST_F(InputReaderViewTest, DataOutOfBoundsThrows) {
+TEST_F(InputReaderViewTest, DataOutOfBoundsReturnsError) {
     generate_input_file(path_, cfg(5, 10, DataType::f32, 4));
     InputReader r;
     ASSERT_EQ(0, r.init(path_).code());
     InputReaderView v(r, 11, 13);
-    EXPECT_THROW(v.data(2),   std::out_of_range);
-    EXPECT_THROW(v.data(100), std::out_of_range);
+    std::vector<uint8_t> buf(v.size());
+    EXPECT_NE(0, v.data(2,   buf.data(), buf.size()).code());
+    EXPECT_NE(0, v.data(100, buf.data(), buf.size()).code());
 }
 
 TEST_F(InputReaderViewTest, IsNoDataOutOfBoundsThrows) {
