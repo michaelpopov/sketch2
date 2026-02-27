@@ -143,4 +143,46 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
     return Ret(0);
 }
 
+Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen) {
+    if (gen.dim < 4 || gen.dim > 4096) {
+        return Ret("dim must be in range [4, 4096]");
+    }
+    try {
+        validate_type(gen.type);
+    } catch (const std::exception& e) {
+        return Ret(e.what());
+    }
+
+    FILE* f = fopen(path.c_str(), "w");
+    if (!f) {
+        return Ret("Failed to open file for writing: " + path);
+    }
+    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+
+    fprintf(f, "%s,%lu\n", data_type_to_string(gen.type), gen.dim);
+
+    for (const auto& [id, val] : gen.items) {
+        if (!val) {
+            print_deleted_line(f, id);
+            continue;
+        }
+
+        if (gen.type == DataType::f32) {
+            float value = static_cast<float>(id) + 0.1;
+            print_float_line(f, id, &value, gen.dim, false);
+        } else if (gen.type == DataType::f16) {
+            constexpr float16 increment = static_cast<float16>(0.1);
+            float16 value = static_cast<float16>(id) + increment;
+            print_float_line(f, id, &value, gen.dim, false);
+        } else if (gen.type == DataType::i16) {
+            int16_t value = static_cast<int16_t>(id);
+            print_int_line(f, id, &value, gen.dim, false);
+        } else {
+            return Ret("Unsupported data type");
+        }
+    }
+
+    return Ret(0);
+}
+
 } // namespace sketch2

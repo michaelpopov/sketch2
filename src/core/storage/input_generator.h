@@ -1,8 +1,19 @@
 #pragma once
 #include "utils/shared_types.h"
+#include <map>
 #include <vector>
+#include <optional>
 
 namespace sketch2 {
+
+struct ManualInputGenerator {
+    void add(uint64_t id, int val) { items[id] = val; }
+    void deleted(uint64_t id) { items[id] = std::optional<int>(); }
+
+    DataType type = DataType::i16;
+    size_t dim = 16;
+    std::map<uint64_t, std::optional<int>> items;
+};
 
 enum class PatternType {
     Sequential,
@@ -21,6 +32,7 @@ struct GeneratorConfig {
 };
 
 Ret generate_input_file(const std::string& path, const GeneratorConfig& config);
+Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen);
 
 template <typename T>
 class InputVector {

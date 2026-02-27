@@ -224,22 +224,6 @@ bool InputReader::is_no_data(size_t index) const {
     return *p == ']';
 }
 
-void InputReader::dont_need(size_t index) const {
-    if (index >= lines_.size()) return;
-    const uint8_t* ptr = map_ + lines_[index].offset;
-    size_t page_size = sysconf(_SC_PAGESIZE);
-    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
-    uintptr_t page_start = addr & ~(page_size - 1);
-    // Note: We don't check for exact page start alignment here because
-    // InputReader lines are not usually page-aligned. We just advise the page.
-    // However, to avoid spamming syscalls, we could track the last advised page.
-    static thread_local uintptr_t last_advised_page = 0;
-    if (page_start != last_advised_page) {
-        madvise(reinterpret_cast<void*>(page_start), page_size, MADV_DONTNEED);
-        last_advised_page = page_start;
-    }
-}
-
 // Instructions:
 // Return true if there is an overlap between range and ids, assuming ids are sorted.
 bool InputReader::is_range_present(uint64_t start_range, uint64_t end_range) const {
@@ -328,11 +312,6 @@ bool InputReaderView::is_no_data(size_t index) const {
         throw std::out_of_range("InputReaderView::is_no_data: index out of range");
     }
     return reader_.is_no_data(view_index_ + index);
-}
-
-void InputReaderView::dont_need(size_t index) const {
-    if (index >= count_) return;
-    reader_.dont_need(view_index_ + index);
 }
 
 } // namespace sketch2

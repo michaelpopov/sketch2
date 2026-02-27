@@ -101,7 +101,6 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
                 return Ret("DataWriter: failed to write vector data at index " + std::to_string(i));
             }
         }
-        reader.dont_need(i);
     }
 
     // Write ids

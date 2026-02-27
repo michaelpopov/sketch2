@@ -288,6 +288,105 @@ TEST_F(InputGeneratorTest, DetailedEveryNDeletedKeepsNonDeletedProgression) {
     EXPECT_EQ("14 : []", lines[5]);
 }
 
+// --- manual-input generation ---
+
+TEST_F(InputGeneratorTest, ManualFailsOnDimTooSmall) {
+    ManualInputGenerator gen;
+    gen.dim = 3;
+    gen.add(1, 1);
+    EXPECT_NE(0, generate_input_file(path_, gen).code());
+}
+
+TEST_F(InputGeneratorTest, ManualFailsOnDimTooLarge) {
+    ManualInputGenerator gen;
+    gen.dim = 4097;
+    gen.add(1, 1);
+    EXPECT_NE(0, generate_input_file(path_, gen).code());
+}
+
+TEST_F(InputGeneratorTest, ManualFailsOnBadPath) {
+    ManualInputGenerator gen;
+    gen.type = DataType::i16;
+    gen.dim = 4;
+    gen.add(10, 3);
+    EXPECT_NE(0, generate_input_file("/nonexistent/dir/file.txt", gen).code());
+}
+
+TEST_F(InputGeneratorTest, ManualI16HeaderAndLineFormat) {
+    ManualInputGenerator gen;
+    gen.type = DataType::i16;
+    gen.dim = 4;
+    gen.add(9, 123);
+
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+    auto lines = read_lines();
+    ASSERT_EQ(2u, lines.size());
+    EXPECT_EQ("i16,4", lines[0]);
+    EXPECT_EQ("9 : [ 9, 9, 9, 9 ]", lines[1]);
+}
+
+TEST_F(InputGeneratorTest, ManualF32WritesIdPlusPointOneRepeatedByDim) {
+    ManualInputGenerator gen;
+    gen.type = DataType::f32;
+    gen.dim = 4;
+    gen.add(7, 1);
+
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+    auto lines = read_lines();
+    ASSERT_EQ(2u, lines.size());
+    EXPECT_EQ("f32,4", lines[0]);
+    EXPECT_EQ("7 : [ 7.10, 7.10, 7.10, 7.10 ]", lines[1]);
+}
+
+TEST_F(InputGeneratorTest, ManualF16HeaderAndFormatWhenSupported) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+
+    ManualInputGenerator gen;
+    gen.type = DataType::f16;
+    gen.dim = 4;
+    gen.add(5, 1);
+
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+    auto lines = read_lines();
+    ASSERT_EQ(2u, lines.size());
+    EXPECT_EQ("f16,4", lines[0]);
+    EXPECT_EQ("5 : [ 5.10, 5.10, 5.10, 5.10 ]", lines[1]);
+}
+
+TEST_F(InputGeneratorTest, ManualDeletedWritesEmptyBrackets) {
+    ManualInputGenerator gen;
+    gen.type = DataType::i16;
+    gen.dim = 4;
+    gen.add(10, 1);
+    gen.deleted(11);
+    gen.add(12, 2);
+
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+    auto lines = read_lines();
+    ASSERT_EQ(4u, lines.size());
+    EXPECT_EQ("10 : [ 10, 10, 10, 10 ]", lines[1]);
+    EXPECT_EQ("11 : []", lines[2]);
+    EXPECT_EQ("12 : [ 12, 12, 12, 12 ]", lines[3]);
+}
+
+TEST_F(InputGeneratorTest, ManualItemsAreWrittenInSortedIdOrder) {
+    ManualInputGenerator gen;
+    gen.type = DataType::i16;
+    gen.dim = 4;
+    gen.add(20, 1);
+    gen.add(3, 1);
+    gen.add(11, 1);
+
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+    auto lines = read_lines();
+    ASSERT_EQ(4u, lines.size());
+    EXPECT_EQ("3 : [ 3, 3, 3, 3 ]", lines[1]);
+    EXPECT_EQ("11 : [ 11, 11, 11, 11 ]", lines[2]);
+    EXPECT_EQ("20 : [ 20, 20, 20, 20 ]", lines[3]);
+}
+
 // InputVector tests
 
 TEST(InputVectorTest, FloatInitializesWithZeros) {

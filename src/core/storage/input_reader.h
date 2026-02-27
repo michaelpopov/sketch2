@@ -26,7 +26,6 @@ public:
     uint64_t id(size_t index) const;
     const uint8_t* data(size_t index) const;
     bool is_no_data(size_t index) const;
-    void dont_need(size_t index) const;
 
     bool is_range_present(uint64_t start_range, uint64_t end_range) const;
 
@@ -53,7 +52,6 @@ public:
     uint64_t id(size_t index) const;
     const uint8_t* data(size_t index) const;
     bool is_no_data(size_t index) const;
-    void dont_need(size_t index) const;
 private:
     const InputReader& reader_;
     size_t view_index_;

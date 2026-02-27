@@ -54,7 +54,6 @@ std::vector<uint64_t> Scanner::find_(DistFunc func, size_t count, const uint8_t*
             heap.pop();
             heap.push({it.id(), d});
         }
-        it.dont_need();
     }
 
     // Extract ids in ascending distance order.
