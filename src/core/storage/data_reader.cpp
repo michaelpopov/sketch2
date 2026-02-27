@@ -156,7 +156,7 @@ Ret DataReader::init_deleted_bitset() {
         if (del_ids[j] == id) {
             bitset_[i] = true;
             if (mode_ == ReaderMode::Reference) {
-                assert(size_ > sizeof(void*));
+                assert(size_ >= sizeof(void*));
                 uint8_t* vec_ptr = map_ + sizeof(DataFileHeader) + i * size_;
                 memcpy(vec_ptr, &zero, sizeof(zero));
             }

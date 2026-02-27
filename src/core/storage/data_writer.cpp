@@ -41,7 +41,7 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     ids.reserve(count);
     deleted_ids.reserve(count);
 
-    uint64_t prev_id;
+    uint64_t prev_id = 0;
     uint64_t min_id = std::numeric_limits<uint64_t>::max();
     uint64_t max_id = 0;
     for (size_t i = 0; i < count; ++i) {

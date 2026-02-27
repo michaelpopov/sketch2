@@ -163,7 +163,7 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     if (type_ == DataType::f32) {
         float* out = reinterpret_cast<float*>(buf);
         if (size < dim_ * sizeof(*out)) {
-            return Ret("InputReader::data: invalide input buffer size");
+            return Ret("InputReader::data: invalid input buffer size");
         }
         for (size_t d = 0; d < dim_; ++d) {
             if (p >= vec_end) {
@@ -180,7 +180,7 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     } else if (type_ == DataType::i16) {
         int16_t* out = reinterpret_cast<int16_t*>(buf);
         if (size < dim_ * sizeof(*out)) {
-            return Ret("InputReader::data: invalide input buffer size");
+            return Ret("InputReader::data: invalid input buffer size");
         }
         for (size_t d = 0; d < dim_; ++d) {
             if (p >= vec_end) {
@@ -197,7 +197,7 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     } else if (type_ == DataType::f16) {
         float16* out = reinterpret_cast<float16*>(buf);
         if (size < dim_ * sizeof(*out)) {
-            return Ret("InputReader::data: invalide input buffer size");
+            return Ret("InputReader::data: invalid input buffer size");
         }
         for (size_t d = 0; d < dim_; ++d) {
             if (p >= vec_end) {

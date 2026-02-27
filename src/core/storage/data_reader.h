@@ -45,7 +45,7 @@ public:
     Iterator       begin() const;
     uint64_t       id(size_t index) const;
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
-    const uint8_t* at(size_t index) const;   // lookup by position
+    const uint8_t* at(size_t index) const;   // lookup by position; might return nullptr if the vector is deleted
     bool           is_deleted(size_t index) const;
 
     size_t deleted_count() const { return hdr_->deleted_count; }

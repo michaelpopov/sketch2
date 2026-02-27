@@ -69,7 +69,7 @@ inline void InputVector<int16_t>::next() {
     if (col_ >= vec_.size()) {
         col_ = 0;
         for (size_t i = 0; i < vec_.size(); i++) {
-            vec_[col_] = 0;
+            vec_[i] = 0;
         }
         return;
     }

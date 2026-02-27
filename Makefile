@@ -10,7 +10,7 @@ all: build
 # Compiles the project using the specified build directory
 .PHONY: build
 build:
-	cmake --build $(BUILD_DIR) -j
+	cmake --build $(BUILD_DIR) --parallel $(nproc)
 
 # Runs the test suite with failure output enabled
 .PHONY: test

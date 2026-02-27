@@ -9,18 +9,18 @@ All commands run from the project root (directory containing `CMakeLists.txt`).
 **Debug build (preferred for development):**
 ```sh
 cmake -S . -B build-dbg -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++
-cmake --build build-dbg
+cmake --build build-dbg --parallel $(nproc)
 ```
 
 **Release build:**
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
-cmake --build build
+cmake --build build --parallel $(nproc)
 ```
 
 **Build a specific target:**
 ```sh
-cmake --build build-dbg --target utest_stor
+cmake --build build-dbg --parallel $(nproc) --target utest_stor
 ```
 
 **Discover all targets:**
@@ -42,7 +42,7 @@ ctest --test-dir build-dbg -R utest_stor --output-on-failure
 
 **Build and run a specific unit test binary directly:**
 ```sh
-cmake --build build-dbg --target utest_stor && ./bin-dbg/utest_stor
+cmake --build build-dbg --parallel $(nproc) --target utest_stor && ./bin-dbg/utest_stor
 ```
 
 Unit test binaries (Debug): `bin-dbg/utest_stor`, `bin-dbg/utest_membuf`, `bin-dbg/utest_comp`, `bin-dbg/utest_cntrl`
