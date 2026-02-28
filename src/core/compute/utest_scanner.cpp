@@ -6,12 +6,16 @@
 #include <vector>
 #include <fstream>
 #include <memory>
+#include <filesystem>
+#include <experimental/scope>
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
+#include "core/storage/dataset.h"
 
 using namespace sketch2;
+namespace fs = std::filesystem;
 
 class ScannerTest : public ::testing::Test {
 protected:
@@ -233,4 +237,32 @@ TEST_F(ScannerTest, DeltaUsesUpdatedVectors) {
     ASSERT_EQ(0, s.find(reader, DistFunc::L1, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(11u, result[0]);
+}
+
+TEST_F(ScannerTest, FindDatasetWorks) {
+    std::string d0 = "/tmp/sketch2_utest_sc_ds0_" + std::to_string(getpid());
+    std::string d1 = "/tmp/sketch2_utest_sc_ds1_" + std::to_string(getpid());
+    fs::create_directories(d0);
+    fs::create_directories(d1);
+    std::experimental::scope_exit cleanup([&]() {
+        fs::remove_all(d0);
+        fs::remove_all(d1);
+    });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4).code());
+
+    // Generate 30 items: 0..29.
+    // They go into 0.data (0..9), 1.data (10..19), 2.data (20..29).
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    auto q = f32_vec(15.2f, 4); // nearest to id 15
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(15u, result[0]);
+    EXPECT_EQ(16u, result[1]);
+    EXPECT_EQ(14u, result[2]);
 }

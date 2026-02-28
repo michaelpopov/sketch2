@@ -8,6 +8,7 @@
 namespace sketch2 {
 
 class DataReader;
+class Dataset;
 
 class Scanner {
 public:
@@ -17,8 +18,13 @@ public:
     Ret find(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
 
+    Ret find(const Dataset& dataset, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) const;
+
 private:
     Ret find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) const;
+    Ret find_(const Dataset& dataset, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
 };
 

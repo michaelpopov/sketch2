@@ -1,6 +1,7 @@
 #include "scanner.h"
 #include "core/compute/compute_l1.h"
 #include "core/storage/data_reader.h"
+#include "core/storage/dataset.h"
 #include <queue>
 #include <stdexcept>
 
@@ -13,6 +14,58 @@ Ret Scanner::find(const DataReader& reader, DistFunc func, size_t count, const u
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
+}
+
+Ret Scanner::find(const Dataset& dataset, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) const {
+    try {
+        return find_(dataset, func, count, vec, result);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
+Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) const {
+    if (vec == nullptr || count == 0) {
+        return Ret("Scanner::find: invalid arguments.");
+    }
+    if (func != DistFunc::L1) {
+        return Ret("Scanner::find: unsupported distance function.");
+    }
+
+    result.clear();
+
+    ComputeL1 l1;
+    std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare> heap;
+
+    auto drs = dataset.reader();
+    while (true) {
+        auto [reader, ret] = drs->next();
+        CHECK(ret);
+        if (!reader) break;
+
+        DataType type = reader->type();
+        size_t   dim  = reader->dim();
+
+        for (auto it = reader->begin(); !it.eof(); it.next()) {
+            double d = l1.dist(it.data(), vec, type, dim);
+            if (heap.size() < count) {
+                heap.push({it.id(), d});
+            } else if (d < heap.top().dist) {
+                heap.pop();
+                heap.push({it.id(), d});
+            }
+        }
+    }
+
+    result.resize(heap.size());
+    for (size_t i = heap.size(); i-- > 0;) {
+        result[i] = heap.top().id;
+        heap.pop();
+    }
+
+    return Ret(0);
 }
 
 Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
