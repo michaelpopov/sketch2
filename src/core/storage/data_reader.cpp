@@ -71,7 +71,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         close(fd);
         return Ret("DataReader: file too small to contain a valid header");
     }
-    void* m = mmap(nullptr, map_len_, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    void* m = mmap(nullptr, map_len_, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
     if (m == MAP_FAILED) {
         return Ret("DataReader: failed to mmap file: " + path);
@@ -102,6 +102,10 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     }
 
     const size_t dim = static_cast<size_t>(hdr_->dim);
+    if (dim < 4) {
+        return fail("DataReader: dimension too small");
+    }
+
     size_ = dim * elem_size;
     const size_t count = static_cast<size_t>(hdr_->count);
     const size_t deleted_count = static_cast<size_t>(hdr_->deleted_count);
@@ -139,7 +143,7 @@ Ret DataReader::init_dels() {
     const uint64_t* del_ids = delta_->deleted_ids_;
     size_t del_count = delta_->deleted_count();
 
-    for (uint32_t i = 0, j = 0; i < hdr_->count; ++i) {
+    for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
         const uint64_t id = ids_[i];
         while (j < del_count && del_ids[j] < id) {
             ++j;
@@ -165,7 +169,7 @@ Ret DataReader::init_mods() {
     const uint64_t* mod_ids = delta_->ids_;
     size_t mod_count = delta_->count();
 
-    for (uint32_t i = 0, j = 0; i < hdr_->count; ++i) {
+    for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
         const uint64_t id = ids_[i];
         while (j < mod_count && mod_ids[j] < id) {
             ++j;
@@ -185,18 +189,22 @@ Ret DataReader::init_mods() {
 }
 
 DataType DataReader::type() const {
+    assert(hdr_ != nullptr);
     return type_;
 }
 
-size_t DataReader::dim() const {
+uint16_t DataReader::dim() const {
+    assert(hdr_ != nullptr);
     return hdr_->dim;
 }
 
-size_t DataReader::size() const {
+uint16_t DataReader::size() const {
+    assert(hdr_ != nullptr);
     return size_;
 }
 
 size_t DataReader::count() const {
+    assert(hdr_ != nullptr);
     return hdr_->count;
 }
 

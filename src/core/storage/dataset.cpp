@@ -358,7 +358,7 @@ Ret DatasetReader::init(const std::vector<std::string>& dirs) {
 
 std::pair<DataReaderPtr, Ret> DatasetReader::next() {
     ++current_;
-    if (current_ < 0 || static_cast<size_t>(current_) >= items_.size()) {
+    if (static_cast<size_t>(current_) >= items_.size()) {
         return {nullptr, Ret(0)};
     }
 

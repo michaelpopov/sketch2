@@ -266,3 +266,115 @@ TEST_F(ScannerTest, FindDatasetWorks) {
     EXPECT_EQ(16u, result[1]);
     EXPECT_EQ(14u, result[2]);
 }
+
+TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {
+    std::string d = "/tmp/sketch2_utest_sc_dsnull_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    std::vector<uint64_t> result;
+    EXPECT_NE(0, s.find(ds, DistFunc::L1, 1, nullptr, result).code());
+}
+
+TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
+    std::string d = "/tmp/sketch2_utest_sc_dszero_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    auto q = f32_vec(1.0f, 4);
+    std::vector<uint64_t> result;
+    EXPECT_NE(0, s.find(ds, DistFunc::L1, 0, q.data(), result).code());
+}
+
+TEST_F(ScannerTest, FindDatasetFailsOnUnsupportedFunction) {
+    std::string d = "/tmp/sketch2_utest_sc_dsfunc_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    auto q = f32_vec(1.0f, 4);
+    std::vector<uint64_t> result;
+    EXPECT_NE(0, s.find(ds, DistFunc::L2, 1, q.data(), result).code());
+}
+
+TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {
+    std::string d = "/tmp/sketch2_utest_sc_dsdel_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+
+    // ids 0..4; values i+0.1 for each dimension
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    // Small update: delete id=2. With 5 existing and 1 incoming, ratio is below
+    // the merge threshold, so a delta file is created.
+    {
+        std::ofstream f(input_path_);
+        f << "f32,4\n2 : []\n";
+    }
+    ASSERT_EQ(0, ds.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
+
+    Scanner s;
+    auto q = f32_vec(2.1f, 4); // query closest to deleted id=2
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 5, q.data(), result).code());
+
+    // Only 4 vectors survive (0,1,3,4); id=2 must not appear.
+    EXPECT_EQ(4u, result.size());
+    for (uint64_t id : result) {
+        EXPECT_NE(2u, id) << "deleted id=2 must not appear in results";
+    }
+}
+
+TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
+    std::string d = "/tmp/sketch2_utest_sc_dsupd_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+
+    // ids 0..4; values i+0.1 for each dimension
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    // Small update: move id=1 far away. Should create delta.
+    {
+        std::ofstream f(input_path_);
+        f << "f32,4\n1 : [ 500.0, 500.0, 500.0, 500.0 ]\n";
+    }
+    ASSERT_EQ(0, ds.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
+
+    Scanner s;
+    // Query at 0.0: id=0 ([0.1,...]) is at distance 0.4, id=2 ([2.1,...]) is at 8.4.
+    // Querying at 1.1 would be ambiguous in f32 arithmetic (2.1-1.1 < 1.1-0.1 due to
+    // rounding), so we use 0.0 to make id=0 the unambiguous nearest neighbour.
+    auto q = f32_vec(0.0f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    // id=0 (value 0.1, dist=0.4) beats all others; id=1 at 500 is not the nearest.
+    EXPECT_EQ(0u, result[0]);
+}

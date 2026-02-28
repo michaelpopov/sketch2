@@ -158,6 +158,9 @@ void DataMerger::load_update_deletes(const DataReader& updater, std::unordered_s
 }
 
 void DataMerger::write_data(FILE* f, const uint8_t* data, size_t size) {
+    if (data == nullptr || size == 0) {
+        throw std::runtime_error("DataMerger::write_data: invalid arguments");
+    }
     if (fwrite(data, size, 1, f) != 1) {
         throw std::runtime_error("DataMerger::write_data: failed to write merge file");
     }

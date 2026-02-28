@@ -32,8 +32,8 @@ public:
     Ret init(const std::string& path, std::unique_ptr<DataReader> delta = nullptr);
 
     DataType type()  const;
-    size_t   dim()   const;
-    size_t   size()  const; // size of one vector in bytes
+    uint16_t  dim()   const;
+    uint16_t  size()  const; // size of one vector in bytes
     size_t   count() const; // number of vectors
 
     Iterator       begin() const;
@@ -48,7 +48,7 @@ public:
     bool check_consistency() const;
 
 private:
-    uint8_t*                 map_     = nullptr;
+    const uint8_t*           map_     = nullptr;
     size_t                   map_len_ = 0;
     const DataFileHeader*    hdr_     = nullptr;
     const uint64_t*          ids_     = nullptr; // cached pointer to the ids section
@@ -63,7 +63,7 @@ private:
     Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
     Ret init_dels();
     Ret init_mods();
-    uint8_t* get_by_pos(uint32_t pos) { return map_ + sizeof(DataFileHeader) + size_ * pos; }
+    const uint8_t* get_by_pos(uint32_t pos) { return map_ + sizeof(DataFileHeader) + size_ * pos; }
 };
 
 } // namespace sketch2

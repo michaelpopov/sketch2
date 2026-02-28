@@ -417,3 +417,85 @@ TEST_F(DatasetTest, DeltaCreatedOnlyForTouchedRange) {
     EXPECT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
     EXPECT_FALSE(fs::exists(file_path(dir, 1, ".delta")));
 }
+
+// --- DatasetReader::next() ---
+
+TEST_F(DatasetTest, DatasetReaderNextReturnsNullWhenExhausted) {
+    auto dir = make_dir("d");
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto drs = sc.reader();
+
+    // Consume the one data file.
+    auto [r1, ret1] = drs->next();
+    EXPECT_EQ(0, ret1.code());
+    EXPECT_NE(nullptr, r1);
+
+    // Past the end: null reader with success code.
+    auto [r2, ret2] = drs->next();
+    EXPECT_EQ(0, ret2.code());
+    EXPECT_EQ(nullptr, r2);
+
+    // Repeated calls past the end also succeed.
+    auto [r3, ret3] = drs->next();
+    EXPECT_EQ(0, ret3.code());
+    EXPECT_EQ(nullptr, r3);
+}
+
+TEST_F(DatasetTest, DatasetReaderNextOnEmptyDatasetReturnsNull) {
+    auto dir = make_dir("empty");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
+    // No store() call — no files in dir.
+    auto drs = sc.reader();
+    auto [reader, ret] = drs->next();
+    EXPECT_EQ(0, ret.code());
+    EXPECT_EQ(nullptr, reader);
+}
+
+TEST_F(DatasetTest, DatasetReaderNextIteratesAllFiles) {
+    auto dir = make_dir("d");
+    // ids 0..29 with range_size=10 → 3 data files: 0.data, 1.data, 2.data.
+    generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4));
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto drs = sc.reader();
+    size_t file_count = 0;
+    while (true) {
+        auto [reader, ret] = drs->next();
+        ASSERT_EQ(0, ret.code());
+        if (!reader) break;
+        ++file_count;
+    }
+    EXPECT_EQ(3u, file_count);
+}
+
+TEST_F(DatasetTest, DatasetReaderNextReturnsDeltaFileAlongsideData) {
+    auto dir = make_dir("d");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    // Small update: modify id=5 (already in the data file) — triggers delta creation.
+    // Inserting a brand-new id would only land in the delta and be invisible via
+    // DataReader::get(), which searches the data file's id array.
+    write_input("f32,4\n5 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+    ASSERT_EQ(0, sc.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    // The merged reader must return the updated value for id=5.
+    auto drs = sc.reader();
+    auto [reader, ret] = drs->next();
+    ASSERT_EQ(0, ret.code());
+    ASSERT_NE(nullptr, reader);
+    const float* v = reinterpret_cast<const float*>(reader->get(5));
+    ASSERT_NE(nullptr, v);
+    EXPECT_NEAR(99.0f, v[0], 1e-5f);
+}

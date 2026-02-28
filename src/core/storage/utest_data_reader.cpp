@@ -628,3 +628,12 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     ASSERT_EQ(0, r.init(data_path_).code());
     EXPECT_FALSE(r.check_consistency());
 }
+
+// --- double init ---
+
+TEST_F(DataReaderTest, DoubleInitFails) {
+    generate(3, 0, DataType::f32, 4);
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_NE(0, r.init(data_path_).code());
+}

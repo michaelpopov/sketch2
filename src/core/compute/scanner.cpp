@@ -71,10 +71,10 @@ Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const ui
 Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
     std::vector<uint64_t>& result) const {
     if (vec == nullptr || count == 0) {
-        throw std::runtime_error("Scanner::find: invalid arguments.");
+        return Ret("Scanner::find: invalid arguments.");
     }
     if (func != DistFunc::L1) {
-        throw std::runtime_error("Scanner::find: unsupported distance function.");
+        return Ret("Scanner::find: unsupported distance function.");
     }
 
     result.clear();

@@ -74,10 +74,10 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     hdr.version       = kVersion;
     hdr.min_id        = min_id;
     hdr.max_id        = max_id;
-    hdr.count         = static_cast<uint32_t>(ids.size());
+    hdr.count         = ids.size();
     hdr.deleted_count = static_cast<uint32_t>(deleted_ids.size());
     hdr.type          = static_cast<uint16_t>(data_type_to_int(reader.type()));
-    hdr.dim           = static_cast<uint16_t>(reader.dim());
+    hdr.dim           = reader.dim();
     hdr.padding       = 0;
 
     // Write output file
@@ -88,7 +88,7 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
     // Write header
-    assert(sizeof(hdr) % 8 == 0);
+    static_assert(sizeof(hdr) % 8 == 0);
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret("DataWriter: failed to write header");
     }
