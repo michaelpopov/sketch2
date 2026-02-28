@@ -65,7 +65,7 @@ Ret Dataset::init_(const std::string& path) {
 
     int dim = cfg.get_int("dataset.dim", 0);
 
-    std::string type_str = cfg.get_str("dataset.type", "f16");
+    std::string type_str = cfg.get_str("dataset.type", "f32");
     DataType type = data_type_from_string(type_str);
     validate_type(type);
 
@@ -146,7 +146,7 @@ Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64
     const std::string data_path = output_path_base + kDataExt;
     if (!std::filesystem::exists(data_path)) {
         if (output_reader.deleted_count() != 0) {
-            return Ret("Dataset::store_and_merge: invalide deleted items");
+            return Ret("Dataset::store_and_merge: invalid deleted items");
         }
         std::filesystem::rename(output_path, data_path);
         return Ret(0);
@@ -210,10 +210,13 @@ bool Dataset::check_data_delta_merge(const DataReader& data_reader, const DataRe
 
 Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
         const std::string& output_path_base, const std::string& ext) {
+
     const std::string source_path = output_path_base + ext;
-    if (std::filesystem::exists(source_path)) {
-        std::filesystem::remove(source_path);
-    }
+    std::experimental::scope_exit file_guard([source_path]() {
+        if (std::filesystem::exists(source_path)) {
+            std::filesystem::remove(source_path);
+        }
+    });
 
     DataMerger processor;
     const std::string merge_path = output_path_base + kMergeExt;
@@ -227,9 +230,11 @@ Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& ou
 
 Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base) {
     const std::string source_path = output_path_base + kTempExt;
-    if (std::filesystem::exists(source_path)) {
-        std::filesystem::remove(source_path);
-    }
+    std::experimental::scope_exit file_guard([source_path]() {
+        if (std::filesystem::exists(source_path)) {
+            std::filesystem::remove(source_path);
+        }
+    });
 
     DataMerger processor;
     const std::string merge_path = output_path_base + kMergeExt;
@@ -351,10 +356,10 @@ Ret DatasetReader::init(const std::vector<std::string>& dirs) {
     return 0;
 }
 
-DataReaderPtr DatasetReader::next() {
+std::pair<DataReaderPtr, Ret> DatasetReader::next() {
     ++current_;
     if (current_ < 0 || static_cast<size_t>(current_) >= items_.size()) {
-        return nullptr;
+        return {nullptr, Ret(0)};
     }
 
     const Item& item = items_[current_];
@@ -367,16 +372,16 @@ DataReaderPtr DatasetReader::next() {
         DataReaderPtr delta_reader = std::make_unique<DataReader>();
         ret = delta_reader->init(item.delta_file_path);
         if (ret != 0) {
-            throw std::runtime_error(ret.message());
+            return {nullptr, ret};
         }
         ret = reader->init(item.data_file_path, std::move(delta_reader));
     }
 
     if (ret != 0) {
-        throw std::runtime_error(ret.message());
+        return {nullptr, ret};
     }
 
-    return reader;
+    return {std::move(reader), Ret(0)};
 }
     
 } // namespace sketch2

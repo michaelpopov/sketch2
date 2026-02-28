@@ -70,7 +70,8 @@ TEST_F(DatasetFullCycleTest, SequentialSingleRangeRoundTripThroughDatasetReader)
     DatasetReaderPtr drs = ds.reader();
     ASSERT_NE(nullptr, drs);
 
-    DataReaderPtr r = drs->next();
+    auto [r, ret] = drs->next();
+    ASSERT_EQ(0, ret.code());
     ASSERT_NE(nullptr, r);
     EXPECT_EQ(10u, r->count());
     EXPECT_EQ(100u, r->id(0));
@@ -81,7 +82,7 @@ TEST_F(DatasetFullCycleTest, SequentialSingleRangeRoundTripThroughDatasetReader)
     EXPECT_NEAR(103.1f, v[0], 1e-4f);
     EXPECT_NEAR(103.1f, v[3], 1e-4f);
 
-    EXPECT_EQ(nullptr, drs->next());
+    EXPECT_EQ(nullptr, drs->next().first);
 }
 
 TEST_F(DatasetFullCycleTest, MultiDirMultiRangeReaderOrderAndCoverage) {
@@ -96,13 +97,16 @@ TEST_F(DatasetFullCycleTest, MultiDirMultiRangeReaderOrderAndCoverage) {
     DatasetReaderPtr drs = ds.reader();
     ASSERT_NE(nullptr, drs);
 
-    DataReaderPtr r0 = drs->next();
-    DataReaderPtr r1 = drs->next();
-    DataReaderPtr r2 = drs->next();
+    auto [r0, ret0] = drs->next();
+    auto [r1, ret1] = drs->next();
+    auto [r2, ret2] = drs->next();
+    ASSERT_EQ(0, ret0.code());
+    ASSERT_EQ(0, ret1.code());
+    ASSERT_EQ(0, ret2.code());
     ASSERT_NE(nullptr, r0);
     ASSERT_NE(nullptr, r1);
     ASSERT_NE(nullptr, r2);
-    EXPECT_EQ(nullptr, drs->next());
+    EXPECT_EQ(nullptr, drs->next().first);
 
     EXPECT_EQ(0u, r0->id(0));
     EXPECT_EQ(10u, r1->id(0));
@@ -135,9 +139,10 @@ TEST_F(DatasetFullCycleTest, OverrideAndDeleteAreAppliedByDatasetReaderWithDelta
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     DatasetReaderPtr drs = ds.reader();
-    DataReaderPtr r = drs->next();
+    auto [r, ret] = drs->next();
+    ASSERT_EQ(0, ret.code());
     ASSERT_NE(nullptr, r);
-    EXPECT_EQ(nullptr, drs->next());
+    EXPECT_EQ(nullptr, drs->next().first);
 
     const float* v5 = reinterpret_cast<const float*>(r->get(5));
     ASSERT_NE(nullptr, v5);
@@ -173,9 +178,10 @@ TEST_F(DatasetFullCycleTest, DeltaMergeBackToDataKeepsReaderConsistent) {
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     DatasetReaderPtr drs = ds.reader();
-    DataReaderPtr r = drs->next();
+    auto [r, ret] = drs->next();
+    ASSERT_EQ(0, ret.code());
     ASSERT_NE(nullptr, r);
-    EXPECT_EQ(nullptr, drs->next());
+    EXPECT_EQ(nullptr, drs->next().first);
 
     EXPECT_EQ(16u, r->count());
     EXPECT_NE(nullptr, r->get(80));
@@ -194,11 +200,13 @@ TEST_F(DatasetFullCycleTest, ReaderAppliesDeltaOnlyToTouchedRange) {
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     DatasetReaderPtr drs = ds.reader();
-    DataReaderPtr r0 = drs->next();
-    DataReaderPtr r1 = drs->next();
+    auto [r0, ret0] = drs->next();
+    auto [r1, ret1] = drs->next();
+    ASSERT_EQ(0, ret0.code());
+    ASSERT_EQ(0, ret1.code());
     ASSERT_NE(nullptr, r0);
     ASSERT_NE(nullptr, r1);
-    EXPECT_EQ(nullptr, drs->next());
+    EXPECT_EQ(nullptr, drs->next().first);
 
     EXPECT_EQ(0u, r0->id(0));
     EXPECT_EQ(10u, r1->id(0));
@@ -231,9 +239,10 @@ TEST_F(DatasetFullCycleTest, FullCycleI16WithOverrideAndDelete) {
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     DatasetReaderPtr drs = ds.reader();
-    DataReaderPtr r = drs->next();
+    auto [r, ret] = drs->next();
+    ASSERT_EQ(0, ret.code());
     ASSERT_NE(nullptr, r);
-    EXPECT_EQ(nullptr, drs->next());
+    EXPECT_EQ(nullptr, drs->next().first);
 
     const int16_t* v3 = reinterpret_cast<const int16_t*>(r->get(3));
     ASSERT_NE(nullptr, v3);

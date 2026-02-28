@@ -53,7 +53,7 @@ private:
 class DatasetReader {
 public:
     Ret init(const std::vector<std::string>& dirs);
-    DataReaderPtr next();
+    std::pair<DataReaderPtr, Ret> next();
 private:
     struct Item {
         uint64_t id;
