@@ -43,15 +43,15 @@ DataReader::~DataReader() {
     }
 }
 
-Ret DataReader::init(const std::string &path, ReaderMode mode, std::unique_ptr<DataReader> delta) {
+Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta) {
     try {
-        return init_(path, mode, std::move(delta));
+        return init_(path, std::move(delta));
     } catch (const std::exception& e) {
         return Ret(e.what());
     }
 }
 
-Ret DataReader::init_(const std::string& path, ReaderMode mode, std::unique_ptr<DataReader> delta) {
+Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta) {
     if (map_) {
         return Ret("DataReader is initialized already.");
     }
@@ -120,30 +120,26 @@ Ret DataReader::init_(const std::string& path, ReaderMode mode, std::unique_ptr<
 
     ids_ = reinterpret_cast<const uint64_t*>(map_ + sizeof(DataFileHeader) + vectors_bytes);
     deleted_ids_ = ids_ + count;
-    mode_   = mode;
     delta_  = std::move(delta);
 
     if (delta_) {
-        CHECK(init_deleted_bitset());
-        CHECK(init_updates_override());
+        bitset_.resize(hdr_->count);
+        CHECK(init_dels());
+        CHECK(init_mods());
     }
 
     return Ret(0);
 }
 
-Ret DataReader::init_deleted_bitset() {
+Ret DataReader::init_dels() {
     if (!hdr_ || !ids_ || !delta_) {
-        return Ret("DataReader::init_deleted_bitset: reader is not initialized");
+        return Ret("DataReader::init_dels: reader is not initialized");
     }
 
     const uint64_t* del_ids = delta_->deleted_ids_;
     size_t del_count = delta_->deleted_count();
 
-    bitset_.resize(hdr_->count);
-
-    const void* zero = nullptr;
- 
-    for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
+    for (uint32_t i = 0, j = 0; i < hdr_->count; ++i) {
         const uint64_t id = ids_[i];
         while (j < del_count && del_ids[j] < id) {
             ++j;
@@ -155,45 +151,33 @@ Ret DataReader::init_deleted_bitset() {
 
         if (del_ids[j] == id) {
             bitset_[i] = true;
-            if (mode_ == ReaderMode::Reference) {
-                assert(size_ >= sizeof(void*));
-                uint8_t* vec_ptr = map_ + sizeof(DataFileHeader) + i * size_;
-                memcpy(vec_ptr, &zero, sizeof(zero));
-            }
         }
     }
 
     return Ret(0);
 }
 
-Ret DataReader::init_updates_override() {
+Ret DataReader::init_mods() {
     if (!hdr_ || !ids_ || !delta_) {
-        return Ret("DataReader::init_updates_override: reader is not initialized");
+        return Ret("DataReader::init_mods: reader is not initialized");
     }
 
-    const uint64_t* upd_ids = delta_->ids_;
-    size_t upd_count = delta_->count();
+    const uint64_t* mod_ids = delta_->ids_;
+    size_t mod_count = delta_->count();
 
-    for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
+    for (uint32_t i = 0, j = 0; i < hdr_->count; ++i) {
         const uint64_t id = ids_[i];
-        while (j < upd_count && upd_ids[j] < id) {
+        while (j < mod_count && mod_ids[j] < id) {
             ++j;
         }
 
-        if (j >= upd_count) {
+        if (j >= mod_count) {
             break;
         }
-        
-        if (upd_ids[j] == id) {
-            uint8_t* vec_ptr = map_ + sizeof(DataFileHeader) + i * size_;
-            const uint8_t* upd_ptr = delta_->at(j);
-            if (mode_ == ReaderMode::InPlace) {
-                memcpy(vec_ptr, upd_ptr, size_);
-            } else if (mode_ == ReaderMode::Reference) {
-                assert(size_ >= sizeof(upd_ptr));
-                bitset_[i] = true;
-                memcpy(vec_ptr, &upd_ptr, sizeof(upd_ptr));
-            }
+
+        if (mod_ids[j] == id) {
+            bitset_[i] = true;
+            mods_[id] = j;
         }
     }
 
@@ -236,23 +220,19 @@ const uint8_t* DataReader::at(size_t index) const {
         throw std::out_of_range("DataReader::at: index out of range");
     }
 
-    // In case of ReaderMode::InPlace always return the mmaped vector.
-    if (mode_ == ReaderMode::InPlace) {
-        return map_ + sizeof(DataFileHeader) + index * size();
-    }
-
-    // In case of ReaderMode::Reference check is a vector overwritten.
-    // If not, then return the mmaped vector.
     if (index >= bitset_.size() || !bitset_[index]) {
         return map_ + sizeof(DataFileHeader) + index * size();
     }
 
-    // In case of ReaderMode::Reference when a vector is overwritten
-    // get the pointer to a new value and return it.
-    const uint8_t* vec = map_ + sizeof(DataFileHeader) + index * size();
-    const uint8_t* ptr;
-    memcpy(&ptr, vec, sizeof(ptr));
-    return ptr;
+    const uint64_t id = ids_[index];
+    const auto iter = mods_.find(id);
+    if (iter == mods_.end()) {
+        return nullptr;
+    }
+
+    assert(delta_);
+    const uint32_t pos = iter->second;
+    return delta_->get_by_pos(pos);
 }
 
 const uint8_t* DataReader::get(uint64_t id) const {
@@ -271,14 +251,14 @@ bool DataReader::is_deleted(size_t index) const {
     if (index >= bitset_.size() || !bitset_[index]) {
         return false;
     }
-    if (mode_ == ReaderMode::InPlace) {
+
+    const uint64_t id = ids_[index];
+    const auto iter = mods_.find(id);
+    if (iter == mods_.end()) {
         return true;
     }
-    // Reference mode: deleted if the first 8 bytes (a pointer) are null
-    const uint8_t* vec = map_ + sizeof(DataFileHeader) + index * size();
-    const uint8_t* ptr;
-    memcpy(&ptr, vec, sizeof(ptr));
-    return ptr == nullptr;
+
+    return false;
 }
 
 uint64_t DataReader::deleted_id(size_t index) const {

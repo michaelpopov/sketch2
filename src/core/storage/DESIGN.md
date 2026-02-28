@@ -50,15 +50,13 @@ DataWriter
 A class that gets generates sealed data file based on the content of InputReader.
 Format:
 
-|--------|-----------------------------|-------------|
-  header       array of vectors          array of ids
+|--------|-----------------------------|-------------|-------------|
+  header       array of vectors          array of ids   array of
+                                                        deleted ids
 
 header is a struct DataFileHeader.
 vector is data (see below).
 ids is an array of u64.
-
-Vector consists of a header u64 and data.
-Header contains vector id.
 
 |----------------------------|
       data
@@ -97,27 +95,19 @@ Iterator
     next()
     eof()
 
-There is a vector of boolean flags. The size matches the number of vectors
+There is a bitset of boolean flags. The size matches the number of vectors
 in the file. Each vector has a corresponding bit. 0 (false) means the vector
-is valid as it is. 1 (true) means the vector was modified. The vector is generated
-based on the content of deleted ids in provided delta.
+is valid as it is. 1 (true) means the vector was modified. 
 
-There are two modes:
-   - in place
-   - reference
+There is an additional map that points to modified values. 
+     id -> modified value position
+If the flag is on in the bitset, then find an uint32 value in the hash map 
+by vector's id. If it is found, then use the value identifued by the offset.
+If it is not found, then the vector is deleted.
 
-Bitset is populated only if a delta DataReader is provided.
+Bitset and the map are populated only if a delta DataReader is provided.
 
-If the mode is "in place" then
- - "modified" vector means it is deleted
- - bitset is not checked in this mode.
-
-If the mode is "reference" then it is required to look at the content of the vector,
-the first 8 bytes converted to u8*:
-   - nullptr means the vector is deleted
-   - otherwise it's a pointer to a new value of the vector.
-
-Iterator skips deleted vectors by checking the bitset and the value of the vector.
+Iterator skips deleted vectors by checking the bitset and look up in the map.
 
 
 Scanner

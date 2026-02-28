@@ -380,12 +380,12 @@ TEST_F(DataReaderTest, IteratorF32ValuesCorrect) {
 
 // --- delta-based modifications ---
 
-TEST_F(DataReaderTest, InPlaceWithDeltaSkipsDeletedInIterator) {
+TEST_F(DataReaderTest, DeltaSkipsDeletedInIterator) {
     generate(6, 0, DataType::f32, 4);
     generate_delta(6, 0, DataType::f32, 4, 2); // deleted ids: 2,4
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
     std::vector<uint64_t> seen_ids;
     for (auto it = r.begin(); !it.eof(); it.next())
         seen_ids.push_back(it.id());
@@ -396,12 +396,12 @@ TEST_F(DataReaderTest, InPlaceWithDeltaSkipsDeletedInIterator) {
     EXPECT_EQ(5u, seen_ids[3]);
 }
 
-TEST_F(DataReaderTest, InPlaceWithDeltaGetReturnsNullForDeleted) {
+TEST_F(DataReaderTest, DeltaGetReturnsNullForDeleted) {
     generate(6, 0, DataType::f32, 4);
     generate_delta(6, 0, DataType::f32, 4, 2); // deleted ids: 2,4
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
     EXPECT_NE(nullptr, r.get(0));
     EXPECT_EQ(nullptr, r.get(2));
     EXPECT_NE(nullptr, r.get(3));
@@ -412,14 +412,14 @@ TEST_F(DataReaderTest, NoDeltaIteratorSeesAll) {
     const size_t count = 4;
     generate(count, 0, DataType::f32, 4);
     DataReader r;
-    EXPECT_EQ(0, r.init(data_path_, ReaderMode::InPlace).code());
+    EXPECT_EQ(0, r.init(data_path_).code());
     size_t seen = 0;
     for (auto it = r.begin(); !it.eof(); it.next())
         ++seen;
     EXPECT_EQ(count, seen);
 }
 
-TEST_F(DataReaderTest, InPlaceWithAllDeletedDeltaIteratorIsImmediatelyEof) {
+TEST_F(DataReaderTest, AllDeletedDeltaIteratorIsImmediatelyEof) {
     generate(3, 0, DataType::f32, 4);
     write_raw_to_data_file(
         delta_input_path_, delta_path_,
@@ -429,11 +429,11 @@ TEST_F(DataReaderTest, InPlaceWithAllDeletedDeltaIteratorIsImmediatelyEof) {
         "2 : []\n");
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
     EXPECT_TRUE(r.begin().eof());
 }
 
-TEST_F(DataReaderTest, InPlaceWithDeltaFirstVectorDeletedIteratorStartsAtSecond) {
+TEST_F(DataReaderTest, DeltaFirstVectorDeletedIteratorStartsAtSecond) {
     generate(3, 0, DataType::f32, 4);
     write_raw_to_data_file(
         delta_input_path_, delta_path_,
@@ -441,13 +441,13 @@ TEST_F(DataReaderTest, InPlaceWithDeltaFirstVectorDeletedIteratorStartsAtSecond)
         "0 : []\n");
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
     auto it = r.begin();
     ASSERT_FALSE(it.eof());
     EXPECT_EQ(1u, it.id());
 }
 
-TEST_F(DataReaderTest, InPlaceWithDeltaLastVectorDeletedNotVisited) {
+TEST_F(DataReaderTest, DeltaLastVectorDeletedNotVisited) {
     generate(3, 0, DataType::f32, 4);
     write_raw_to_data_file(
         delta_input_path_, delta_path_,
@@ -455,7 +455,7 @@ TEST_F(DataReaderTest, InPlaceWithDeltaLastVectorDeletedNotVisited) {
         "2 : []\n");
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
     std::vector<uint64_t> seen_ids;
     for (auto it = r.begin(); !it.eof(); it.next())
         seen_ids.push_back(it.id());
@@ -474,7 +474,7 @@ TEST_F(DataReaderTest, CountIncludesDeletedWhenDeltaApplied) {
         "2 : []\n");
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
     EXPECT_EQ(count, r.count());
 }
 
@@ -488,14 +488,14 @@ TEST_F(DataReaderTest, DeltaIdsOutsideDataRangeAreIgnored) {
         "200 : []\n");
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
     size_t seen = 0;
     for (auto it = r.begin(); !it.eof(); it.next())
         ++seen;
     EXPECT_EQ(count, seen);
 }
 
-TEST_F(DataReaderTest, ReferenceModeDeletedFromDeltaReturnsNull) {
+TEST_F(DataReaderTest, DeletedFromDeltaReturnsNull) {
     generate(3, 10, DataType::f32, 4);
     write_raw_to_data_file(
         delta_input_path_, delta_path_,
@@ -503,18 +503,18 @@ TEST_F(DataReaderTest, ReferenceModeDeletedFromDeltaReturnsNull) {
         "11 : []\n");
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::Reference, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
     EXPECT_NE(nullptr, r.get(10));
     EXPECT_EQ(nullptr, r.get(11));
     EXPECT_NE(nullptr, r.get(12));
 }
 
-TEST_F(DataReaderTest, ReferenceModeUpdatedValueComesFromDelta) {
+TEST_F(DataReaderTest, UpdatedValueComesFromDelta) {
     generate(3, 10, DataType::i16, 4);
     generate_delta_detailed(1, 11, DataType::i16, 4);
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::Reference, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
 
     const int16_t* v10 = reinterpret_cast<const int16_t*>(r.get(10));
     const int16_t* v11 = reinterpret_cast<const int16_t*>(r.get(11));
@@ -528,7 +528,7 @@ TEST_F(DataReaderTest, ReferenceModeUpdatedValueComesFromDelta) {
     EXPECT_EQ(12, v12[0]); // untouched
 }
 
-TEST_F(DataReaderTest, ReferenceModeIteratorSkipsDeletedAndKeepsUpdated) {
+TEST_F(DataReaderTest, DeltaIteratorSkipsDeletedAndKeepsUpdated) {
     generate(4, 10, DataType::f32, 4);
     write_raw_to_data_file(
         delta_input_path_, delta_path_,
@@ -537,7 +537,7 @@ TEST_F(DataReaderTest, ReferenceModeIteratorSkipsDeletedAndKeepsUpdated) {
         "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
 
     DataReader r;
-    ASSERT_EQ(0, r.init(data_path_, ReaderMode::Reference, make_delta_reader()).code());
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
 
     std::vector<uint64_t> seen_ids;
     for (auto it = r.begin(); !it.eof(); it.next()) {
@@ -557,14 +557,14 @@ TEST_F(DataReaderTest, InitFailsWhenDeltaTypeMismatch) {
     generate(3, 0, DataType::f32, 4);
     generate_delta(3, 0, DataType::i16, 4);
     DataReader r;
-    EXPECT_NE(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    EXPECT_NE(0, r.init(data_path_, make_delta_reader()).code());
 }
 
 TEST_F(DataReaderTest, InitFailsWhenDeltaDimMismatch) {
     generate(3, 0, DataType::f32, 4);
     generate_delta(3, 0, DataType::f32, 8);
     DataReader r;
-    EXPECT_NE(0, r.init(data_path_, ReaderMode::InPlace, make_delta_reader()).code());
+    EXPECT_NE(0, r.init(data_path_, make_delta_reader()).code());
 }
 
 // --- deleted-id section ---

@@ -2,16 +2,12 @@
 #include "utils/shared_types.h"
 #include "core/storage/data_file.h"
 #include <cstdint>
+#include <unordered_map>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace sketch2 {
-
-enum class ReaderMode {
-    InPlace,   // modified bit set means vector is deleted
-    Reference, // modified bit set means first 8 bytes are a pointer (nullptr = deleted)
-};
 
 class DataReader {
 public:
@@ -33,9 +29,7 @@ public:
 
     ~DataReader();
 
-    Ret init(const std::string& path,
-            ReaderMode mode = ReaderMode::InPlace,
-            std::unique_ptr<DataReader> delta = nullptr);
+    Ret init(const std::string& path, std::unique_ptr<DataReader> delta = nullptr);
 
     DataType type()  const;
     size_t   dim()   const;
@@ -61,13 +55,15 @@ private:
     const uint64_t*          deleted_ids_ = nullptr; // cached pointer to the deleted ids section
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
-    ReaderMode               mode_    = ReaderMode::InPlace;
+
     std::vector<bool>  bitset_;
+    std::unordered_map<uint64_t, uint32_t> mods_;
     std::unique_ptr<DataReader> delta_;
 
-    Ret init_(const std::string &path, ReaderMode mode, std::unique_ptr<DataReader> delta);
-    Ret init_deleted_bitset();
-    Ret init_updates_override();
+    Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
+    Ret init_dels();
+    Ret init_mods();
+    uint8_t* get_by_pos(uint32_t pos) { return map_ + sizeof(DataFileHeader) + size_ * pos; }
 };
 
 } // namespace sketch2

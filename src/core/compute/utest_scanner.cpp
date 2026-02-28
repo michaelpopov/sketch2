@@ -196,14 +196,14 @@ TEST_F(ScannerTest, FindF16Works) {
     EXPECT_EQ(1u, result[0]);
 }
 
-TEST_F(ScannerTest, InPlaceModeSkipsDeletedIdsFromDelta) {
+TEST_F(ScannerTest, DeltaSkipsDeletedIds) {
     generate(6, 0, DataType::f32, 4);
     generate_delta(6, 0, DataType::f32, 4, 2); // deleted ids: 2,4
 
     auto delta = std::make_unique<DataReader>();
     ASSERT_EQ(0, delta->init(delta_path_).code());
     DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_, ReaderMode::InPlace, std::move(delta)).code());
+    ASSERT_EQ(0, reader.init(data_path_, std::move(delta)).code());
 
     Scanner s;
     auto q = f32_vec(3.2f, 4);
@@ -216,7 +216,7 @@ TEST_F(ScannerTest, InPlaceModeSkipsDeletedIdsFromDelta) {
     }
 }
 
-TEST_F(ScannerTest, ReferenceModeUsesUpdatedVectorsFromDelta) {
+TEST_F(ScannerTest, DeltaUsesUpdatedVectors) {
     generate(4, 10, DataType::f32, 4); // values 10.1, 11.1, 12.1, 13.1
     write_delta_raw(
         "f32,4\n"
@@ -225,7 +225,7 @@ TEST_F(ScannerTest, ReferenceModeUsesUpdatedVectorsFromDelta) {
     auto delta = std::make_unique<DataReader>();
     ASSERT_EQ(0, delta->init(delta_path_).code());
     DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_, ReaderMode::Reference, std::move(delta)).code());
+    ASSERT_EQ(0, reader.init(data_path_, std::move(delta)).code());
 
     Scanner s;
     auto q = f32_vec(20.0f, 4);
