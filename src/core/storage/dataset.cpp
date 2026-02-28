@@ -3,6 +3,7 @@
 #include "core/storage/data_merger.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/input_reader.h"
+#include "utils/ini_reader.h"
 #include <cassert>
 #include <filesystem>
 #include <experimental/scope>
@@ -14,7 +15,7 @@ static const std::string kDataExt = ".data";
 static const std::string kDeltaExt = ".delta";
 static const std::string kMergeExt = ".merge";
 
-Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size) {
+Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size, DataType type, uint64_t dim) {
     if (!dirs_.empty()) {
         return Ret("Dataset is already initialized.");
     }
@@ -24,9 +25,48 @@ Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size) {
     if (range_size == 0) {
         return Ret("Dataset: range_size must be > 0.");
     }
+    if (dim < 4) {
+        return Ret("Dataset: dim must be >= 4.");
+    }
     dirs_       = dirs;
     range_size_ = range_size;
+    type_ = type;
+    dim_ = dim;
     return Ret(0);
+}
+
+// Initialize with values from ini file.
+Ret Dataset::init(const std::string& path) {
+    try {
+        return init_(path);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
+Ret Dataset::init_(const std::string& path) {
+    if (!dirs_.empty()) {
+        return Ret("Dataset is already initialized.");
+    }
+
+    IniReader cfg;
+    CHECK(cfg.init(path));
+
+    auto dirs = cfg.get_str_list("dataset.dirs");
+    if (dirs.empty()) {
+        dirs = cfg.get_str_list("dirs");
+    }
+
+    static const int kRangeSize = 10'000;
+    int range_size = cfg.get_int("dataset.range_size", kRangeSize);
+
+    int dim = cfg.get_int("dataset.dim", 0);
+
+    std::string type_str = cfg.get_str("dataset.type", "f16");
+    DataType type = data_type_from_string(type_str);
+    validate_type(type);
+
+    return init(dirs, static_cast<uint64_t>(range_size), type, static_cast<uint64_t>(dim));
 }
 
 Ret Dataset::load(const std::string& input_path) {
@@ -44,6 +84,14 @@ Ret Dataset::load_(const std::string& input_path) {
 
     InputReader reader;
     CHECK(reader.init(input_path));
+
+    if (dim_ != reader.dim()) {
+        return Ret("Dataset: mismatched dim");
+    }
+
+    if (type_ != reader.type()) {
+        return Ret("Dataset: mismatched type");
+    }
 
     if (reader.count() == 0) {
         return Ret(0);
