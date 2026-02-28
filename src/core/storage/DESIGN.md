@@ -149,7 +149,7 @@ Dataset implements
   - init(const vector<string>& paths, uint64_t size), where paths are directories for data files
        and size defines a range of ids per data file, for example size=1000 item with id=123 goes to file 0
        and item with id 2100 goes to file 2.
-  - load(path), where path is a path of input data file
+  - store(path), where path is a path of input data file
        check the ids in the input of the file
        create data file for each range of ids
        each data file goes to its directory, which is defined by (file_id % number_of_dirs)
@@ -186,5 +186,5 @@ Transitions between these case:
     in the "only data file" state again.
 "Data file and delta file" is the state after some updates for the data file is written into a delta file.
 
-The logic of making merging decisions is in Dataset::load() function.
+The logic of making merging decisions is in Dataset::store() function.
 The merge functionality is in the DataMerger class.

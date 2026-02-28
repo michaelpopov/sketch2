@@ -6,6 +6,7 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/dataset.h"
 #include "core/storage/data_reader.h"
+#include "utils/ini_reader.h"
 
 using namespace sketch2;
 namespace fs = std::filesystem;
@@ -79,13 +80,17 @@ TEST_F(DatasetTest, InitFromIniSectionKeysWorks) {
         "dirs = " + dir0 + ", " + dir1 + "\n"
         "range_size = 10\n"
         "type = f32\n"
-        "dims = 4\n");
+        "dim = 4\n");
+
+    IniReader ini_cfg;
+    ASSERT_EQ(0, ini_cfg.init(config_path_).code());
+    EXPECT_EQ(4, ini_cfg.get_int("dataset.dim", -1));
 
     Dataset sc;
     const Ret ret = sc.init(config_path_);
     ASSERT_EQ(0, ret.code()) << ret.message();
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir0 + "/0.data"));
     EXPECT_TRUE(fs::exists(dir1 + "/1.data"));
     EXPECT_TRUE(fs::exists(dir0 + "/2.data"));
@@ -105,58 +110,58 @@ TEST_F(DatasetTest, InitFromIniFailsOnMissingType) {
 
 // --- load error cases ---
 
-TEST_F(DatasetTest, LoadFailsWhenNotInitialized) {
+TEST_F(DatasetTest, StoreFailsWhenNotInitialized) {
     Dataset sc;
-    EXPECT_NE(0, sc.load(input_path_).code());
+    EXPECT_NE(0, sc.store(input_path_).code());
 }
 
-TEST_F(DatasetTest, LoadFailsOnBadInputPath) {
+TEST_F(DatasetTest, StoreFailsOnBadInputPath) {
     Dataset sc;
     ASSERT_EQ(0, sc.init({make_dir("d")}, 100, DataType::f32, 4).code());
-    EXPECT_NE(0, sc.load("/nonexistent/dir/input.txt").code());
+    EXPECT_NE(0, sc.store("/nonexistent/dir/input.txt").code());
 }
 
-TEST_F(DatasetTest, LoadFailsOnBadOutputDir) {
+TEST_F(DatasetTest, StoreFailsOnBadOutputDir) {
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({"/nonexistent/output/dir"}, 100, DataType::f32, 4).code());
-    EXPECT_NE(0, sc.load(input_path_).code());
+    EXPECT_NE(0, sc.store(input_path_).code());
 }
 
 // --- load success: file placement ---
 
-TEST_F(DatasetTest, LoadCreatesOutputFile) {
+TEST_F(DatasetTest, StoreCreatesOutputFile) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
 }
 
-TEST_F(DatasetTest, LoadFileIdFromMinId) {
+TEST_F(DatasetTest, StoreFileIdFromMinId) {
     // ids [2005..2009], range_size=1000 -> file_id=2 -> "2.data"
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 2005, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/2.data"));
     EXPECT_FALSE(fs::exists(dir + "/0.data"));
 }
 
-TEST_F(DatasetTest, LoadMultipleRangesCreateMultipleFiles) {
+TEST_F(DatasetTest, StoreMultipleRangesCreateMultipleFiles) {
     // ids [5..19], range_size=10 -> file 0 (ids 5-9), file 1 (ids 10-19)
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(15, 5, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
     EXPECT_TRUE(fs::exists(dir + "/1.data"));
 }
 
-TEST_F(DatasetTest, LoadMultipleDirsRoutesByFileId) {
+TEST_F(DatasetTest, StoreMultipleDirsRoutesByFileId) {
     // ids [0..29], range_size=10 -> file_id 0,1,2
     // 2 dirs: file_id%2 -> dir0 gets 0.data, 2.data; dir1 gets 1.data
     auto dir0 = make_dir("d0");
@@ -164,7 +169,7 @@ TEST_F(DatasetTest, LoadMultipleDirsRoutesByFileId) {
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir0, dir1}, 10, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir0 + "/0.data"));
     EXPECT_TRUE(fs::exists(dir1 + "/1.data"));
     EXPECT_TRUE(fs::exists(dir0 + "/2.data"));
@@ -172,46 +177,47 @@ TEST_F(DatasetTest, LoadMultipleDirsRoutesByFileId) {
 
 // --- load success: output file content ---
 
-TEST_F(DatasetTest, LoadFileCount) {
+TEST_F(DatasetTest, StoreFileCount) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(7, 0, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     DataReader dr;
     ASSERT_EQ(0, dr.init(dir + "/0.data").code());
     EXPECT_EQ(7u, dr.count());
 }
 
-TEST_F(DatasetTest, LoadFileType) {
+TEST_F(DatasetTest, StoreFileType) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     DataReader dr;
     ASSERT_EQ(0, dr.init(dir + "/0.data").code());
     EXPECT_EQ(DataType::f32, dr.type());
 }
 
-TEST_F(DatasetTest, LoadFileDim) {
+TEST_F(DatasetTest, StoreFileDim) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 64));
     Dataset sc;
-    ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 64).code());
+    const Ret ret = sc.store(input_path_);
+    ASSERT_EQ(0, ret.code()) << ret.message();
     DataReader dr;
     ASSERT_EQ(0, dr.init(dir + "/0.data").code());
     EXPECT_EQ(64u, dr.dim());
 }
 
-TEST_F(DatasetTest, LoadFileDataValues) {
+TEST_F(DatasetTest, StoreFileDataValues) {
     // generator writes id+0.1 for each dimension
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 10, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     DataReader dr;
     ASSERT_EQ(0, dr.init(dir + "/0.data").code());
     for (uint64_t id = 10; id < 15; ++id) {
@@ -224,7 +230,7 @@ TEST_F(DatasetTest, LoadFileDataValues) {
     }
 }
 
-TEST_F(DatasetTest, LoadMultipleRangesCorrectCounts) {
+TEST_F(DatasetTest, StoreMultipleRangesCorrectCounts) {
     // ids [5..19], range_size=10
     // file 0: ids 5-9  -> 5 vectors
     // file 1: ids 10-19 -> 10 vectors
@@ -232,7 +238,7 @@ TEST_F(DatasetTest, LoadMultipleRangesCorrectCounts) {
     generate_input_file(input_path_, cfg(15, 5, DataType::f32, 4));
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     DataReader dr0, dr1;
     ASSERT_EQ(0, dr0.init(dir + "/0.data").code());
@@ -241,7 +247,7 @@ TEST_F(DatasetTest, LoadMultipleRangesCorrectCounts) {
     EXPECT_EQ(10u, dr1.count());
 }
 
-TEST_F(DatasetTest, LoadSkipsMissingMiddleRanges) {
+TEST_F(DatasetTest, StoreSkipsMissingMiddleRanges) {
     auto dir = make_dir("d");
     {
         std::ofstream f(input_path_);
@@ -252,7 +258,7 @@ TEST_F(DatasetTest, LoadSkipsMissingMiddleRanges) {
 
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
     EXPECT_FALSE(fs::exists(dir + "/1.data"));
@@ -261,13 +267,13 @@ TEST_F(DatasetTest, LoadSkipsMissingMiddleRanges) {
 
 // --- merge and delta lifecycle ---
 
-TEST_F(DatasetTest, LoadHeaderOnlyInputCreatesNoFiles) {
+TEST_F(DatasetTest, StoreHeaderOnlyInputCreatesNoFiles) {
     auto dir = make_dir("d");
     write_input("f32,4\n");
 
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     EXPECT_FALSE(fs::exists(file_path(dir, 0, ".data")));
     EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
@@ -279,12 +285,12 @@ TEST_F(DatasetTest, SecondSmallLoadCreatesDeltaFile) {
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     ASSERT_TRUE(fs::exists(file_path(dir, 0, ".data")));
     ASSERT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
 
     generate_input_file(input_path_, cfg(1, 50, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
     EXPECT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
@@ -303,10 +309,10 @@ TEST_F(DatasetTest, SecondLargeLoadMergesIntoDataWithoutDelta) {
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     generate_input_file(input_path_, cfg(3, 5, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
     EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
@@ -324,14 +330,14 @@ TEST_F(DatasetTest, ExistingDeltaGetsMergedWithNewSmallUpdateAndStaysDelta) {
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     generate_input_file(input_path_, cfg(1, 30, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
 
     generate_input_file(input_path_, cfg(1, 40, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
     EXPECT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
@@ -351,14 +357,14 @@ TEST_F(DatasetTest, LargeDeltaEventuallyMergesIntoDataAndRemovesDeltaFile) {
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(10, 0, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     generate_input_file(input_path_, cfg(1, 80, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
 
     generate_input_file(input_path_, cfg(5, 50, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
     EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
@@ -376,16 +382,16 @@ TEST_F(DatasetTest, DeleteFromDeltaIsAppliedAfterDataDeltaMerge) {
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(10, 0, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     write_input(
         "f32,4\n"
         "3 : []\n");
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
 
     generate_input_file(input_path_, cfg(5, 50, DataType::f32, 4));
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
     DataReader data_reader;
@@ -401,12 +407,12 @@ TEST_F(DatasetTest, DeltaCreatedOnlyForTouchedRange) {
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4)); // files 0 and 1
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
     ASSERT_TRUE(fs::exists(file_path(dir, 0, ".data")));
     ASSERT_TRUE(fs::exists(file_path(dir, 1, ".data")));
 
     generate_input_file(input_path_, cfg(1, 2, DataType::f32, 4)); // touches only file 0
-    ASSERT_EQ(0, sc.load(input_path_).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
 
     EXPECT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
     EXPECT_FALSE(fs::exists(file_path(dir, 1, ".delta")));
