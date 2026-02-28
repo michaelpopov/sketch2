@@ -27,6 +27,8 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# Build position-independent code so static libraries can be linked into shared libraries.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Warnings / errors (GCC / Clang)
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
