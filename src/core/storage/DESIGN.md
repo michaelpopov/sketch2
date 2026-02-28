@@ -136,16 +136,16 @@ Interface:
         vector u8* a query vector
 
 
-StorageController
+Dataset
 -----------------------
 This class controls access to files. It contains meta data about files locations.
 Metadata:
   - set of directories where data files are located
   - range of ids per data file
-StorageController is initialized either manually by setting metadata parameters or it can
+Dataset is initialized either manually by setting metadata parameters or it can
 load the values from config.ini file, which is formatted as ini file.
 
-StorageController implements 
+Dataset implements 
   - init(const vector<string>& paths, uint64_t size), where paths are directories for data files
        and size defines a range of ids per data file, for example size=1000 item with id=123 goes to file 0
        and item with id 2100 goes to file 2.
@@ -186,5 +186,5 @@ Transitions between these case:
     in the "only data file" state again.
 "Data file and delta file" is the state after some updates for the data file is written into a delta file.
 
-The logic of making merging decisions is in StorageController::load() function.
+The logic of making merging decisions is in Dataset::load() function.
 The merge functionality is in the DataMerger class.

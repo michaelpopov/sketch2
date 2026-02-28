@@ -4,13 +4,13 @@
 #include <fstream>
 #include <unistd.h>
 #include "core/storage/input_generator.h"
-#include "core/storage/storage_controller.h"
+#include "core/storage/dataset.h"
 #include "core/storage/data_reader.h"
 
 using namespace sketch2;
 namespace fs = std::filesystem;
 
-class StorageControllerTest : public ::testing::Test {
+class DatasetTest : public ::testing::Test {
 protected:
     std::string base_dir_;
     std::string input_path_;
@@ -48,82 +48,82 @@ protected:
 
 // --- init error cases ---
 
-TEST_F(StorageControllerTest, InitFailsOnEmptyDirs) {
-    StorageController sc;
+TEST_F(DatasetTest, InitFailsOnEmptyDirs) {
+    Dataset sc;
     EXPECT_NE(0, sc.init({}, 100).code());
 }
 
-TEST_F(StorageControllerTest, InitFailsOnZeroRangeSize) {
-    StorageController sc;
+TEST_F(DatasetTest, InitFailsOnZeroRangeSize) {
+    Dataset sc;
     EXPECT_NE(0, sc.init({make_dir("d")}, 0).code());
 }
 
-TEST_F(StorageControllerTest, InitFailsOnDoubleInit) {
-    StorageController sc;
+TEST_F(DatasetTest, InitFailsOnDoubleInit) {
+    Dataset sc;
     ASSERT_EQ(0, sc.init({make_dir("d")}, 100).code());
     EXPECT_NE(0, sc.init({make_dir("d2")}, 100).code());
 }
 
 // --- load error cases ---
 
-TEST_F(StorageControllerTest, LoadFailsWhenNotInitialized) {
-    StorageController sc;
+TEST_F(DatasetTest, LoadFailsWhenNotInitialized) {
+    Dataset sc;
     EXPECT_NE(0, sc.load(input_path_).code());
 }
 
-TEST_F(StorageControllerTest, LoadFailsOnBadInputPath) {
-    StorageController sc;
+TEST_F(DatasetTest, LoadFailsOnBadInputPath) {
+    Dataset sc;
     ASSERT_EQ(0, sc.init({make_dir("d")}, 100).code());
     EXPECT_NE(0, sc.load("/nonexistent/dir/input.txt").code());
 }
 
-TEST_F(StorageControllerTest, LoadFailsOnBadOutputDir) {
+TEST_F(DatasetTest, LoadFailsOnBadOutputDir) {
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({"/nonexistent/output/dir"}, 100).code());
     EXPECT_NE(0, sc.load(input_path_).code());
 }
 
 // --- load success: file placement ---
 
-TEST_F(StorageControllerTest, LoadCreatesOutputFile) {
+TEST_F(DatasetTest, LoadCreatesOutputFile) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
 }
 
-TEST_F(StorageControllerTest, LoadFileIdFromMinId) {
+TEST_F(DatasetTest, LoadFileIdFromMinId) {
     // ids [2005..2009], range_size=1000 -> file_id=2 -> "2.data"
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 2005, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/2.data"));
     EXPECT_FALSE(fs::exists(dir + "/0.data"));
 }
 
-TEST_F(StorageControllerTest, LoadMultipleRangesCreateMultipleFiles) {
+TEST_F(DatasetTest, LoadMultipleRangesCreateMultipleFiles) {
     // ids [5..19], range_size=10 -> file 0 (ids 5-9), file 1 (ids 10-19)
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(15, 5, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 10).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
     EXPECT_TRUE(fs::exists(dir + "/1.data"));
 }
 
-TEST_F(StorageControllerTest, LoadMultipleDirsRoutesByFileId) {
+TEST_F(DatasetTest, LoadMultipleDirsRoutesByFileId) {
     // ids [0..29], range_size=10 -> file_id 0,1,2
     // 2 dirs: file_id%2 -> dir0 gets 0.data, 2.data; dir1 gets 1.data
     auto dir0 = make_dir("d0");
     auto dir1 = make_dir("d1");
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir0, dir1}, 10).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
     EXPECT_TRUE(fs::exists(dir0 + "/0.data"));
@@ -133,10 +133,10 @@ TEST_F(StorageControllerTest, LoadMultipleDirsRoutesByFileId) {
 
 // --- load success: output file content ---
 
-TEST_F(StorageControllerTest, LoadFileCount) {
+TEST_F(DatasetTest, LoadFileCount) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(7, 0, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
     DataReader dr;
@@ -144,10 +144,10 @@ TEST_F(StorageControllerTest, LoadFileCount) {
     EXPECT_EQ(7u, dr.count());
 }
 
-TEST_F(StorageControllerTest, LoadFileType) {
+TEST_F(DatasetTest, LoadFileType) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
     DataReader dr;
@@ -155,10 +155,10 @@ TEST_F(StorageControllerTest, LoadFileType) {
     EXPECT_EQ(DataType::f32, dr.type());
 }
 
-TEST_F(StorageControllerTest, LoadFileDim) {
+TEST_F(DatasetTest, LoadFileDim) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 64));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
     DataReader dr;
@@ -166,11 +166,11 @@ TEST_F(StorageControllerTest, LoadFileDim) {
     EXPECT_EQ(64u, dr.dim());
 }
 
-TEST_F(StorageControllerTest, LoadFileDataValues) {
+TEST_F(DatasetTest, LoadFileDataValues) {
     // generator writes id+0.1 for each dimension
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 10, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
     DataReader dr;
@@ -185,13 +185,13 @@ TEST_F(StorageControllerTest, LoadFileDataValues) {
     }
 }
 
-TEST_F(StorageControllerTest, LoadMultipleRangesCorrectCounts) {
+TEST_F(DatasetTest, LoadMultipleRangesCorrectCounts) {
     // ids [5..19], range_size=10
     // file 0: ids 5-9  -> 5 vectors
     // file 1: ids 10-19 -> 10 vectors
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(15, 5, DataType::f32, 4));
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 10).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
 
@@ -202,7 +202,7 @@ TEST_F(StorageControllerTest, LoadMultipleRangesCorrectCounts) {
     EXPECT_EQ(10u, dr1.count());
 }
 
-TEST_F(StorageControllerTest, LoadSkipsMissingMiddleRanges) {
+TEST_F(DatasetTest, LoadSkipsMissingMiddleRanges) {
     auto dir = make_dir("d");
     {
         std::ofstream f(input_path_);
@@ -211,7 +211,7 @@ TEST_F(StorageControllerTest, LoadSkipsMissingMiddleRanges) {
         f << "20 : [ 20.10, 20.10, 20.10, 20.10 ]\n";
     }
 
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 10).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
 
@@ -222,11 +222,11 @@ TEST_F(StorageControllerTest, LoadSkipsMissingMiddleRanges) {
 
 // --- merge and delta lifecycle ---
 
-TEST_F(StorageControllerTest, LoadHeaderOnlyInputCreatesNoFiles) {
+TEST_F(DatasetTest, LoadHeaderOnlyInputCreatesNoFiles) {
     auto dir = make_dir("d");
     write_input("f32,4\n");
 
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100).code());
     ASSERT_EQ(0, sc.load(input_path_).code());
 
@@ -234,9 +234,9 @@ TEST_F(StorageControllerTest, LoadHeaderOnlyInputCreatesNoFiles) {
     EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
 }
 
-TEST_F(StorageControllerTest, SecondSmallLoadCreatesDeltaFile) {
+TEST_F(DatasetTest, SecondSmallLoadCreatesDeltaFile) {
     auto dir = make_dir("d");
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -258,9 +258,9 @@ TEST_F(StorageControllerTest, SecondSmallLoadCreatesDeltaFile) {
     EXPECT_NE(nullptr, delta_reader.get(50));
 }
 
-TEST_F(StorageControllerTest, SecondLargeLoadMergesIntoDataWithoutDelta) {
+TEST_F(DatasetTest, SecondLargeLoadMergesIntoDataWithoutDelta) {
     auto dir = make_dir("d");
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100).code());
 
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
@@ -279,9 +279,9 @@ TEST_F(StorageControllerTest, SecondLargeLoadMergesIntoDataWithoutDelta) {
     EXPECT_NE(nullptr, merged.get(7));
 }
 
-TEST_F(StorageControllerTest, ExistingDeltaGetsMergedWithNewSmallUpdateAndStaysDelta) {
+TEST_F(DatasetTest, ExistingDeltaGetsMergedWithNewSmallUpdateAndStaysDelta) {
     auto dir = make_dir("d");
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -306,9 +306,9 @@ TEST_F(StorageControllerTest, ExistingDeltaGetsMergedWithNewSmallUpdateAndStaysD
     EXPECT_NE(nullptr, delta_reader.get(40));
 }
 
-TEST_F(StorageControllerTest, LargeDeltaEventuallyMergesIntoDataAndRemovesDeltaFile) {
+TEST_F(DatasetTest, LargeDeltaEventuallyMergesIntoDataAndRemovesDeltaFile) {
     auto dir = make_dir("d");
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100).code());
 
     generate_input_file(input_path_, cfg(10, 0, DataType::f32, 4));
@@ -331,9 +331,9 @@ TEST_F(StorageControllerTest, LargeDeltaEventuallyMergesIntoDataAndRemovesDeltaF
     EXPECT_NE(nullptr, data_reader.get(52));
 }
 
-TEST_F(StorageControllerTest, DeleteFromDeltaIsAppliedAfterDataDeltaMerge) {
+TEST_F(DatasetTest, DeleteFromDeltaIsAppliedAfterDataDeltaMerge) {
     auto dir = make_dir("d");
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100).code());
 
     generate_input_file(input_path_, cfg(10, 0, DataType::f32, 4));
@@ -356,9 +356,9 @@ TEST_F(StorageControllerTest, DeleteFromDeltaIsAppliedAfterDataDeltaMerge) {
     EXPECT_NE(nullptr, data_reader.get(50));
 }
 
-TEST_F(StorageControllerTest, DeltaCreatedOnlyForTouchedRange) {
+TEST_F(DatasetTest, DeltaCreatedOnlyForTouchedRange) {
     auto dir = make_dir("d");
-    StorageController sc;
+    Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 10).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4)); // files 0 and 1

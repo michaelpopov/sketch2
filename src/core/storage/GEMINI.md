@@ -14,7 +14,7 @@ This file provides specialized guidance for the `src/core/storage` directory.
 - `DataWriter`: Converts `InputReader` content to binary data files.
 - `DataReader`: Reads binary data files with iterators and ID lookups.
 - `Scanner`: Performs K-nearest-neighbor searches.
-- `StorageController`: Orchestrates file access and manages ID-to-file mapping.
+- `Dataset`: Orchestrates file access and manages ID-to-file mapping.
 
 ## Implementation Standards
 - **Memory Mapping:** Use `mmap` (via `InputReader` or similar) for efficient file access.

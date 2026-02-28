@@ -8,7 +8,7 @@ namespace sketch2 {
 class DataReader;
 class InputReader;
 
-class StorageController {
+class Dataset {
 public:
     // Initialize directly with a list of directories and id-range size.
     // Vectors with id in [file_id*range_size, (file_id+1)*range_size) go to file <file_id>.data

@@ -1,4 +1,4 @@
-#include "storage_controller.h"
+#include "dataset.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/data_merger.h"
 #include "core/storage/data_writer.h"
@@ -14,22 +14,22 @@ static const std::string kDataExt = ".data";
 static const std::string kDeltaExt = ".delta";
 static const std::string kMergeExt = ".merge";
 
-Ret StorageController::init(const std::vector<std::string>& dirs, uint64_t range_size) {
+Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size) {
     if (!dirs_.empty()) {
-        return Ret("StorageController is already initialized.");
+        return Ret("Dataset is already initialized.");
     }
     if (dirs.empty()) {
-        return Ret("StorageController: dirs must not be empty.");
+        return Ret("Dataset: dirs must not be empty.");
     }
     if (range_size == 0) {
-        return Ret("StorageController: range_size must be > 0.");
+        return Ret("Dataset: range_size must be > 0.");
     }
     dirs_       = dirs;
     range_size_ = range_size;
     return Ret(0);
 }
 
-Ret StorageController::load(const std::string& input_path) {
+Ret Dataset::load(const std::string& input_path) {
     try {
         return load_(input_path);
     } catch (const std::exception& ex) {
@@ -37,9 +37,9 @@ Ret StorageController::load(const std::string& input_path) {
     }
 }
 
-Ret StorageController::load_(const std::string& input_path) {
+Ret Dataset::load_(const std::string& input_path) {
     if (dirs_.empty() || range_size_ == 0) {
-        return Ret("StorageController: not initialized.");
+        return Ret("Dataset: not initialized.");
     }
 
     InputReader reader;
@@ -68,7 +68,7 @@ Ret StorageController::load_(const std::string& input_path) {
     return Ret(0);
 }
 
-Ret StorageController::load_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) {
+Ret Dataset::load_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) {
     const size_t dir_id = file_id % dirs_.size();
     const std::string& dir = dirs_[dir_id];
     const std::string output_path_base = dir + "/" + std::to_string(file_id);
@@ -95,7 +95,7 @@ Ret StorageController::load_and_merge(const InputReader& reader, uint64_t file_i
     const std::string data_path = output_path_base + kDataExt;
     if (!std::filesystem::exists(data_path)) {
         if (output_reader.deleted_count() != 0) {
-            return Ret("StorageController::load_and_merge: invalide deleted items");
+            return Ret("Dataset::load_and_merge: invalide deleted items");
         }
         std::filesystem::rename(output_path, data_path);
         return Ret(0);
@@ -147,17 +147,17 @@ Ret StorageController::load_and_merge(const InputReader& reader, uint64_t file_i
     return Ret(0);
 }
 
-bool StorageController::check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader) {
+bool Dataset::check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader) {
     constexpr uint64_t kDataMergeRatio = 2;
     return (data_reader.count() < (output_reader.count() + output_reader.deleted_count()) * kDataMergeRatio);
 }
 
-bool StorageController::check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader) {
+bool Dataset::check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader) {
     constexpr uint64_t kDataMergeRatio = 2;
     return (data_reader.count() < (delta_reader.count() + delta_reader.deleted_count()) * kDataMergeRatio);
 }
 
-Ret StorageController::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
+Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
         const std::string& output_path_base, const std::string& ext) {
     const std::string source_path = output_path_base + ext;
     if (std::filesystem::exists(source_path)) {
@@ -174,7 +174,7 @@ Ret StorageController::merge_data_file(const DataReader& data_reader, const Data
     return Ret(0);
 }
 
-Ret  StorageController::merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base) {
+Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base) {
     const std::string source_path = output_path_base + kTempExt;
     if (std::filesystem::exists(source_path)) {
         std::filesystem::remove(source_path);

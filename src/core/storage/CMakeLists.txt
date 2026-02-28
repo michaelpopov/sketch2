@@ -1,4 +1,4 @@
-add_library(stor STATIC storage.cpp input_generator.cpp input_reader.cpp data_writer.cpp data_reader.cpp data_merger.cpp storage_controller.cpp)
+add_library(stor STATIC storage.cpp input_generator.cpp input_reader.cpp data_writer.cpp data_reader.cpp data_merger.cpp dataset.cpp)
 
 target_include_directories(stor PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
