@@ -22,7 +22,7 @@ enum class DataType {
     i16,
 };
 
-static inline constexpr bool supports_f16() {
+constexpr bool supports_f16() {
 #if defined(__aarch64__)
     return true;
 #else

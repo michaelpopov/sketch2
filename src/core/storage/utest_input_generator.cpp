@@ -29,12 +29,6 @@ protected:
     }
 };
 
-TEST_F(InputGeneratorTest, FailsOnNonSequentialPattern) {
-    GeneratorConfig cfg{PatternType::Random, 10, 0, DataType::f32, 4, 1000};
-    Ret ret = generate_input_file(path_, cfg);
-    EXPECT_NE(0, ret.code());
-}
-
 TEST_F(InputGeneratorTest, FailsOnZeroCount) {
     GeneratorConfig cfg{PatternType::Sequential, 0, 0, DataType::f32, 4, 1000};
     EXPECT_NE(0, generate_input_file(path_, cfg).code());

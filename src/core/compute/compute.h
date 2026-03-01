@@ -28,9 +28,7 @@ class ICompute {
 public:
     virtual ~ICompute() = default;
     // Returns the distance between two vectors of the given type and dimension.
-    virtual double dist(const uint8_t*, const uint8_t*, DataType, size_t /*dim*/) {
-        throw std::runtime_error("ICompute not implemented");
-    }
+    virtual double dist(const uint8_t*, const uint8_t*, DataType, size_t /*dim*/) = 0;
 };
 
 } // namespace sketch2

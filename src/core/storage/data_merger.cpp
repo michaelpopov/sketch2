@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <iostream>
 
 namespace sketch2 {
 
@@ -28,6 +29,13 @@ Ret DataMerger::merge_data_file(const DataReader& source, const DataReader& upda
 }
 
 Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
+    if (source.dim() != updater.dim() || source.type() != updater.type()) {
+        return Ret("DataMerger::merge_data_file: incompatible source and updater");
+    }
+    if (source.has_delta() || updater.has_delta()) {
+        return Ret("DataMerger::merge_data_file: source and updater must not have deltas");
+    }
+
     FILE* f = fopen(path.c_str(), "wb");
     if (!f) {
         return Ret(strerror(errno));
@@ -116,12 +124,10 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         }
     }
 
-    if (ids.empty()) {
-        return Ret(0);
-    }
-
-    if (fwrite(ids.data(), sizeof(uint64_t), ids.size(), f) != ids.size()) {
-        return Ret("DataMerger::merge_data_files: failed to write ids to merge file");
+    if (!ids.empty()) {
+        if (fwrite(ids.data(), sizeof(uint64_t), ids.size(), f) != ids.size()) {
+            return Ret("DataMerger::merge_data_files: failed to write ids to merge file");
+        }
     }
 
     // Overwrite header with updated values.
@@ -129,8 +135,8 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         return Ret("DataMerger::merge_data_files: failed to rewind to header");
     }
 
-    hdr.min_id = ids.front();
-    hdr.max_id = ids.back();
+    hdr.min_id = ids.empty() ? 0 : ids.front();
+    hdr.max_id = ids.empty() ? 0 : ids.back();
     hdr.count  = static_cast<uint32_t>(ids.size());
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret("DataMerger::merge_data_files: failed to write header");

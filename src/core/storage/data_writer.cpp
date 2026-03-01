@@ -74,10 +74,10 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     hdr.version       = kVersion;
     hdr.min_id        = min_id;
     hdr.max_id        = max_id;
-    hdr.count         = ids.size();
+    hdr.count         = static_cast<uint32_t>(ids.size());
     hdr.deleted_count = static_cast<uint32_t>(deleted_ids.size());
     hdr.type          = static_cast<uint16_t>(data_type_to_int(reader.type()));
-    hdr.dim           = reader.dim();
+    hdr.dim           = static_cast<uint16_t>(reader.dim());
     hdr.padding       = 0;
 
     // Write output file

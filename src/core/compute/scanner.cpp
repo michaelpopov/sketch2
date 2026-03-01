@@ -73,9 +73,6 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
     }
-    if (func != DistFunc::L1) {
-        return Ret("Scanner::find: unsupported distance function.");
-    }
 
     result.clear();
 

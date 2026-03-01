@@ -300,10 +300,13 @@ Ret DatasetReader::init(const std::vector<std::string>& dirs) {
             return Ret("DatasetReader::init: invalid directory: " + dir);
         }
 
-        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        auto dir_iter = std::filesystem::directory_iterator(dir, ec);
+        for (; dir_iter != std::filesystem::directory_iterator(); dir_iter.increment(ec)) {
             if (ec) {
                 return Ret("DatasetReader::init: failed to iterate directory: " + dir);
             }
+
+            const auto& entry = *dir_iter;
             if (!entry.is_regular_file(ec)) {
                 continue;
             }
@@ -348,10 +351,7 @@ Ret DatasetReader::init(const std::vector<std::string>& dirs) {
             return lhs.id < rhs.id;
         });
 
-    items_.reserve(sorted_items.size());
-    for (const auto& item : sorted_items) {
-        items_.push_back(item);
-    }
+    items_ = std::move(sorted_items);
 
     return 0;
 }

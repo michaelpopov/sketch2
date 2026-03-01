@@ -23,8 +23,9 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
     switch (config.pattern_type) {
         case PatternType::Sequential: return generate_sequential_input_file(path, config);
         case PatternType::Detailed:   return generate_detailed_input_file(path, config);
-        default: return Ret("Unsupported pattern type");
     }
+
+    return Ret("generate_input_file: invalid pattern type");
 }
 
 template <typename T>
@@ -136,7 +137,7 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
             }
         }
     } else {
-        throw std::runtime_error("generate_detailed_input_file: invalid data type");
+        return Ret("generate_detailed_input_file: invalid data type");
     }
 
 

@@ -28,10 +28,16 @@ bool DataReader::Iterator::eof() const {
 }
 
 const uint8_t* DataReader::Iterator::data() const {
+    if (index_ >= reader_->count()) {
+        throw std::out_of_range("DataReader::Iterator::data: index out of range");
+    }
     return reader_->at(index_);
 }
 
 uint64_t DataReader::Iterator::id() const {
+    if (index_ >= reader_->count()) {
+        throw std::out_of_range("DataReader::Iterator::id: index out of range");
+    }
     return ids_[index_];
 }
 
@@ -54,6 +60,9 @@ Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta)
 Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta) {
     if (map_) {
         return Ret("DataReader is initialized already.");
+    }
+    if (delta && !delta->check_consistency()) {
+        return Ret("DataReader: delta is inconsistent");
     }
 
     int fd = open(path.c_str(), O_RDONLY);
@@ -189,22 +198,30 @@ Ret DataReader::init_mods() {
 }
 
 DataType DataReader::type() const {
-    assert(hdr_ != nullptr);
+    if (!hdr_) {
+        throw std::runtime_error("DataReader::type: reader is not initialized");
+    }
     return type_;
 }
 
 uint16_t DataReader::dim() const {
-    assert(hdr_ != nullptr);
+    if (!hdr_) {
+        throw std::runtime_error("DataReader::dim: reader is not initialized");
+    }
     return hdr_->dim;
 }
 
 uint16_t DataReader::size() const {
-    assert(hdr_ != nullptr);
+    if (!hdr_) {
+        throw std::runtime_error("DataReader::size: reader is not initialized");
+    }
     return size_;
 }
 
 size_t DataReader::count() const {
-    assert(hdr_ != nullptr);
+    if (!hdr_) {
+        throw std::runtime_error("DataReader::count: reader is not initialized");
+    }
     return hdr_->count;
 }
 

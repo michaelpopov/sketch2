@@ -32,8 +32,8 @@ public:
     Ret init(const std::string& path, std::unique_ptr<DataReader> delta = nullptr);
 
     DataType type()  const;
-    uint16_t  dim()   const;
-    uint16_t  size()  const; // size of one vector in bytes
+    uint16_t dim()   const;
+    uint16_t size()  const; // size of one vector in bytes
     size_t   count() const; // number of vectors
 
     Iterator       begin() const;
@@ -46,6 +46,7 @@ public:
     uint64_t deleted_id(size_t index) const;
 
     bool check_consistency() const;
+    bool has_delta() const { return delta_ != nullptr; }
 
 private:
     const uint8_t*           map_     = nullptr;
@@ -54,7 +55,7 @@ private:
     const uint64_t*          ids_     = nullptr; // cached pointer to the ids section
     const uint64_t*          deleted_ids_ = nullptr; // cached pointer to the deleted ids section
     DataType                 type_    = DataType::f32;
-    size_t                   size_    = 0;        // size of one vector in bytes
+    uint16_t                 size_    = 0;        // size of one vector in bytes
 
     std::vector<bool>  bitset_;
     std::unordered_map<uint64_t, uint32_t> mods_;
