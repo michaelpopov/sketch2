@@ -260,7 +260,8 @@ TEST_F(ScannerTest, FindDatasetWorks) {
     Scanner s;
     auto q = f32_vec(15.2f, 4); // nearest to id 15
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 3, q.data(), result).code());
+    const auto ret = s.find(ds, DistFunc::L1, 3, q.data(), result);
+    ASSERT_EQ(0, ret.code()) << "\n\nfind failed: " << ret.message() << "\n\n";
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(15u, result[0]);
     EXPECT_EQ(16u, result[1]);

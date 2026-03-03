@@ -18,24 +18,31 @@ static const std::string kDataExt = ".data";
 static const std::string kDeltaExt = ".delta";
 static const std::string kMergeExt = ".merge";
 
-Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size, DataType type, uint64_t dim) {
-    if (!dirs_.empty()) {
+Ret Dataset::init(const DatasetMetadata& metadata) {
+    if (!metadata_.dirs.empty()) {
         return Ret("Dataset is already initialized.");
     }
-    if (dirs.empty()) {
+    if (metadata.dirs.empty()) {
         return Ret("Dataset: dirs must not be empty.");
     }
-    if (range_size == 0) {
+    if (metadata.range_size == 0) {
         return Ret("Dataset: range_size must be > 0.");
     }
-    if (dim < 4) {
+    if (metadata.dim < 4) {
         return Ret("Dataset: dim must be >= 4.");
     }
-    dirs_       = dirs;
-    range_size_ = range_size;
-    type_ = type;
-    dim_ = dim;
+    validate_type(metadata.type);
+    metadata_= metadata;
     return Ret(0);
+}
+
+Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size, DataType type, uint64_t dim) {
+    DatasetMetadata metadata;
+    metadata.dirs       = dirs;
+    metadata.range_size = range_size;
+    metadata.type = type;
+    metadata.dim = dim;
+    return init(metadata);
 }
 
 // Initialize with values from ini file.
@@ -48,28 +55,25 @@ Ret Dataset::init(const std::string& path) {
 }
 
 Ret Dataset::init_(const std::string& path) {
-    if (!dirs_.empty()) {
+    if (!metadata_.dirs.empty()) {
         return Ret("Dataset is already initialized.");
     }
 
     IniReader cfg;
     CHECK(cfg.init(path));
-
-    auto dirs = cfg.get_str_list("dataset.dirs");
-    if (dirs.empty()) {
-        dirs = cfg.get_str_list("dirs");
-    }
+    
+    DatasetMetadata metadata;
+    metadata.dirs = cfg.get_str_list("dataset.dirs");
 
     static const int kRangeSize = 10'000;
-    int range_size = cfg.get_int("dataset.range_size", kRangeSize);
+    metadata.range_size = cfg.get_int("dataset.range_size", kRangeSize);
 
-    int dim = cfg.get_int("dataset.dim", 0);
+    metadata.dim = cfg.get_int("dataset.dim", 0);
 
     std::string type_str = cfg.get_str("dataset.type", "f32");
-    DataType type = data_type_from_string(type_str);
-    validate_type(type);
+    metadata.type = data_type_from_string(type_str);
 
-    return init(dirs, static_cast<uint64_t>(range_size), type, static_cast<uint64_t>(dim));
+    return init(metadata);
 }
 
 Ret Dataset::store(const std::string& input_path) {
@@ -81,18 +85,18 @@ Ret Dataset::store(const std::string& input_path) {
 }
 
 Ret Dataset::store_(const std::string& input_path) {
-    if (dirs_.empty() || range_size_ == 0) {
+    if (metadata_.dirs.empty() || metadata_.range_size == 0) {
         return Ret("Dataset: not initialized.");
     }
 
     InputReader reader;
     CHECK(reader.init(input_path));
 
-    if (dim_ != reader.dim()) {
+    if (metadata_.dim != reader.dim()) {
         return Ret("Dataset: mismatched dim");
     }
 
-    if (type_ != reader.type()) {
+    if (metadata_.type != reader.type()) {
         return Ret("Dataset: mismatched type");
     }
 
@@ -103,12 +107,12 @@ Ret Dataset::store_(const std::string& input_path) {
     const uint64_t min_id = reader.id(0);
     const uint64_t max_id = reader.id(reader.count() - 1);
 
-    const uint64_t first_file = min_id / range_size_;
-    const uint64_t last_file  = max_id / range_size_;
+    const uint64_t first_file = min_id / metadata_.range_size;
+    const uint64_t last_file  = max_id / metadata_.range_size;
 
     for (uint64_t file_id = first_file; file_id <= last_file; ++file_id) {
-        const uint64_t range_start = file_id * range_size_;
-        const uint64_t range_end   = range_start + range_size_;
+        const uint64_t range_start = file_id * metadata_.range_size;
+        const uint64_t range_end   = range_start + metadata_.range_size;
 
         if (reader.is_range_present(range_start, range_end)) {
             CHECK(store_and_merge(reader, file_id, range_start, range_end));
@@ -120,8 +124,8 @@ Ret Dataset::store_(const std::string& input_path) {
 }
 
 Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) {
-    const size_t dir_id = file_id % dirs_.size();
-    const std::string& dir = dirs_[dir_id];
+    const size_t dir_id = file_id % metadata_.dirs.size();
+    const std::string& dir = metadata_.dirs[dir_id];
     const std::string output_path_base = dir + "/" + std::to_string(file_id);
     const std::string output_path = output_path_base + kTempExt;
 
@@ -199,13 +203,13 @@ Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64
 }
 
 bool Dataset::check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader) {
-    constexpr uint64_t kDataMergeRatio = 2;
-    return (data_reader.count() < (output_reader.count() + output_reader.deleted_count()) * kDataMergeRatio);
+    const uint64_t output_count = output_reader.count() + output_reader.deleted_count();
+    return (data_reader.count() < output_count * metadata_.data_merge_ratio);
 }
 
 bool Dataset::check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader) {
-    constexpr uint64_t kDataMergeRatio = 2;
-    return (data_reader.count() < (delta_reader.count() + delta_reader.deleted_count()) * kDataMergeRatio);
+    const uint64_t delta_count = delta_reader.count() + delta_reader.deleted_count();
+    return (data_reader.count() < delta_count * metadata_.data_merge_ratio);
 }
 
 Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
@@ -248,7 +252,7 @@ Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader&
 
 DatasetReaderPtr Dataset::reader() const {
     DatasetReaderPtr result = std::make_unique<DatasetReader>();
-    const auto ret = result->init(dirs_);
+    const auto ret = result->init(metadata_.dirs);
     if (ret != 0) {
         throw std::runtime_error(ret.message());
     }
@@ -268,7 +272,7 @@ Ret DatasetReader::init(const std::vector<std::string>& dirs) {
 
     dirs_ = dirs;
 
-    // Query all directories defined in dirs_.
+    // Query all directories defined in metadata_.dirs.
     // File all files with names that match pattern <id>.data and <id>.delta.
     // Create Item for each pair of such files with matching id.
     // Add this Item to items_.

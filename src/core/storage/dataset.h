@@ -13,8 +13,19 @@ class DatasetReader;
 using DataReaderPtr = std::unique_ptr<DataReader>;
 using DatasetReaderPtr = std::unique_ptr<DatasetReader>;
 
+struct DatasetMetadata {
+    std::vector<std::string> dirs;
+    DataType type = DataType::f32;
+    uint64_t dim = 4;
+    uint64_t range_size = 10'000;
+    uint64_t data_merge_ratio = 2; // merge data files when the new file is less than
+                                   // data_merge_ratio times smaller than the existing file
+};
+
 class Dataset {
 public:
+    Ret init(const DatasetMetadata& metadata);
+
     // Initialize directly with a list of directories and id-range size.
     // Vectors with id in [file_id*range_size, (file_id+1)*range_size) go to file <file_id>.data
     // placed in directory dirs[file_id % dirs.size()].
@@ -31,6 +42,7 @@ public:
     DatasetReaderPtr reader() const;
 
 private:
+    DatasetMetadata metadata_;
     std::vector<std::string> dirs_;
     uint64_t range_size_ = 0;
     DataType type_;
