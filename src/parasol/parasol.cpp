@@ -9,10 +9,12 @@
 using namespace sketch2;
 
 static const char* kInputFileName = "data.input";
+static const char* kManagedMarkerFileName = ".sketch2.managed";
 
 #define ERR(x) { \
     ret.code = -1;  \
     strncpy(ret.message, x, sizeof(ret.message)-1); \
+    ret.message[sizeof(ret.message)-1] = '\0'; \
     return ret; \
 }
 
@@ -66,8 +68,28 @@ sk_ret_t sk_create(sk_dataset_metadata_t metadata) {
         metadata.dim,
         metadata.type);
 
-    if (written < 0 || fclose(fp) != 0) {
+    const int close_rc = fclose(fp);
+    if (written < 0 || close_rc != 0) {
+        std::error_code remove_ec;
+        std::filesystem::remove(file_path, remove_ec);
         ERR("Failed to write metadata file")
+    }
+
+    std::filesystem::path marker_path = dir_path / kManagedMarkerFileName;
+    FILE* marker = fopen(marker_path.c_str(), "w");
+    if (marker == nullptr) {
+        std::error_code remove_ec;
+        std::filesystem::remove(file_path, remove_ec);
+        ERR("Failed to create managed marker file")
+    }
+
+    const int marker_written = fprintf(marker, "managed=1\n");
+    const int marker_close_rc = fclose(marker);
+    if (marker_written < 0 || marker_close_rc != 0) {
+        std::error_code remove_ec;
+        std::filesystem::remove(marker_path, remove_ec);
+        std::filesystem::remove(file_path, remove_ec);
+        ERR("Failed to write managed marker file")
     }
 
     return ret;
@@ -75,6 +97,10 @@ sk_ret_t sk_create(sk_dataset_metadata_t metadata) {
 
 sk_ret_t sk_drop(const char* dir) {
     DECL(ret)
+
+    if (dir == nullptr) {
+        ERR("Invalid dir parameter")
+    }
 
     std::filesystem::path dir_path = dir;
     if (dir_path.empty() || !std::filesystem::exists(dir_path)) {
@@ -84,6 +110,11 @@ sk_ret_t sk_drop(const char* dir) {
     std::filesystem::path file_path = dir_path / kMetadataFileName;
     if (!std::filesystem::exists(file_path)) {
         ERR("Metadata file is not present")
+    }
+
+    std::filesystem::path marker_path = dir_path / kManagedMarkerFileName;
+    if (!std::filesystem::exists(marker_path)) {
+        ERR("Managed marker file is not present")
     }
 
     std::error_code ec;
@@ -97,6 +128,10 @@ sk_ret_t sk_drop(const char* dir) {
 
 sk_ret_t sk_open(const char *path) {
     DECL(ret)
+
+    if (path == nullptr) {
+        ERR("Invalid path parameter")
+    }
 
     std::filesystem::path dir_path = path;
     std::filesystem::path file_path = dir_path / kMetadataFileName;
@@ -155,6 +190,9 @@ sk_ret_t sk_add(sk_handle_t* handle, uint64_t id, const char *value) {
 
     if (handle == nullptr || handle->ds == nullptr) {
         ERR("Invalid handle");
+    }
+    if (value == nullptr) {
+        ERR("Invalid value parameter");
     }
 
     if (handle->input == nullptr) {

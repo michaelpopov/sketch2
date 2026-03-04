@@ -43,15 +43,11 @@ public:
 
     DatasetReaderPtr reader() const;
 
-    DataType type() const { return type_; }
-    uint16_t dim() const { return dim_; }
+    DataType type() const { return metadata_.type; }
+    uint16_t dim() const { return metadata_.dim; }
 
 private:
     DatasetMetadata metadata_;
-    std::vector<std::string> dirs_;
-    uint64_t range_size_ = 0;
-    DataType type_;
-    uint64_t dim_;
 
     Ret init_(const std::string& path);
 
