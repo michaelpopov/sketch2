@@ -1,6 +1,8 @@
 #include "parasol.h"
+#include "core/compute/scanner.h"
 #include "core/storage/dataset.h"
 #include "core/utils/shared_types.h"
+#include "core/utils/string_utils.h"
 #include <filesystem>
 #include <stdio.h>
 #include <stdlib.h>
@@ -263,3 +265,33 @@ sk_ret_t sk_load(sk_handle_t* handle) {
 
     return ret;
 }
+
+sk_ret_t sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t count) {
+    DECL(ret)
+
+    if (handle == nullptr || handle->ds == nullptr || vec == nullptr || ids == nullptr || count < 1) {
+        ERR("Invalid arguments");
+    }
+
+    Dataset* ds = handle->ds;
+    std::vector<uint8_t> buf(data_type_size(ds->type()) * ds->dim());
+    
+    Ret convert_ret = parse_vector(buf.data(), buf.size(), ds->type(), ds->dim(), vec);
+    if (convert_ret != 0) {
+        ERR(convert_ret.message().c_str());
+    }
+
+    std::vector<uint64_t> result;
+    Scanner scanner;
+    Ret scanner_ret = scanner.find(*ds, DistFunc::L1, count, buf.data(), result);
+    if (scanner_ret != 0) {
+        ERR(scanner_ret.message().c_str());
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        ids[i] = result[i];
+    }
+
+    return ret;
+}
+

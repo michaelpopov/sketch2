@@ -58,6 +58,11 @@ sk_ret_t sk_delete(sk_handle_t* handle, uint64_t id);
  */
 sk_ret_t sk_load(sk_handle_t* handle);
 
+/*
+ *  sk_knn finds K nearest neighbors
+ */
+sk_ret_t sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t count);
+
 #ifdef __cplusplus
 }
 #endif

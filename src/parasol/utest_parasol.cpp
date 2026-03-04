@@ -505,3 +505,75 @@ TEST(parasol, load_handle_usable_across_two_cycles) {
     ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
     std::filesystem::remove_all(root);
 }
+
+// ---------------------------------------------------------------------------
+// sk_knn tests
+// ---------------------------------------------------------------------------
+
+TEST(parasol, knn_finds_expected_neighbors) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+    sk_handle_t* handle = open_ret.handle;
+
+    ASSERT_EQ(sk_add(handle, 1, "0.0, 0.0, 0.0, 0.0").code, 0);
+    ASSERT_EQ(sk_add(handle, 2, "10.0, 10.0, 10.0, 10.0").code, 0);
+    ASSERT_EQ(sk_add(handle, 3, "1.0, 1.0, 1.0, 1.0").code, 0);
+    ASSERT_EQ(sk_load(handle).code, 0);
+
+    uint64_t ids[2] = {0, 0};
+    const sk_ret_t knn_ret = sk_knn(handle, "0.0, 0.0, 0.0, 0.0", ids, 2);
+    ASSERT_EQ(knn_ret.code, 0) << knn_ret.message;
+    EXPECT_EQ(ids[0], 1u);
+    EXPECT_EQ(ids[1], 3u);
+
+    ASSERT_EQ(sk_close(handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, knn_fails_on_invalid_arguments) {
+    uint64_t ids[2] = {0, 0};
+
+    EXPECT_NE(sk_knn(nullptr, "0.0,0.0,0.0,0.0", ids, 2).code, 0);
+
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+    sk_handle_t* handle = open_ret.handle;
+
+    EXPECT_NE(sk_knn(handle, nullptr, ids, 2).code, 0);
+    EXPECT_NE(sk_knn(handle, "0.0,0.0,0.0,0.0", nullptr, 2).code, 0);
+    EXPECT_NE(sk_knn(handle, "0.0,0.0,0.0,0.0", ids, 0).code, 0);
+
+    ASSERT_EQ(sk_close(handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, knn_fails_on_invalid_query_vector) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+    sk_handle_t* handle = open_ret.handle;
+
+    ASSERT_EQ(sk_add(handle, 1, "0.0, 0.0, 0.0, 0.0").code, 0);
+    ASSERT_EQ(sk_load(handle).code, 0);
+
+    uint64_t ids[1] = {0};
+    const sk_ret_t ret = sk_knn(handle, "bad,bad,bad,bad", ids, 1);
+    EXPECT_NE(ret.code, 0);
+
+    ASSERT_EQ(sk_close(handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
