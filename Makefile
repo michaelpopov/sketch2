@@ -20,4 +20,6 @@ test:
 # Optimization: Cleaning the build directory
 .PHONY: clean
 clean:
-	rm -rf $(BUILD_DIR)
+	@if [ -d "$(BUILD_DIR)" ]; then \
+		find "$(BUILD_DIR)" -type f \( -name '*.o' -o -name '*.obj' \) -delete; \
+	fi

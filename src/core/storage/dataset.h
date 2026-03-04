@@ -6,6 +6,8 @@
 
 namespace sketch2 {
 
+constexpr const char* kMetadataFileName = "sketch2.metadata";
+
 class DataReader;
 class InputReader;
 class DatasetReader;
@@ -40,6 +42,9 @@ public:
     Ret store(const std::string& input_path);
 
     DatasetReaderPtr reader() const;
+
+    DataType type() const { return type_; }
+    uint16_t dim() const { return dim_; }
 
 private:
     DatasetMetadata metadata_;
