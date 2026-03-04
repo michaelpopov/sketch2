@@ -92,7 +92,15 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     if (!f) {
         return Ret("DataWriter: failed to open output file: " + output_path);
     }
-    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+
+    // Use a larger stdio buffer to reduce write-related syscalls for large datasets.
+    constexpr size_t kFileBufferSize = 4 * 1024 * 1024;
+    std::vector<char> file_buffer(kFileBufferSize);
+    (void)setvbuf(f, file_buffer.data(), _IOFBF, file_buffer.size());
+
+    std::experimental::scope_exit file_guard([&f]() {
+        if (f) fclose(f);
+    });
 
     // Write header
     static_assert(sizeof(hdr) % 8 == 0);
@@ -122,6 +130,13 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
         if (fwrite(deleted_ids.data(), sizeof(uint64_t), deleted_ids.size(), f) != deleted_ids.size()) {
             return Ret("DataWriter: failed to write deleted_ids");
         }
+    }
+
+    int n1 = fflush(f);
+    int n2 = fclose(f);
+    f = nullptr;
+    if (n1 != 0 || n2 != 0) {
+        return Ret("DataWriter: failed to flush and close file");
     }
 
     return Ret(0);
