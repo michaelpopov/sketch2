@@ -86,7 +86,6 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         return Ret("DataReader: failed to mmap file: " + path);
     }
     madvise(m, map_len_, MADV_SEQUENTIAL);
-    madvise(m, map_len_, MADV_WILLNEED);
     map_ = static_cast<uint8_t*>(m);
     auto fail = [this](const std::string& message) -> Ret {
         munmap(const_cast<uint8_t*>(map_), map_len_);
@@ -94,6 +93,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         map_len_ = 0;
         hdr_ = nullptr;
         ids_ = nullptr;
+        deleted_ids_ = nullptr;
         size_ = 0;
         return Ret(message);
     };
@@ -204,14 +204,14 @@ DataType DataReader::type() const {
     return type_;
 }
 
-uint16_t DataReader::dim() const {
+size_t DataReader::dim() const {
     if (!hdr_) {
         throw std::runtime_error("DataReader::dim: reader is not initialized");
     }
     return hdr_->dim;
 }
 
-uint16_t DataReader::size() const {
+size_t DataReader::size() const {
     if (!hdr_) {
         throw std::runtime_error("DataReader::size: reader is not initialized");
     }
@@ -302,6 +302,18 @@ bool DataReader::check_consistency() const {
     size_t j = 0;
     const size_t ids_count = count();
     const size_t deleted_count_ = deleted_count();
+
+    for (size_t i = 1; i < deleted_count_; ++i) {
+        if (deleted_ids_[i - 1] >= deleted_ids_[i]) {
+            return false;
+        }
+    }
+
+    for (size_t i = 1; i < ids_count; ++i) {
+        if (ids_[i - 1] >= ids_[i]) {
+            return false;
+        }
+    }
 
     while (i < ids_count && j < deleted_count_) {
         const uint64_t id = ids_[i];

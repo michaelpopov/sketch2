@@ -17,7 +17,6 @@ private:
         const uint8_t* data;
     };
 
-private:
     void load_update_records(const DataReader& updater, std::vector<Item>& updater_items);
     void load_update_deletes(const DataReader& updater, std::unordered_set<uint64_t>& deletes);
     void write_data(FILE* f, const uint8_t* data, size_t size);

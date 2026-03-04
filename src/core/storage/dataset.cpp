@@ -31,7 +31,11 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
     if (metadata.dim < 4) {
         return Ret("Dataset: dim must be >= 4.");
     }
-    validate_type(metadata.type);
+    try {
+        validate_type(metadata.type);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
     metadata_= metadata;
     return Ret(0);
 }

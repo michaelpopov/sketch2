@@ -44,7 +44,7 @@ public:
     DatasetReaderPtr reader() const;
 
     DataType type() const { return metadata_.type; }
-    uint16_t dim() const { return metadata_.dim; }
+    uint64_t dim() const { return metadata_.dim; }
 
 private:
     DatasetMetadata metadata_;

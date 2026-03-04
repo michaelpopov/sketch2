@@ -280,3 +280,228 @@ TEST(parasol, delete_fails_on_null_handle) {
     const sk_ret_t ret = sk_delete(nullptr, 1);
     EXPECT_NE(ret.code, 0);
 }
+
+// ---------------------------------------------------------------------------
+// sk_load tests
+// ---------------------------------------------------------------------------
+
+// Helper: count regular files with a given extension inside a directory.
+namespace {
+size_t count_files_with_ext(const std::filesystem::path& dir, const std::string& ext) {
+    size_t n = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.is_regular_file() && entry.path().extension() == ext) {
+            ++n;
+        }
+    }
+    return n;
+}
+} // namespace
+
+// 1. Null handle is rejected immediately.
+TEST(parasol, load_fails_on_null_handle) {
+    const sk_ret_t ret = sk_load(nullptr);
+    EXPECT_NE(ret.code, 0);
+}
+
+// 2. No input file was ever created (sk_add/sk_delete were never called).
+TEST(parasol, load_fails_without_input_file) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+
+    const sk_ret_t load_ret = sk_load(open_ret.handle);
+    EXPECT_NE(load_ret.code, 0);
+
+    ASSERT_EQ(sk_close(open_ret.handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+// 3. After sk_add + sk_load the input file is consumed (deleted).
+TEST(parasol, load_removes_input_file_on_success) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+
+    ASSERT_EQ(sk_add(open_ret.handle, 5, "1.0, 2.0, 3.0, 4.0").code, 0);
+
+    const sk_ret_t load_ret = sk_load(open_ret.handle);
+    ASSERT_EQ(load_ret.code, 0) << load_ret.message;
+
+    EXPECT_FALSE(std::filesystem::exists(dir / "data.input"));
+
+    ASSERT_EQ(sk_close(open_ret.handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+// 4. sk_add leaves handle->input open for writing; sk_load must close/flush
+//    it before handing the file to InputReader, otherwise data may be missing.
+TEST(parasol, load_flushes_open_write_handle_before_reading) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+
+    // sk_add opens handle->input lazily; the file handle stays open after this.
+    ASSERT_EQ(sk_add(open_ret.handle, 7, "1.0, 2.0, 3.0, 4.0").code, 0);
+
+    // sk_load must close/flush the write handle, then load successfully.
+    const sk_ret_t load_ret = sk_load(open_ret.handle);
+    EXPECT_EQ(load_ret.code, 0) << load_ret.message;
+
+    ASSERT_EQ(sk_close(open_ret.handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+// 5. A successful load produces a binary .data file in the dataset directory.
+TEST(parasol, load_creates_data_file) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+
+    // id=5, range_size=1000 -> file_id=0 -> "0.data"
+    ASSERT_EQ(sk_add(open_ret.handle, 5, "1.0, 2.0, 3.0, 4.0").code, 0);
+    ASSERT_EQ(sk_load(open_ret.handle).code, 0);
+
+    EXPECT_TRUE(std::filesystem::exists(dir / "0.data"));
+
+    ASSERT_EQ(sk_close(open_ret.handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+// 6. A delete-only input succeeds once the dataset already has a base data file.
+//    (A delete-only first load is rejected because there is nothing to delete yet.)
+TEST(parasol, load_with_delete_only_input_succeeds) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+    sk_handle_t* handle = open_ret.handle;
+
+    // Round 1: establish base data so that a .data file exists.
+    ASSERT_EQ(sk_add(handle, 42, "1.0, 2.0, 3.0, 4.0").code, 0);
+    ASSERT_EQ(sk_load(handle).code, 0);
+
+    // Round 2: delete-only input — this is accepted on an established dataset.
+    ASSERT_EQ(sk_delete(handle, 42).code, 0);
+    const sk_ret_t load_ret = sk_load(handle);
+    EXPECT_EQ(load_ret.code, 0) << load_ret.message;
+
+    ASSERT_EQ(sk_close(handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+// 7. Calling sk_load a second time without any intervening sk_add/sk_delete
+//    fails because the previous load consumed (deleted) the input file.
+TEST(parasol, load_twice_second_call_fails) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+
+    ASSERT_EQ(sk_add(open_ret.handle, 3, "1.0, 2.0, 3.0, 4.0").code, 0);
+    ASSERT_EQ(sk_load(open_ret.handle).code, 0);
+
+    // No new sk_add/sk_delete, so data.input does not exist.
+    const sk_ret_t second_load = sk_load(open_ret.handle);
+    EXPECT_NE(second_load.code, 0);
+
+    ASSERT_EQ(sk_close(open_ret.handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+// 8. Ids must be in strictly ascending order in the input file.
+//    sk_add does not enforce ordering; sk_load must reject the malformed file.
+TEST(parasol, load_fails_with_unsorted_ids) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+
+    // Write id=10 before id=5 — InputReader will reject out-of-order ids.
+    ASSERT_EQ(sk_add(open_ret.handle, 10, "1.0, 2.0, 3.0, 4.0").code, 0);
+    ASSERT_EQ(sk_add(open_ret.handle, 5,  "1.0, 2.0, 3.0, 4.0").code, 0);
+
+    const sk_ret_t load_ret = sk_load(open_ret.handle);
+    EXPECT_NE(load_ret.code, 0);
+
+    ASSERT_EQ(sk_close(open_ret.handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+// 9. Vectors spanning multiple id ranges produce one .data file per range.
+TEST(parasol, load_vectors_across_multiple_ranges) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+
+    // range_size=1000: id=5 -> file_id=0, id=1005 -> file_id=1, id=2005 -> file_id=2
+    ASSERT_EQ(sk_add(open_ret.handle,    5, "1.0, 2.0, 3.0, 4.0").code, 0);
+    ASSERT_EQ(sk_add(open_ret.handle, 1005, "2.0, 3.0, 4.0, 5.0").code, 0);
+    ASSERT_EQ(sk_add(open_ret.handle, 2005, "3.0, 4.0, 5.0, 6.0").code, 0);
+
+    ASSERT_EQ(sk_load(open_ret.handle).code, 0);
+
+    EXPECT_TRUE(std::filesystem::exists(dir / "0.data"));
+    EXPECT_TRUE(std::filesystem::exists(dir / "1.data"));
+    EXPECT_TRUE(std::filesystem::exists(dir / "2.data"));
+    EXPECT_EQ(3u, count_files_with_ext(dir, ".data"));
+
+    ASSERT_EQ(sk_close(open_ret.handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}
+
+// 10. The handle remains fully usable across two independent add->load cycles.
+TEST(parasol, load_handle_usable_across_two_cycles) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+    ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
+
+    const sk_ret_t open_ret = sk_open(dir.string().c_str());
+    ASSERT_EQ(open_ret.code, 0) << open_ret.message;
+    sk_handle_t* handle = open_ret.handle;
+
+    // Cycle 1: id=5 -> 0.data
+    ASSERT_EQ(sk_add(handle, 5, "1.0, 2.0, 3.0, 4.0").code, 0);
+    ASSERT_EQ(sk_load(handle).code, 0);
+    EXPECT_TRUE(std::filesystem::exists(dir / "0.data"));
+    EXPECT_FALSE(std::filesystem::exists(dir / "data.input"));
+
+    // Cycle 2: id=1005 -> 1.data
+    ASSERT_EQ(sk_add(handle, 1005, "5.0, 6.0, 7.0, 8.0").code, 0);
+    ASSERT_EQ(sk_load(handle).code, 0);
+    EXPECT_TRUE(std::filesystem::exists(dir / "1.data"));
+    EXPECT_FALSE(std::filesystem::exists(dir / "data.input"));
+
+    ASSERT_EQ(sk_close(handle).code, 0);
+    ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);
+    std::filesystem::remove_all(root);
+}

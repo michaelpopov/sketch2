@@ -50,7 +50,6 @@ Ret InputReader::init_(const std::string& path) {
         return Ret("Failed to mmap file: " + path);
     }
     madvise(m, map_len_, MADV_SEQUENTIAL);
-    madvise(m, map_len_, MADV_WILLNEED);
     map_ = static_cast<const uint8_t*>(m);
 
     const char* p   = reinterpret_cast<const char*>(map_);
@@ -69,6 +68,10 @@ Ret InputReader::init_(const std::string& path) {
     dim_ = static_cast<size_t>(strtoull(comma + 1, &dim_end, 10));
     if (dim_end == comma + 1) {
         return Ret("Invalid header: missing dimension");
+    }
+
+    if (dim_ < 4 || dim_ > 4096) {
+        return Ret("Invalid header: dimension out of range");
     }
 
     if (size() < sizeof(uint64_t)) {

@@ -22,6 +22,13 @@ Ret DataWriter::init(const std::string& input_path, const std::string& output_pa
 }
 
 Ret DataWriter::exec() {
+    if (input_path_.empty()) {
+        return Ret("Input path is not set.");
+    }
+    if (output_path_.empty()) {
+        return Ret("Output path is not set.");
+    }
+
     // Create and init InputReader from input_path
     InputReader source;
     CHECK(source.init(input_path_));
