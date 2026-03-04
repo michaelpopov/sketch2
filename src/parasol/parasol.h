@@ -49,9 +49,14 @@ sk_ret_t sk_close(sk_handle_t* handle);
 sk_ret_t sk_add(sk_handle_t* handle, uint64_t id, const char *value);
 
 /*
- *  sk_delete adds a line with a delete marker for an item in a dataset.
+ *  sk_delete adds a line with a delete marker for an item into input file for a dataset.
  */
 sk_ret_t sk_delete(sk_handle_t* handle, uint64_t id);
+
+/*
+ *  sk_load loads input file into a dataset.
+ */
+sk_ret_t sk_load(sk_handle_t* handle);
 
 #ifdef __cplusplus
 }

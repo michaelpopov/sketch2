@@ -231,3 +231,35 @@ sk_ret_t sk_delete(sk_handle_t* handle, uint64_t id) {
 
     return ret;
 }
+
+sk_ret_t sk_load(sk_handle_t* handle) {
+    DECL(ret)
+
+    if (handle == nullptr || handle->ds == nullptr) {
+        ERR("Invalid handle");
+    }
+
+    if (handle->input) {
+        fclose(handle->input);
+        handle->input = nullptr;
+    }
+
+    std::filesystem::path dir_path = handle->dir;
+    std::filesystem::path file_path = dir_path / kInputFileName;
+    if (!std::filesystem::exists(file_path)) {
+        ERR("Input file is not present")
+    }
+
+    Ret store_ret = handle->ds->store(file_path.string());
+    if (store_ret != 0) {
+        ERR(store_ret.message().c_str())
+    }
+
+    std::error_code ec;
+    std::filesystem::remove(file_path, ec);
+    if (ec) {
+        ERR("Failed to remove input file")
+    }
+
+    return ret;
+}
