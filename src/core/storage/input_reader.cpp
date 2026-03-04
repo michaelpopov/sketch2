@@ -1,4 +1,5 @@
 #include "input_reader.h"
+#include "utils/string_utils.h"
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -157,70 +158,11 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     if (index >= lines_.size()) {
         return Ret("InputReader::data: index out of range");
     }
+
     const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
     const char* vec_end = reinterpret_cast<const char*>(map_) + lines_[index].end;
 
-    if (type_ == DataType::f32) {
-        float* out = reinterpret_cast<float*>(buf);
-        if (size < dim_ * sizeof(*out)) {
-            return Ret("InputReader::data: invalid input buffer size");
-        }
-        for (size_t d = 0; d < dim_; ++d) {
-            if (p >= vec_end) {
-                return Ret("InputReader::data: truncated vector payload");
-            }
-            char* next;
-            out[d] = strtof(p, &next);
-            if (next == p || next > vec_end) {
-                return Ret("InputReader::data: invalid f32 token");
-            }
-            p = next;
-            while (p < vec_end && (*p == ',' || *p == ' ')) ++p;
-        }
-    } else if (type_ == DataType::i16) {
-        int16_t* out = reinterpret_cast<int16_t*>(buf);
-        if (size < dim_ * sizeof(*out)) {
-            return Ret("InputReader::data: invalid input buffer size");
-        }
-        for (size_t d = 0; d < dim_; ++d) {
-            if (p >= vec_end) {
-                return Ret("InputReader::data: truncated vector payload");
-            }
-            char* next;
-            out[d] = static_cast<int16_t>(strtol(p, &next, 10));
-            if (next == p || next > vec_end) {
-                return Ret("InputReader::data: invalid i16 token");
-            }
-            p = next;
-            while (p < vec_end && (*p == ',' || *p == ' ')) ++p;
-        }
-    } else if (type_ == DataType::f16) {
-        float16* out = reinterpret_cast<float16*>(buf);
-        if (size < dim_ * sizeof(*out)) {
-            return Ret("InputReader::data: invalid input buffer size");
-        }
-        for (size_t d = 0; d < dim_; ++d) {
-            if (p >= vec_end) {
-                return Ret("InputReader::data: truncated vector payload");
-            }
-            char* next;
-            float f = strtof(p, &next);
-            if (next == p || next > vec_end) {
-                return Ret("InputReader::data: invalid f16 token");
-            }
-            out[d] = static_cast<float16>(f);
-            p = next;
-            while (p < vec_end && (*p == ',' || *p == ' ')) ++p;
-        }
-    }
-
-    // Any non-separator payload after parsing dim values is malformed.
-    while (p < vec_end && (*p == ',' || *p == ' ')) ++p;
-    if (p != vec_end) {
-        return Ret("InputReader::data: extra tokens in vector payload");
-    }
-
-    return Ret(0);
+    return parse_vector(buf, size, type_, dim_, p, vec_end);
 }
 
 bool InputReader::is_no_data(size_t index) const {
@@ -231,8 +173,6 @@ bool InputReader::is_no_data(size_t index) const {
     return *p == ']';
 }
 
-// Instructions:
-// Return true if there is an overlap between range and ids, assuming ids are sorted.
 bool InputReader::is_range_present(uint64_t start_range, uint64_t end_range) const {
     if (start_range >= end_range || lines_.empty()) {
         return false;
