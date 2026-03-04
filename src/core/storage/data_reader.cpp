@@ -136,7 +136,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     delta_  = std::move(delta);
 
     if (delta_) {
-        bitset_.resize(hdr_->count);
+        bitset_.resize(hdr_->count * 2);
         CHECK(init_dels());
         CHECK(init_mods());
     }
@@ -163,7 +163,8 @@ Ret DataReader::init_dels() {
         }
 
         if (del_ids[j] == id) {
-            bitset_[i] = true;
+            bitset_[i * 2] = true;
+            bitset_[i * 2 + 1] = true;
         }
     }
 
@@ -189,7 +190,7 @@ Ret DataReader::init_mods() {
         }
 
         if (mod_ids[j] == id) {
-            bitset_[i] = true;
+            bitset_[i * 2] = true;
             mods_[id] = j;
         }
     }
@@ -245,8 +246,13 @@ const uint8_t* DataReader::at(size_t index) const {
         throw std::out_of_range("DataReader::at: index out of range");
     }
 
-    if (index >= bitset_.size() || !bitset_[index]) {
+    const size_t ind = index * 2;
+    if (ind >= bitset_.size() || !bitset_[ind]) {
         return map_ + sizeof(DataFileHeader) + index * size();
+    }
+
+    if (ind + 1 < bitset_.size() && bitset_[ind + 1]) {
+        return nullptr;
     }
 
     const uint64_t id = ids_[index];
@@ -273,13 +279,13 @@ const uint8_t* DataReader::get(uint64_t id) const {
 }
 
 bool DataReader::is_deleted(size_t index) const {
-    if (index >= bitset_.size() || !bitset_[index]) {
+    const size_t ind = index * 2;
+
+    if (ind >= bitset_.size() || !bitset_[ind]) {
         return false;
     }
 
-    const uint64_t id = ids_[index];
-    const auto iter = mods_.find(id);
-    if (iter == mods_.end()) {
+    if (ind + 1 < bitset_.size() && bitset_[ind + 1]) {
         return true;
     }
 
