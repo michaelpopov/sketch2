@@ -31,10 +31,10 @@ public:
 
     Ret init(const std::string& path, std::unique_ptr<DataReader> delta = nullptr);
 
-    DataType type()  const;
-    uint16_t dim()   const;
-    uint16_t size()  const; // size of one vector in bytes
-    size_t   count() const; // number of vectors
+    DataType type() const;
+    size_t dim() const;
+    size_t size() const;  // size of one vector in bytes
+    size_t count() const; // number of vectors
 
     Iterator       begin() const;
     uint64_t       id(size_t index) const;

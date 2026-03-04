@@ -36,10 +36,13 @@ protected:
     }
 
     void generate_file(const std::string& in_path, const std::string& out_path, const GeneratorConfig& cfg) {
-        generate_input_file(in_path, cfg);
+        Ret ret = generate_input_file(in_path, cfg);
+        ASSERT_EQ(0, ret.code()) << "generate_input_file failed: " << ret.message();
         DataWriter w;
-        w.init(in_path, out_path);
-        w.exec();
+        ret = w.init(in_path, out_path);
+        ASSERT_EQ(0, ret.code()) << "DataWriter::init failed: " << ret.message();
+        ret = w.exec();
+        ASSERT_EQ(0, ret.code()) << "DataWriter::exec failed: " << ret.message();
     }
 
     void generate(size_t count, size_t min_id, DataType type, size_t dim, size_t every_n_deleted = 0) {

@@ -177,7 +177,7 @@ FILE* open_input_file(sk_handle_t* handle) {
     if (f == nullptr) {
         return nullptr;
     }
-    ssize_t n = fprintf(f, "%s,%u\n", data_type_to_string(handle->ds->type()), handle->ds->dim());
+    ssize_t n = fprintf(f, "%s,%lu\n", data_type_to_string(handle->ds->type()), handle->ds->dim());
     if (n <= 0) {
         fclose(f);
         return nullptr;

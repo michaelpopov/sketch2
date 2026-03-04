@@ -192,6 +192,10 @@ Ret DataMerger::merge_delta_file(const DataReader& source, const DataReader& upd
 }
 
 Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
+    if (source.has_delta() || updater.has_delta()) {
+        return Ret("DataMerger::merge_delta_file: source and updater must not have deltas");
+    }
+
     FILE* f = fopen(path.c_str(), "wb");
     if (!f) {
         return Ret(strerror(errno));
