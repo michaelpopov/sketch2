@@ -29,6 +29,8 @@ TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
     return out;
 }
 
+#if defined(__AVX2__)
+
 double reference_l1_f32(const float *a, const float *b, size_t dim) {
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
@@ -63,8 +65,6 @@ void fill_i16(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
         b[i] = static_cast<int16_t>(bi);
     }
 }
-
-#if defined(__AVX2__)
 
 TEST(ComputeL1AVX2, DistF32ZeroDimIsZero) {
     auto a = make_buffer<float>(1, 0);
