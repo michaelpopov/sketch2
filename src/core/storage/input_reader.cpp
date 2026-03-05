@@ -83,9 +83,6 @@ Ret InputReader::init_(const std::string& path) {
     while (line < end && *line != '\n') ++line;
     if (line < end) ++line;
 
-    uint64_t prev_id = 0;
-    bool once = true;
-
     // Parse each vector line: "{id} : [ {data...} ]\n"
     while (line < end) {
         const char* next_nl = static_cast<const char*>(memchr(line, '\n', static_cast<size_t>(end - line)));
@@ -102,15 +99,6 @@ Ret InputReader::init_(const std::string& path) {
                 break;
             }
         }
-
-        if (once) {
-            once = false;
-        } else {
-            if (prev_id >= id) {
-                return Ret("Invalid order of ids");
-            }
-        }
-        prev_id = id;
 
         const char* bracket = static_cast<const char*>(
             memchr(id_end, '[', static_cast<size_t>(line_limit - id_end)));
@@ -129,6 +117,17 @@ Ret InputReader::init_(const std::string& path) {
         lines_.push_back({id, offset, end_offset});
 
         line = next_nl ? next_nl + 1 : end;
+    }
+
+    std::sort(lines_.begin(), lines_.end(),
+        [](const LineInfo& lhs, const LineInfo& rhs) {
+            return lhs.id < rhs.id;
+        });
+
+    for (size_t i = 1; i < lines_.size(); ++i) {
+        if (lines_[i - 1].id == lines_[i].id) {
+            return Ret("Duplicate ids");
+        }
     }
 
     return Ret(0);

@@ -210,6 +210,52 @@ TEST_F(DataWriterTest, F32VectorDataIsCorrect) {
     }
 }
 
+TEST_F(DataWriterTest, UnsortedInputIsWrittenInSortedIdOrder) {
+    const std::string content =
+        "f32,4\n"
+        "20 : [ 20.1, 20.1, 20.1, 20.1 ]\n"
+        "10 : [ 10.1, 10.1, 10.1, 10.1 ]\n"
+        "15 : [ 15.1, 15.1, 15.1, 15.1 ]\n";
+    ASSERT_EQ(0, run_raw_input(content).code());
+
+    const auto hdr = read_header();
+    ASSERT_EQ(3u, hdr.count);
+    EXPECT_EQ(10u, hdr.min_id);
+    EXPECT_EQ(20u, hdr.max_id);
+
+    const size_t vec_size = 4 * sizeof(float);
+    const auto ids = read_ids(hdr.count, vec_size);
+    ASSERT_EQ((std::vector<uint64_t>{10, 15, 20}), ids);
+
+    const auto data = read_f32_vectors(hdr.count, 4);
+    ASSERT_EQ(12u, data.size());
+    EXPECT_NEAR(10.1f, data[0], 1e-4f);
+    EXPECT_NEAR(15.1f, data[4], 1e-4f);
+    EXPECT_NEAR(20.1f, data[8], 1e-4f);
+}
+
+TEST_F(DataWriterTest, UnsortedInputWithDeletesWritesSortedActiveAndDeletedIds) {
+    const std::string content =
+        "f32,4\n"
+        "12 : []\n"
+        "11 : [ 11.1, 11.1, 11.1, 11.1 ]\n"
+        "8 : []\n"
+        "10 : [ 10.1, 10.1, 10.1, 10.1 ]\n";
+    ASSERT_EQ(0, run_raw_input(content).code());
+
+    const auto hdr = read_header();
+    ASSERT_EQ(2u, hdr.count);
+    ASSERT_EQ(2u, hdr.deleted_count);
+    EXPECT_EQ(10u, hdr.min_id);
+    EXPECT_EQ(11u, hdr.max_id);
+
+    const size_t vec_size = 4 * sizeof(float);
+    const auto ids = read_ids(hdr.count, vec_size);
+    const auto deleted = read_deleted_ids(hdr.count, hdr.deleted_count, vec_size);
+    ASSERT_EQ((std::vector<uint64_t>{10, 11}), ids);
+    ASSERT_EQ((std::vector<uint64_t>{8, 12}), deleted);
+}
+
 TEST_F(DataWriterTest, HeaderDeletedCountAndActiveCountAreCorrect) {
     ASSERT_EQ(0, run(6, 0, DataType::f32, 4, 2).code()); // deleted ids: 2,4
     const auto hdr = read_header();

@@ -431,9 +431,8 @@ TEST(parasol, load_twice_second_call_fails) {
     std::filesystem::remove_all(root);
 }
 
-// 8. Ids must be in strictly ascending order in the input file.
-//    sk_add does not enforce ordering; sk_load must reject the malformed file.
-TEST(parasol, load_fails_with_unsorted_ids) {
+// 8. Unsorted ids in the input file are accepted; the loader normalizes order.
+TEST(parasol, load_accepts_unsorted_ids) {
     const std::filesystem::path root = make_temp_dir();
     const std::filesystem::path dir  = make_dataset_dir(root);
     ASSERT_EQ(sk_create(make_metadata(dir)).code, 0);
@@ -441,12 +440,13 @@ TEST(parasol, load_fails_with_unsorted_ids) {
     const sk_ret_t open_ret = sk_open(dir.string().c_str());
     ASSERT_EQ(open_ret.code, 0) << open_ret.message;
 
-    // Write id=10 before id=5 — InputReader will reject out-of-order ids.
+    // Write id=10 before id=5 — loader should still succeed.
     ASSERT_EQ(sk_add(open_ret.handle, 10, "1.0, 2.0, 3.0, 4.0").code, 0);
     ASSERT_EQ(sk_add(open_ret.handle, 5,  "1.0, 2.0, 3.0, 4.0").code, 0);
 
     const sk_ret_t load_ret = sk_load(open_ret.handle);
-    EXPECT_NE(load_ret.code, 0);
+    EXPECT_EQ(load_ret.code, 0) << load_ret.message;
+    EXPECT_TRUE(std::filesystem::exists(dir / "0.data"));
 
     ASSERT_EQ(sk_close(open_ret.handle).code, 0);
     ASSERT_EQ(sk_drop(dir.string().c_str()).code, 0);

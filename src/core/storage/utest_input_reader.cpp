@@ -58,10 +58,13 @@ TEST_F(InputReaderTest, FailsOnUnknownType) {
     EXPECT_NE(0, ret.code());
 }
 
-TEST_F(InputReaderTest, FailsOnUnsortedIds) {
+TEST_F(InputReaderTest, AcceptsUnsortedIdsAndSortsById) {
     write_raw("f32,4\n10 : [ 1.0, 1.0, 1.0, 1.0 ]\n9 : [ 2.0, 2.0, 2.0, 2.0 ]\n");
     InputReader r;
-    EXPECT_NE(0, r.init(path_).code());
+    ASSERT_EQ(0, r.init(path_).code());
+    ASSERT_EQ(2u, r.count());
+    EXPECT_EQ(9u, r.id(0));
+    EXPECT_EQ(10u, r.id(1));
 }
 
 // --- init success + metadata ---
