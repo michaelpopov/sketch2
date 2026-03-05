@@ -3,6 +3,7 @@
 #include "core/storage/dataset.h"
 #include "core/utils/shared_types.h"
 #include "core/utils/string_utils.h"
+#include <algorithm>
 #include <filesystem>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,23 +15,58 @@ static const char* kInputFileName = "data.input";
 static const char* kManagedMarkerFileName = ".sketch2.managed";
 
 #define ERR(x) { \
-    ret.code = -1;  \
-    strncpy(ret.message, x, sizeof(ret.message)-1); \
-    ret.message[sizeof(ret.message)-1] = '\0'; \
-    return ret; \
+    handle->error = -1;  \
+    strncpy(handle->message, x, sizeof(handle->message)-1); \
+    handle->message[sizeof(handle->message)-1] = '\0'; \
+    return -1; \
 }
 
-#define DECL(x) \
-    sk_ret_t x { .handle = nullptr, .code = 0, .message = "" };
+#define DECL \
+    if (handle == nullptr) { \
+        return -1; \
+    } \
+    handle->error = 0;  \
+    handle->message[0] = '\0';
 
 struct sk_handle {
+    sk_handle() {
+        memset(message, 0, sizeof(message));
+    }
+
+    ~sk_handle() {
+        delete ds;
+        if (input) fclose(input);
+    }
+
     Dataset* ds = nullptr;
     FILE* input = nullptr;
     std::string dir;
+    int error = 0;
+    char message[256];
 };
 
-sk_ret_t sk_create(sk_dataset_metadata_t metadata) {
-    DECL(ret)
+sk_handle_t* connect() {
+    return new sk_handle;
+}
+
+void disconnect(sk_handle_t* handle) {
+    delete handle;
+}
+
+static int sk_create_(sk_handle_t* handle, sk_dataset_metadata_t metadata);
+int sk_create(sk_handle_t* handle, sk_dataset_metadata_t metadata) {
+    try {
+        return sk_create_(handle, metadata);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+static int sk_create_(sk_handle_t* handle, sk_dataset_metadata_t metadata) {
+    DECL
+
+    if (handle->ds) {
+        ERR("Handle already initialized");
+    }
 
     std::filesystem::path dir_path = metadata.dir;
     if (dir_path.empty()) {
@@ -94,13 +130,26 @@ sk_ret_t sk_create(sk_dataset_metadata_t metadata) {
         ERR("Failed to write managed marker file")
     }
 
-    return ret;
+    handle->dir = dir_path;
+
+    return 0;
 }
 
-sk_ret_t sk_drop(const char* dir) {
-    DECL(ret)
+static int sk_drop_(sk_handle_t* handle);
+int sk_drop(sk_handle_t* handle) {
+    try {
+        return sk_drop_(handle);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+static int sk_drop_(sk_handle_t* handle) {
+    DECL
 
-    if (dir == nullptr) {
+    const std::string dir = handle->dir;
+    (void)sk_close(handle);
+
+    if (dir.empty()) {
         ERR("Invalid dir parameter")
     }
 
@@ -125,11 +174,23 @@ sk_ret_t sk_drop(const char* dir) {
         ERR("Failed to remove directory")
     }
 
-    return ret;
+    return 0;
 }
 
-sk_ret_t sk_open(const char *path) {
-    DECL(ret)
+static int sk_open_(sk_handle_t* handle, const char *path);
+int sk_open(sk_handle_t* handle, const char *path) {
+    try {
+        return sk_open_(handle, path);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+static int sk_open_(sk_handle_t* handle, const char *path) {
+    DECL
+
+    if (handle->ds) {
+        ERR("Handle already initialized");
+    }
 
     if (path == nullptr) {
         ERR("Invalid path parameter")
@@ -148,28 +209,33 @@ sk_ret_t sk_open(const char *path) {
         ERR(ds_ret.message().c_str())
     }
 
-    ret.handle = new sk_handle_t;
-    ret.handle->ds = ds;
-    ret.handle->dir = path;
+    handle->ds = ds;
+    handle->dir = path;
 
-    return ret;
+    return 0;
 }
 
-sk_ret_t sk_close(sk_handle_t* handle) {
-    DECL(ret)
-
-    if (handle == nullptr || handle->ds == nullptr)  {
-        ERR("Invalid handle");
+int sk_close_(sk_handle_t* handle);
+int sk_close(sk_handle_t* handle) {
+    try {
+        return sk_close_(handle);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
     }
+}
+int sk_close_(sk_handle_t* handle) {
+    DECL
 
     delete handle->ds;
     if (handle->input) {
         fclose(handle->input);
     }
 
-    delete handle;
+    handle->ds = nullptr;
+    handle->input = nullptr;
+    handle->dir = "";
 
-    return ret;
+    return 0;
 }
 
 FILE* open_input_file(sk_handle_t* handle) {
@@ -187,10 +253,18 @@ FILE* open_input_file(sk_handle_t* handle) {
     return f;
 }
 
-sk_ret_t sk_add(sk_handle_t* handle, uint64_t id, const char *value) {
-    DECL(ret)
+int sk_add_(sk_handle_t* handle, uint64_t id, const char *value);
+int sk_add(sk_handle_t* handle, uint64_t id, const char *value) {
+    try {
+        return sk_add_(handle, id, value);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+int sk_add_(sk_handle_t* handle, uint64_t id, const char *value) {
+    DECL
 
-    if (handle == nullptr || handle->ds == nullptr) {
+    if (handle->ds == nullptr) {
         ERR("Invalid handle");
     }
     if (value == nullptr) {
@@ -209,13 +283,21 @@ sk_ret_t sk_add(sk_handle_t* handle, uint64_t id, const char *value) {
         ERR("Failed to write value to input file");
     }
 
-    return ret;
+    return 0;
 }
 
-sk_ret_t sk_delete(sk_handle_t* handle, uint64_t id) {
-    DECL(ret)
+int sk_delete_(sk_handle_t* handle, uint64_t id);
+int sk_delete(sk_handle_t* handle, uint64_t id) {
+    try {
+        return sk_delete_(handle, id);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+int sk_delete_(sk_handle_t* handle, uint64_t id) {
+    DECL
 
-    if (handle == nullptr || handle->ds == nullptr) {
+    if (handle->ds == nullptr) {
         ERR("Invalid handle");
     }
 
@@ -231,13 +313,21 @@ sk_ret_t sk_delete(sk_handle_t* handle, uint64_t id) {
         ERR("Failed to write delete marker to input file");
     }
 
-    return ret;
+    return 0;
 }
 
-sk_ret_t sk_load(sk_handle_t* handle) {
-    DECL(ret)
+static int sk_load_(sk_handle_t* handle);
+int sk_load(sk_handle_t* handle) {
+    try {
+        return sk_load_(handle);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+static int sk_load_(sk_handle_t* handle) {
+    DECL
 
-    if (handle == nullptr || handle->ds == nullptr) {
+    if (handle->ds == nullptr) {
         ERR("Invalid handle");
     }
 
@@ -263,16 +353,27 @@ sk_ret_t sk_load(sk_handle_t* handle) {
         ERR("Failed to remove input file")
     }
 
-    return ret;
+    return 0;
 }
 
-sk_ret_t sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t count) {
-    DECL(ret)
+int sk_knn_(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_count);
+int sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_count) {
+    try {
+        return sk_knn_(handle, vec, ids, ids_count);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+int sk_knn_(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_count) {
+    DECL
 
-    if (handle == nullptr || handle->ds == nullptr || vec == nullptr || ids == nullptr || count < 1) {
+    if (handle == nullptr || handle->ds == nullptr ||
+        vec == nullptr || ids == nullptr ||
+        ids_count == nullptr || *ids_count < 1) {
         ERR("Invalid arguments");
     }
 
+    uint64_t count = *ids_count;
     Dataset* ds = handle->ds;
     std::vector<uint8_t> buf(data_type_size(ds->type()) * ds->dim());
     
@@ -288,10 +389,21 @@ sk_ret_t sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t co
         ERR(scanner_ret.message().c_str());
     }
 
-    for (size_t i = 0; i < count; i++) {
+    for (size_t i = 0; i < count && i < result.size(); i++) {
         ids[i] = result[i];
     }
 
-    return ret;
+    *ids_count = std::min(count, result.size());
+
+    return 0;
 }
 
+int sk_error(sk_handle_t* handle) {
+    if (handle == nullptr) return -1;
+    return handle->error;
+}
+
+const char* sk_error_message(sk_handle_t* handle) {
+    if (handle == nullptr) return "";
+    return handle->message;
+}

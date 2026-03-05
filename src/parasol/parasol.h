@@ -17,51 +17,65 @@ typedef struct sk_dataset_metadata {
 
 typedef struct sk_handle sk_handle_t;
 
-typedef struct sk_ret {
-    sk_handle_t* handle;
-    int code;
-    char message[256];
-} sk_ret_t;
+/*
+ *  Initialize sk_handle for further usage.
+ */
+sk_handle_t* connect();
+
+/*
+ *  Release resources associated with sk_handle.
+ */
+void disconnect(sk_handle_t* handle);
 
 /*
  *  sk_create creates data directory and a metadata file for a dataset.
  */
-sk_ret_t sk_create(sk_dataset_metadata_t metadata);
+int sk_create(sk_handle_t* handle, sk_dataset_metadata_t metadata);
 
 /*
  *  sk_drop removes whole data directory including metadata and data fies for a dataset.
  */
-sk_ret_t sk_drop(const char* dir);
+int sk_drop(sk_handle_t* handle);
 
 /*
  *  sk_open creates a dataset instance and initializes it.
  */
-sk_ret_t sk_open(const char *path);
+int sk_open(sk_handle_t* handle, const char *path);
 
 /*
  *  sk_close deletes a dataset instance and closes temporary files.
  */
-sk_ret_t sk_close(sk_handle_t* handle);
+int sk_close(sk_handle_t* handle);
 
 /*
  *  sk_add adds a line with a vector into input file for a dataset.
  */
-sk_ret_t sk_add(sk_handle_t* handle, uint64_t id, const char *value);
+int sk_add(sk_handle_t* handle, uint64_t id, const char *value);
 
 /*
  *  sk_delete adds a line with a delete marker for an item into input file for a dataset.
  */
-sk_ret_t sk_delete(sk_handle_t* handle, uint64_t id);
+int sk_delete(sk_handle_t* handle, uint64_t id);
 
 /*
  *  sk_load loads input file into a dataset.
  */
-sk_ret_t sk_load(sk_handle_t* handle);
+int sk_load(sk_handle_t* handle);
 
 /*
  *  sk_knn finds K nearest neighbors
  */
-sk_ret_t sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t count);
+int sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_count);
+
+/*
+ *  sk_error returns error code registered during previous call.
+ */
+int sk_error(sk_handle_t* handle);
+
+/*
+ *  sk_error_message returns error message registered during previous call.
+ */
+const char* sk_error_message(sk_handle_t* handle);
 
 #ifdef __cplusplus
 }
