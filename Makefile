@@ -1,5 +1,6 @@
 # --- Configuration ---
 BUILD_DIR := build-dbg
+JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
 
 # --- Targets ---
 
@@ -10,7 +11,7 @@ all: build
 # Compiles the project using the specified build directory
 .PHONY: build
 build:
-	cmake --build $(BUILD_DIR) --parallel $(nproc)
+	cmake --build $(BUILD_DIR) --parallel $(JOBS)
 
 # Runs the test suite with failure output enabled
 .PHONY: test

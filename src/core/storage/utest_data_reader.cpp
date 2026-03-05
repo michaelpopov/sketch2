@@ -531,7 +531,7 @@ TEST_F(DataReaderTest, UpdatedValueComesFromDelta) {
     EXPECT_EQ(12, v12[0]); // untouched
 }
 
-TEST_F(DataReaderTest, DeltaIteratorSkipsDeletedAndKeepsUpdated) {
+TEST_F(DataReaderTest, DeltaIteratorSkipsDeletedAndAppendsUpdatedFromDelta) {
     generate(4, 10, DataType::f32, 4);
     write_raw_to_data_file(
         delta_input_path_, delta_path_,
@@ -548,8 +548,9 @@ TEST_F(DataReaderTest, DeltaIteratorSkipsDeletedAndKeepsUpdated) {
     }
     ASSERT_EQ(3u, seen_ids.size());
     EXPECT_EQ(10u, seen_ids[0]);
-    EXPECT_EQ(12u, seen_ids[1]);
-    EXPECT_EQ(13u, seen_ids[2]);
+    // New iterator contract: visible base rows first, then rows from attached delta.
+    EXPECT_EQ(13u, seen_ids[1]);
+    EXPECT_EQ(12u, seen_ids[2]);
 
     const float* v12 = reinterpret_cast<const float*>(r.get(12));
     ASSERT_NE(nullptr, v12);

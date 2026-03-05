@@ -13,31 +13,46 @@ namespace sketch2 {
 
 // --- Iterator ---
 
-DataReader::Iterator::Iterator(const DataReader* reader, size_t index, const uint64_t* ids)
-    : reader_(reader), index_(index), ids_(ids) {}
+DataReader::Iterator::Iterator(const DataReader* reader, const DataReader* delta_reader, size_t index, const uint64_t* ids)
+    : reader_(reader), delta_reader_(delta_reader), index_(index), ids_(ids),
+      count_(reader_->count() + (delta_reader_ ? delta_reader_->count() : 0)) {}
 
 void DataReader::Iterator::next() {
     ++index_;
-    while (index_ < reader_->count() && reader_->is_deleted(index_)) {
+    while (index_ < reader_->count() && reader_->is_hidden(index_)) {
         ++index_;
     }
 }
 
 bool DataReader::Iterator::eof() const {
-    return index_ >= reader_->count();
+    return index_ >= count_;
 }
 
 const uint8_t* DataReader::Iterator::data() const {
-    if (index_ >= reader_->count()) {
+    if (index_ >= count_) {
         throw std::out_of_range("DataReader::Iterator::data: index out of range");
     }
+
+    if (index_ >= reader_->count()) {
+        assert(delta_reader_);
+        const size_t ind = index_ - reader_->count();
+        return delta_reader_->at(ind);
+    }
+
     return reader_->at(index_);
 }
 
 uint64_t DataReader::Iterator::id() const {
-    if (index_ >= reader_->count()) {
+    if (index_ >= count_) {
         throw std::out_of_range("DataReader::Iterator::id: index out of range");
     }
+
+    if (index_ >= reader_->count()) {
+        assert(delta_reader_);
+        const size_t ind = index_ - reader_->count();
+        return delta_reader_->ids_[ind];
+    }
+
     return ids_[index_];
 }
 
@@ -136,68 +151,40 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     delta_  = std::move(delta);
 
     if (delta_) {
-        bitset_.resize(hdr_->count * 2);
-        CHECK(init_dels());
-        CHECK(init_mods());
+        bitset_.resize(hdr_->count);
+        CHECK(init_delta());
     }
 
     return Ret(0);
 }
 
-Ret DataReader::init_dels() {
+Ret DataReader::init_delta() {
     if (!hdr_ || !ids_ || !delta_) {
-        return Ret("DataReader::init_dels: reader is not initialized");
+        return Ret("DataReader::init_delta: reader is not initialized");
     }
 
-    const uint64_t* del_ids = delta_->deleted_ids_;
-    size_t del_count = delta_->deleted_count();
+    auto mark_hidden = [this](const uint64_t* other_ids, size_t other_count) {
+        for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
+            const uint64_t id = ids_[i];
+            while (j < other_count && other_ids[j] < id) {
+                ++j;
+            }
 
-    for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
-        const uint64_t id = ids_[i];
-        while (j < del_count && del_ids[j] < id) {
-            ++j;
-        }
+            if (j >= other_count) {
+                break;
+            }
 
-        if (j >= del_count) {
-            break;
+            if (other_ids[j] == id) {
+                bitset_[i] = true;
+            }
         }
+    };
 
-        if (del_ids[j] == id) {
-            bitset_[i * 2] = true;
-            bitset_[i * 2 + 1] = true;
-        }
-    }
+    mark_hidden(delta_->deleted_ids_, delta_->deleted_count());
+    mark_hidden(delta_->ids_, delta_->count());
 
     return Ret(0);
 }
-
-Ret DataReader::init_mods() {
-    if (!hdr_ || !ids_ || !delta_) {
-        return Ret("DataReader::init_mods: reader is not initialized");
-    }
-
-    const uint64_t* mod_ids = delta_->ids_;
-    size_t mod_count = delta_->count();
-
-    for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
-        const uint64_t id = ids_[i];
-        while (j < mod_count && mod_ids[j] < id) {
-            ++j;
-        }
-
-        if (j >= mod_count) {
-            break;
-        }
-
-        if (mod_ids[j] == id) {
-            bitset_[i * 2] = true;
-            mods_[id] = j;
-        }
-    }
-
-    return Ret(0);
-}
-
 DataType DataReader::type() const {
     if (!hdr_) {
         throw std::runtime_error("DataReader::type: reader is not initialized");
@@ -228,10 +215,10 @@ size_t DataReader::count() const {
 
 DataReader::Iterator DataReader::begin() const {
     size_t index = 0;
-    while (index < count() && is_deleted(index)) {
+    while (index < count() && is_hidden(index)) {
         ++index;
     }
-    return Iterator(this, index, ids_);
+    return Iterator(this, delta_ ? delta_.get() : nullptr, index, ids_);
 }
 
 uint64_t DataReader::id(size_t index) const {
@@ -246,24 +233,11 @@ const uint8_t* DataReader::at(size_t index) const {
         throw std::out_of_range("DataReader::at: index out of range");
     }
 
-    const size_t ind = index * 2;
-    if (ind >= bitset_.size() || !bitset_[ind]) {
-        return map_ + sizeof(DataFileHeader) + index * size();
-    }
-
-    if (ind + 1 < bitset_.size() && bitset_[ind + 1]) {
+    if (index < bitset_.size() && bitset_[index]) {
         return nullptr;
     }
 
-    const uint64_t id = ids_[index];
-    const auto iter = mods_.find(id);
-    if (iter == mods_.end()) {
-        return nullptr;
-    }
-
-    assert(delta_);
-    const uint32_t pos = iter->second;
-    return delta_->get_by_pos(pos);
+    return map_ + sizeof(DataFileHeader) + index * size();
 }
 
 const uint8_t* DataReader::get(uint64_t id) const {
@@ -271,25 +245,34 @@ const uint8_t* DataReader::get(uint64_t id) const {
     const uint64_t* first = ids_;
     const uint64_t* last  = ids_ + n;
     const uint64_t* it    = std::lower_bound(first, last, id);
-    if (it == last || *it != id) {
+
+    if (it == last) {
+        if (delta_) {
+            return delta_->get(id);
+        }
         return nullptr;
     }
+
     const size_t index = static_cast<size_t>(it - first);
-    return is_deleted(index) ? nullptr : at(index);
+    if (ids_[index] != id) {
+        if (delta_) {
+            return delta_->get(id);
+        }
+        return nullptr;
+    }
+
+    if (is_hidden(index)) {
+        if (delta_) {
+            return delta_->get(id);
+        }
+        return nullptr;
+    }
+
+    return map_ + sizeof(DataFileHeader) + index * size();
 }
 
-bool DataReader::is_deleted(size_t index) const {
-    const size_t ind = index * 2;
-
-    if (ind >= bitset_.size() || !bitset_[ind]) {
-        return false;
-    }
-
-    if (ind + 1 < bitset_.size() && bitset_[ind + 1]) {
-        return true;
-    }
-
-    return false;
+bool DataReader::is_hidden(size_t index) const {
+    return (index < bitset_.size() && bitset_[index]);
 }
 
 uint64_t DataReader::deleted_id(size_t index) const {
