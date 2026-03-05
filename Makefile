@@ -18,6 +18,16 @@ build:
 test:
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
+# Runs Python API tests
+.PHONY: pytest
+pytest:
+	python3 -m unittest discover -s src/pytest -p 'test_*.py'
+
+# Runs Python demo that bulk-loads vectors and validates KNN output
+.PHONY: pydemo
+pydemo:
+	python3 src/pytest/demo.py
+
 # Optimization: Cleaning the build directory
 .PHONY: clean
 clean:
