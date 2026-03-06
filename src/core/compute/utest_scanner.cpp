@@ -117,14 +117,14 @@ TEST_F(ScannerTest, FindFailsOnNullQueryPointer) {
     EXPECT_NE(0, s.find(reader, DistFunc::L1, 1, nullptr, result).code());
 }
 
-TEST_F(ScannerTest, FindFailsOnUnsupportedFunction) {
+TEST_F(ScannerTest, FindFailsOnUnknownFunction) {
     generate(3, 0, DataType::f32, 4);
     DataReader reader;
     ASSERT_EQ(0, reader.init(data_path_).code());
     Scanner s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(reader, DistFunc::L2, 1, q.data(), result).code());
+    EXPECT_NE(0, s.find(reader, static_cast<DistFunc>(999), 1, q.data(), result).code());
 }
 
 TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {
@@ -165,6 +165,20 @@ TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(reader, DistFunc::L1, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(3u, result[0]);
+    EXPECT_EQ(4u, result[1]);
+    EXPECT_EQ(2u, result[2]);
+}
+
+TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
+    generate(5, 0, DataType::f32, 4);
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path_).code());
+    Scanner s;
+    auto q = f32_vec(3.2f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(reader, DistFunc::L2, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
@@ -268,6 +282,32 @@ TEST_F(ScannerTest, FindDatasetWorks) {
     EXPECT_EQ(14u, result[2]);
 }
 
+TEST_F(ScannerTest, FindDatasetL2Works) {
+    std::string d0 = "/tmp/sketch2_utest_sc_l2ds0_" + std::to_string(getpid());
+    std::string d1 = "/tmp/sketch2_utest_sc_l2ds1_" + std::to_string(getpid());
+    fs::create_directories(d0);
+    fs::create_directories(d1);
+    std::experimental::scope_exit cleanup([&]() {
+        fs::remove_all(d0);
+        fs::remove_all(d1);
+    });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4).code());
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    auto q = f32_vec(15.2f, 4);
+    std::vector<uint64_t> result;
+    const auto ret = s.find(ds, DistFunc::L2, 3, q.data(), result);
+    ASSERT_EQ(0, ret.code()) << "\n\nfind failed: " << ret.message() << "\n\n";
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(15u, result[0]);
+    EXPECT_EQ(16u, result[1]);
+    EXPECT_EQ(14u, result[2]);
+}
+
 TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {
     std::string d = "/tmp/sketch2_utest_sc_dsnull_" + std::to_string(getpid());
     fs::create_directories(d);
@@ -299,7 +339,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
     EXPECT_NE(0, s.find(ds, DistFunc::L1, 0, q.data(), result).code());
 }
 
-TEST_F(ScannerTest, FindDatasetFailsOnUnsupportedFunction) {
+TEST_F(ScannerTest, FindDatasetFailsOnUnknownFunction) {
     std::string d = "/tmp/sketch2_utest_sc_dsfunc_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
@@ -312,7 +352,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnUnsupportedFunction) {
     Scanner s;
     auto q = f32_vec(1.0f, 4);
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(ds, DistFunc::L2, 1, q.data(), result).code());
+    EXPECT_NE(0, s.find(ds, static_cast<DistFunc>(999), 1, q.data(), result).code());
 }
 
 TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {

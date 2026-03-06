@@ -1,5 +1,6 @@
 #include "scanner.h"
 #include "core/compute/compute_l1.h"
+#include "core/compute/compute_l2.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset.h"
 #include <queue>
@@ -30,13 +31,12 @@ Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const ui
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
     }
-    if (func != DistFunc::L1) {
+    if (func != DistFunc::L1 && func != DistFunc::L2) {
         return Ret("Scanner::find: unsupported distance function.");
     }
 
     result.clear();
 
-    ComputeL1 l1;
     std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare> heap;
 
     auto drs = dataset.reader();
@@ -47,9 +47,15 @@ Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const ui
 
         DataType type = reader->type();
         size_t   dim  = reader->dim();
+        ComputeL1::DistFn dist_fn = nullptr;
+        switch (func) {
+            case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(type); break;
+            case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(type); break;
+            default: return Ret("Scanner::find: unsupported distance function.");
+        }
 
         for (auto it = reader->begin(); !it.eof(); it.next()) {
-            double d = l1.dist(it.data(), vec, type, dim);
+            double d = dist_fn(it.data(), vec, dim);
             if (heap.size() < count) {
                 heap.push({it.id(), d});
             } else if (d < heap.top().dist) {
@@ -76,21 +82,20 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
 
     result.clear();
 
-    ComputeL1 l1;
-    ICompute* compute = nullptr;
+    double (*dist_fn)(const uint8_t*, const uint8_t*, size_t) = nullptr;
     switch (func) {
-        case DistFunc::L1: compute = &l1; break;
+        case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(reader.type()); break;
+        case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(reader.type()); break;
         default: return Ret("Scanner::find: not implemented");
     }
 
-    DataType type = reader.type();
     size_t   dim  = reader.dim();
 
     // Max-heap of DistItem capped at count — keeps the nearest seen so far.
     std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare> heap;
 
     for (auto it = reader.begin(); !it.eof(); it.next()) {
-        double d = compute->dist(it.data(), vec, type, dim);
+        double d = dist_fn(it.data(), vec, dim);
         if (heap.size() < count) {
             heap.push({it.id(), d});
         } else if (d < heap.top().dist) {
