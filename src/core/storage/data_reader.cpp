@@ -1,4 +1,5 @@
 #include "data_reader.h"
+#include "core/storage/data_file_layout.h"
 #include <algorithm>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -134,16 +135,15 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     const size_t count = static_cast<size_t>(hdr_->count);
     const size_t deleted_count = static_cast<size_t>(hdr_->deleted_count);
 
-    const size_t vectors_bytes = count * size_;
+    const IdsLayout ids_layout = compute_ids_layout(*hdr_, count, size_);
     const size_t ids_bytes = (deleted_count + count) * sizeof(uint64_t);
     if (hdr_->data_offset < sizeof(DataFileHeader) || (hdr_->data_offset % kDataAlignment) != 0) {
         return fail("DataReader: invalid data offset alignment");
     }
-    const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr_->data_offset) + vectors_bytes, kIdsAlignment);
-    if (ids_offset % alignof(uint64_t) != 0) {
+    if (ids_layout.ids_offset % alignof(uint64_t) != 0) {
         return fail("DataReader: invalid ids offset alignment");
     }
-    if (map_len_ != ids_offset + ids_bytes) {
+    if (map_len_ != ids_layout.ids_offset + ids_bytes) {
         return fail("DataReader: truncated or malformed data file");
     }
 
@@ -153,7 +153,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         if (size_ != delta->size()) return fail("DataReader: invalid delta dim");
     }
 
-    ids_ = reinterpret_cast<const uint64_t*>(map_ + ids_offset);
+    ids_ = reinterpret_cast<const uint64_t*>(map_ + ids_layout.ids_offset);
     deleted_ids_ = ids_ + count;
     delta_  = std::move(delta);
 

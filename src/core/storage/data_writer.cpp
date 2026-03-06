@@ -1,6 +1,6 @@
 #include "data_writer.h"
 #include "core/storage/input_reader.h"
-#include "core/storage/data_file.h"
+#include "core/storage/data_file_layout.h"
 #include <experimental/scope>
 #include <cstdint>
 #include <cstdio>
@@ -76,17 +76,13 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     }
 
     // Build DataFileHeader
-    DataFileHeader hdr;
-    hdr.base.magic         = kMagic;
-    hdr.base.kind          = static_cast<uint16_t>(FileType::Data);
-    hdr.base.version       = kVersion;
-    hdr.min_id        = min_id;
-    hdr.max_id        = max_id;
-    hdr.count         = static_cast<uint32_t>(ids.size());
-    hdr.deleted_count = static_cast<uint32_t>(deleted_ids.size());
-    hdr.type          = static_cast<uint16_t>(data_type_to_int(reader.type()));
-    hdr.dim           = static_cast<uint16_t>(reader.dim());
-    hdr.data_offset   = static_cast<uint32_t>(align_up<size_t>(sizeof(DataFileHeader), kDataAlignment));
+    DataFileHeader hdr = make_data_header(
+        min_id,
+        max_id,
+        static_cast<uint32_t>(ids.size()),
+        static_cast<uint32_t>(deleted_ids.size()),
+        reader.type(),
+        static_cast<uint16_t>(reader.dim()));
 
     // Write output file
     FILE *f = fopen(output_path.c_str(), "wb");
@@ -105,21 +101,11 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
 
     // Write header
     static_assert(sizeof(hdr) % 8 == 0);
-    if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
-        return Ret("DataWriter: failed to write header");
-    }
-
-    const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
-    if (pad_size > 0) {
-        std::vector<uint8_t> pad(pad_size, 0);
-        if (fwrite(pad.data(), 1, pad.size(), f) != pad.size()) {
-            return Ret("DataWriter: failed to write alignment padding");
-        }
-    }
+    CHECK(write_header_and_data_padding(f, hdr, "DataWriter"));
 
     // Write vector data
     const size_t vec_size = reader.size();
-    const size_t vectors_bytes = ids.size() * vec_size;
+    const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size(), vec_size);
     std::vector<uint8_t> buf(vec_size);
     for (size_t i = 0; i < count; ++i) {
         if (!reader.is_no_data(i)) {
@@ -130,26 +116,13 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
         }
     }
 
-    const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
-    const size_t ids_pad_size = ids_offset - (static_cast<size_t>(hdr.data_offset) + vectors_bytes);
-    if (ids_pad_size > 0) {
-        std::vector<uint8_t> pad(ids_pad_size, 0);
-        if (fwrite(pad.data(), 1, pad.size(), f) != pad.size()) {
-            return Ret("DataWriter: failed to write id alignment padding");
-        }
-    }
+    CHECK(write_zero_padding(f, ids_layout.ids_padding, "DataWriter: failed to write id alignment padding"));
 
     // Write ids
-    if (fwrite(ids.data(), sizeof(uint64_t), ids.size(), f) != ids.size()) {
-        return Ret("DataWriter: failed to write ids");
-    }
+    CHECK(write_u64_array(f, ids, "DataWriter: failed to write ids"));
 
     // Write deleted ids
-    if (!deleted_ids.empty()) {
-        if (fwrite(deleted_ids.data(), sizeof(uint64_t), deleted_ids.size(), f) != deleted_ids.size()) {
-            return Ret("DataWriter: failed to write deleted_ids");
-        }
-    }
+    CHECK(write_u64_array(f, deleted_ids, "DataWriter: failed to write deleted_ids"));
 
     int n1 = fflush(f);
     int n2 = fsync(fileno(f));
