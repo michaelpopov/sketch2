@@ -4,10 +4,6 @@
 
 namespace sketch2 {
 
-size_t DynamicBitset::words_for_bits(size_t size) {
-    return (size + kWordBits - 1) / kWordBits;
-}
-
 void DynamicBitset::clear_unused_tail_bits() {
     if (words_.empty()) {
         return;
@@ -24,12 +20,9 @@ void DynamicBitset::clear_unused_tail_bits() {
 
 void DynamicBitset::resize(size_t size) {
     bit_count_ = size;
-    words_.resize(words_for_bits(size));
+    size_t words_count = (size + kWordBits - 1) / kWordBits;
+    words_.resize(words_count);
     clear_unused_tail_bits();
-}
-
-size_t DynamicBitset::size() const {
-    return bit_count_;
 }
 
 bool DynamicBitset::get(size_t index) const {
