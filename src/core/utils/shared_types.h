@@ -103,8 +103,8 @@ private:
 
 #define CHECK(ret) \
     do { \
-        const auto _check_ret = (ret); \
-        if (_check_ret != 0) { return _check_ret; } \
+        const auto check_ret = (ret); \
+        if (check_ret != 0) { return check_ret; } \
     } while (0)
 
 } // namespace sketch2

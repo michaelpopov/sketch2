@@ -202,14 +202,13 @@ static int sk_open_(sk_handle_t* handle, const char *path) {
         ERR("Metadata file is not present")
     }
 
-    Dataset* ds = new Dataset();
+    auto ds = std::make_unique<Dataset>();
     Ret ds_ret = ds->init(file_path.string());
     if (ds_ret != 0) {
-        delete ds;
         ERR(ds_ret.message().c_str())
     }
 
-    handle->ds = ds;
+    handle->ds = ds.release();
     handle->dir = path;
 
     return 0;

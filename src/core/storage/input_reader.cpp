@@ -119,10 +119,13 @@ Ret InputReader::init_(const std::string& path) {
         line = next_nl ? next_nl + 1 : end;
     }
 
-    std::sort(lines_.begin(), lines_.end(),
-        [](const LineInfo& lhs, const LineInfo& rhs) {
-            return lhs.id < rhs.id;
-        });
+    const auto by_id = [](const LineInfo& lhs, const LineInfo& rhs) {
+        return lhs.id < rhs.id;
+    };
+    if (!std::is_sorted(lines_.begin(), lines_.end(), by_id)) {
+        std::sort(lines_.begin(), lines_.end(),
+            by_id);
+    }
 
     for (size_t i = 1; i < lines_.size(); ++i) {
         if (lines_[i - 1].id == lines_[i].id) {
@@ -192,6 +195,21 @@ bool InputReader::is_range_present(uint64_t start_range, uint64_t end_range) con
     return it != lines_.end() && it->id < end_range;
 }
 
+std::pair<size_t, size_t> InputReader::find_index_range(uint64_t start, uint64_t end) const {
+    auto first = std::lower_bound(
+        lines_.begin(), lines_.end(), start,
+        [](const LineInfo& line, uint64_t value) { return line.id < value; });
+
+    auto last = std::lower_bound(
+        first, lines_.end(), end,
+        [](const LineInfo& line, uint64_t value) { return line.id < value; });
+
+    return {
+        static_cast<size_t>(first - lines_.begin()),
+        static_cast<size_t>(last - first)
+    };
+}
+
 /***********************************************
  *   InputReaderView
  */
@@ -210,20 +228,9 @@ InputReaderView::InputReaderView(const InputReader& reader, uint64_t start, uint
         return;
     }
 
-    bool once = true;
-    for (size_t i = 0; i < reader_.count(); ++i) {
-        uint64_t id = reader_.id(i);
-        if (id >= end) {
-            break; // ids are sorted, we can stop here
-        }
-        if (id >= start) {
-            if (once) {
-                view_index_ = i;
-                once = false;
-            }
-            ++count_;
-        }
-    }
+    const auto [index, count] = reader_.find_index_range(start, end);
+    view_index_ = index;
+    count_ = count;
 }
 
 size_t InputReaderView::count() const {

@@ -61,13 +61,13 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     std::vector<Item> updater_items;
     load_update_records(updater, updater_items);
 
-    std::unordered_set<uint64_t> deletes;
+    std::vector<uint64_t> deletes;
     load_update_deletes(updater, deletes);
 
     std::vector<uint64_t> ids;
     ids.reserve(source.count() + updater_items.size());
 
-    for (size_t i = 0, j = 0; i < source.count() || j < updater_items.size(); ) {
+    for (size_t i = 0, j = 0, di = 0, dj = 0; i < source.count() || j < updater_items.size(); ) {
         const bool has_source = i < source.count();
         const bool has_update = j < updater_items.size();
 
@@ -75,7 +75,10 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         // If an item is deleted, skip it and move forward.
         if (has_source) {
             const uint64_t sourceid = source.id(i);
-            if (deletes.find(sourceid) != deletes.end()) {
+            while (di < deletes.size() && deletes[di] < sourceid) {
+                ++di;
+            }
+            if (di < deletes.size() && deletes[di] == sourceid) {
                 ++i;
                 continue;
             }
@@ -85,7 +88,10 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         // list of deleted items. If this happens, it is an error.
         if (has_update) {
             const uint64_t update_id = updater_items[j].id;
-            if (deletes.find(update_id) != deletes.end()) {
+            while (dj < deletes.size() && deletes[dj] < update_id) {
+                ++dj;
+            }
+            if (dj < deletes.size() && deletes[dj] == update_id) {
                 return Ret("DataMerger::merge_data_files: updated id is also deleted");
             }
         }
@@ -157,9 +163,10 @@ void DataMerger::load_update_records(const DataReader& updater, std::vector<Item
     }
 }
 
-void DataMerger::load_update_deletes(const DataReader& updater, std::unordered_set<uint64_t>& deletes) {
+void DataMerger::load_update_deletes(const DataReader& updater, std::vector<uint64_t>& deletes) {
+    deletes.reserve(deletes.size() + updater.deleted_count());
     for (size_t i = 0; i < updater.deleted_count(); i++) {
-        deletes.insert(updater.deleted_id(i));
+        deletes.push_back(updater.deleted_id(i));
     }
 }
 
@@ -218,25 +225,45 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         return Ret("DataMerger::merge_delta_file: failed to write header");
     }
 
-    std::unordered_set<uint64_t> deletes;
+    std::vector<uint64_t> deletes;
     std::vector<Item> updater_items;
 
     load_update_records(updater, updater_items);
+    std::vector<uint64_t> source_deletes;
+    std::vector<uint64_t> updater_deletes;
 
-    // If updater contains records with ids that appear in deletes,
-    // then remove these ids from deletes because updater brings new
-    // values.
-    load_update_deletes(source, deletes);
-    for (const auto& item: updater_items) {
-        deletes.erase(item.id);
+    // Source deleted ids can be resurrected by updater records.
+    load_update_deletes(source, source_deletes);
+    size_t ui = 0;
+    for (const auto sid : source_deletes) {
+        while (ui < updater_items.size() && updater_items[ui].id < sid) {
+            ++ui;
+        }
+        if (ui < updater_items.size() && updater_items[ui].id == sid) {
+            continue;
+        }
+        deletes.push_back(sid);
     }
 
-    load_update_deletes(updater, deletes);
+    // Updater deleted ids are already sorted.
+    load_update_deletes(updater, updater_deletes);
+
+    // Merge two sorted delete lists into one sorted unique list.
+    std::vector<uint64_t> merged_deletes;
+    merged_deletes.reserve(deletes.size() + updater_deletes.size());
+    std::merge(
+        deletes.begin(), deletes.end(),
+        updater_deletes.begin(), updater_deletes.end(),
+        std::back_inserter(merged_deletes));
+    merged_deletes.erase(
+        std::unique(merged_deletes.begin(), merged_deletes.end()),
+        merged_deletes.end());
+    deletes = std::move(merged_deletes);
 
     std::vector<uint64_t> ids;
     ids.reserve(source.count() + updater_items.size());
 
-    for (size_t i = 0, j = 0; i < source.count() || j < updater_items.size(); ) {
+    for (size_t i = 0, j = 0, di = 0, dj = 0; i < source.count() || j < updater_items.size(); ) {
         const bool has_source = i < source.count();
         const bool has_update = j < updater_items.size();
 
@@ -244,7 +271,10 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         // If an item is deleted, skip it and move forward.
         if (has_source) {
             const uint64_t sourceid = source.id(i);
-            if (deletes.find(sourceid) != deletes.end()) {
+            while (di < deletes.size() && deletes[di] < sourceid) {
+                ++di;
+            }
+            if (di < deletes.size() && deletes[di] == sourceid) {
                 i++;
                 continue;
             }
@@ -254,7 +284,10 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         // list of deleted items. If this happens, it is an error.
         if (has_update) {
             const uint64_t update_id = updater_items[j].id;
-            if (deletes.find(update_id) != deletes.end()) {
+            while (dj < deletes.size() && deletes[dj] < update_id) {
+                ++dj;
+            }
+            if (dj < deletes.size() && deletes[dj] == update_id) {
                 return Ret("DataMerger::merge_delta_file: updated id is also deleted");
             }
         }
@@ -300,17 +333,11 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     }
 
     if (!deletes.empty()) {
-        std::vector<uint64_t> deletes_array;
-        deletes_array.reserve(deletes.size());
-        for (const auto& d: deletes) {
-            deletes_array.push_back(d);
-        }
-        std::sort(deletes_array.begin(), deletes_array.end());
-        if (fwrite(deletes_array.data(), sizeof(uint64_t), deletes_array.size(), f) != deletes_array.size()) {
+        if (fwrite(deletes.data(), sizeof(uint64_t), deletes.size(), f) != deletes.size()) {
             return Ret("DataMerger::merge_delta_file: failed to write deletes_array to merge file");
         }
 
-        hdr.deleted_count = static_cast<uint32_t>(deletes_array.size());
+        hdr.deleted_count = static_cast<uint32_t>(deletes.size());
     }
 
     // Overwrite header with updated values.

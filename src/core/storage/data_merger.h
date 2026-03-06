@@ -1,7 +1,6 @@
 #pragma once
 #include "data_reader.h"
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 namespace sketch2 {
@@ -18,7 +17,7 @@ private:
     };
 
     void load_update_records(const DataReader& updater, std::vector<Item>& updater_items);
-    void load_update_deletes(const DataReader& updater, std::unordered_set<uint64_t>& deletes);
+    void load_update_deletes(const DataReader& updater, std::vector<uint64_t>& deletes);
     void write_data(FILE* f, const uint8_t* data, size_t size);
 
     Ret merge_data_file_(const DataReader& source, const DataReader& updater, const std::string& path);

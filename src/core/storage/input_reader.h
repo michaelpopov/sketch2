@@ -2,6 +2,7 @@
 #include "utils/shared_types.h"
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sketch2 {
@@ -30,6 +31,8 @@ public:
     bool is_range_present(uint64_t start_range, uint64_t end_range) const;
 
 private:
+    friend class InputReaderView;
+
     const uint8_t*        map_     = nullptr;
     size_t                map_len_ = 0;
     DataType              type_    = DataType::f32;
@@ -37,6 +40,7 @@ private:
     std::vector<LineInfo> lines_;
 
     Ret init_(const std::string &path);
+    std::pair<size_t, size_t> find_index_range(uint64_t start, uint64_t end) const;
 };
 
 class InputReaderView {
