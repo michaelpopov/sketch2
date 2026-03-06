@@ -68,6 +68,12 @@ int sk_load(sk_handle_t* handle);
 int sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_count);
 
 /*
+ *  sk_get returns a text content of a vector found by id.
+ *  If vector is not found, function returns -1.
+ */
+int sk_get(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size);
+
+/*
  *  sk_error returns error code registered during previous call.
  */
 int sk_error(sk_handle_t* handle);

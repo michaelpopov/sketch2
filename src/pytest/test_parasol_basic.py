@@ -47,6 +47,19 @@ class ParasolBasicTest(unittest.TestCase):
             self.assertTrue((self.dataset_dir / "0.data").exists())
             ps.drop()
 
+    def test_get_returns_vector_text(self) -> None:
+        with Parasol() as ps:
+            ps.create(self.dataset_dir)
+            ps.open(self.dataset_dir)
+
+            ps.add(42, "1.0, 2.0, 3.0, 4.0")
+            ps.load()
+
+            vec = ps.get(42)
+            self.assertEqual("[ 1, 2, 3, 4 ]", vec)
+
+            ps.drop()
+
 
 if __name__ == "__main__":
     unittest.main()

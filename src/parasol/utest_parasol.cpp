@@ -551,3 +551,64 @@ TEST(parasol, knn_fails_on_invalid_query_vector) {
     disconnect(handle);
     std::filesystem::remove_all(root);
 }
+
+TEST(parasol, get_returns_vector_text_by_id) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+
+    sk_handle_t* handle = connect();
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, make_metadata(dir)));
+    ASSERT_OK(handle, sk_open(handle, dir.string().c_str()));
+
+    ASSERT_OK(handle, sk_add(handle, 42, "1.0, 2.0, 3.0, 4.0"));
+    ASSERT_OK(handle, sk_load(handle));
+
+    char buf[128] {};
+    ASSERT_OK(handle, sk_get(handle, 42, buf, sizeof(buf)));
+    EXPECT_STREQ("[ 1, 2, 3, 4 ]", buf);
+
+    ASSERT_OK(handle, sk_drop(handle));
+    disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, get_fails_for_missing_id) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+
+    sk_handle_t* handle = connect();
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, make_metadata(dir)));
+    ASSERT_OK(handle, sk_open(handle, dir.string().c_str()));
+
+    ASSERT_OK(handle, sk_add(handle, 1, "1.0, 2.0, 3.0, 4.0"));
+    ASSERT_OK(handle, sk_load(handle));
+
+    char buf[128] {};
+    EXPECT_NE(0, sk_get(handle, 999, buf, sizeof(buf)));
+
+    ASSERT_OK(handle, sk_drop(handle));
+    disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, get_fails_on_invalid_arguments) {
+    char buf[128] {};
+    EXPECT_NE(0, sk_get(nullptr, 1, buf, sizeof(buf)));
+
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+
+    sk_handle_t* handle = connect();
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, make_metadata(dir)));
+    ASSERT_OK(handle, sk_open(handle, dir.string().c_str()));
+
+    EXPECT_NE(0, sk_get(handle, 1, nullptr, sizeof(buf)));
+    EXPECT_NE(0, sk_get(handle, 1, buf, 3));
+
+    ASSERT_OK(handle, sk_drop(handle));
+    disconnect(handle);
+    std::filesystem::remove_all(root);
+}

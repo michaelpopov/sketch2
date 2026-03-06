@@ -40,6 +40,30 @@ class ParasolErrorTest(unittest.TestCase):
                 ps.load()
             ps.drop()
 
+    def test_get_fails_for_missing_id(self) -> None:
+        with Parasol() as ps:
+            ps.create(self.dataset_dir)
+            ps.open(self.dataset_dir)
+            ps.add(1, "1.0, 2.0, 3.0, 4.0")
+            ps.load()
+
+            with self.assertRaises(ParasolError):
+                ps.get(999)
+
+            ps.drop()
+
+    def test_get_fails_on_small_buffer(self) -> None:
+        with Parasol() as ps:
+            ps.create(self.dataset_dir)
+            ps.open(self.dataset_dir)
+            ps.add(1, "1.0, 2.0, 3.0, 4.0")
+            ps.load()
+
+            with self.assertRaises(ParasolError):
+                ps.get(1, buf_size=4)
+
+            ps.drop()
+
 
 if __name__ == "__main__":
     unittest.main()

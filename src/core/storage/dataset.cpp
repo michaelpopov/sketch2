@@ -294,25 +294,31 @@ Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader&
 
 DatasetReaderPtr Dataset::reader() const {
     DatasetReaderPtr result = std::make_unique<DatasetReader>();
-    const auto ret = result->init(metadata_.dirs);
+    const auto ret = result->init(metadata_);
     if (ret != 0) {
         throw std::runtime_error(ret.message());
     }
     return result;
 }
 
+std::pair<DataReaderPtr, Ret> Dataset::get(uint64_t id) const {
+    DatasetReader reader;
+    Ret ret = reader.init(metadata_);
+    if (ret != 0) {
+        return {nullptr, ret};
+    }
+    return reader.get(id);
+}
+
 /***********************************************************
  *  DatasetReader 
  */
-Ret DatasetReader::init(const std::vector<std::string>& dirs) {
-    if (dirs.empty()) {
+Ret DatasetReader::init(DatasetMetadata metadata) {
+    if (metadata.dirs.empty()) {
         return Ret("DatasetReader::init: dirs are not set");
     }
-    if (!dirs_.empty()) {
-        return Ret("DatasetReader::init: already initialized");
-    }
 
-    dirs_ = dirs;
+    metadata_ = metadata;
 
     // Query all directories defined in metadata_.dirs.
     // File all files with names that match pattern <id>.data and <id>.delta.
@@ -340,7 +346,7 @@ Ret DatasetReader::init(const std::vector<std::string>& dirs) {
 
     std::unordered_map<uint64_t, Item> items_map;
 
-    for (const std::string& dir : dirs_) {
+    for (const std::string& dir : metadata_.dirs) {
         std::error_code ec;
         if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) {
             return Ret("DatasetReader::init: invalid directory: " + dir);
@@ -430,4 +436,40 @@ std::pair<DataReaderPtr, Ret> DatasetReader::next() {
     return {std::move(reader), Ret(0)};
 }
     
+std::pair<DataReaderPtr, Ret> DatasetReader::get(uint64_t id) {
+    if (metadata_.range_size == 0 || metadata_.dirs.empty()) {
+        return {nullptr, Ret("DatasetReader::get: reader is not initialized")};
+    }
+
+    const uint64_t file_id = id / metadata_.range_size;
+    auto it = std::lower_bound(items_.begin(), items_.end(), file_id,
+        [](const Item& item, uint64_t value) {
+            return item.id < value;
+        });
+
+    if (it == items_.end() || it->id != file_id) {
+        return {nullptr, Ret(0)};
+    }
+
+    DataReaderPtr reader = std::make_unique<DataReader>();
+    Ret ret(0);
+
+    if (it->delta_file_path.empty()) {
+        ret = reader->init(it->data_file_path);
+    } else {
+        DataReaderPtr delta_reader = std::make_unique<DataReader>();
+        ret = delta_reader->init(it->delta_file_path);
+        if (ret != 0) {
+            return {nullptr, ret};
+        }
+        ret = reader->init(it->data_file_path, std::move(delta_reader));
+    }
+
+    if (ret != 0) {
+        return {nullptr, ret};
+    }
+
+    return {std::move(reader), Ret(0)};
+}
+
 } // namespace sketch2

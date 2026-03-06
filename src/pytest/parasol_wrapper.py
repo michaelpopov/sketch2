@@ -74,6 +74,9 @@ class Parasol:
         self.lib.sk_knn.argtypes = [c_void_p, c_char_p, POINTER(c_uint64), POINTER(c_uint64)]
         self.lib.sk_knn.restype = c_int
 
+        self.lib.sk_get.argtypes = [c_void_p, c_uint64, POINTER(c_char), c_uint64]
+        self.lib.sk_get.restype = c_int
+
         self.lib.sk_error.argtypes = [c_void_p]
         self.lib.sk_error.restype = c_int
 
@@ -154,3 +157,12 @@ class Parasol:
         self._check("sk_knn", rc)
         actual = int(ids_count.value)
         return [int(ids[i]) for i in range(actual)]
+
+    def get(self, item_id: int, buf_size: int = 4096) -> str:
+        if buf_size < 1:
+            raise ValueError("buf_size must be >= 1")
+
+        out = ctypes.create_string_buffer(buf_size)
+        rc = self.lib.sk_get(self.handle, c_uint64(item_id), out, c_uint64(buf_size))
+        self._check("sk_get", rc)
+        return out.value.decode("utf-8", errors="replace")

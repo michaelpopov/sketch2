@@ -499,3 +499,58 @@ TEST_F(DatasetTest, DatasetReaderNextReturnsDeltaFileAlongsideData) {
     ASSERT_NE(nullptr, v);
     EXPECT_NEAR(99.0f, v[0], 1e-5f);
 }
+
+TEST_F(DatasetTest, DatasetReaderGetReturnsReaderForContainingRange) {
+    auto dir = make_dir("d_get");
+    generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4)); // files 0,1,2 for range_size=10
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto drs = sc.reader();
+    auto [reader, ret] = drs->get(17);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_NE(nullptr, reader);
+    ASSERT_NE(nullptr, reader->get(17));
+    ASSERT_EQ(nullptr, reader->get(29));
+}
+
+TEST_F(DatasetTest, DatasetReaderGetReturnsNullWhenRangeHasNoFile) {
+    auto dir = make_dir("d_get_sparse");
+    write_input(
+        "f32,4\n"
+        "0 : [ 0.1, 0.1, 0.1, 0.1 ]\n"
+        "20 : [ 20.1, 20.1, 20.1, 20.1 ]\n");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto drs = sc.reader();
+    auto [reader, ret] = drs->get(15); // file_id=1 is missing
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ(nullptr, reader);
+}
+
+TEST_F(DatasetTest, DatasetGetReturnsReaderWithDeltaApplied) {
+    auto dir = make_dir("d_ds_get");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    write_input("f32,4\n5 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+    ASSERT_EQ(0, sc.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    auto [reader, ret] = sc.get(5);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_NE(nullptr, reader);
+    const float* v = reinterpret_cast<const float*>(reader->get(5));
+    ASSERT_NE(nullptr, v);
+    EXPECT_NEAR(99.0f, v[0], 1e-5f);
+
+    auto [missing_reader, missing_ret] = sc.get(5000);
+    ASSERT_EQ(0, missing_ret.code()) << missing_ret.message();
+    EXPECT_EQ(nullptr, missing_reader);
+}

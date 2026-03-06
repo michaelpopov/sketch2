@@ -21,3 +21,7 @@ Testing/
 
 # Archives
 *.a
+
+# Python cache
+__pycache__/
+*.py[cod]

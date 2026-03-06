@@ -1,9 +1,11 @@
 #include "parasol.h"
 #include "core/compute/scanner.h"
+#include "core/storage/data_reader.h"
 #include "core/storage/dataset.h"
 #include "core/utils/shared_types.h"
 #include "core/utils/string_utils.h"
 #include <algorithm>
+#include <ctype.h>
 #include <filesystem>
 #include <stdio.h>
 #include <stdlib.h>
@@ -393,6 +395,42 @@ int sk_knn_(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_c
     }
 
     *ids_count = std::min(count, result.size());
+
+    return 0;
+}
+
+int sk_get_(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size);
+int sk_get(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size) {
+    try {
+        return sk_get_(handle, id, buf, buf_size);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+int sk_get_(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size) {
+    DECL
+
+    if (handle->ds == nullptr || buf == nullptr || buf_size < 4) {
+        ERR("Invalid arguments");
+    }
+
+    auto [reader, ret] = handle->ds->get(id);
+    if (ret != 0) {
+        ERR(ret.message().c_str());
+    }
+    if (!reader) {
+        ERR("Vector not found");
+    }
+
+    const uint8_t* vec_data = reader->get(id);
+    if (vec_data == nullptr) {
+        ERR("Vector not found");
+    }
+
+    Ret print_ret = print_vector(const_cast<uint8_t*>(vec_data), reader->type(), reader->dim(), buf, buf_size);
+    if (print_ret != 0) {
+        ERR(print_ret.message().c_str());
+    }
 
     return 0;
 }

@@ -42,6 +42,7 @@ public:
     Ret store(const std::string& input_path);
 
     DatasetReaderPtr reader() const;
+    std::pair<DataReaderPtr, Ret> get(uint64_t id) const;
 
     DataType type() const { return metadata_.type; }
     uint64_t dim() const { return metadata_.dim; }
@@ -65,8 +66,11 @@ private:
 
 class DatasetReader {
 public:
-    Ret init(const std::vector<std::string>& dirs);
+    Ret init(DatasetMetadata metadata);
     std::pair<DataReaderPtr, Ret> next();
+
+    // Get a DataReader that accesses a file with a range containing id.
+    std::pair<DataReaderPtr, Ret> get(uint64_t id);
 private:
     struct Item {
         uint64_t id;
@@ -75,7 +79,7 @@ private:
     };
 
 private:
-    std::vector<std::string> dirs_;
+    DatasetMetadata metadata_;
     std::vector<Item> items_;
     int current_ = -1;
 };

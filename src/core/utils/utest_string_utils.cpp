@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 
 #include <gtest/gtest.h>
 
@@ -91,5 +92,27 @@ TEST(string_utils, parse_vector_end_pointer_cut_mid_token_fails) {
     EXPECT_NE(ret.code(), 0);
 }
 
-} // namespace sketch2
+TEST(string_utils, print_vector_f32_success) {
+    std::array<float, 4> vec {1.0f, 2.5f, -3.0f, 4.25f};
+    char out[128] {};
+    const Ret ret = print_vector(reinterpret_cast<uint8_t*>(vec.data()), DataType::f32, vec.size(), out, sizeof(out));
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_STREQ("[ 1, 2.5, -3, 4.25 ]", out);
+}
 
+TEST(string_utils, print_vector_i16_success) {
+    std::array<int16_t, 4> vec {10, -20, 30, 40};
+    char out[128] {};
+    const Ret ret = print_vector(reinterpret_cast<uint8_t*>(vec.data()), DataType::i16, vec.size(), out, sizeof(out));
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_STREQ("[ 10, -20, 30, 40 ]", out);
+}
+
+TEST(string_utils, print_vector_buffer_too_small_fails) {
+    std::array<float, 2> vec {1.0f, 2.0f};
+    char out[4] {};
+    const Ret ret = print_vector(reinterpret_cast<uint8_t*>(vec.data()), DataType::f32, vec.size(), out, sizeof(out));
+    EXPECT_NE(0, ret.code());
+}
+
+} // namespace sketch2
