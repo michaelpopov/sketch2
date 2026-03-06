@@ -182,7 +182,7 @@ Ret DataReader::init_delta() {
             }
 
             if (other_ids[j] == id) {
-                bitset_[i] = true;
+                bitset_.set(i);
             }
         }
     };
@@ -240,7 +240,7 @@ const uint8_t* DataReader::at(size_t index) const {
         throw std::out_of_range("DataReader::at: index out of range");
     }
 
-    if (index < bitset_.size() && bitset_[index]) {
+    if (index < bitset_.size() && bitset_.get(index)) {
         return nullptr;
     }
 
@@ -279,7 +279,7 @@ const uint8_t* DataReader::get(uint64_t id) const {
 }
 
 bool DataReader::is_hidden(size_t index) const {
-    return (index < bitset_.size() && bitset_[index]);
+    return (index < bitset_.size() && bitset_.get(index));
 }
 
 uint64_t DataReader::deleted_id(size_t index) const {

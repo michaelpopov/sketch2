@@ -1,10 +1,10 @@
 #pragma once
 #include "utils/shared_types.h"
+#include "core/utils/dynamic_bitset.h"
 #include "core/storage/data_file.h"
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
 
 namespace sketch2 {
 
@@ -59,7 +59,7 @@ private:
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
 
-    std::vector<bool>  bitset_;
+    DynamicBitset           bitset_;
     std::unique_ptr<DataReader> delta_;
 
     Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
