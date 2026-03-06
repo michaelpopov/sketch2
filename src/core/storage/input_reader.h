@@ -54,7 +54,7 @@ public:
 private:
     const InputReader& reader_;
     size_t view_index_;
-    uint64_t count_;
+    size_t count_;
 };
 
 } // namespace sketch2

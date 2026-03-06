@@ -57,7 +57,7 @@ private:
     const uint64_t*          ids_     = nullptr; // cached pointer to the ids section
     const uint64_t*          deleted_ids_ = nullptr; // cached pointer to the deleted ids section
     DataType                 type_    = DataType::f32;
-    uint16_t                 size_    = 0;        // size of one vector in bytes
+    size_t                   size_    = 0;        // size of one vector in bytes
 
     std::vector<bool>  bitset_;
     std::unique_ptr<DataReader> delta_;

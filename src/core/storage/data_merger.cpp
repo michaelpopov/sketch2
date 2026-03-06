@@ -76,7 +76,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         if (has_source) {
             const uint64_t sourceid = source.id(i);
             if (deletes.find(sourceid) != deletes.end()) {
-                i++;
+                ++i;
                 continue;
             }
         }

@@ -25,8 +25,6 @@ private:
 
 #if defined(__AVX2__)
 
-namespace {
-
 inline double hsum_ps_256(__m256 v) {
     const __m128 lo = _mm256_castps256_ps128(v);
     const __m128 hi = _mm256_extractf128_ps(v, 1);
@@ -65,8 +63,6 @@ inline __m256i accumulate_abs_i16_as_i64(__m256i acc, __m256i a16, __m256i b16, 
     acc = _mm256_add_epi64(acc, _mm256_unpackhi_epi32(abs_hi32, zero));
     return acc;
 }
-
-} // namespace
 
 inline double ComputeL1_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
     if (dim % 8 == 0) {

@@ -8,6 +8,7 @@
 #include <cassert>
 #include <iostream>
 #include <limits>
+#include <unistd.h>
 
 namespace sketch2 {
 
@@ -133,9 +134,10 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     }
 
     int n1 = fflush(f);
-    int n2 = fclose(f);
+    int n2 = fsync(fileno(f));
+    int n3 = fclose(f);
     f = nullptr;
-    if (n1 != 0 || n2 != 0) {
+    if (n1 != 0 || n2 != 0 || n3 != 0) {
         return Ret("DataWriter: failed to flush and close file");
     }
 

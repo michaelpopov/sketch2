@@ -287,8 +287,6 @@ bool DataReader::check_consistency() const {
         return false;
     }
 
-    size_t i = 0;
-    size_t j = 0;
     const size_t ids_count = count();
     const size_t deleted_count_ = deleted_count();
 
@@ -304,6 +302,8 @@ bool DataReader::check_consistency() const {
         }
     }
 
+    size_t i = 0;
+    size_t j = 0;
     while (i < ids_count && j < deleted_count_) {
         const uint64_t id = ids_[i];
         const uint64_t deleted_id = deleted_ids_[j];

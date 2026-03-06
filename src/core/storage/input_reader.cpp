@@ -227,7 +227,7 @@ InputReaderView::InputReaderView(const InputReader& reader, uint64_t start, uint
 }
 
 size_t InputReaderView::count() const {
-    return static_cast<size_t>(count_);
+    return count_;
 }
 
 DataType InputReaderView::type() const {
