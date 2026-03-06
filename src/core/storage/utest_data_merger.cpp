@@ -75,6 +75,13 @@ protected:
             std::vector<float> vec(dim, item.second);
             ASSERT_EQ(1u, fwrite(vec.data(), vec.size() * sizeof(float), 1, f));
         }
+        const size_t vectors_bytes = static_cast<size_t>(active.size()) * dim * sizeof(float);
+        const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
+        const size_t ids_pad_size = ids_offset - (static_cast<size_t>(hdr.data_offset) + vectors_bytes);
+        if (ids_pad_size > 0) {
+            std::vector<uint8_t> pad(ids_pad_size, 0);
+            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+        }
         for (const auto& item : active) {
             const uint64_t id = item.first;
             ASSERT_EQ(1u, fwrite(&id, sizeof(id), 1, f));
@@ -123,6 +130,13 @@ protected:
         for (const auto& item : active) {
             std::vector<int16_t> vec(dim, item.second);
             ASSERT_EQ(1u, fwrite(vec.data(), vec.size() * sizeof(int16_t), 1, f));
+        }
+        const size_t vectors_bytes = static_cast<size_t>(active.size()) * dim * sizeof(int16_t);
+        const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
+        const size_t ids_pad_size = ids_offset - (static_cast<size_t>(hdr.data_offset) + vectors_bytes);
+        if (ids_pad_size > 0) {
+            std::vector<uint8_t> pad(ids_pad_size, 0);
+            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
         }
         for (const auto& item : active) {
             const uint64_t id = item.first;

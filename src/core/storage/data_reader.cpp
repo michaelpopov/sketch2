@@ -139,7 +139,11 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     if (hdr_->data_offset < sizeof(DataFileHeader) || (hdr_->data_offset % kDataAlignment) != 0) {
         return fail("DataReader: invalid data offset alignment");
     }
-    if (map_len_ != static_cast<size_t>(hdr_->data_offset) + vectors_bytes + ids_bytes) {
+    const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr_->data_offset) + vectors_bytes, kIdsAlignment);
+    if (ids_offset % alignof(uint64_t) != 0) {
+        return fail("DataReader: invalid ids offset alignment");
+    }
+    if (map_len_ != ids_offset + ids_bytes) {
         return fail("DataReader: truncated or malformed data file");
     }
 
@@ -149,7 +153,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         if (size_ != delta->size()) return fail("DataReader: invalid delta dim");
     }
 
-    ids_ = reinterpret_cast<const uint64_t*>(map_ + hdr_->data_offset + vectors_bytes);
+    ids_ = reinterpret_cast<const uint64_t*>(map_ + ids_offset);
     deleted_ids_ = ids_ + count;
     delta_  = std::move(delta);
 

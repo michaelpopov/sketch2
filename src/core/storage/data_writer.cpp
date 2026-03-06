@@ -86,8 +86,7 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     hdr.deleted_count = static_cast<uint32_t>(deleted_ids.size());
     hdr.type          = static_cast<uint16_t>(data_type_to_int(reader.type()));
     hdr.dim           = static_cast<uint16_t>(reader.dim());
-    hdr.data_offset   = static_cast<uint32_t>(
-        ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
+    hdr.data_offset   = static_cast<uint32_t>(align_up<size_t>(sizeof(DataFileHeader), kDataAlignment));
 
     // Write output file
     FILE *f = fopen(output_path.c_str(), "wb");
@@ -120,6 +119,7 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
 
     // Write vector data
     const size_t vec_size = reader.size();
+    const size_t vectors_bytes = ids.size() * vec_size;
     std::vector<uint8_t> buf(vec_size);
     for (size_t i = 0; i < count; ++i) {
         if (!reader.is_no_data(i)) {
@@ -127,6 +127,15 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
             if (fwrite(buf.data(), vec_size, 1, f) != 1) {
                 return Ret("DataWriter: failed to write vector data at index " + std::to_string(i));
             }
+        }
+    }
+
+    const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
+    const size_t ids_pad_size = ids_offset - (static_cast<size_t>(hdr.data_offset) + vectors_bytes);
+    if (ids_pad_size > 0) {
+        std::vector<uint8_t> pad(ids_pad_size, 0);
+        if (fwrite(pad.data(), 1, pad.size(), f) != pad.size()) {
+            return Ret("DataWriter: failed to write id alignment padding");
         }
     }
 

@@ -58,13 +58,17 @@ protected:
         return hdr;
     }
 
+    size_t ids_offset(size_t count, size_t vec_size, const DataFileHeader& hdr) {
+        return align_up<size_t>(static_cast<size_t>(hdr.data_offset) + count * vec_size, kIdsAlignment);
+    }
+
     std::vector<uint64_t> read_ids(size_t count, size_t vec_size) {
         std::vector<uint64_t> ids(count);
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
             DataFileHeader hdr{};
             fread(&hdr, sizeof(hdr), 1, f);
-            fseek(f, static_cast<long>(hdr.data_offset + count * vec_size), SEEK_SET);
+            fseek(f, static_cast<long>(ids_offset(count, vec_size, hdr)), SEEK_SET);
             fread(ids.data(), sizeof(uint64_t), count, f);
             fclose(f);
         }
@@ -77,9 +81,7 @@ protected:
         if (f) {
             DataFileHeader hdr{};
             fread(&hdr, sizeof(hdr), 1, f);
-            const size_t offset = hdr.data_offset +
-                                  count * vec_size +
-                                  count * sizeof(uint64_t);
+            const size_t offset = ids_offset(count, vec_size, hdr) + count * sizeof(uint64_t);
             fseek(f, static_cast<long>(offset), SEEK_SET);
             fread(ids.data(), sizeof(uint64_t), deleted_count, f);
             fclose(f);
@@ -129,9 +131,11 @@ TEST_F(DataWriterTest, OutputFileSize) {
     const size_t count = 5, dim = 4;
     run(count, 0, DataType::f32, dim);
     const DataFileHeader hdr = read_header();
+    const size_t ids_off = ids_offset(count, dim * sizeof(float), hdr);
     size_t expected = sizeof(DataFileHeader)
                     + (hdr.data_offset - sizeof(DataFileHeader))
                     + count * dim * sizeof(float)  // vectors
+                    + (ids_off - (hdr.data_offset + count * dim * sizeof(float))) // ids alignment padding
                     + count * sizeof(uint64_t);    // ids
     FILE* f = fopen(output_path_.c_str(), "rb");
     ASSERT_NE(nullptr, f);

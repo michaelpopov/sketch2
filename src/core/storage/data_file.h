@@ -1,11 +1,18 @@
 #pragma once
 #include <cstdint>
+#include <cstddef>
 
 namespace sketch2 {
 
 static constexpr uint32_t kMagic   = 0x534B5632; // "SKV2"
-static constexpr uint16_t kVersion = 2;
+static constexpr uint16_t kVersion = 3;
 static constexpr uint32_t kDataAlignment = 32;
+static constexpr uint32_t kIdsAlignment = 8;
+
+template <typename T>
+constexpr T align_up(T value, T alignment) {
+    return ((value + alignment - 1) / alignment) * alignment;
+}
 
 enum class FileType : uint16_t {
     Data,

@@ -99,6 +99,13 @@ protected:
         }
         for (const auto& v : vecs)
             fwrite(v.data(), v.size(), 1, f);
+        const size_t vectors_bytes = vecs.size() * static_cast<size_t>(dim) * data_type_size(type_field);
+        const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
+        const size_t ids_pad_size = ids_offset - (static_cast<size_t>(hdr.data_offset) + vectors_bytes);
+        if (ids_pad_size > 0) {
+            std::vector<uint8_t> pad(ids_pad_size, 0);
+            fwrite(pad.data(), 1, pad.size(), f);
+        }
         for (size_t i = 0; i < vecs.size(); ++i) {
             uint64_t id = min_id + static_cast<uint64_t>(i);
             fwrite(&id, sizeof(id), 1, f);
@@ -627,8 +634,8 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     const DataType type = data_type_from_int(hdr.type);
     const size_t vec_size = static_cast<size_t>(hdr.dim) * data_type_size(type);
     const size_t vectors_bytes = static_cast<size_t>(hdr.count) * vec_size;
-    const size_t deleted_ids_offset = static_cast<size_t>(hdr.data_offset) + vectors_bytes +
-                                      static_cast<size_t>(hdr.count) * sizeof(uint64_t);
+    const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
+    const size_t deleted_ids_offset = ids_offset + static_cast<size_t>(hdr.count) * sizeof(uint64_t);
 
     ASSERT_EQ(0, fseek(f, static_cast<long>(deleted_ids_offset), SEEK_SET));
     const uint64_t overlapped_id = 3; // 3 is in ids_ for this generated input
