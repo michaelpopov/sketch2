@@ -77,6 +77,9 @@ class Parasol:
         self.lib.sk_get.argtypes = [c_void_p, c_uint64, POINTER(c_char), c_uint64]
         self.lib.sk_get.restype = c_int
 
+        self.lib.sk_generate.argtypes = [c_void_p, c_uint64, c_uint64, c_int, c_int]
+        self.lib.sk_generate.restype = c_int
+
         self.lib.sk_error.argtypes = [c_void_p]
         self.lib.sk_error.restype = c_int
 
@@ -166,3 +169,15 @@ class Parasol:
         rc = self.lib.sk_get(self.handle, c_uint64(item_id), out, c_uint64(buf_size))
         self._check("sk_get", rc)
         return out.value.decode("utf-8", errors="replace")
+
+    def generate(self, from_id: int, count: int, pattern: int, every_n_deleted: int = 0) -> None:
+        self._check(
+            "sk_generate",
+            self.lib.sk_generate(
+                self.handle,
+                c_uint64(from_id),
+                c_uint64(count),
+                c_int(pattern),
+                c_int(every_n_deleted),
+            ),
+        )

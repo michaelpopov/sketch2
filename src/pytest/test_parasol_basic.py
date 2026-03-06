@@ -60,6 +60,31 @@ class ParasolBasicTest(unittest.TestCase):
 
             ps.drop()
 
+    def test_generate_sequential_and_load(self) -> None:
+        with Parasol() as ps:
+            ps.create(self.dataset_dir)
+            ps.open(self.dataset_dir)
+
+            ps.generate(from_id=10, count=5, pattern=0, every_n_deleted=0)
+            ps.load()
+
+            vec = ps.get(10)
+            self.assertIn("[ 10.1", vec)
+            self.assertTrue((self.dataset_dir / "0.data").exists())
+            ps.drop()
+
+    def test_generate_detailed_and_load(self) -> None:
+        with Parasol() as ps:
+            ps.create(self.dataset_dir)
+            ps.open(self.dataset_dir)
+
+            ps.generate(from_id=20, count=3, pattern=1, every_n_deleted=0)
+            ps.load()
+
+            vec = ps.get(20)
+            self.assertEqual("[ 0, 0, 0, 0 ]", vec)
+            ps.drop()
+
 
 if __name__ == "__main__":
     unittest.main()

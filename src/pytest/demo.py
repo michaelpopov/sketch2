@@ -16,8 +16,9 @@ def fmt_vec(value: float, dim: int) -> str:
     return ", ".join(f"{value:.6f}" for _ in range(dim))
 
 
-def expected_topk(count: int, query: float, k: int) -> list[int]:
-    scored = [(abs(i - query), i) for i in range(count)]
+def expected_topk(from_id: int, count: int, query: float, k: int) -> list[int]:
+    # Sequential generator writes each vector as id+0.1 repeated by dim.
+    scored = [(abs((i + 0.1) - query), i) for i in range(from_id, from_id + count)]
     scored.sort()
     return [idx for _, idx in scored[:k]]
 
@@ -25,6 +26,7 @@ def expected_topk(count: int, query: float, k: int) -> list[int]:
 def run_demo(count: int, dim: int, k: int, keep: bool) -> None:
     root = Path(tempfile.mkdtemp(prefix="sketch2_py_demo_"))
     dataset_dir = root / "dataset"
+    from_id = 0
 
     try:
         with Parasol() as ps:
@@ -32,19 +34,15 @@ def run_demo(count: int, dim: int, k: int, keep: bool) -> None:
             ps.open(dataset_dir)
 
             t0 = time.perf_counter()
-            step = max(1, count // 10)
-            for i in range(count):
-                ps.add(i, fmt_vec(float(i), dim))
-                if (i + 1) % step == 0 or i + 1 == count:
-                    print(f"loaded {i + 1}/{count} vectors")
-
+            ps.generate(from_id=from_id, count=count, pattern=0, every_n_deleted=0)
+            print(f"generated {count} vectors via sk_generate")
             ps.load()
             t1 = time.perf_counter()
 
             query = count * 0.631 + 0.123
             query_vec = fmt_vec(query, dim)
             actual = ps.knn(query_vec, k)
-            expected = expected_topk(count, query, k)
+            expected = expected_topk(from_id, count, query, k)
 
             print(f"load+store time: {t1 - t0:.3f}s")
             print(f"query={query:.6f}, k={k}")

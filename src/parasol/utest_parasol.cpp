@@ -612,3 +612,63 @@ TEST(parasol, get_fails_on_invalid_arguments) {
     disconnect(handle);
     std::filesystem::remove_all(root);
 }
+
+TEST(parasol, generate_writes_input_and_loads_sequential) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+
+    sk_handle_t* handle = connect();
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, make_metadata(dir)));
+    ASSERT_OK(handle, sk_open(handle, dir.string().c_str()));
+
+    ASSERT_OK(handle, sk_generate(handle, 10, 5, 0, 0)); // Sequential
+    ASSERT_TRUE(std::filesystem::exists(dir / "data.input"));
+    ASSERT_OK(handle, sk_load(handle));
+
+    char buf[128] {};
+    ASSERT_OK(handle, sk_get(handle, 10, buf, sizeof(buf)));
+    EXPECT_NE(std::string(buf).find("[ 10.1"), std::string::npos);
+
+    ASSERT_OK(handle, sk_drop(handle));
+    disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, generate_writes_input_and_loads_detailed) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+
+    sk_handle_t* handle = connect();
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, make_metadata(dir)));
+    ASSERT_OK(handle, sk_open(handle, dir.string().c_str()));
+
+    ASSERT_OK(handle, sk_generate(handle, 20, 3, 1, 0)); // Detailed
+    ASSERT_TRUE(std::filesystem::exists(dir / "data.input"));
+    ASSERT_OK(handle, sk_load(handle));
+
+    char buf[128] {};
+    ASSERT_OK(handle, sk_get(handle, 20, buf, sizeof(buf)));
+    EXPECT_STREQ("[ 0, 0, 0, 0 ]", buf);
+
+    ASSERT_OK(handle, sk_drop(handle));
+    disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, generate_fails_on_invalid_pattern) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dir  = make_dataset_dir(root);
+
+    sk_handle_t* handle = connect();
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, make_metadata(dir)));
+    ASSERT_OK(handle, sk_open(handle, dir.string().c_str()));
+
+    EXPECT_NE(0, sk_generate(handle, 0, 5, 7, 0));
+
+    ASSERT_OK(handle, sk_drop(handle));
+    disconnect(handle);
+    std::filesystem::remove_all(root);
+}

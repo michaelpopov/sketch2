@@ -74,6 +74,13 @@ int sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_co
 int sk_get(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size);
 
 /*
+ *  sk_generate generates an input file with test vectors.
+ *  Parameter pattern is translated to PatternType: 0 to PatternType::Sequential and
+ *  1 to PatternType::Detailed.
+ */
+int sk_generate(sk_handle_t* handle, uint64_t from_id, uint64_t count, int pattern, int every_n_deleted);
+
+/*
  *  sk_error returns error code registered during previous call.
  */
 int sk_error(sk_handle_t* handle);

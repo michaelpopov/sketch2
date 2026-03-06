@@ -64,6 +64,26 @@ class ParasolErrorTest(unittest.TestCase):
 
             ps.drop()
 
+    def test_generate_fails_on_invalid_pattern(self) -> None:
+        with Parasol() as ps:
+            ps.create(self.dataset_dir)
+            ps.open(self.dataset_dir)
+
+            with self.assertRaises(ParasolError):
+                ps.generate(from_id=0, count=10, pattern=7)
+
+            ps.drop()
+
+    def test_generate_fails_on_zero_count(self) -> None:
+        with Parasol() as ps:
+            ps.create(self.dataset_dir)
+            ps.open(self.dataset_dir)
+
+            with self.assertRaises(ParasolError):
+                ps.generate(from_id=0, count=0, pattern=0)
+
+            ps.drop()
+
 
 if __name__ == "__main__":
     unittest.main()

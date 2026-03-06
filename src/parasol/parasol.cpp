@@ -2,11 +2,13 @@
 #include "core/compute/scanner.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset.h"
+#include "core/storage/input_generator.h"
 #include "core/utils/shared_types.h"
 #include "core/utils/string_utils.h"
 #include <algorithm>
 #include <ctype.h>
 #include <filesystem>
+#include <limits>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -430,6 +432,65 @@ int sk_get_(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size) {
     Ret print_ret = print_vector(const_cast<uint8_t*>(vec_data), reader->type(), reader->dim(), buf, buf_size);
     if (print_ret != 0) {
         ERR(print_ret.message().c_str());
+    }
+
+    return 0;
+}
+
+int sk_generate_(sk_handle_t* handle, uint64_t from_id, uint64_t count, int pattern, int every_n_deleted);
+int sk_generate(sk_handle_t* handle, uint64_t from_id, uint64_t count, int pattern, int every_n_deleted) {
+    try {
+        return sk_generate_(handle, from_id, count, pattern, every_n_deleted);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+int sk_generate_(sk_handle_t* handle, uint64_t from_id, uint64_t count, int pattern, int every_n_deleted) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("Invalid handle");
+    }
+    if (count == 0) {
+        ERR("Invalid count parameter");
+    }
+    if (every_n_deleted < 0) {
+        ERR("Invalid every_n_deleted parameter");
+    }
+
+    PatternType pattern_type;
+    if (pattern == 0) {
+        pattern_type = PatternType::Sequential;
+    } else if (pattern == 1) {
+        pattern_type = PatternType::Detailed;
+    } else {
+        ERR("Invalid pattern parameter");
+    }
+
+    if (handle->input) {
+        fclose(handle->input);
+        handle->input = nullptr;
+    }
+
+    if (from_id > static_cast<uint64_t>(std::numeric_limits<size_t>::max()) ||
+        count > static_cast<uint64_t>(std::numeric_limits<size_t>::max()) ||
+        handle->ds->dim() > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+        ERR("Arguments are too large");
+    }
+
+    GeneratorConfig cfg;
+    cfg.pattern_type = pattern_type;
+    cfg.count = static_cast<size_t>(count);
+    cfg.min_id = static_cast<size_t>(from_id);
+    cfg.type = handle->ds->type();
+    cfg.dim = static_cast<size_t>(handle->ds->dim());
+    cfg.max_val = 1000;
+    cfg.every_n_deleted = static_cast<size_t>(every_n_deleted);
+
+    const std::filesystem::path input_path = std::filesystem::path(handle->dir) / kInputFileName;
+    Ret ret = generate_input_file(input_path.string(), cfg);
+    if (ret != 0) {
+        ERR(ret.message().c_str());
     }
 
     return 0;
