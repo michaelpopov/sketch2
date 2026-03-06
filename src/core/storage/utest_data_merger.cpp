@@ -50,20 +50,26 @@ protected:
         expect_sorted_unique(deleted);
 
         DataFileHeader hdr{};
-        hdr.magic         = kMagic;
-        hdr.kind          = static_cast<uint16_t>(kind);
-        hdr.version       = kVersion;
+        hdr.base.magic         = kMagic;
+        hdr.base.kind          = static_cast<uint16_t>(kind);
+        hdr.base.version       = kVersion;
         hdr.min_id        = active.empty() ? 0 : active.front().first;
         hdr.max_id        = active.empty() ? 0 : active.back().first;
         hdr.count         = static_cast<uint32_t>(active.size());
         hdr.deleted_count = static_cast<uint32_t>(deleted.size());
         hdr.type          = static_cast<uint16_t>(data_type_to_int(DataType::f32));
         hdr.dim           = dim;
-        hdr.padding       = 0;
+        hdr.data_offset   = static_cast<uint32_t>(
+            ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
 
         FILE* f = fopen(path.c_str(), "wb");
         ASSERT_NE(nullptr, f);
         ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+        const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+        if (pad_size > 0) {
+            std::vector<uint8_t> pad(pad_size, 0);
+            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+        }
 
         for (const auto& item : active) {
             std::vector<float> vec(dim, item.second);
@@ -93,20 +99,26 @@ protected:
         expect_sorted_unique(deleted);
 
         DataFileHeader hdr{};
-        hdr.magic         = kMagic;
-        hdr.kind          = static_cast<uint16_t>(kind);
-        hdr.version       = kVersion;
+        hdr.base.magic         = kMagic;
+        hdr.base.kind          = static_cast<uint16_t>(kind);
+        hdr.base.version       = kVersion;
         hdr.min_id        = active.empty() ? 0 : active.front().first;
         hdr.max_id        = active.empty() ? 0 : active.back().first;
         hdr.count         = static_cast<uint32_t>(active.size());
         hdr.deleted_count = static_cast<uint32_t>(deleted.size());
         hdr.type          = static_cast<uint16_t>(data_type_to_int(DataType::i16));
         hdr.dim           = dim;
-        hdr.padding       = 0;
+        hdr.data_offset   = static_cast<uint32_t>(
+            ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
 
         FILE* f = fopen(path.c_str(), "wb");
         ASSERT_NE(nullptr, f);
         ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+        const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+        if (pad_size > 0) {
+            std::vector<uint8_t> pad(pad_size, 0);
+            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+        }
 
         for (const auto& item : active) {
             std::vector<int16_t> vec(dim, item.second);
@@ -170,7 +182,7 @@ TEST_F(DataMergerTest, MergeDataFileMergesOverrideInsertAndDeletes) {
     EXPECT_FLOAT_EQ(60.0f, first_f32(out_reader, 6));
 
     const auto hdr = read_header(out_path);
-    EXPECT_EQ(static_cast<uint16_t>(FileType::Data), hdr.kind);
+    EXPECT_EQ(static_cast<uint16_t>(FileType::Data), hdr.base.kind);
     EXPECT_EQ(2u, hdr.min_id);
     EXPECT_EQ(6u, hdr.max_id);
     EXPECT_EQ(4u, hdr.count);
@@ -310,7 +322,7 @@ TEST_F(DataMergerTest, MergeDeltaFileMergesRecordsAndDeletes) {
     EXPECT_EQ((std::vector<uint64_t>{2, 5, 7}), deleted);
 
     const auto hdr = read_header(out_path);
-    EXPECT_EQ(static_cast<uint16_t>(FileType::Data), hdr.kind);
+    EXPECT_EQ(static_cast<uint16_t>(FileType::Data), hdr.base.kind);
     EXPECT_EQ(1u, hdr.min_id);
     EXPECT_EQ(6u, hdr.max_id);
     EXPECT_EQ(4u, hdr.count);
@@ -340,7 +352,7 @@ TEST_F(DataMergerTest, MergeDeltaFileDeleteOnlyProducesNoActiveIds) {
     EXPECT_EQ(3u, out_reader.deleted_id(2));
 
     const auto hdr = read_header(out_path);
-    EXPECT_EQ(static_cast<uint16_t>(FileType::Data), hdr.kind);
+    EXPECT_EQ(static_cast<uint16_t>(FileType::Data), hdr.base.kind);
     EXPECT_EQ(0u, hdr.min_id);
     EXPECT_EQ(0u, hdr.max_id);
     EXPECT_EQ(0u, hdr.count);

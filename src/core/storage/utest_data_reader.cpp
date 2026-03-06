@@ -80,16 +80,23 @@ protected:
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs) {
         DataFileHeader hdr{};
-        hdr.magic   = kMagic;
-        hdr.kind    = static_cast<uint16_t>(FileType::Data);
-        hdr.version = kVersion;
+        hdr.base.magic   = kMagic;
+        hdr.base.kind    = static_cast<uint16_t>(FileType::Data);
+        hdr.base.version = kVersion;
         hdr.min_id  = min_id;
         hdr.max_id  = min_id + static_cast<uint64_t>(vecs.size()) - 1;
         hdr.count   = static_cast<uint32_t>(vecs.size());
         hdr.type    = data_type_to_int(type_field);
         hdr.dim     = dim;
+        hdr.data_offset = static_cast<uint32_t>(
+            ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
         FILE* f = fopen(data_path_.c_str(), "wb");
         fwrite(&hdr, sizeof(hdr), 1, f);
+        const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+        if (pad_size > 0) {
+            std::vector<uint8_t> pad(pad_size, 0);
+            fwrite(pad.data(), 1, pad.size(), f);
+        }
         for (const auto& v : vecs)
             fwrite(v.data(), v.size(), 1, f);
         for (size_t i = 0; i < vecs.size(); ++i) {
@@ -620,7 +627,7 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     const DataType type = data_type_from_int(hdr.type);
     const size_t vec_size = static_cast<size_t>(hdr.dim) * data_type_size(type);
     const size_t vectors_bytes = static_cast<size_t>(hdr.count) * vec_size;
-    const size_t deleted_ids_offset = sizeof(DataFileHeader) + vectors_bytes +
+    const size_t deleted_ids_offset = static_cast<size_t>(hdr.data_offset) + vectors_bytes +
                                       static_cast<size_t>(hdr.count) * sizeof(uint64_t);
 
     ASSERT_EQ(0, fseek(f, static_cast<long>(deleted_ids_offset), SEEK_SET));

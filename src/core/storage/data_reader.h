@@ -64,7 +64,7 @@ private:
 
     Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
     Ret init_delta();
-    const uint8_t* get_by_pos(uint32_t pos) { return map_ + sizeof(DataFileHeader) + size_ * pos; }
+    const uint8_t* get_by_pos(uint32_t pos) { return map_ + hdr_->data_offset + size_ * pos; }
 };
 
 } // namespace sketch2

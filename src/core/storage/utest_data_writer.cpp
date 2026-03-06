@@ -12,7 +12,7 @@ using namespace sketch2;
 
 static constexpr uint32_t kExpectedMagic   = 0x534B5632;
 static constexpr uint16_t kExpectedKind    = 0; // FileType::Data
-static constexpr uint16_t kExpectedVersion = 1;
+static constexpr uint16_t kExpectedVersion = kVersion;
 
 class DataWriterTest : public ::testing::Test {
 protected:
@@ -62,7 +62,9 @@ protected:
         std::vector<uint64_t> ids(count);
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
-            fseek(f, static_cast<long>(sizeof(DataFileHeader) + count * vec_size), SEEK_SET);
+            DataFileHeader hdr{};
+            fread(&hdr, sizeof(hdr), 1, f);
+            fseek(f, static_cast<long>(hdr.data_offset + count * vec_size), SEEK_SET);
             fread(ids.data(), sizeof(uint64_t), count, f);
             fclose(f);
         }
@@ -73,7 +75,9 @@ protected:
         std::vector<uint64_t> ids(deleted_count);
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
-            const size_t offset = sizeof(DataFileHeader) +
+            DataFileHeader hdr{};
+            fread(&hdr, sizeof(hdr), 1, f);
+            const size_t offset = hdr.data_offset +
                                   count * vec_size +
                                   count * sizeof(uint64_t);
             fseek(f, static_cast<long>(offset), SEEK_SET);
@@ -87,7 +91,9 @@ protected:
         std::vector<float> data(count * dim);
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
-            fseek(f, static_cast<long>(sizeof(DataFileHeader)), SEEK_SET);
+            DataFileHeader hdr{};
+            fread(&hdr, sizeof(hdr), 1, f);
+            fseek(f, static_cast<long>(hdr.data_offset), SEEK_SET);
             fread(data.data(), sizeof(float), count * dim, f);
             fclose(f);
         }
@@ -122,7 +128,9 @@ TEST_F(DataWriterTest, SuccessReturnCode) {
 TEST_F(DataWriterTest, OutputFileSize) {
     const size_t count = 5, dim = 4;
     run(count, 0, DataType::f32, dim);
+    const DataFileHeader hdr = read_header();
     size_t expected = sizeof(DataFileHeader)
+                    + (hdr.data_offset - sizeof(DataFileHeader))
                     + count * dim * sizeof(float)  // vectors
                     + count * sizeof(uint64_t);    // ids
     FILE* f = fopen(output_path_.c_str(), "rb");
@@ -137,17 +145,17 @@ TEST_F(DataWriterTest, OutputFileSize) {
 
 TEST_F(DataWriterTest, HeaderMagic) {
     run(3, 0, DataType::f32, 4);
-    EXPECT_EQ(kExpectedMagic, read_header().magic);
+    EXPECT_EQ(kExpectedMagic, read_header().base.magic);
 }
 
 TEST_F(DataWriterTest, HeaderKind) {
     run(3, 0, DataType::f32, 4);
-    EXPECT_EQ(kExpectedKind, read_header().kind);
+    EXPECT_EQ(kExpectedKind, read_header().base.kind);
 }
 
 TEST_F(DataWriterTest, HeaderVersion) {
     run(3, 0, DataType::f32, 4);
-    EXPECT_EQ(kExpectedVersion, read_header().version);
+    EXPECT_EQ(kExpectedVersion, read_header().base.version);
 }
 
 TEST_F(DataWriterTest, HeaderCount) {

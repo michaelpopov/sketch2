@@ -114,9 +114,9 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     };
 
     hdr_ = reinterpret_cast<const DataFileHeader *>(map_);
-    if (hdr_->magic != kMagic) return fail("DataReader: invalid magic number");
-    if (hdr_->kind != static_cast<uint16_t>(FileType::Data)) return fail("DataReader: not a data file");
-    if (hdr_->version != kVersion) return fail("DataReader: unsupported file version");
+    if (hdr_->base.magic != kMagic) return fail("DataReader: invalid magic number");
+    if (hdr_->base.kind != static_cast<uint16_t>(FileType::Data)) return fail("DataReader: not a data file");
+    if (hdr_->base.version != kVersion) return fail("DataReader: unsupported file version");
 
     type_ = data_type_from_int(hdr_->type);
     validate_type(type_);
@@ -136,7 +136,10 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
 
     const size_t vectors_bytes = count * size_;
     const size_t ids_bytes = (deleted_count + count) * sizeof(uint64_t);
-    if (map_len_ != sizeof(DataFileHeader) + vectors_bytes + ids_bytes) {
+    if (hdr_->data_offset < sizeof(DataFileHeader) || (hdr_->data_offset % kDataAlignment) != 0) {
+        return fail("DataReader: invalid data offset alignment");
+    }
+    if (map_len_ != static_cast<size_t>(hdr_->data_offset) + vectors_bytes + ids_bytes) {
         return fail("DataReader: truncated or malformed data file");
     }
 
@@ -146,7 +149,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         if (size_ != delta->size()) return fail("DataReader: invalid delta dim");
     }
 
-    ids_ = reinterpret_cast<const uint64_t*>(map_ + sizeof(DataFileHeader) + vectors_bytes);
+    ids_ = reinterpret_cast<const uint64_t*>(map_ + hdr_->data_offset + vectors_bytes);
     deleted_ids_ = ids_ + count;
     delta_  = std::move(delta);
 
@@ -237,7 +240,7 @@ const uint8_t* DataReader::at(size_t index) const {
         return nullptr;
     }
 
-    return map_ + sizeof(DataFileHeader) + index * size();
+    return map_ + hdr_->data_offset + index * size();
 }
 
 const uint8_t* DataReader::get(uint64_t id) const {
@@ -268,7 +271,7 @@ const uint8_t* DataReader::get(uint64_t id) const {
         return nullptr;
     }
 
-    return map_ + sizeof(DataFileHeader) + index * size();
+    return map_ + hdr_->data_offset + index * size();
 }
 
 bool DataReader::is_hidden(size_t index) const {

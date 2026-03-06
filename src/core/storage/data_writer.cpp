@@ -77,16 +77,17 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
 
     // Build DataFileHeader
     DataFileHeader hdr;
-    hdr.magic         = kMagic;
-    hdr.kind          = static_cast<uint16_t>(FileType::Data);
-    hdr.version       = kVersion;
+    hdr.base.magic         = kMagic;
+    hdr.base.kind          = static_cast<uint16_t>(FileType::Data);
+    hdr.base.version       = kVersion;
     hdr.min_id        = min_id;
     hdr.max_id        = max_id;
     hdr.count         = static_cast<uint32_t>(ids.size());
     hdr.deleted_count = static_cast<uint32_t>(deleted_ids.size());
     hdr.type          = static_cast<uint16_t>(data_type_to_int(reader.type()));
     hdr.dim           = static_cast<uint16_t>(reader.dim());
-    hdr.padding       = 0;
+    hdr.data_offset   = static_cast<uint32_t>(
+        ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
 
     // Write output file
     FILE *f = fopen(output_path.c_str(), "wb");
@@ -107,6 +108,14 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     static_assert(sizeof(hdr) % 8 == 0);
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret("DataWriter: failed to write header");
+    }
+
+    const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+    if (pad_size > 0) {
+        std::vector<uint8_t> pad(pad_size, 0);
+        if (fwrite(pad.data(), 1, pad.size(), f) != pad.size()) {
+            return Ret("DataWriter: failed to write alignment padding");
+        }
     }
 
     // Write vector data

@@ -43,19 +43,27 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
     DataFileHeader hdr;
-    hdr.magic         = kMagic;
-    hdr.kind          = static_cast<uint16_t>(FileType::Data);
-    hdr.version       = kVersion;
+    hdr.base.magic         = kMagic;
+    hdr.base.kind          = static_cast<uint16_t>(FileType::Data);
+    hdr.base.version       = kVersion;
     hdr.min_id        = 0;
     hdr.max_id        = 0;
     hdr.count         = 0;
     hdr.deleted_count = 0;
     hdr.type          = static_cast<uint16_t>(data_type_to_int(source.type()));
     hdr.dim           = static_cast<uint16_t>(source.dim());
-    hdr.padding       = 0;
+    hdr.data_offset   = static_cast<uint32_t>(
+        ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
 
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret("DataMerger::merge_data_files: failed to write header");
+    }
+    const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+    if (pad_size > 0) {
+        std::vector<uint8_t> pad(pad_size, 0);
+        if (fwrite(pad.data(), 1, pad.size(), f) != pad.size()) {
+            return Ret("DataMerger::merge_data_files: failed to write alignment padding");
+        }
     }
 
     std::vector<Item> updater_items;
@@ -210,19 +218,27 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
     DataFileHeader hdr;
-    hdr.magic         = kMagic;
-    hdr.kind          = static_cast<uint16_t>(FileType::Data);
-    hdr.version       = kVersion;
+    hdr.base.magic         = kMagic;
+    hdr.base.kind          = static_cast<uint16_t>(FileType::Data);
+    hdr.base.version       = kVersion;
     hdr.min_id        = 0;
     hdr.max_id        = 0;
     hdr.count         = 0;
     hdr.deleted_count = 0;
     hdr.type          = static_cast<uint16_t>(data_type_to_int(source.type()));
     hdr.dim           = static_cast<uint16_t>(source.dim());
-    hdr.padding       = 0;
+    hdr.data_offset   = static_cast<uint32_t>(
+        ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
 
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret("DataMerger::merge_delta_file: failed to write header");
+    }
+    const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+    if (pad_size > 0) {
+        std::vector<uint8_t> pad(pad_size, 0);
+        if (fwrite(pad.data(), 1, pad.size(), f) != pad.size()) {
+            return Ret("DataMerger::merge_delta_file: failed to write alignment padding");
+        }
     }
 
     std::vector<uint64_t> deletes;
