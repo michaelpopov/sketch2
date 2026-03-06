@@ -6,9 +6,14 @@
 #include "utils/ini_reader.h"
 #include <algorithm>
 #include <cassert>
+#include <cerrno>
 #include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <experimental/scope>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 #include <unordered_map>
 
 namespace sketch2 {
@@ -17,6 +22,36 @@ static const std::string kTempExt = ".temp";
 static const std::string kDataExt = ".data";
 static const std::string kDeltaExt = ".delta";
 static const std::string kMergeExt = ".merge";
+static const std::string kLockExt = ".lock";
+
+class FileLockGuard {
+public:
+    ~FileLockGuard() {
+        if (fd_ >= 0) {
+            (void)flock(fd_, LOCK_UN);
+            (void)close(fd_);
+        }
+    }
+
+    Ret lock(const std::string& path) {
+        fd_ = open(path.c_str(), O_RDWR | O_CREAT, 0666);
+        if (fd_ < 0) {
+            return Ret("Dataset: failed to open lock file " + path + ": " + std::strerror(errno));
+        }
+
+        while (flock(fd_, LOCK_EX) != 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return Ret("Dataset: failed to lock file " + path + ": " + std::strerror(errno));
+        }
+
+        return Ret(0);
+    }
+
+private:
+    int fd_ = -1;
+};
 
 Ret Dataset::init(const DatasetMetadata& metadata) {
     if (!metadata_.dirs.empty()) {
@@ -131,6 +166,9 @@ Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64
     const size_t dir_id = file_id % metadata_.dirs.size();
     const std::string& dir = metadata_.dirs[dir_id];
     const std::string output_path_base = dir + "/" + std::to_string(file_id);
+    FileLockGuard file_lock;
+    CHECK(file_lock.lock(output_path_base + kLockExt));
+
     const std::string output_path = output_path_base + kTempExt;
 
     // Clear temporary file on exit
