@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -96,6 +97,25 @@ TEST_F(DatasetTest, InitFromIniSectionKeysWorks) {
     EXPECT_TRUE(fs::exists(dir0 + "/2.data"));
 }
 
+TEST_F(DatasetTest, InitFromIniUsesAccumulatorSizeForLazyAddVector) {
+    auto dir = make_dir("d_acc_ini");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 10\n"
+        "type = f32\n"
+        "dim = 4\n"
+        "accumulator_size = 23\n");
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init(config_path_).code());
+
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    const Ret ret = sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data()));
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Accumulator: buffer full", ret.message());
+}
+
 TEST_F(DatasetTest, InitFromIniFailsOnMissingType) {
     auto dir = make_dir("d");
     write_config(
@@ -113,6 +133,22 @@ TEST_F(DatasetTest, InitFromIniFailsOnMissingType) {
 TEST_F(DatasetTest, StoreFailsWhenNotInitialized) {
     Dataset sc;
     EXPECT_NE(0, sc.store(input_path_).code());
+}
+
+TEST_F(DatasetTest, StoreAccumulatorFailsWhenNotInitialized) {
+    Dataset sc;
+    EXPECT_NE(0, sc.store_accumulator().code());
+}
+
+TEST_F(DatasetTest, AddVectorFailsWhenNotInitialized) {
+    Dataset sc;
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    EXPECT_NE(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
+}
+
+TEST_F(DatasetTest, DeleteVectorFailsWhenNotInitialized) {
+    Dataset sc;
+    EXPECT_NE(0, sc.delete_vector(1).code());
 }
 
 TEST_F(DatasetTest, StoreFailsOnBadInputPath) {
@@ -137,6 +173,172 @@ TEST_F(DatasetTest, StoreCreatesOutputFile) {
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
+}
+
+TEST_F(DatasetTest, StoreAccumulatorSucceedsWhenMissing) {
+    auto dir = make_dir("d_acc_none");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+    EXPECT_EQ(0, sc.store_accumulator().code());
+}
+
+TEST_F(DatasetTest, StoreAccumulatorCreatesOutputFilesFromAccumulator) {
+    auto dir = make_dir("d_acc_store");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+
+    const std::array<float, 4> vec0 {1.0f, 1.0f, 1.0f, 1.0f};
+    const std::array<float, 4> vec1 {11.0f, 11.0f, 11.0f, 11.0f};
+    ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec0.data())).code());
+    ASSERT_EQ(0, sc.add_vector(12, reinterpret_cast<const uint8_t*>(vec1.data())).code());
+
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_TRUE(fs::exists(file_path(dir, 1, ".data")));
+
+    DataReader dr0;
+    DataReader dr1;
+    ASSERT_EQ(0, dr0.init(file_path(dir, 0, ".data")).code());
+    ASSERT_EQ(0, dr1.init(file_path(dir, 1, ".data")).code());
+
+    const float* v0 = reinterpret_cast<const float*>(dr0.get(1));
+    const float* v1 = reinterpret_cast<const float*>(dr1.get(12));
+    ASSERT_NE(nullptr, v0);
+    ASSERT_NE(nullptr, v1);
+    EXPECT_NEAR(1.0f, v0[0], 1e-5f);
+    EXPECT_NEAR(11.0f, v1[0], 1e-5f);
+}
+
+TEST_F(DatasetTest, StoreAccumulatorIgnoresDeleteForMissingRange) {
+    auto dir = make_dir("d_acc_missing_delete");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+
+    ASSERT_EQ(0, sc.delete_vector(25).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    EXPECT_FALSE(fs::exists(file_path(dir, 2, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 2, ".delta")));
+}
+
+TEST_F(DatasetTest, StoreAccumulatorClearsAccumulatorAfterSuccess) {
+    auto dir = make_dir("d_acc_clear");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::i16, 4, 16).code());
+
+    const std::array<int16_t, 4> vec0 {1, 2, 3, 4};
+    const std::array<int16_t, 4> vec1 {5, 6, 7, 8};
+    ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec0.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    EXPECT_EQ(0, sc.add_vector(2, reinterpret_cast<const uint8_t*>(vec1.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    DataReader dr;
+    ASSERT_EQ(0, dr.init(file_path(dir, 0, ".data")).code());
+    EXPECT_EQ(2u, dr.count());
+    ASSERT_NE(nullptr, dr.get(1));
+    ASSERT_NE(nullptr, dr.get(2));
+}
+
+TEST_F(DatasetTest, AddVectorCreatesAccumulatorLazily) {
+    auto dir = make_dir("d_acc_add");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    EXPECT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
+}
+
+TEST_F(DatasetTest, AddVectorFlushesAccumulatorWhenFull) {
+    auto dir = make_dir("d_acc_add_flush");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 24).code());
+
+    const std::array<float, 4> vec0 {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::array<float, 4> vec1 {5.0f, 6.0f, 7.0f, 8.0f};
+    ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec0.data())).code());
+    ASSERT_EQ(0, sc.add_vector(2, reinterpret_cast<const uint8_t*>(vec1.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    DataReader dr;
+    ASSERT_EQ(0, dr.init(file_path(dir, 0, ".data")).code());
+    EXPECT_EQ(2u, dr.count());
+    ASSERT_NE(nullptr, dr.get(1));
+    ASSERT_NE(nullptr, dr.get(2));
+}
+
+TEST_F(DatasetTest, AddVectorNullDoesNotFlushPendingAccumulatorData) {
+    auto dir = make_dir("d_acc_add_null");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 24).code());
+
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
+
+    const Ret ret = sc.add_vector(2, nullptr);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Dataset: invalid data argument", ret.message());
+
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".data")));
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    DataReader dr;
+    ASSERT_EQ(0, dr.init(file_path(dir, 0, ".data")).code());
+    EXPECT_EQ(1u, dr.count());
+    ASSERT_NE(nullptr, dr.get(1));
+    EXPECT_EQ(nullptr, dr.get(2));
+}
+
+TEST_F(DatasetTest, AddVectorUsesConfiguredAccumulatorSize) {
+    auto dir = make_dir("d_acc_add_small");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 23).code());
+
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    const Ret ret = sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data()));
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Accumulator: buffer full", ret.message());
+}
+
+TEST_F(DatasetTest, DeleteVectorCreatesAccumulatorLazily) {
+    auto dir = make_dir("d_acc_del");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    EXPECT_EQ(0, sc.delete_vector(1).code());
+}
+
+TEST_F(DatasetTest, DeleteVectorFlushesAccumulatorWhenFull) {
+    auto dir = make_dir("d_acc_del_flush");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 24).code());
+
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
+    ASSERT_EQ(0, sc.delete_vector(2).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    DataReader dr;
+    ASSERT_EQ(0, dr.init(file_path(dir, 0, ".data")).code());
+    EXPECT_EQ(1u, dr.count());
+    ASSERT_NE(nullptr, dr.get(1));
+
+    auto [reader, ret] = sc.get(2);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_NE(nullptr, reader);
+    EXPECT_EQ(nullptr, reader->get(2));
+}
+
+TEST_F(DatasetTest, DeleteVectorUsesConfiguredAccumulatorSize) {
+    auto dir = make_dir("d_acc_del_small");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 7).code());
+
+    const Ret ret = sc.delete_vector(1);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Accumulator: buffer full", ret.message());
 }
 
 TEST_F(DatasetTest, StoreFileIdFromMinId) {

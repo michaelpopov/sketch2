@@ -29,6 +29,24 @@ Ret DataMerger::merge_data_file(const DataReader& source, const DataReader& upda
     return ret;
 }
 
+Ret DataMerger::merge_data_file(
+        const DataReader& source, const Accumulator& updater,
+        const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
+        const std::string& path) {
+    Ret ret(0);
+    try {
+        ret = merge_data_file_(source, updater, ids, deleted_ids, path);
+    } catch (const std::exception& ex) {
+        ret = Ret(ex.what());
+    }
+
+    if (ret != 0 && std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    return ret;
+}
+
 Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_data_file: incompatible source and updater");
@@ -134,11 +152,10 @@ void DataMerger::load_update_records(const DataReader& updater, std::vector<Item
     updater_items.reserve(updater.count());
     
     for (auto iter = updater.begin(); !iter.eof(); iter.next()) {
-        Item item {
+        updater_items.push_back(Item {
             .id = iter.id(),
             .data = iter.data(),
-        };
-        updater_items.push_back(item);
+        });
     }
 }
 
@@ -166,6 +183,24 @@ Ret DataMerger::merge_delta_file(const DataReader& source, const DataReader& upd
     Ret ret(0);
     try {
         ret = merge_delta_file_(source, updater, path);
+    } catch (const std::exception& ex) {
+        ret = Ret(ex.what());
+    }
+
+    if (ret != 0 && std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    return ret;
+}
+
+Ret DataMerger::merge_delta_file(
+        const DataReader& source, const Accumulator& updater,
+        const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
+        const std::string& path) {
+    Ret ret(0);
+    try {
+        ret = merge_delta_file_(source, updater, ids, deleted_ids, path);
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
@@ -301,6 +336,230 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     hdr.min_id = ids.empty() ? 0 : ids.front();
     hdr.max_id = ids.empty() ? 0 : ids.back();
     hdr.count  = static_cast<uint32_t>(ids.size());
+    CHECK(rewrite_header(f, hdr, "DataMerger::merge_delta_file"));
+
+    return Ret(0);
+}
+
+Ret DataMerger::merge_data_file_(
+        const DataReader& source, const Accumulator& updater,
+        const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
+        const std::string& path) {
+    if (source.has_delta()) {
+        return Ret("DataMerger::merge_data_file: source and updater must not have deltas");
+    }
+
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) {
+        return Ret(strerror(errno));
+    }
+    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+
+    DataFileHeader hdr = make_data_header(0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()));
+    CHECK(write_header_and_data_padding(f, hdr, "DataMerger::merge_data_files"));
+
+    std::vector<Item> updater_items;
+    updater_items.reserve(ids.size());
+    for (uint64_t id : ids) {
+        updater_items.push_back(Item {.id = id, .data = updater.get_vector(id)});
+    }
+    const std::vector<uint64_t>& deletes = deleted_ids;
+
+    std::vector<uint64_t> output_ids;
+    output_ids.reserve(source.count() + updater_items.size());
+
+    for (size_t i = 0, j = 0, di = 0, dj = 0; i < source.count() || j < updater_items.size(); ) {
+        const bool has_source = i < source.count();
+        const bool has_update = j < updater_items.size();
+
+        if (has_source) {
+            const uint64_t sourceid = source.id(i);
+            while (di < deletes.size() && deletes[di] < sourceid) {
+                ++di;
+            }
+            if (di < deletes.size() && deletes[di] == sourceid) {
+                ++i;
+                continue;
+            }
+        }
+
+        if (has_update) {
+            const uint64_t update_id = updater_items[j].id;
+            while (dj < deletes.size() && deletes[dj] < update_id) {
+                ++dj;
+            }
+            if (dj < deletes.size() && deletes[dj] == update_id) {
+                return Ret("DataMerger::merge_data_files: updated id is also deleted");
+            }
+        }
+
+        if (has_source && has_update) {
+            const uint64_t sourceid = source.id(i);
+            const uint64_t update_id = updater_items[j].id;
+
+            if (sourceid < update_id) {
+                output_ids.push_back(sourceid);
+                write_data(f, source.at(i), source.size());
+                ++i;
+            } else if (sourceid > update_id) {
+                output_ids.push_back(update_id);
+                write_data(f, updater_items[j].data, source.size());
+                ++j;
+            } else {
+                output_ids.push_back(update_id);
+                write_data(f, updater_items[j].data, source.size());
+                ++i;
+                ++j;
+            }
+            continue;
+        }
+
+        if (has_source) {
+            const uint64_t sourceid = source.id(i);
+            output_ids.push_back(sourceid);
+            write_data(f, source.at(i), source.size());
+            ++i;
+        } else {
+            const uint64_t update_id = updater_items[j].id;
+            output_ids.push_back(update_id);
+            write_data(f, updater_items[j].data, source.size());
+            ++j;
+        }
+    }
+
+    const IdsLayout ids_layout = compute_ids_layout(hdr, output_ids.size(), source.size());
+    CHECK(write_zero_padding(f, ids_layout.ids_padding, "DataMerger::merge_data_files: failed to write id alignment padding"));
+    CHECK(write_u64_array(f, output_ids, "DataMerger::merge_data_files: failed to write ids to merge file"));
+
+    hdr.min_id = output_ids.empty() ? 0 : output_ids.front();
+    hdr.max_id = output_ids.empty() ? 0 : output_ids.back();
+    hdr.count = static_cast<uint32_t>(output_ids.size());
+    CHECK(rewrite_header(f, hdr, "DataMerger::merge_data_files"));
+
+    return Ret(0);
+}
+
+Ret DataMerger::merge_delta_file_(
+        const DataReader& source, const Accumulator& updater,
+        const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
+        const std::string& path) {
+    if (source.has_delta()) {
+        return Ret("DataMerger::merge_delta_file: source and updater must not have deltas");
+    }
+
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) {
+        return Ret(strerror(errno));
+    }
+    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+
+    DataFileHeader hdr = make_data_header(0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()));
+    CHECK(write_header_and_data_padding(f, hdr, "DataMerger::merge_delta_file"));
+
+    std::vector<uint64_t> deletes;
+    std::vector<Item> updater_items;
+
+    updater_items.reserve(ids.size());
+    for (uint64_t id : ids) {
+        updater_items.push_back(Item {.id = id, .data = updater.get_vector(id)});
+    }
+    std::vector<uint64_t> source_deletes;
+    std::vector<uint64_t> updater_deletes = deleted_ids;
+
+    load_update_deletes(source, source_deletes);
+    size_t ui = 0;
+    for (const auto sid : source_deletes) {
+        while (ui < updater_items.size() && updater_items[ui].id < sid) {
+            ++ui;
+        }
+        if (ui < updater_items.size() && updater_items[ui].id == sid) {
+            continue;
+        }
+        deletes.push_back(sid);
+    }
+
+    std::vector<uint64_t> merged_deletes;
+    merged_deletes.reserve(deletes.size() + updater_deletes.size());
+    std::merge(
+        deletes.begin(), deletes.end(),
+        updater_deletes.begin(), updater_deletes.end(),
+        std::back_inserter(merged_deletes));
+    merged_deletes.erase(
+        std::unique(merged_deletes.begin(), merged_deletes.end()),
+        merged_deletes.end());
+    deletes = std::move(merged_deletes);
+
+    std::vector<uint64_t> output_ids;
+    output_ids.reserve(source.count() + updater_items.size());
+
+    for (size_t i = 0, j = 0, di = 0, dj = 0; i < source.count() || j < updater_items.size(); ) {
+        const bool has_source = i < source.count();
+        const bool has_update = j < updater_items.size();
+
+        if (has_source) {
+            const uint64_t sourceid = source.id(i);
+            while (di < deletes.size() && deletes[di] < sourceid) {
+                ++di;
+            }
+            if (di < deletes.size() && deletes[di] == sourceid) {
+                ++i;
+                continue;
+            }
+        }
+
+        if (has_update) {
+            const uint64_t update_id = updater_items[j].id;
+            while (dj < deletes.size() && deletes[dj] < update_id) {
+                ++dj;
+            }
+            if (dj < deletes.size() && deletes[dj] == update_id) {
+                return Ret("DataMerger::merge_delta_file: updated id is also deleted");
+            }
+        }
+
+        if (has_source && has_update) {
+            const uint64_t sourceid = source.id(i);
+            const uint64_t update_id = updater_items[j].id;
+
+            if (sourceid < update_id) {
+                output_ids.push_back(sourceid);
+                write_data(f, source.at(i), source.size());
+                ++i;
+            } else if (sourceid > update_id) {
+                output_ids.push_back(update_id);
+                write_data(f, updater_items[j].data, source.size());
+                ++j;
+            } else {
+                output_ids.push_back(update_id);
+                write_data(f, updater_items[j].data, source.size());
+                ++i;
+                ++j;
+            }
+            continue;
+        }
+
+        if (has_source) {
+            const uint64_t sourceid = source.id(i);
+            output_ids.push_back(sourceid);
+            write_data(f, source.at(i), source.size());
+            ++i;
+        } else {
+            const uint64_t update_id = updater_items[j].id;
+            output_ids.push_back(update_id);
+            write_data(f, updater_items[j].data, source.size());
+            ++j;
+        }
+    }
+
+    const IdsLayout ids_layout = compute_ids_layout(hdr, output_ids.size(), source.size());
+    CHECK(write_zero_padding(f, ids_layout.ids_padding, "DataMerger::merge_delta_file: failed to write id alignment padding"));
+    CHECK(write_u64_array(f, output_ids, "DataMerger::merge_delta_file: failed to write ids to merge file"));
+    CHECK(write_u64_array(f, deletes, "DataMerger::merge_delta_file: failed to write deletes_array to merge file"));
+    hdr.deleted_count = static_cast<uint32_t>(deletes.size());
+
+    hdr.min_id = output_ids.empty() ? 0 : output_ids.front();
+    hdr.max_id = output_ids.empty() ? 0 : output_ids.back();
+    hdr.count = static_cast<uint32_t>(output_ids.size());
     CHECK(rewrite_header(f, hdr, "DataMerger::merge_delta_file"));
 
     return Ret(0);

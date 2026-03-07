@@ -193,29 +193,26 @@ Accumulator
 -----------------
 Fixed size in-memory buffer. Similar to input file in a sense that items can be added. Then the content of "accumulator"
 is loaded into data file similar to load from input file.
-Accumulator contains binary data.
 
-Data buffer layout:
+Accumulator contains two collections:
+  - std::unordered_map<uint64_t, std::vector<uint8_t>> vectors_
+  - std::unordered_set<uint64_t> deleted_ids_
 
-  |---------+-------------------------+-------|
-    header     vectors                 items
+It has a data member uint64_t data_size_ that controls the overall size of data.
+When size of all items in the collections reaches data_size no new data can be added to accumulator.
 
-Vector structure:
-
-  |------+------------------------------|
-    id         data
-
-"Vector" consists of uint64_t id and vector binary data.
-"Item" is uint64_t id.
-Header contains a number of "vectors" and a number of "items".
-"Vectors" are added "from the left to the right".
-"Items" are added "from the right to the left".
+When delete_vector(id) is called, accumulator checks the content of vectors_ and remove element with that id.
+When add_vector(id, data) is called, accumulator checks the content of deleted_ids_ and remove element with value id.
+It is ok to replace existing element in vectors_ with a new value when add_vector() is called.
 
 Accumulator interface:
   init(size)
   add_vector(id, data)
-  add_item(id)
+  delete_vector(id)
   vectors_count()
   items_count()
-  get_vector(index)
-  get_item(index)
+
+  std::vector<uint64_t> get_vector_ids() --- return a sorted vector of keys from vectors_
+  std::vector<uint64_t> get_deleted_ids() --- return a sorted vector of elements from deleted_id_
+
+  const uint8_t* get_vector(id)

@@ -128,7 +128,7 @@ TEST(parasol, open_close_success) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, add_delete_write_to_input_file) {
+TEST(parasol, add_delete_apply_without_input_file) {
     const std::filesystem::path root = make_temp_dir();
     const std::filesystem::path dir = make_dataset_dir(root);
 
@@ -139,13 +139,11 @@ TEST(parasol, add_delete_write_to_input_file) {
 
     ASSERT_OK(handle, sk_add(handle, 42, "1 2 3 4"));
     ASSERT_OK(handle, sk_delete(handle, 42));
+    ASSERT_OK(handle, sk_load(handle));
+    EXPECT_FALSE(std::filesystem::exists(dir / "data.input"));
+    char buf[64];
+    EXPECT_NE(0, sk_get(handle, 42, buf, sizeof(buf)));
     ASSERT_OK(handle, sk_close(handle));
-
-    const std::filesystem::path input_path = dir / "data.input";
-    ASSERT_TRUE(std::filesystem::exists(input_path));
-    const std::string body = read_file(input_path);
-    EXPECT_NE(body.find("42 : [ 1 2 3 4 ]\n"), std::string::npos);
-    EXPECT_NE(body.find("42 : []\n"), std::string::npos);
 
     disconnect(handle);
     std::filesystem::remove_all(root);
@@ -301,7 +299,7 @@ TEST(parasol, load_fails_on_null_handle) {
     EXPECT_NE(0, sk_load(nullptr));
 }
 
-TEST(parasol, load_fails_without_input_file) {
+TEST(parasol, load_succeeds_without_pending_input) {
     const std::filesystem::path root = make_temp_dir();
     const std::filesystem::path dir  = make_dataset_dir(root);
 
@@ -310,7 +308,7 @@ TEST(parasol, load_fails_without_input_file) {
     ASSERT_OK(handle, sk_create(handle, make_metadata(dir)));
     ASSERT_OK(handle, sk_open(handle, dir.string().c_str()));
 
-    EXPECT_NE(0, sk_load(handle));
+    EXPECT_OK(handle, sk_load(handle));
 
     ASSERT_OK(handle, sk_drop(handle));
     disconnect(handle);
@@ -392,7 +390,7 @@ TEST(parasol, load_with_delete_only_input_succeeds) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, load_twice_second_call_fails) {
+TEST(parasol, load_twice_second_call_succeeds) {
     const std::filesystem::path root = make_temp_dir();
     const std::filesystem::path dir  = make_dataset_dir(root);
 
@@ -404,7 +402,7 @@ TEST(parasol, load_twice_second_call_fails) {
     ASSERT_OK(handle, sk_add(handle, 3, "1.0, 2.0, 3.0, 4.0"));
     ASSERT_OK(handle, sk_load(handle));
 
-    EXPECT_NE(0, sk_load(handle));
+    EXPECT_OK(handle, sk_load(handle));
 
     ASSERT_OK(handle, sk_drop(handle));
     disconnect(handle);

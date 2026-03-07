@@ -39,11 +39,9 @@ struct sk_handle {
 
     ~sk_handle() {
         delete ds;
-        if (input) fclose(input);
     }
 
     Dataset* ds = nullptr;
-    FILE* input = nullptr;
     std::string dir;
     int error = 0;
     char message[256];
@@ -230,30 +228,10 @@ int sk_close_(sk_handle_t* handle) {
     DECL
 
     delete handle->ds;
-    if (handle->input) {
-        fclose(handle->input);
-    }
-
     handle->ds = nullptr;
-    handle->input = nullptr;
     handle->dir = "";
 
     return 0;
-}
-
-FILE* open_input_file(sk_handle_t* handle) {
-    std::filesystem::path dir_path = handle->dir;
-    std::filesystem::path file_path = dir_path / kInputFileName;
-    FILE* f = fopen(file_path.c_str(), "w");
-    if (f == nullptr) {
-        return nullptr;
-    }
-    ssize_t n = fprintf(f, "%s,%lu\n", data_type_to_string(handle->ds->type()), handle->ds->dim());
-    if (n <= 0) {
-        fclose(f);
-        return nullptr;
-    }
-    return f;
 }
 
 int sk_add_(sk_handle_t* handle, uint64_t id, const char *value);
@@ -274,16 +252,15 @@ int sk_add_(sk_handle_t* handle, uint64_t id, const char *value) {
         ERR("Invalid value parameter");
     }
 
-    if (handle->input == nullptr) {
-        handle->input = open_input_file(handle);
-        if (handle->input == nullptr) {
-            ERR("Failed to open input file")
-        }
+    std::vector<uint8_t> buf(data_type_size(handle->ds->type()) * handle->ds->dim());
+    Ret parse_ret = parse_vector(buf.data(), buf.size(), handle->ds->type(), handle->ds->dim(), value);
+    if (parse_ret != 0) {
+        ERR(parse_ret.message().c_str());
     }
 
-    ssize_t n = fprintf(handle->input, "%lu : [ %s ]\n", id, value);
-    if (n <= 0) {
-        ERR("Failed to write value to input file");
+    Ret add_ret = handle->ds->add_vector(id, buf.data());
+    if (add_ret != 0) {
+        ERR(add_ret.message().c_str());
     }
 
     return 0;
@@ -304,16 +281,9 @@ int sk_delete_(sk_handle_t* handle, uint64_t id) {
         ERR("Invalid handle");
     }
 
-    if (handle->input == nullptr) {
-        handle->input = open_input_file(handle);
-        if (handle->input == nullptr) {
-            ERR("Failed to open input file")
-        }
-    }
-
-    ssize_t n = fprintf(handle->input, "%lu : []\n", id);
-    if (n <= 0) {
-        ERR("Failed to write delete marker to input file");
+    Ret delete_ret = handle->ds->delete_vector(id);
+    if (delete_ret != 0) {
+        ERR(delete_ret.message().c_str());
     }
 
     return 0;
@@ -334,26 +304,9 @@ static int sk_load_(sk_handle_t* handle) {
         ERR("Invalid handle");
     }
 
-    if (handle->input) {
-        fclose(handle->input);
-        handle->input = nullptr;
-    }
-
-    std::filesystem::path dir_path = handle->dir;
-    std::filesystem::path file_path = dir_path / kInputFileName;
-    if (!std::filesystem::exists(file_path)) {
-        ERR("Input file is not present")
-    }
-
-    Ret store_ret = handle->ds->store(file_path.string());
+    Ret store_ret = handle->ds->store_accumulator();
     if (store_ret != 0) {
         ERR(store_ret.message().c_str())
-    }
-
-    std::error_code ec;
-    std::filesystem::remove(file_path, ec);
-    if (ec) {
-        ERR("Failed to remove input file")
     }
 
     return 0;
@@ -467,11 +420,6 @@ int sk_generate_(sk_handle_t* handle, uint64_t from_id, uint64_t count, int patt
         ERR("Invalid pattern parameter");
     }
 
-    if (handle->input) {
-        fclose(handle->input);
-        handle->input = nullptr;
-    }
-
     if (from_id > static_cast<uint64_t>(std::numeric_limits<size_t>::max()) ||
         count > static_cast<uint64_t>(std::numeric_limits<size_t>::max()) ||
         handle->ds->dim() > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
@@ -491,6 +439,17 @@ int sk_generate_(sk_handle_t* handle, uint64_t from_id, uint64_t count, int patt
     Ret ret = generate_input_file(input_path.string(), cfg);
     if (ret != 0) {
         ERR(ret.message().c_str());
+    }
+
+    FILE* input = fopen(input_path.c_str(), "r");
+    if (input == nullptr) {
+        ERR("Failed to open input file")
+    }
+    fclose(input);
+
+    Ret store_ret = handle->ds->store(input_path.string());
+    if (store_ret != 0) {
+        ERR(store_ret.message().c_str());
     }
 
     return 0;

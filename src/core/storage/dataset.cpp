@@ -1,4 +1,5 @@
 #include "dataset.h"
+#include "core/storage/data_file_layout.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/data_merger.h"
 #include "core/storage/data_writer.h"
@@ -8,8 +9,10 @@
 #include <algorithm>
 #include <cassert>
 #include <cctype>
+#include <cstdio>
 #include <filesystem>
 #include <experimental/scope>
+#include <limits>
 #include <unordered_map>
 
 namespace sketch2 {
@@ -134,12 +137,14 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
     return Ret(0);
 }
 
-Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size, DataType type, uint64_t dim) {
+Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size,
+        DataType type, uint64_t dim, uint64_t accumulator_size) {
     DatasetMetadata metadata;
-    metadata.dirs       = dirs;
-    metadata.range_size = range_size;
-    metadata.type = type;
-    metadata.dim = dim;
+    metadata.dirs             = dirs;
+    metadata.range_size       = range_size;
+    metadata.type             = type;
+    metadata.dim              = dim;
+    metadata.accumulator_size = accumulator_size;
     return init(metadata);
 }
 
@@ -161,12 +166,10 @@ Ret Dataset::init_(const std::string& path) {
     CHECK(cfg.init(path));
     
     DatasetMetadata metadata;
-    metadata.dirs = cfg.get_str_list("dataset.dirs");
-
-    static const int kRangeSize = 10'000;
-    metadata.range_size = cfg.get_int("dataset.range_size", kRangeSize);
-
-    metadata.dim = cfg.get_int("dataset.dim", 0);
+    metadata.dirs             = cfg.get_str_list("dataset.dirs");
+    metadata.dim              = cfg.get_int("dataset.dim", 0);
+    metadata.range_size       = cfg.get_int("dataset.range_size", kRangeSize);
+    metadata.accumulator_size = cfg.get_int("dataset.accumulator_size", kAccumulatorBufferSize);
 
     std::string type_str = cfg.get_str("dataset.type", "f32");
     metadata.type = data_type_from_string(type_str);
@@ -182,12 +185,51 @@ Ret Dataset::store(const std::string& input_path) {
     }
 }
 
+Ret Dataset::store_accumulator() {
+    try {
+        return store_accumulator_();
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
 Ret Dataset::merge() {
     try {
         return merge_();
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
+}
+
+Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
+    if (!data) {
+        return Ret("Dataset: invalid data argument");
+    }
+    CHECK(init_accumulator_());
+    if (!accumulator_->can_add_vector(id)) {
+        CHECK(store_accumulator_());
+    }
+    return accumulator_->add_vector(id, data);
+}
+
+Ret Dataset::delete_vector(uint64_t id) {
+    CHECK(init_accumulator_());
+    if (!accumulator_->can_delete_vector(id)) {
+        CHECK(store_accumulator_());
+    }
+    return accumulator_->delete_vector(id);
+}
+
+Ret Dataset::init_accumulator_() {
+    if (accumulator_) {
+        return Ret(0);
+    }
+    if (metadata_.dirs.empty() || metadata_.range_size == 0) {
+        return Ret("Dataset: not initialized.");
+    }
+
+    accumulator_ = std::make_unique<Accumulator>();
+    return accumulator_->init(metadata_.accumulator_size, metadata_.type, metadata_.dim);
 }
 
 Ret Dataset::store_(const std::string& input_path) {
@@ -223,9 +265,56 @@ Ret Dataset::store_(const std::string& input_path) {
         if (reader.is_range_present(range_start, range_end)) {
             CHECK(store_and_merge(reader, file_id, range_start, range_end));
         }
-
     }
 
+    return Ret(0);
+}
+
+Ret Dataset::store_accumulator_() {
+    if (metadata_.dirs.empty() || metadata_.range_size == 0) {
+        return Ret("Dataset: not initialized.");
+    }
+    if (!accumulator_) {
+        return Ret(0);
+    }
+
+    const std::vector<uint64_t> vector_ids = accumulator_->get_vector_ids();
+    const std::vector<uint64_t> deleted_ids = accumulator_->get_deleted_ids();
+    if (vector_ids.empty() && deleted_ids.empty()) {
+        accumulator_->clear();
+        return Ret(0);
+    }
+
+    std::vector<uint64_t> affected_file_ids;
+    affected_file_ids.reserve(vector_ids.size() + deleted_ids.size());
+    const auto append_file_ids = [this, &affected_file_ids](const std::vector<uint64_t>& ids) {
+        for (uint64_t id : ids) {
+            const uint64_t file_id = id / metadata_.range_size;
+            if (affected_file_ids.empty() || affected_file_ids.back() != file_id) {
+                affected_file_ids.push_back(file_id);
+            }
+        }
+    };
+
+    append_file_ids(vector_ids);
+    append_file_ids(deleted_ids);
+    std::sort(affected_file_ids.begin(), affected_file_ids.end());
+    affected_file_ids.erase(std::unique(affected_file_ids.begin(), affected_file_ids.end()), affected_file_ids.end());
+
+    for (uint64_t file_id : affected_file_ids) {
+        const uint64_t range_start = file_id * metadata_.range_size;
+        const uint64_t range_end = range_start + metadata_.range_size;
+        const auto vectors_begin = std::lower_bound(vector_ids.begin(), vector_ids.end(), range_start);
+        const auto vectors_end = std::lower_bound(vector_ids.begin(), vector_ids.end(), range_end);
+        const auto deleted_begin = std::lower_bound(deleted_ids.begin(), deleted_ids.end(), range_start);
+        const auto deleted_end = std::lower_bound(deleted_ids.begin(), deleted_ids.end(), range_end);
+
+        const std::vector<uint64_t> range_ids(vectors_begin, vectors_end);
+        const std::vector<uint64_t> range_deleted_ids(deleted_begin, deleted_end);
+        CHECK(store_and_merge_accumulator(file_id, range_ids, range_deleted_ids));
+    }
+
+    accumulator_->clear();
     return Ret(0);
 }
 
@@ -327,6 +416,123 @@ Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64
 
     // Check if the delta file becomes large enough after the merge to justify
     // merging into a data file, do the merge.
+    {
+        DataReader data_reader;
+        CHECK(data_reader.init(data_path));
+        DataReader delta_reader;
+        CHECK(delta_reader.init(delta_path));
+
+        const bool is_data_delta_merge = check_data_delta_merge(data_reader, delta_reader);
+        if (is_data_delta_merge) {
+            CHECK(merge_data_file(data_reader, delta_reader, output_path_base, kDeltaExt));
+        }
+    }
+
+    return Ret(0);
+}
+
+Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids) {
+    const size_t dir_id = file_id % metadata_.dirs.size();
+    const std::string& dir = metadata_.dirs[dir_id];
+    const std::string output_path_base = dir + "/" + std::to_string(file_id);
+    FileLockGuard file_lock;
+    CHECK(file_lock.lock(output_path_base + kLockExt));
+    if (ids.empty() && deleted_ids.empty()) {
+        return Ret(0);
+    }
+
+    const auto write_from_accumulator = [this, &ids, &deleted_ids](const std::string& path) -> Ret {
+        uint64_t min_id = ids.empty() ? 0 : ids.front();
+        uint64_t max_id = ids.empty() ? 0 : ids.back();
+
+        DataFileHeader hdr = make_data_header(
+            min_id,
+            max_id,
+            static_cast<uint32_t>(ids.size()),
+            static_cast<uint32_t>(deleted_ids.size()),
+            metadata_.type,
+            static_cast<uint16_t>(metadata_.dim));
+
+        FILE* f = fopen(path.c_str(), "wb");
+        if (!f) {
+            return Ret("Dataset::store_and_merge_accumulator: failed to open output file: " + path);
+        }
+
+        constexpr size_t kFileBufferSize = 4 * 1024 * 1024;
+        std::vector<char> file_buffer(kFileBufferSize);
+        (void)setvbuf(f, file_buffer.data(), _IOFBF, file_buffer.size());
+
+        std::experimental::scope_exit file_guard([&f]() {
+            if (f) fclose(f);
+        });
+
+        CHECK(write_header_and_data_padding(f, hdr, "Dataset::store_and_merge_accumulator"));
+
+        const size_t vec_size = static_cast<size_t>(metadata_.dim) * data_type_size(metadata_.type);
+        const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size(), vec_size);
+        for (uint64_t id : ids) {
+            const uint8_t* data = accumulator_->get_vector(id);
+            if (!data) {
+                return Ret("Dataset::store_and_merge_accumulator: missing vector for id " + std::to_string(id));
+            }
+            if (fwrite(data, vec_size, 1, f) != 1) {
+                return Ret("Dataset::store_and_merge_accumulator: failed to write vector data for id " + std::to_string(id));
+            }
+        }
+
+        CHECK(write_zero_padding(f, ids_layout.ids_padding,
+            "Dataset::store_and_merge_accumulator: failed to write id alignment padding"));
+        CHECK(write_u64_array(f, ids, "Dataset::store_and_merge_accumulator: failed to write ids"));
+        CHECK(write_u64_array(f, deleted_ids, "Dataset::store_and_merge_accumulator: failed to write deleted_ids"));
+
+        const int n1 = fflush(f);
+        const int n2 = fsync(fileno(f));
+        const int n3 = fclose(f);
+        f = nullptr;
+        if (n1 != 0 || n2 != 0 || n3 != 0) {
+            return Ret("Dataset::store_and_merge_accumulator: failed to flush and close file");
+        }
+
+        return Ret(0);
+    };
+
+    const std::string data_path = output_path_base + kDataExt;
+    if (!std::filesystem::exists(data_path)) {
+        if (ids.empty()) {
+            return Ret(0);
+        }
+        CHECK(write_from_accumulator(data_path));
+        return Ret(0);
+    }
+
+    const std::string delta_path = output_path_base + kDeltaExt;
+    if (!std::filesystem::exists(delta_path)) {
+        DataReader data_reader;
+        CHECK(data_reader.init(data_path));
+
+        const uint64_t output_count = static_cast<uint64_t>(ids.size() + deleted_ids.size());
+        const bool is_merge = (data_reader.count() < output_count * metadata_.data_merge_ratio);
+        if (is_merge) {
+            DataMerger processor;
+            const std::string merge_path = output_path_base + kMergeExt;
+            CHECK(processor.merge_data_file(data_reader, *accumulator_, ids, deleted_ids, merge_path));
+            std::filesystem::rename(merge_path, data_path);
+            return Ret(0);
+        }
+
+        CHECK(write_from_accumulator(delta_path));
+        return Ret(0);
+    }
+
+    {
+        DataReader delta_reader;
+        CHECK(delta_reader.init(delta_path));
+        DataMerger processor;
+        const std::string merge_path = output_path_base + kMergeExt;
+        CHECK(processor.merge_delta_file(delta_reader, *accumulator_, ids, deleted_ids, merge_path));
+        std::filesystem::rename(merge_path, delta_path);
+    }
+
     {
         DataReader data_reader;
         CHECK(data_reader.init(data_path));
