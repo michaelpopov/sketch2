@@ -5,7 +5,7 @@ if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-project(sketch2 LANGUAGES CXX)
+project(sketch2 LANGUAGES C CXX)
 
 #----------------------------
 # Support for f16

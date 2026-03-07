@@ -1,0 +1,14 @@
+#pragma once
+
+#include "sqlite3ext.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int sqlite3_vlite_init(sqlite3* db, char** pzErrMsg, const sqlite3_api_routines* api);
+int sqlite3_extension_init(sqlite3* db, char** pzErrMsg, const sqlite3_api_routines* api);
+
+#ifdef __cplusplus
+}
+#endif

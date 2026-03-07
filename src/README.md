@@ -7,3 +7,11 @@ or "indexer" are split out.
 ## core
 
 Core libraries immplementing base functionality.
+
+## vlite
+
+SQLite virtual table extension shared library.
+
+## third-party/sqlite
+
+Vendored SQLite sources and the `sqlite3` shell build target.

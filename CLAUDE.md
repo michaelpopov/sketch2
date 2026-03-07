@@ -49,7 +49,7 @@ Unit test binaries (Debug): `bin-dbg/utest_stor`, `bin-dbg/utest_comp`, `bin-dbg
 
 ## Architecture
 
-Sketch2 is a vector database project. The current codebase is focused on the storage and computation layers, exposed through the `parasol` shared library.
+Sketch2 is a vector database project. The current codebase is focused on the storage and computation layers, exposed through the `parasol` shared library, the `vlite` SQLite extension, and a vendored `sqlite3` shell build.
 
 ### Core Libraries (in dependency order)
 
@@ -58,6 +58,8 @@ Sketch2 is a vector database project. The current codebase is focused on the sto
 | `src/core/storage` | `stor` | On-disk storage: data files, delta files, readers/writers |
 | `src/core/compute` | `comp` | Distance computations (L1, L2), KNN scanner; depends on `stor` |
 | `src/parasol` | `parasol` | Shared API layer that links core libraries for external consumers |
+| `src/vlite` | `vlite` | SQLite virtual table extension shared library |
+| `src/third-party/sqlite` | `sqlite3_lib`, `sqlite3_cli` | Vendored SQLite library and shell executable |
 
 ### Storage Design
 
