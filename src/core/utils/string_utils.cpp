@@ -1,5 +1,6 @@
 #include "string_utils.h"
 #include <cstdio>
+#include <limits>
 #include <string.h>
 
 namespace sketch2 {
@@ -7,6 +8,11 @@ namespace sketch2 {
 Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const char* line, const char* end) {
     if (buf == nullptr || line == nullptr) {
         return Ret("parse_vector: invalid arguments");
+    }
+    try {
+        validate_type(type);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
     }
 
     if (end == nullptr) {
@@ -40,10 +46,15 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
                 return Ret("InputReader::data: truncated vector payload");
             }
             char* next;
-            out[d] = static_cast<int16_t>(strtol(line, &next, 10));
+            const long value = strtol(line, &next, 10);
             if (next == line || next > end) {
                 return Ret("InputReader::data: invalid i16 token");
             }
+            if (value < static_cast<long>(std::numeric_limits<int16_t>::min()) ||
+                value > static_cast<long>(std::numeric_limits<int16_t>::max())) {
+                return Ret("InputReader::data: i16 token out of range");
+            }
+            out[d] = static_cast<int16_t>(value);
             line = next;
             while (line < end && (*line == ',' || *line == ' ')) ++line;
         }

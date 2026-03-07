@@ -128,6 +128,52 @@ TEST_F(DatasetTest, InitFromIniFailsOnMissingType) {
     EXPECT_NE(0, sc.init(config_path_).code());
 }
 
+TEST_F(DatasetTest, InitFromIniFailsOnNegativeDim) {
+    auto dir = make_dir("d_neg_dim");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = -1\n");
+
+    Dataset sc;
+    const Ret ret = sc.init(config_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Dataset: dataset.dim must be >= 0", ret.message());
+}
+
+TEST_F(DatasetTest, InitFromIniFailsOnNegativeRangeSize) {
+    auto dir = make_dir("d_neg_range");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = -1\n"
+        "type = f32\n"
+        "dim = 4\n");
+
+    Dataset sc;
+    const Ret ret = sc.init(config_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Dataset: dataset.range_size must be >= 0", ret.message());
+}
+
+TEST_F(DatasetTest, InitFromIniFailsOnNegativeAccumulatorSize) {
+    auto dir = make_dir("d_neg_acc");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = 4\n"
+        "accumulator_size = -1\n");
+
+    Dataset sc;
+    const Ret ret = sc.init(config_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Dataset: dataset.accumulator_size must be >= 0", ret.message());
+}
+
 // --- load error cases ---
 
 TEST_F(DatasetTest, StoreFailsWhenNotInitialized) {
@@ -644,6 +690,31 @@ TEST_F(DatasetTest, MergeCombinesExistingDeltaIntoDataFile) {
     EXPECT_NEAR(99.0f, v[0], 1e-5f);
 }
 
+TEST_F(DatasetTest, MergeCombinesAccumulatorDeltaIntoDataFile) {
+    auto dir = make_dir("d_merge_acc");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    const std::array<float, 4> vec {77.0f, 77.0f, 77.0f, 77.0f};
+    ASSERT_EQ(0, sc.add_vector(5, reinterpret_cast<const uint8_t*>(vec.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    ASSERT_EQ(0, sc.merge().code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(file_path(dir, 0, ".data")).code());
+    const float* v = reinterpret_cast<const float*>(data_reader.get(5));
+    ASSERT_NE(nullptr, v);
+    EXPECT_NEAR(77.0f, v[0], 1e-5f);
+}
+
 TEST_F(DatasetTest, MergeProcessesAllRangesWithDeltaFiles) {
     auto dir = make_dir("d_merge_all");
     Dataset sc;
@@ -712,6 +783,16 @@ TEST_F(DatasetTest, DatasetReaderNextOnEmptyDatasetReturnsNull) {
     // No store() call — no files in dir.
     auto drs = sc.reader();
     auto [reader, ret] = drs->next();
+    EXPECT_EQ(0, ret.code());
+    EXPECT_EQ(nullptr, reader);
+}
+
+TEST_F(DatasetTest, DatasetGetOnEmptyDatasetReturnsNull) {
+    auto dir = make_dir("empty_get");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
+
+    auto [reader, ret] = sc.get(42);
     EXPECT_EQ(0, ret.code());
     EXPECT_EQ(nullptr, reader);
 }

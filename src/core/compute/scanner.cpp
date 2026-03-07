@@ -8,6 +8,12 @@
 
 namespace sketch2 {
 
+namespace {
+
+using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);
+
+} // namespace
+
 Ret Scanner::find(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     try {
@@ -47,7 +53,7 @@ Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const ui
 
         DataType type = reader->type();
         size_t   dim  = reader->dim();
-        ComputeL1::DistFn dist_fn = nullptr;
+        DistFn dist_fn = nullptr;
         switch (func) {
             case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(type); break;
             case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(type); break;
@@ -82,7 +88,7 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
 
     result.clear();
 
-    double (*dist_fn)(const uint8_t*, const uint8_t*, size_t) = nullptr;
+    DistFn dist_fn = nullptr;
     switch (func) {
         case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(reader.type()); break;
         case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(reader.type()); break;

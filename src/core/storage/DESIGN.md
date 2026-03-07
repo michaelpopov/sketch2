@@ -210,7 +210,7 @@ Accumulator interface:
   add_vector(id, data)
   delete_vector(id)
   vectors_count()
-  items_count()
+  deleted_count()
 
   std::vector<uint64_t> get_vector_ids() --- return a sorted vector of keys from vectors_
   std::vector<uint64_t> get_deleted_ids() --- return a sorted vector of elements from deleted_id_

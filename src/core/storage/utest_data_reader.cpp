@@ -7,6 +7,7 @@
 #include <vector>
 #include <fstream>
 #include "core/storage/data_file.h"
+#include "core/storage/data_file_layout.h"
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
@@ -246,6 +247,25 @@ TEST_F(DataReaderTest, CountIsCorrect) {
     EXPECT_EQ(7u, r.count());
 }
 
+TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
+    DataFileHeader hdr = make_data_header(0, 0, 0, 0, DataType::f32, 4);
+    FILE* f = fopen(data_path_.c_str(), "wb");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+    const size_t padding = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+    if (padding > 0) {
+        std::vector<uint8_t> zeros(padding, 0);
+        ASSERT_EQ(padding, fwrite(zeros.data(), 1, padding, f));
+    }
+    fclose(f);
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_EQ(0u, r.count());
+    EXPECT_TRUE(r.begin().eof());
+    EXPECT_EQ(nullptr, r.get(123));
+}
+
 TEST_F(DataReaderTest, SizeF32IsCorrect) {
     generate(1, 0, DataType::f32, 4);
     DataReader r;
@@ -285,6 +305,20 @@ TEST_F(DataReaderTest, AtOutOfBoundsThrows) {
     EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_THROW(r.at(3),   std::out_of_range);
     EXPECT_THROW(r.at(100), std::out_of_range);
+}
+
+TEST_F(DataReaderTest, AtReturnsNullForHiddenVector) {
+    generate(3, 0, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "1 : []\n");
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
+    EXPECT_NE(nullptr, r.at(0));
+    EXPECT_EQ(nullptr, r.at(1));
+    EXPECT_NE(nullptr, r.at(2));
 }
 
 TEST_F(DataReaderTest, AtF32VectorDataIsCorrect) {

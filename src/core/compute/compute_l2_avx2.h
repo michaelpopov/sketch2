@@ -1,12 +1,9 @@
 #pragma once
+#include "core/compute/compute_avx2_utils.h"
 #include "core/compute/compute.h"
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
-
-#if defined(__AVX2__)
-#include <immintrin.h>
-#endif
 
 namespace sketch2 {
 
@@ -19,15 +16,6 @@ public:
 };
 
 #if defined(__AVX2__)
-
-inline double hsum_ps_256_l2(__m256 v) {
-    const __m128 lo = _mm256_castps256_ps128(v);
-    const __m128 hi = _mm256_extractf128_ps(v, 1);
-    __m128 sum = _mm_add_ps(lo, hi);
-    sum = _mm_hadd_ps(sum, sum);
-    sum = _mm_hadd_ps(sum, sum);
-    return static_cast<double>(_mm_cvtss_f32(sum));
-}
 
 inline double ComputeL2_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
     const float *va = reinterpret_cast<const float *>(a);
@@ -90,7 +78,7 @@ inline double ComputeL2_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size_
     }
 
     const __m256 acc = _mm256_add_ps(_mm256_add_ps(acc0, acc1), _mm256_add_ps(acc2, acc3));
-    double sum = hsum_ps_256_l2(acc);
+    double sum = hsum_ps_256(acc);
     for (; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
         sum += d * d;

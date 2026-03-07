@@ -6,11 +6,63 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/compute/compute_l1.h"
 #include "core/compute/compute_l1_avx2.h"
+#include "core/compute/compute_l1_neon.h"
 
 using namespace sketch2;
 
 namespace {
+
+TEST(ComputeL1Test, DistF32ComputesDistance) {
+    const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::vector<float> b = {1.5f, 0.0f, 1.0f, 10.0f};
+    ComputeL1 l1;
+    const double got = l1.dist(reinterpret_cast<const uint8_t*>(a.data()),
+                               reinterpret_cast<const uint8_t*>(b.data()),
+                               DataType::f32, a.size());
+    EXPECT_DOUBLE_EQ(10.5, got);
+}
+
+#if !defined(__AVX2__) && !defined(__aarch64__)
+TEST(ComputeL1Scalar, DistI16UsesScalarFallback) {
+    const std::vector<int16_t> a = {10, -2, 7, -8};
+    const std::vector<int16_t> b = {4, -5, 10, -8};
+    ComputeL1 l1;
+    const double got = l1.dist(reinterpret_cast<const uint8_t*>(a.data()),
+                               reinterpret_cast<const uint8_t*>(b.data()),
+                               DataType::i16, a.size());
+    EXPECT_DOUBLE_EQ(12.0, got);
+}
+#else
+TEST(ComputeL1Scalar, NotBuiltForThisTarget) {
+    GTEST_SKIP() << "scalar fallback is not the active implementation on this target";
+}
+#endif
+
+#if defined(__aarch64__)
+TEST(ComputeL1Neon, DistF32MatchesReference) {
+    const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, -5.0f};
+    const std::vector<float> b = {0.0f, 2.5f, 1.0f, 0.0f, -1.0f};
+    const double got = ComputeL1_Neon::dist_f32(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                a.size());
+    EXPECT_DOUBLE_EQ(11.5, got);
+}
+
+TEST(ComputeL1Neon, DistI16MatchesReference) {
+    const std::vector<int16_t> a = {10, -2, 7, -8, 20};
+    const std::vector<int16_t> b = {4, -5, 10, -8, 18};
+    const double got = ComputeL1_Neon::dist_i16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                a.size());
+    EXPECT_DOUBLE_EQ(14.0, got);
+}
+#else
+TEST(ComputeL1Neon, NotBuiltForThisTarget) {
+    GTEST_SKIP() << "NEON is not enabled for this target";
+}
+#endif
 
 template <typename T>
 struct TestBuffer {

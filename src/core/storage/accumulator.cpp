@@ -27,11 +27,20 @@ Ret Accumulator::init(size_t size, DataType type, uint64_t dim) {
     dim_ = dim;
     data_size_ = size;
     used_size_ = 0;
+    vector_data_.reserve(data_size_);
+    const size_t record_size = vector_record_size_();
+    if (record_size != 0) {
+        const size_t max_vectors = data_size_ / record_size;
+        vector_ids_.reserve(max_vectors);
+        vector_index_.reserve(max_vectors);
+    }
     return Ret(0);
 }
 
 void Accumulator::clear() {
-    vectors_.clear();
+    vector_index_.clear();
+    vector_ids_.clear();
+    vector_data_.clear();
     deleted_ids_.clear();
     used_size_ = 0;
 }
@@ -48,19 +57,25 @@ Ret Accumulator::add_vector(uint64_t id, const uint8_t* data) {
     }
 
     const bool had_deleted = deleted_ids_.find(id) != deleted_ids_.end();
-    const bool had_vector = vectors_.find(id) != vectors_.end();
+    const auto vector_it = vector_index_.find(id);
+    const bool had_vector = vector_it != vector_index_.end();
 
     if (had_deleted) {
         deleted_ids_.erase(id);
         used_size_ -= sizeof(uint64_t);
     }
 
-    const size_t vector_record_size = vector_record_size_();
-    std::vector<uint8_t>& vector = vectors_[id];
-    vector.resize(vector_size_());
-    std::memcpy(vector.data(), data, vector.size());
-    if (!had_vector) {
-        used_size_ += vector_record_size;
+    const size_t vector_size = vector_size_();
+    if (had_vector) {
+        std::memcpy(vector_data_.data() + vector_it->second * vector_size, data, vector_size);
+    } else {
+        const size_t slot = vector_ids_.size();
+        vector_index_[id] = slot;
+        vector_ids_.push_back(id);
+        const size_t old_size = vector_data_.size();
+        vector_data_.resize(old_size + vector_size);
+        std::memcpy(vector_data_.data() + old_size, data, vector_size);
+        used_size_ += vector_record_size_();
     }
 
     return Ret(0);
@@ -71,8 +86,8 @@ Ret Accumulator::delete_vector(uint64_t id) {
         return Ret("Accumulator: not initialized");
     }
 
-    const auto vector_it = vectors_.find(id);
-    const bool had_vector = vector_it != vectors_.end();
+    const auto vector_it = vector_index_.find(id);
+    const bool had_vector = vector_it != vector_index_.end();
     if (!had_vector && deleted_ids_.find(id) != deleted_ids_.end()) {
         return Ret(0);
     }
@@ -81,7 +96,21 @@ Ret Accumulator::delete_vector(uint64_t id) {
     }
 
     if (had_vector) {
-        vectors_.erase(vector_it);
+        const size_t slot = vector_it->second;
+        const size_t last_slot = vector_ids_.size() - 1;
+        if (slot != last_slot) {
+            const size_t vector_size = vector_size_();
+            const uint64_t moved_id = vector_ids_[last_slot];
+            std::memcpy(
+                vector_data_.data() + slot * vector_size,
+                vector_data_.data() + last_slot * vector_size,
+                vector_size);
+            vector_ids_[slot] = moved_id;
+            vector_index_[moved_id] = slot;
+        }
+        vector_ids_.pop_back();
+        vector_data_.resize(vector_ids_.size() * vector_size_());
+        vector_index_.erase(vector_it);
         used_size_ -= vector_record_size_();
     }
 
@@ -112,11 +141,7 @@ std::vector<uint64_t> Accumulator::get_vector_ids() const {
     }
 
     std::vector<uint64_t> ids;
-    ids.reserve(vectors_.size());
-    for (const auto& entry : vectors_) {
-        const uint64_t id = entry.first;
-        ids.push_back(id);
-    }
+    ids = vector_ids_;
     std::sort(ids.begin(), ids.end());
     return ids;
 }
@@ -140,23 +165,23 @@ const uint8_t* Accumulator::get_vector(uint64_t id) const {
         throw std::runtime_error("Accumulator::get_vector: not initialized");
     }
 
-    const auto it = vectors_.find(id);
-    if (it == vectors_.end()) {
+    const auto it = vector_index_.find(id);
+    if (it == vector_index_.end()) {
         return nullptr;
     }
-    return it->second.data();
+    return vector_data_.data() + it->second * vector_size_();
 }
 
 size_t Accumulator::add_vector_size_(uint64_t id) const {
     const bool had_deleted = deleted_ids_.find(id) != deleted_ids_.end();
-    const bool had_vector = vectors_.find(id) != vectors_.end();
+    const bool had_vector = vector_index_.find(id) != vector_index_.end();
     const size_t freed_size = had_deleted ? sizeof(uint64_t) : 0;
     const size_t required_size = had_vector ? 0 : vector_record_size_();
     return used_size_ - freed_size + required_size;
 }
 
 size_t Accumulator::delete_vector_size_(uint64_t id) const {
-    const bool had_vector = vectors_.find(id) != vectors_.end();
+    const bool had_vector = vector_index_.find(id) != vector_index_.end();
     const bool had_deleted = deleted_ids_.find(id) != deleted_ids_.end();
     const size_t freed_size = had_vector ? vector_record_size_() : 0;
     const size_t required_size = had_deleted ? 0 : sizeof(uint64_t);

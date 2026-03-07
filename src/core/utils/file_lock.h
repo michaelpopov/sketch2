@@ -13,6 +13,12 @@ namespace sketch2 {
 
 class FileLockGuard {
 public:
+    FileLockGuard() = default;
+    FileLockGuard(const FileLockGuard&) = delete;
+    FileLockGuard& operator=(const FileLockGuard&) = delete;
+    FileLockGuard(FileLockGuard&&) = delete;
+    FileLockGuard& operator=(FileLockGuard&&) = delete;
+
     ~FileLockGuard() {
         if (fd_ >= 0) {
             (void)flock(fd_, LOCK_UN);

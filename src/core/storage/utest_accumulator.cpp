@@ -46,7 +46,7 @@ TEST(AccumulatorTest, DeleteVectorTracksSortedDeletedIds) {
     ASSERT_EQ(0, accumulator.delete_vector(7).code());
     ASSERT_EQ(0, accumulator.delete_vector(9).code());
 
-    EXPECT_EQ(accumulator.items_count(), 3U);
+    EXPECT_EQ(accumulator.deleted_count(), 3U);
     EXPECT_EQ(accumulator.get_deleted_ids(), (std::vector<uint64_t> {7, 9, 11}));
 }
 
@@ -60,13 +60,13 @@ TEST(AccumulatorTest, DeleteRemovesVectorAndAddRemovesDeletedId) {
     ASSERT_EQ(0, accumulator.add_vector(5, as_bytes(vec0)).code());
     ASSERT_EQ(0, accumulator.delete_vector(5).code());
     EXPECT_EQ(accumulator.vectors_count(), 0U);
-    EXPECT_EQ(accumulator.items_count(), 1U);
+    EXPECT_EQ(accumulator.deleted_count(), 1U);
     EXPECT_EQ(nullptr, accumulator.get_vector(5));
     EXPECT_EQ(accumulator.get_deleted_ids(), (std::vector<uint64_t> {5}));
 
     ASSERT_EQ(0, accumulator.add_vector(5, as_bytes(vec1)).code());
     EXPECT_EQ(accumulator.vectors_count(), 1U);
-    EXPECT_EQ(accumulator.items_count(), 0U);
+    EXPECT_EQ(accumulator.deleted_count(), 0U);
     EXPECT_EQ(accumulator.get_vector_ids(), (std::vector<uint64_t> {5}));
     EXPECT_TRUE(accumulator.get_deleted_ids().empty());
 
@@ -124,7 +124,7 @@ TEST(AccumulatorTest, ClearRemovesAllStoredState) {
     accumulator.clear();
 
     EXPECT_EQ(0u, accumulator.vectors_count());
-    EXPECT_EQ(0u, accumulator.items_count());
+    EXPECT_EQ(0u, accumulator.deleted_count());
     EXPECT_TRUE(accumulator.get_vector_ids().empty());
     EXPECT_TRUE(accumulator.get_deleted_ids().empty());
     EXPECT_EQ(nullptr, accumulator.get_vector(3));
@@ -160,7 +160,7 @@ TEST(AccumulatorTest, DeleteCanFreeSpaceForDeletedId) {
     ASSERT_EQ(0, accumulator.delete_vector(9).code());
 
     EXPECT_EQ(accumulator.vectors_count(), 0U);
-    EXPECT_EQ(accumulator.items_count(), 1U);
+    EXPECT_EQ(accumulator.deleted_count(), 1U);
     EXPECT_EQ(accumulator.get_deleted_ids(), (std::vector<uint64_t> {9}));
 }
 

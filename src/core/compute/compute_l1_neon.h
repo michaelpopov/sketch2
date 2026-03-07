@@ -2,7 +2,6 @@
 #include "core/compute/compute.h"
 #include <cmath>
 #include <cstdint>
-#include <cstring>
 #include <stdexcept>
 
 #if defined(__aarch64__)

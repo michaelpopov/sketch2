@@ -47,7 +47,9 @@ inline ComputeL2::DistFn ComputeL2::resolve_dist(DataType type) {
     case DataType::f16: return &dist_f16;
     case DataType::i16: return &dist_i16;
 #endif
-    default:            assert(false); return nullptr;
+    default:
+        assert(false);
+        throw std::runtime_error("ComputeL2::resolve_dist: unsupported data type");
     }
 }
 

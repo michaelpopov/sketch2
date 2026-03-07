@@ -25,6 +25,15 @@ static const std::string kLockExt = ".lock";
 
 namespace {
 
+Ret get_non_negative_ini_u64(const IniReader& cfg, const std::string& name, int def, uint64_t* out) {
+    const int value = cfg.get_int(name, def);
+    if (value < 0) {
+        return Ret("Dataset: " + name + " must be >= 0");
+    }
+    *out = static_cast<uint64_t>(value);
+    return Ret(0);
+}
+
 bool parse_dataset_file_id(const std::string& name, const std::string& ext, uint64_t* out) {
     if (name.size() <= ext.size() || name.rfind(ext) != name.size() - ext.size()) {
         return false;
@@ -167,9 +176,9 @@ Ret Dataset::init_(const std::string& path) {
     
     DatasetMetadata metadata;
     metadata.dirs             = cfg.get_str_list("dataset.dirs");
-    metadata.dim              = cfg.get_int("dataset.dim", 0);
-    metadata.range_size       = cfg.get_int("dataset.range_size", kRangeSize);
-    metadata.accumulator_size = cfg.get_int("dataset.accumulator_size", kAccumulatorBufferSize);
+    CHECK(get_non_negative_ini_u64(cfg, "dataset.dim", 0, &metadata.dim));
+    CHECK(get_non_negative_ini_u64(cfg, "dataset.range_size", kRangeSize, &metadata.range_size));
+    CHECK(get_non_negative_ini_u64(cfg, "dataset.accumulator_size", kAccumulatorBufferSize, &metadata.accumulator_size));
 
     std::string type_str = cfg.get_str("dataset.type", "f32");
     metadata.type = data_type_from_string(type_str);

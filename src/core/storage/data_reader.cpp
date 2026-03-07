@@ -8,7 +8,6 @@
 #include <unistd.h>
 #include <cstring>
 #include <stdexcept>
-#include <iostream>
 
 namespace sketch2 {
 

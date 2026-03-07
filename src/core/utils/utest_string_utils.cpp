@@ -1,6 +1,7 @@
 #include "string_utils.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 
@@ -62,6 +63,40 @@ TEST(string_utils, parse_vector_invalid_token) {
     EXPECT_NE(ret.code(), 0);
 }
 
+TEST(string_utils, parse_vector_i16_out_of_range_fails) {
+    std::array<int16_t, 2> out {};
+    const Ret ret = parse_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::i16, out.size(),
+        "32768, 0");
+    EXPECT_NE(ret.code(), 0);
+    EXPECT_EQ("InputReader::data: i16 token out of range", ret.message());
+}
+
+TEST(string_utils, parse_vector_f32_nan_and_inf_success) {
+    std::array<float, 3> out {};
+    const Ret ret = parse_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::f32, out.size(),
+        "nan, inf, -inf");
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_TRUE(std::isnan(out[0]));
+    EXPECT_TRUE(std::isinf(out[1]));
+    EXPECT_GT(out[1], 0.0f);
+    EXPECT_TRUE(std::isinf(out[2]));
+    EXPECT_LT(out[2], 0.0f);
+}
+
+TEST(string_utils, parse_vector_f16_unsupported_platform_fails) {
+    if (supports_f16()) {
+        GTEST_SKIP() << "f16 is supported on this platform";
+    }
+    std::array<float16, 2> out {};
+    const Ret ret = parse_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::f16, out.size(),
+        "1.0, 2.0");
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("f16 is not supported.", ret.message());
+}
+
 TEST(string_utils, parse_vector_extra_tokens) {
     std::array<float, 2> out {};
     const Ret ret = parse_vector(
@@ -113,6 +148,12 @@ TEST(string_utils, print_vector_buffer_too_small_fails) {
     char out[4] {};
     const Ret ret = print_vector(reinterpret_cast<uint8_t*>(vec.data()), DataType::f32, vec.size(), out, sizeof(out));
     EXPECT_NE(0, ret.code());
+}
+
+TEST(string_utils, data_type_from_int_invalid_values_throw) {
+    EXPECT_THROW(data_type_from_int(-1), std::runtime_error);
+    EXPECT_THROW(data_type_from_int(3), std::runtime_error);
+    EXPECT_THROW(data_type_from_int(99), std::runtime_error);
 }
 
 } // namespace sketch2

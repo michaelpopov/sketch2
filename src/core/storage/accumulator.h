@@ -21,8 +21,8 @@ public:
     bool can_add_vector(uint64_t id) const;
     bool can_delete_vector(uint64_t id) const;
 
-    size_t vectors_count() const { return vectors_.size(); }
-    size_t items_count() const { return deleted_ids_.size(); }
+    size_t vectors_count() const { return vector_ids_.size(); }
+    size_t deleted_count() const { return deleted_ids_.size(); }
 
     std::vector<uint64_t> get_vector_ids() const;
     std::vector<uint64_t> get_deleted_ids() const;
@@ -40,7 +40,9 @@ private:
     size_t used_size_ = 0;
     DataType type_ = DataType::f32;
     uint64_t dim_ = 0;
-    std::unordered_map<uint64_t, std::vector<uint8_t>> vectors_;
+    std::unordered_map<uint64_t, size_t> vector_index_;
+    std::vector<uint64_t> vector_ids_;
+    std::vector<uint8_t> vector_data_;
     std::unordered_set<uint64_t> deleted_ids_;
 };
 

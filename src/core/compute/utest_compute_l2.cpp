@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "core/compute/compute_l2.h"
+#include "core/compute/compute_l2_neon.h"
 
 using namespace sketch2;
 
@@ -54,5 +55,29 @@ TEST(ComputeL2Test, ResolveDistReturnsFunctionForAllTypes) {
     }
     EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::i16));
 }
+
+#if defined(__aarch64__)
+TEST(ComputeL2Neon, DistF32MatchesReference) {
+    const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, -5.0f};
+    const std::vector<float> b = {0.0f, 2.5f, 1.0f, 0.0f, -1.0f};
+    const double got = ComputeL2_Neon::dist_f32(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                a.size());
+    EXPECT_DOUBLE_EQ(25.25, got);
+}
+
+TEST(ComputeL2Neon, DistI16MatchesReference) {
+    const std::vector<int16_t> a = {10, -2, 7, -8, 20};
+    const std::vector<int16_t> b = {4, -5, 10, -8, 18};
+    const double got = ComputeL2_Neon::dist_i16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                a.size());
+    EXPECT_DOUBLE_EQ(58.0, got);
+}
+#else
+TEST(ComputeL2Neon, NotBuiltForThisTarget) {
+    GTEST_SKIP() << "NEON is not enabled for this target";
+}
+#endif
 
 } // namespace

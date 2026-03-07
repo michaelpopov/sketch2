@@ -6,9 +6,31 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
-#include <iostream>
+#include <unistd.h>
 
 namespace sketch2 {
+
+namespace {
+
+constexpr size_t kFileBufferSize = 4 * 1024 * 1024;
+
+void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer) {
+    file_buffer->resize(kFileBufferSize);
+    (void)setvbuf(f, file_buffer->data(), _IOFBF, file_buffer->size());
+}
+
+Ret flush_and_close_merge_file(FILE** f, const char* context) {
+    const int n1 = fflush(*f);
+    const int n2 = fsync(fileno(*f));
+    const int n3 = fclose(*f);
+    *f = nullptr;
+    if (n1 != 0 || n2 != 0 || n3 != 0) {
+        return Ret(std::string(context) + ": failed to flush and close merge file");
+    }
+    return Ret(0);
+}
+
+} // namespace
 
 Ret DataMerger::merge_data_file(const DataReader& source, const DataReader& updater, const std::string& path) {
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
@@ -59,7 +81,13 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     if (!f) {
         return Ret(strerror(errno));
     }
-    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+    std::vector<char> file_buffer;
+    set_merge_file_buffer(f, &file_buffer);
+    std::experimental::scope_exit file_guard([&f]() {
+        if (f) {
+            fclose(f);
+        }
+    });
 
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()));
     CHECK(write_header_and_data_padding(f, hdr, "DataMerger::merge_data_files"));
@@ -145,7 +173,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     hdr.count  = static_cast<uint32_t>(ids.size());
     CHECK(rewrite_header(f, hdr, "DataMerger::merge_data_files"));
 
-    return Ret(0);
+    return flush_and_close_merge_file(&f, "DataMerger::merge_data_files");
 }
 
 void DataMerger::load_update_records(const DataReader& updater, std::vector<Item>& updater_items) {
@@ -221,7 +249,13 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     if (!f) {
         return Ret(strerror(errno));
     }
-    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+    std::vector<char> file_buffer;
+    set_merge_file_buffer(f, &file_buffer);
+    std::experimental::scope_exit file_guard([&f]() {
+        if (f) {
+            fclose(f);
+        }
+    });
 
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()));
     CHECK(write_header_and_data_padding(f, hdr, "DataMerger::merge_delta_file"));
@@ -338,7 +372,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     hdr.count  = static_cast<uint32_t>(ids.size());
     CHECK(rewrite_header(f, hdr, "DataMerger::merge_delta_file"));
 
-    return Ret(0);
+    return flush_and_close_merge_file(&f, "DataMerger::merge_delta_file");
 }
 
 Ret DataMerger::merge_data_file_(
@@ -353,7 +387,13 @@ Ret DataMerger::merge_data_file_(
     if (!f) {
         return Ret(strerror(errno));
     }
-    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+    std::vector<char> file_buffer;
+    set_merge_file_buffer(f, &file_buffer);
+    std::experimental::scope_exit file_guard([&f]() {
+        if (f) {
+            fclose(f);
+        }
+    });
 
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()));
     CHECK(write_header_and_data_padding(f, hdr, "DataMerger::merge_data_files"));
@@ -436,7 +476,7 @@ Ret DataMerger::merge_data_file_(
     hdr.count = static_cast<uint32_t>(output_ids.size());
     CHECK(rewrite_header(f, hdr, "DataMerger::merge_data_files"));
 
-    return Ret(0);
+    return flush_and_close_merge_file(&f, "DataMerger::merge_data_files");
 }
 
 Ret DataMerger::merge_delta_file_(
@@ -451,7 +491,13 @@ Ret DataMerger::merge_delta_file_(
     if (!f) {
         return Ret(strerror(errno));
     }
-    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+    std::vector<char> file_buffer;
+    set_merge_file_buffer(f, &file_buffer);
+    std::experimental::scope_exit file_guard([&f]() {
+        if (f) {
+            fclose(f);
+        }
+    });
 
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()));
     CHECK(write_header_and_data_padding(f, hdr, "DataMerger::merge_delta_file"));
@@ -562,7 +608,7 @@ Ret DataMerger::merge_delta_file_(
     hdr.count = static_cast<uint32_t>(output_ids.size());
     CHECK(rewrite_header(f, hdr, "DataMerger::merge_delta_file"));
 
-    return Ret(0);
+    return flush_and_close_merge_file(&f, "DataMerger::merge_delta_file");
 }
 
 
