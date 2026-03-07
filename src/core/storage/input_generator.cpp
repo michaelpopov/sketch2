@@ -1,4 +1,5 @@
 #include "input_generator.h"
+#include <cinttypes>
 #include <experimental/scope>
 #include <cstdint>
 
@@ -30,7 +31,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
 
 template <typename T>
 static inline void print_float_line(FILE* f, uint64_t id, const T* value, size_t dim, bool is_array) {
-    fprintf(f, "%lu : [ ", id);
+    fprintf(f, "%" PRIu64 " : [ ", id);
     for (size_t d = 0; d < dim; ++d) {
         const size_t index = is_array ? d : 0;
         if (d < dim - 1) {
@@ -43,7 +44,7 @@ static inline void print_float_line(FILE* f, uint64_t id, const T* value, size_t
 }
 
 static inline void print_int_line(FILE* f, uint64_t id, const int16_t* value, size_t dim, bool is_array) {
-    fprintf(f, "%lu : [ ", id);
+    fprintf(f, "%" PRIu64 " : [ ", id);
     for (size_t d = 0; d < dim; ++d) {
         const size_t index = is_array ? d : 0;
         if (d < dim - 1) {
@@ -56,7 +57,7 @@ static inline void print_int_line(FILE* f, uint64_t id, const int16_t* value, si
 }
 
 static inline void print_deleted_line(FILE* f, uint64_t id) {
-    fprintf(f, "%lu : []\n", id);
+    fprintf(f, "%" PRIu64 " : []\n", id);
 }
 
 static Ret generate_sequential_input_file(const std::string& path, const GeneratorConfig& config) {
@@ -66,7 +67,7 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
     }
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
-    fprintf(f, "%s,%lu\n", data_type_to_string(config.type), config.dim);
+    fprintf(f, "%s,%zu\n", data_type_to_string(config.type), config.dim);
     
     for (size_t i = 0; i < config.count; ++i) {
         uint64_t id= config.min_id + i;
@@ -101,7 +102,7 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
     }
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
-    fprintf(f, "%s,%lu\n", data_type_to_string(config.type), config.dim);
+    fprintf(f, "%s,%zu\n", data_type_to_string(config.type), config.dim);
 
     if (config.type == DataType::f32) {
         InputVector<float> v(config.dim, static_cast<float>(config.max_val));
@@ -160,7 +161,7 @@ Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen
     }
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
-    fprintf(f, "%s,%lu\n", data_type_to_string(gen.type), gen.dim);
+    fprintf(f, "%s,%zu\n", data_type_to_string(gen.type), gen.dim);
 
     for (const auto& [id, val] : gen.items) {
         if (!val) {
