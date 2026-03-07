@@ -20,15 +20,6 @@ public:
         const std::string& path);
 
 private:
-    struct Item {
-        uint64_t id;
-        const uint8_t* data;
-    };
-
-    void load_update_records(const DataReader& updater, std::vector<Item>& updater_items);
-    void load_update_deletes(const DataReader& updater, std::vector<uint64_t>& deletes);
-    void write_data(FILE* f, const uint8_t* data, size_t size);
-
     Ret merge_data_file_(const DataReader& source, const DataReader& updater, const std::string& path);
     Ret merge_data_file_(
         const DataReader& source, const Accumulator& updater,
