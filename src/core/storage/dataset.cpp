@@ -20,6 +20,98 @@ static const std::string kDeltaExt = ".delta";
 static const std::string kMergeExt = ".merge";
 static const std::string kLockExt = ".lock";
 
+namespace {
+
+bool parse_dataset_file_id(const std::string& name, const std::string& ext, uint64_t* out) {
+    if (name.size() <= ext.size() || name.rfind(ext) != name.size() - ext.size()) {
+        return false;
+    }
+
+    const std::string id_part = name.substr(0, name.size() - ext.size());
+    if (id_part.empty()) {
+        return false;
+    }
+
+    for (char c : id_part) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) {
+            return false;
+        }
+    }
+
+    *out = std::stoull(id_part);
+    return true;
+}
+
+Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetReader::Item>* items) {
+    if (metadata.dirs.empty()) {
+        return Ret("DatasetReader::init: dirs are not set");
+    }
+
+    std::unordered_map<uint64_t, DatasetReader::Item> items_map;
+
+    for (const std::string& dir : metadata.dirs) {
+        std::error_code ec;
+        if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) {
+            return Ret("DatasetReader::init: invalid directory: " + dir);
+        }
+
+        auto dir_iter = std::filesystem::directory_iterator(dir, ec);
+        for (; dir_iter != std::filesystem::directory_iterator(); dir_iter.increment(ec)) {
+            if (ec) {
+                return Ret("DatasetReader::init: failed to iterate directory: " + dir);
+            }
+
+            const auto& entry = *dir_iter;
+            if (!entry.is_regular_file(ec)) {
+                continue;
+            }
+
+            const std::string file_name = entry.path().filename().string();
+            const std::string file_path = entry.path().string();
+
+            uint64_t file_id = 0;
+            if (parse_dataset_file_id(file_name, kDataExt, &file_id)) {
+                DatasetReader::Item& item = items_map[file_id];
+                item.id = file_id;
+                if (!item.data_file_path.empty()) {
+                    return Ret("DatasetReader::init: duplicate data file id " + std::to_string(file_id));
+                }
+                item.data_file_path = file_path;
+                continue;
+            }
+
+            if (parse_dataset_file_id(file_name, kDeltaExt, &file_id)) {
+                DatasetReader::Item& item = items_map[file_id];
+                item.id = file_id;
+                if (!item.delta_file_path.empty()) {
+                    return Ret("DatasetReader::init: duplicate delta file id " + std::to_string(file_id));
+                }
+                item.delta_file_path = file_path;
+                continue;
+            }
+        }
+    }
+
+    std::vector<DatasetReader::Item> sorted_items;
+    sorted_items.reserve(items_map.size());
+    for (const auto& [file_id, item] : items_map) {
+        if (item.data_file_path.empty()) {
+            return Ret("DatasetReader::init: missing data file for id " + std::to_string(file_id));
+        }
+        sorted_items.push_back(item);
+    }
+
+    std::sort(sorted_items.begin(), sorted_items.end(),
+        [](const DatasetReader::Item& lhs, const DatasetReader::Item& rhs) {
+            return lhs.id < rhs.id;
+        });
+
+    *items = std::move(sorted_items);
+    return Ret(0);
+}
+
+} // namespace
+
 Ret Dataset::init(const DatasetMetadata& metadata) {
     if (!metadata_.dirs.empty()) {
         return Ret("Dataset is already initialized.");
@@ -90,6 +182,14 @@ Ret Dataset::store(const std::string& input_path) {
     }
 }
 
+Ret Dataset::merge() {
+    try {
+        return merge_();
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
 Ret Dataset::store_(const std::string& input_path) {
     if (metadata_.dirs.empty() || metadata_.range_size == 0) {
         return Ret("Dataset: not initialized.");
@@ -124,6 +224,37 @@ Ret Dataset::store_(const std::string& input_path) {
             CHECK(store_and_merge(reader, file_id, range_start, range_end));
         }
 
+    }
+
+    return Ret(0);
+}
+
+Ret Dataset::merge_() {
+    if (metadata_.dirs.empty() || metadata_.range_size == 0) {
+        return Ret("Dataset: not initialized.");
+    }
+
+    std::vector<DatasetReader::Item> items;
+    CHECK(collect_dataset_items(metadata_, &items));
+
+    for (const DatasetReader::Item& item : items) {
+        if (item.delta_file_path.empty()) {
+            continue;
+        }
+
+        const size_t dir_id = item.id % metadata_.dirs.size();
+        const std::string& dir = metadata_.dirs[dir_id];
+        const std::string output_path_base = dir + "/" + std::to_string(item.id);
+        FileLockGuard file_lock;
+        CHECK(file_lock.lock(output_path_base + kLockExt));
+
+        DataReader data_reader;
+        CHECK(data_reader.init(item.data_file_path));
+
+        DataReader delta_reader;
+        CHECK(delta_reader.init(item.delta_file_path));
+
+        CHECK(merge_data_file(data_reader, delta_reader, output_path_base, kDeltaExt));
     }
 
     return Ret(0);
@@ -281,98 +412,8 @@ std::pair<DataReaderPtr, Ret> Dataset::get(uint64_t id) const {
  *  DatasetReader 
  */
 Ret DatasetReader::init(DatasetMetadata metadata) {
-    if (metadata.dirs.empty()) {
-        return Ret("DatasetReader::init: dirs are not set");
-    }
-
     metadata_ = metadata;
-
-    // Query all directories defined in metadata_.dirs.
-    // File all files with names that match pattern <id>.data and <id>.delta.
-    // Create Item for each pair of such files with matching id.
-    // Add this Item to items_.
-    auto parse_id = [](const std::string& name, const std::string& ext, uint64_t* out) -> bool {
-        if (name.size() <= ext.size() || name.rfind(ext) != name.size() - ext.size()) {
-            return false;
-        }
-
-        const std::string id_part = name.substr(0, name.size() - ext.size());
-        if (id_part.empty()) {
-            return false;
-        }
-
-        for (char c : id_part) {
-            if (!std::isdigit(static_cast<unsigned char>(c))) {
-                return false;
-            }
-        }
-
-        *out = std::stoull(id_part);
-        return true;
-    };
-
-    std::unordered_map<uint64_t, Item> items_map;
-
-    for (const std::string& dir : metadata_.dirs) {
-        std::error_code ec;
-        if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) {
-            return Ret("DatasetReader::init: invalid directory: " + dir);
-        }
-
-        auto dir_iter = std::filesystem::directory_iterator(dir, ec);
-        for (; dir_iter != std::filesystem::directory_iterator(); dir_iter.increment(ec)) {
-            if (ec) {
-                return Ret("DatasetReader::init: failed to iterate directory: " + dir);
-            }
-
-            const auto& entry = *dir_iter;
-            if (!entry.is_regular_file(ec)) {
-                continue;
-            }
-
-            const std::string file_name = entry.path().filename().string();
-            const std::string file_path = entry.path().string();
-
-            uint64_t file_id = 0;
-            if (parse_id(file_name, kDataExt, &file_id)) {
-                Item& item = items_map[file_id];
-                item.id = file_id;
-                if (!item.data_file_path.empty()) {
-                    return Ret("DatasetReader::init: duplicate data file id " + std::to_string(file_id));
-                }
-                item.data_file_path = file_path;
-                continue;
-            }
-
-            if (parse_id(file_name, kDeltaExt, &file_id)) {
-                Item& item = items_map[file_id];
-                item.id = file_id;
-                if (!item.delta_file_path.empty()) {
-                    return Ret("DatasetReader::init: duplicate delta file id " + std::to_string(file_id));
-                }
-                item.delta_file_path = file_path;
-                continue;
-            }
-        }
-    }
-
-    std::vector<Item> sorted_items;
-    sorted_items.reserve(items_map.size());
-    for (const auto& [file_id, item] : items_map) {
-        if (item.data_file_path.empty()) {
-            return Ret("DatasetReader::init: missing data file for id " + std::to_string(file_id));
-        }
-        sorted_items.push_back(item);
-    }
-
-    std::sort(sorted_items.begin(), sorted_items.end(),
-        [](const Item& lhs, const Item& rhs) {
-            return lhs.id < rhs.id;
-        });
-
-    items_ = std::move(sorted_items);
-
-    return 0;
+    return init_items_();
 }
 
 std::pair<DataReaderPtr, Ret> DatasetReader::next() {
@@ -437,6 +478,10 @@ std::pair<DataReaderPtr, Ret> DatasetReader::get(uint64_t id) {
     }
 
     return {std::move(reader), Ret(0)};
+}
+
+Ret DatasetReader::init_items_() {
+    return collect_dataset_items(metadata_, &items_);
 }
 
 } // namespace sketch2

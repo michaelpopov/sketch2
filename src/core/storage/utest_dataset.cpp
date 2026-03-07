@@ -418,6 +418,64 @@ TEST_F(DatasetTest, DeltaCreatedOnlyForTouchedRange) {
     EXPECT_FALSE(fs::exists(file_path(dir, 1, ".delta")));
 }
 
+TEST_F(DatasetTest, MergeCombinesExistingDeltaIntoDataFile) {
+    auto dir = make_dir("d_merge");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    write_input("f32,4\n5 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+    ASSERT_EQ(0, sc.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    ASSERT_EQ(0, sc.merge().code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(file_path(dir, 0, ".data")).code());
+    const float* v = reinterpret_cast<const float*>(data_reader.get(5));
+    ASSERT_NE(nullptr, v);
+    EXPECT_NEAR(99.0f, v[0], 1e-5f);
+}
+
+TEST_F(DatasetTest, MergeProcessesAllRangesWithDeltaFiles) {
+    auto dir = make_dir("d_merge_all");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    write_input(
+        "f32,4\n"
+        "2 : [ 20.0, 20.0, 20.0, 20.0 ]\n"
+        "15 : [ 150.0, 150.0, 150.0, 150.0 ]\n");
+    ASSERT_EQ(0, sc.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+    ASSERT_TRUE(fs::exists(file_path(dir, 1, ".delta")));
+
+    ASSERT_EQ(0, sc.merge().code());
+
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 1, ".delta")));
+
+    DataReader data0;
+    DataReader data1;
+    ASSERT_EQ(0, data0.init(file_path(dir, 0, ".data")).code());
+    ASSERT_EQ(0, data1.init(file_path(dir, 1, ".data")).code());
+
+    const float* v0 = reinterpret_cast<const float*>(data0.get(2));
+    const float* v1 = reinterpret_cast<const float*>(data1.get(15));
+    ASSERT_NE(nullptr, v0);
+    ASSERT_NE(nullptr, v1);
+    EXPECT_NEAR(20.0f, v0[0], 1e-5f);
+    EXPECT_NEAR(150.0f, v1[0], 1e-5f);
+}
+
 // --- DatasetReader::next() ---
 
 TEST_F(DatasetTest, DatasetReaderNextReturnsNullWhenExhausted) {

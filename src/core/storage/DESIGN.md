@@ -188,3 +188,34 @@ Transitions between these case:
 
 The logic of making merging decisions is in Dataset::store() function.
 The merge functionality is in the DataMerger class.
+
+Accumulator
+-----------------
+Fixed size in-memory buffer. Similar to input file in a sense that items can be added. Then the content of "accumulator"
+is loaded into data file similar to load from input file.
+Accumulator contains binary data.
+
+Data buffer layout:
+
+  |---------+-------------------------+-------|
+    header     vectors                 items
+
+Vector structure:
+
+  |------+------------------------------|
+    id         data
+
+"Vector" consists of uint64_t id and vector binary data.
+"Item" is uint64_t id.
+Header contains a number of "vectors" and a number of "items".
+"Vectors" are added "from the left to the right".
+"Items" are added "from the right to the left".
+
+Accumulator interface:
+  init(size)
+  add_vector(id, data)
+  add_item(id)
+  vectors_count()
+  items_count()
+  get_vector(index)
+  get_item(index)

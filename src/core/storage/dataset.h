@@ -40,6 +40,7 @@ public:
     // Read input_path with InputReader, split by id range, and write one
     // data file per range using DataWriter.
     Ret store(const std::string& input_path);
+    Ret merge();
 
     DatasetReaderPtr reader() const;
     std::pair<DataReaderPtr, Ret> get(uint64_t id) const;
@@ -53,6 +54,7 @@ private:
     Ret init_(const std::string& path);
 
     Ret store_(const std::string& input_path);
+    Ret merge_();
     Ret store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end);
 
     bool check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader);
@@ -66,22 +68,24 @@ private:
 
 class DatasetReader {
 public:
-    Ret init(DatasetMetadata metadata);
-    std::pair<DataReaderPtr, Ret> next();
-
-    // Get a DataReader that accesses a file with a range containing id.
-    std::pair<DataReaderPtr, Ret> get(uint64_t id);
-private:
     struct Item {
         uint64_t id;
         std::string data_file_path;
         std::string delta_file_path;
     };
 
+    Ret init(DatasetMetadata metadata);
+    std::pair<DataReaderPtr, Ret> next();
+
+    // Get a DataReader that accesses a file with a range containing id.
+    std::pair<DataReaderPtr, Ret> get(uint64_t id);
+
 private:
     DatasetMetadata metadata_;
     std::vector<Item> items_;
     int current_ = -1;
+
+    Ret init_items_();
 };
 
 } // namespace sketch2
