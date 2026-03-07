@@ -1,5 +1,6 @@
 #pragma once
 #include "accumulator.h"
+#include "core/utils/file_lock.h"
 #include "utils/shared_types.h"
 #include <memory>
 #include <string>
@@ -14,7 +15,6 @@ static constexpr int kRangeSize = 10'000;
 class DataReader;
 class InputReader;
 class DatasetReader;
-
 using DataReaderPtr = std::unique_ptr<DataReader>;
 using DatasetReaderPtr = std::unique_ptr<DatasetReader>;
 
@@ -35,6 +35,9 @@ struct DatasetMetadata {
 
 class Dataset {
 public:
+    Dataset() = default;
+    ~Dataset();
+
     Ret init(const DatasetMetadata& metadata);
 
     // Initialize directly with a list of directories and id-range size.
@@ -46,7 +49,7 @@ public:
 
     // Initialize with values from ini file.
     Ret init(const std::string& path);
-    void set_guest_mode() { mode_ = DatasetMode::Guest; }
+    Ret set_guest_mode();
 
     // Read input_path with InputReader, split by id range, and write one
     // data file per range using DataWriter.
@@ -66,6 +69,7 @@ public:
 private:
     DatasetMetadata metadata_;
     DatasetMode mode_ = DatasetMode::Owner;
+    std::unique_ptr<FileLockGuard> owner_lock_;
     std::unique_ptr<Accumulator> accumulator_;
 
     Ret init_(const std::string& path);
@@ -85,6 +89,7 @@ private:
     Ret  merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader,
         const std::string& output_path_base);
     Ret require_owner_() const;
+    Ret ensure_owner_lock_();
 };
 
 class DatasetReader {

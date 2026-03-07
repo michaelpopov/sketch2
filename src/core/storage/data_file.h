@@ -16,6 +16,7 @@ constexpr T align_up(T value, T alignment) {
 
 enum class FileType : uint16_t {
     Data,
+    Wal,
 };
 
 struct BaseFileHeader {
@@ -33,6 +34,22 @@ struct DataFileHeader {
     uint16_t type;     // data type
     uint16_t dim;
     uint32_t data_offset; // offset from file start to vectors section
+};
+
+struct WalFileHeader {
+    BaseFileHeader base;
+    uint16_t type;     // data type
+    uint16_t dim;
+    uint32_t reserved;
+};
+
+struct WalRecordHeader {
+    uint32_t size;     // full record size including header
+    uint8_t op;
+    uint8_t reserved[3];
+    uint64_t id;
+    uint32_t checksum;
+    uint32_t reserved2;
 };
 
 } // namespace sketch2

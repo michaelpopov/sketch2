@@ -13,5 +13,6 @@ TEST(STORAGE, HeaderSizeCheck) {
     EXPECT_EQ(2, sizeof(float16));
     EXPECT_EQ(0, sizeof(sketch2::BaseFileHeader) % 8);
     EXPECT_EQ(0, sizeof(sketch2::DataFileHeader) % 8);
+    EXPECT_EQ(0, sizeof(sketch2::WalFileHeader) % 8);
+    EXPECT_EQ(0, sizeof(sketch2::WalRecordHeader) % 8);
 }
-

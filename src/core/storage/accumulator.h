@@ -1,9 +1,12 @@
 #pragma once
 
+#include "core/storage/accumulator_wal.h"
 #include "utils/shared_types.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -12,8 +15,13 @@ namespace sketch2 {
 
 class Accumulator {
 public:
+    Accumulator() = default;
+    ~Accumulator();
+
     Ret init(size_t size, DataType type, uint64_t dim);
     void clear();
+    Ret attach_wal(const std::string& path);
+    Ret reset_wal();
 
     Ret add_vector(uint64_t id, const uint8_t* data);
     Ret delete_vector(uint64_t id);
@@ -44,6 +52,12 @@ private:
     std::vector<uint64_t> vector_ids_;
     std::vector<uint8_t> vector_data_;
     std::unordered_set<uint64_t> deleted_ids_;
+    std::unique_ptr<AccumulatorWal> wal_;
+
+    Ret apply_add_vector_(uint64_t id, const uint8_t* data);
+    Ret apply_delete_vector_(uint64_t id);
+
+    friend class AccumulatorWal;
 };
 
 } // namespace sketch2

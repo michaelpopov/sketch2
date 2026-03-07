@@ -5,6 +5,7 @@
 #include <fstream>
 #include <unistd.h>
 #include "core/storage/input_generator.h"
+#include "core/storage/data_file.h"
 #include "core/storage/dataset.h"
 #include "core/storage/data_reader.h"
 #include "utils/ini_reader.h"
@@ -125,7 +126,7 @@ TEST_F(DatasetTest, SetGuestModeRejectsMutationsAfterInitFromMetadata) {
 
     Dataset sc;
     ASSERT_EQ(0, sc.init(metadata).code());
-    sc.set_guest_mode();
+    ASSERT_EQ(0, sc.set_guest_mode().code());
 
     generate_input_file(input_path_, cfg(1, 0, DataType::f32, 4));
     const Ret ret = sc.store(input_path_);
@@ -218,7 +219,7 @@ TEST_F(DatasetTest, GuestModeRejectsMutatingOperations) {
     auto dir = make_dir("d_guest_mut");
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
-    sc.set_guest_mode();
+    ASSERT_EQ(0, sc.set_guest_mode().code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
@@ -333,6 +334,31 @@ TEST_F(DatasetTest, StoreAccumulatorClearsAccumulatorAfterSuccess) {
     EXPECT_EQ(2u, dr.count());
     ASSERT_NE(nullptr, dr.get(1));
     ASSERT_NE(nullptr, dr.get(2));
+}
+
+TEST_F(DatasetTest, StoreAccumulatorReplaysWalAfterReopen) {
+    auto dir = make_dir("d_acc_replay");
+    const std::array<float, 4> vec {3.0f, 4.0f, 5.0f, 6.0f};
+
+    {
+        Dataset sc;
+        ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+        ASSERT_EQ(0, sc.add_vector(17, reinterpret_cast<const uint8_t*>(vec.data())).code());
+    }
+
+    const std::string wal_path = dir + "/sketch2.accumulator.wal";
+    ASSERT_TRUE(fs::exists(wal_path));
+
+    Dataset reopened;
+    ASSERT_EQ(0, reopened.init({dir}, 100, DataType::f32, 4).code());
+    ASSERT_EQ(0, reopened.store_accumulator().code());
+
+    DataReader dr;
+    ASSERT_EQ(0, dr.init(file_path(dir, 0, ".data")).code());
+    const float* stored = reinterpret_cast<const float*>(dr.get(17));
+    ASSERT_NE(nullptr, stored);
+    EXPECT_NEAR(3.0f, stored[0], 1e-5f);
+    EXPECT_EQ(static_cast<uintmax_t>(sizeof(WalFileHeader)), fs::file_size(wal_path));
 }
 
 TEST_F(DatasetTest, AddVectorCreatesAccumulatorLazily) {
@@ -953,7 +979,7 @@ TEST_F(DatasetTest, GuestModeAllowsQueries) {
 
     Dataset guest;
     ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
-    guest.set_guest_mode();
+    ASSERT_EQ(0, guest.set_guest_mode().code());
 
     auto [reader, ret] = guest.get(2);
     ASSERT_EQ(0, ret.code()) << ret.message();
@@ -965,4 +991,17 @@ TEST_F(DatasetTest, GuestModeAllowsQueries) {
     ASSERT_EQ(0, next_ret.code()) << next_ret.message();
     ASSERT_NE(nullptr, next_reader);
     ASSERT_NE(nullptr, next_reader->get(2));
+}
+
+TEST_F(DatasetTest, SetGuestModeFailsWhenAccumulatorIsNotEmpty) {
+    auto dir = make_dir("d_guest_pending");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
+
+    const Ret ret = sc.set_guest_mode();
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Dataset: cannot switch to guest mode with non-empty accumulator", ret.message());
 }

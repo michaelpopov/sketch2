@@ -159,6 +159,7 @@ Dataset implements
 Dataset can run in two modes: Owner and Guest.
 As Owner a dataset can make modifications in the data. As Guest a dataset can only query data.
 Dataset is Owner by default. Guest mode can be enabled only via `Dataset::set_guest_mode()`.
+`set_guest_mode()` fails if the accumulator contains pending updates.
 Guest mode rejects `store()`, `store_accumulator()`, `merge()`, `add_vector()`, and `delete_vector()`.
 
 DataMerger
@@ -221,3 +222,35 @@ Accumulator interface:
   std::vector<uint64_t> get_deleted_ids() --- return a sorted vector of elements from deleted_id_
 
   const uint8_t* get_vector(id)
+
+
+WAL
+-----------------------
+Accumulator has a Write-Ahead Log. It is stored in a local file with extension .wal
+It has a following structure:
+
+    |--------+---------+---------+---------+------- ...   --|
+      header   record    record     record    record ...
+  
+Header is of type BaseFileHeader.
+Record consists of the following parts:
+  - operation identifier 1 byte: 
+       - 4 bits "vector" or "delete id"
+       - 4 bits "add" or "remove"
+  - uint64_t id
+  - if operation is "vector" "add" then it follows by vector data
+
+When Accumulator is created, it tries to open existing .wal file. If the file is present, Accumulator
+replays activities registered in the wal and restores its state. After that the wal records are truncated.
+
+When accumulator is updated, it writes a new record into wal:
+  - when a new vector added
+      - if a "delete id" needs to be removed, write "delete id" "remove" "id" record
+      - write "vector" "add" "id" "data" record
+  - when a new "delete id" is added
+      - if a vector in accumulator needs to be removed, write "vector" "remove" "id" record
+      - write "delete id" "add" "id" record.
+
+Records to wal are written before corresponding changes are done in Accumulator in-memory data structures.
+
+After Accumulator data is merged, the records in wal are truncated.

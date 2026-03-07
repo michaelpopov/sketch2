@@ -1,10 +1,13 @@
 #include "accumulator.h"
+#include "core/storage/accumulator_wal.h"
 
 #include <algorithm>
 #include <cstring>
 #include <stdexcept>
 
 namespace sketch2 {
+
+Accumulator::~Accumulator() = default;
 
 Ret Accumulator::init(size_t size, DataType type, uint64_t dim) {
     if (is_initialized_()) {
@@ -37,6 +40,27 @@ Ret Accumulator::init(size_t size, DataType type, uint64_t dim) {
     return Ret(0);
 }
 
+Ret Accumulator::attach_wal(const std::string& path) {
+    if (!is_initialized_()) {
+        return Ret("Accumulator: not initialized");
+    }
+    if (wal_) {
+        return Ret(0);
+    }
+
+    wal_ = std::make_unique<AccumulatorWal>();
+    CHECK(wal_->init(path, type_, dim_));
+    CHECK(wal_->replay(this));
+    return wal_->reset();
+}
+
+Ret Accumulator::reset_wal() {
+    if (!wal_) {
+        return Ret(0);
+    }
+    return wal_->reset();
+}
+
 void Accumulator::clear() {
     vector_index_.clear();
     vector_ids_.clear();
@@ -56,6 +80,35 @@ Ret Accumulator::add_vector(uint64_t id, const uint8_t* data) {
         return Ret("Accumulator: buffer full");
     }
 
+    if (wal_) {
+        CHECK(wal_->append_add_vector(id, data, vector_size_()));
+    }
+
+    return apply_add_vector_(id, data);
+}
+
+Ret Accumulator::delete_vector(uint64_t id) {
+    if (!is_initialized_()) {
+        return Ret("Accumulator: not initialized");
+    }
+
+    const auto vector_it = vector_index_.find(id);
+    const bool had_vector = vector_it != vector_index_.end();
+    if (!had_vector && deleted_ids_.find(id) != deleted_ids_.end()) {
+        return Ret(0);
+    }
+    if (!can_delete_vector(id)) {
+        return Ret("Accumulator: buffer full");
+    }
+
+    if (wal_) {
+        CHECK(wal_->append_delete_vector(id));
+    }
+
+    return apply_delete_vector_(id);
+}
+
+Ret Accumulator::apply_add_vector_(uint64_t id, const uint8_t* data) {
     const bool had_deleted = deleted_ids_.find(id) != deleted_ids_.end();
     const auto vector_it = vector_index_.find(id);
     const bool had_vector = vector_it != vector_index_.end();
@@ -81,18 +134,11 @@ Ret Accumulator::add_vector(uint64_t id, const uint8_t* data) {
     return Ret(0);
 }
 
-Ret Accumulator::delete_vector(uint64_t id) {
-    if (!is_initialized_()) {
-        return Ret("Accumulator: not initialized");
-    }
-
+Ret Accumulator::apply_delete_vector_(uint64_t id) {
     const auto vector_it = vector_index_.find(id);
     const bool had_vector = vector_it != vector_index_.end();
     if (!had_vector && deleted_ids_.find(id) != deleted_ids_.end()) {
         return Ret(0);
-    }
-    if (!can_delete_vector(id)) {
-        return Ret("Accumulator: buffer full");
     }
 
     if (had_vector) {

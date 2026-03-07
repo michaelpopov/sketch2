@@ -21,6 +21,8 @@ static const std::string kDataExt = ".data";
 static const std::string kDeltaExt = ".delta";
 static const std::string kMergeExt = ".merge";
 static const std::string kLockExt = ".lock";
+static const std::string kOwnerLockFileName = "sketch2.owner.lock";
+static const std::string kAccumulatorWalFileName = "sketch2.accumulator.wal";
 
 namespace {
 
@@ -121,7 +123,17 @@ Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetRe
     return Ret(0);
 }
 
+std::string dataset_owner_lock_path(const DatasetMetadata& metadata) {
+    return metadata.dirs.front() + "/" + kOwnerLockFileName;
+}
+
+std::string dataset_accumulator_wal_path(const DatasetMetadata& metadata) {
+    return metadata.dirs.front() + "/" + kAccumulatorWalFileName;
+}
+
 } // namespace
+
+Dataset::~Dataset() = default;
 
 Ret Dataset::init(const DatasetMetadata& metadata) {
     if (!metadata_.dirs.empty()) {
@@ -185,9 +197,22 @@ Ret Dataset::init_(const std::string& path) {
     return init(metadata);
 }
 
+Ret Dataset::set_guest_mode() {
+    if (accumulator_ &&
+            (accumulator_->vectors_count() != 0 || accumulator_->deleted_count() != 0)) {
+        return Ret("Dataset: cannot switch to guest mode with non-empty accumulator");
+    }
+
+    accumulator_.reset();
+    owner_lock_.reset();
+    mode_ = DatasetMode::Guest;
+    return Ret(0);
+}
+
 Ret Dataset::store(const std::string& input_path) {
     try {
         CHECK(require_owner_());
+        CHECK(ensure_owner_lock_());
         return store_(input_path);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -197,6 +222,7 @@ Ret Dataset::store(const std::string& input_path) {
 Ret Dataset::store_accumulator() {
     try {
         CHECK(require_owner_());
+        CHECK(ensure_owner_lock_());
         return store_accumulator_();
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -206,6 +232,7 @@ Ret Dataset::store_accumulator() {
 Ret Dataset::merge() {
     try {
         CHECK(require_owner_());
+        CHECK(ensure_owner_lock_());
         return merge_();
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -214,6 +241,7 @@ Ret Dataset::merge() {
 
 Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
     CHECK(require_owner_());
+    CHECK(ensure_owner_lock_());
     if (!data) {
         return Ret("Dataset: invalid data argument");
     }
@@ -226,6 +254,7 @@ Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
 
 Ret Dataset::delete_vector(uint64_t id) {
     CHECK(require_owner_());
+    CHECK(ensure_owner_lock_());
     CHECK(init_accumulator_());
     if (!accumulator_->can_delete_vector(id)) {
         CHECK(store_accumulator_());
@@ -242,7 +271,8 @@ Ret Dataset::init_accumulator_() {
     }
 
     accumulator_ = std::make_unique<Accumulator>();
-    return accumulator_->init(metadata_.accumulator_size, metadata_.type, metadata_.dim);
+    CHECK(accumulator_->init(metadata_.accumulator_size, metadata_.type, metadata_.dim));
+    return accumulator_->attach_wal(dataset_accumulator_wal_path(metadata_));
 }
 
 Ret Dataset::store_(const std::string& input_path) {
@@ -287,9 +317,7 @@ Ret Dataset::store_accumulator_() {
     if (metadata_.dirs.empty() || metadata_.range_size == 0) {
         return Ret("Dataset: not initialized.");
     }
-    if (!accumulator_) {
-        return Ret(0);
-    }
+    CHECK(init_accumulator_());
 
     const std::vector<uint64_t> vector_ids = accumulator_->get_vector_ids();
     const std::vector<uint64_t> deleted_ids = accumulator_->get_deleted_ids();
@@ -327,6 +355,7 @@ Ret Dataset::store_accumulator_() {
         CHECK(store_and_merge_accumulator(file_id, range_ids, range_deleted_ids));
     }
 
+    CHECK(accumulator_->reset_wal());
     accumulator_->clear();
     return Ret(0);
 }
@@ -576,6 +605,15 @@ Ret Dataset::require_owner_() const {
         return Ret("Dataset: guest mode is read-only");
     }
     return Ret(0);
+}
+
+Ret Dataset::ensure_owner_lock_() {
+    if (owner_lock_ || metadata_.dirs.empty()) {
+        return Ret(0);
+    }
+
+    owner_lock_ = std::make_unique<FileLockGuard>();
+    return owner_lock_->lock(dataset_owner_lock_path(metadata_));
 }
 
 Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
