@@ -176,6 +176,29 @@ TEST_F(DataReaderTest, FailsOnTruncatedPayload) {
     EXPECT_NE(0, r.init(data_path_).code());
 }
 
+TEST_F(DataReaderTest, CanRetryInitAfterInvalidTypeField) {
+    generate(1, 0, DataType::f32, 4);
+
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    DataFileHeader hdr{};
+    ASSERT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
+    hdr.type = 99;
+    rewind(f);
+    ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+    fclose(f);
+
+    DataReader r;
+    Ret ret = r.init(data_path_);
+    ASSERT_NE(0, ret.code());
+
+    generate(1, 0, DataType::f32, 4);
+    ret = r.init(data_path_);
+    EXPECT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ(DataType::f32, r.type());
+    EXPECT_EQ(1u, r.count());
+}
+
 // --- metadata after init ---
 
 TEST_F(DataReaderTest, SuccessReturnCode) {

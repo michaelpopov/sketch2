@@ -119,8 +119,12 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     if (hdr_->base.kind != static_cast<uint16_t>(FileType::Data)) return fail("DataReader: not a data file");
     if (hdr_->base.version != kVersion) return fail("DataReader: unsupported file version");
 
-    type_ = data_type_from_int(hdr_->type);
-    validate_type(type_);
+    try {
+        type_ = data_type_from_int(hdr_->type);
+        validate_type(type_);
+    } catch (const std::exception& ex) {
+        return fail(ex.what());
+    }
     const size_t elem_size = data_type_size(type_);
     if (elem_size == 0) {
         return fail("DataReader: invalid element type size");

@@ -51,6 +51,15 @@ Ret InputReader::init_(const std::string& path) {
     }
     madvise(m, map_len_, MADV_SEQUENTIAL);
     map_ = static_cast<const uint8_t*>(m);
+    auto fail = [this](const std::string& message) -> Ret {
+        munmap(const_cast<uint8_t*>(map_), map_len_);
+        map_ = nullptr;
+        map_len_ = 0;
+        type_ = DataType::f32;
+        dim_ = 0;
+        lines_.clear();
+        return Ret(message);
+    };
 
     const char* p   = reinterpret_cast<const char*>(map_);
     const char* end = p + map_len_;
@@ -58,24 +67,28 @@ Ret InputReader::init_(const std::string& path) {
     // Parse the first line: "{type},{dim}\n"
     const char* comma = static_cast<const char*>(memchr(p, ',', static_cast<size_t>(end - p)));
     if (!comma) {
-        return Ret("Invalid header: missing comma");
+        return fail("Invalid header: missing comma");
     }
-    std::string type_str(p, static_cast<size_t>(comma - p));
-    type_ = data_type_from_string(type_str);
-    validate_type(type_);
+    try {
+        std::string type_str(p, static_cast<size_t>(comma - p));
+        type_ = data_type_from_string(type_str);
+        validate_type(type_);
+    } catch (const std::exception& ex) {
+        return fail(ex.what());
+    }
 
     char* dim_end;
     dim_ = static_cast<size_t>(strtoull(comma + 1, &dim_end, 10));
     if (dim_end == comma + 1) {
-        return Ret("Invalid header: missing dimension");
+        return fail("Invalid header: missing dimension");
     }
 
     if (dim_ < 4 || dim_ > 4096) {
-        return Ret("Invalid header: dimension out of range");
+        return fail("Invalid header: dimension out of range");
     }
 
     if (size() < sizeof(uint64_t)) {
-        return Ret("Invalid header: vector data size is too small");
+        return fail("Invalid header: vector data size is too small");
     }
 
     // Advance past the header newline
@@ -103,12 +116,12 @@ Ret InputReader::init_(const std::string& path) {
         const char* bracket = static_cast<const char*>(
             memchr(id_end, '[', static_cast<size_t>(line_limit - id_end)));
         if (!bracket) {
-            return Ret("Invalid line: missing '['");
+            return fail("Invalid line: missing '['");
         }
         const char* close = static_cast<const char*>(
             memchr(bracket + 1, ']', static_cast<size_t>(line_limit - (bracket + 1))));
         if (!close) {
-            return Ret("Invalid line: missing ']'");
+            return fail("Invalid line: missing ']'");
         }
 
         // offset points to the character after "[" (first number)
@@ -129,7 +142,7 @@ Ret InputReader::init_(const std::string& path) {
 
     for (size_t i = 1; i < lines_.size(); ++i) {
         if (lines_[i - 1].id == lines_[i].id) {
-            return Ret("Duplicate ids");
+            return fail("Duplicate ids");
         }
     }
 

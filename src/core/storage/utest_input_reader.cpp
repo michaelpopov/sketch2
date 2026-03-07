@@ -58,6 +58,20 @@ TEST_F(InputReaderTest, FailsOnUnknownType) {
     EXPECT_NE(0, ret.code());
 }
 
+TEST_F(InputReaderTest, CanRetryInitAfterHeaderTypeFailure) {
+    write_raw("f64,4\n0 : [ 0.1, 0.1, 0.1, 0.1 ]\n");
+
+    InputReader r;
+    Ret ret = r.init(path_);
+    ASSERT_NE(0, ret.code());
+
+    ASSERT_EQ(0, generate_input_file(path_, cfg(1, 0, DataType::f32, 4)).code());
+    ret = r.init(path_);
+    EXPECT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ(DataType::f32, r.type());
+    EXPECT_EQ(1u, r.count());
+}
+
 TEST_F(InputReaderTest, AcceptsUnsortedIdsAndSortsById) {
     write_raw("f32,4\n10 : [ 1.0, 1.0, 1.0, 1.0 ]\n9 : [ 2.0, 2.0, 2.0, 2.0 ]\n");
     InputReader r;
