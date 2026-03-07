@@ -45,30 +45,19 @@ ctest --test-dir build-dbg -R utest_stor --output-on-failure
 cmake --build build-dbg --parallel $(nproc) --target utest_stor && ./bin-dbg/utest_stor
 ```
 
-Unit test binaries (Debug): `bin-dbg/utest_stor`, `bin-dbg/utest_membuf`, `bin-dbg/utest_comp`, `bin-dbg/utest_cntrl`
+Unit test binaries (Debug): `bin-dbg/utest_stor`, `bin-dbg/utest_comp`, `bin-dbg/utest_parasol`
 
 ## Architecture
 
-Sketch2 is a vector database with a client/server architecture. The project is in early development (Stage 1 focuses on the storage layer).
-
-### Executables
-
-| Target | Output | Purpose |
-|--------|--------|---------|
-| `server` | `bin[-dbg]/server` | Database daemon |
-| `client` | `bin[-dbg]/client` | CLI client (uses readline) |
-| `tester` | `bin[-dbg]/tester` | Integration test driver (server+client combined, uses readline) |
+Sketch2 is a vector database project. The current codebase is focused on the storage and computation layers, exposed through the `parasol` shared library.
 
 ### Core Libraries (in dependency order)
 
 | Library | CMake target | Purpose |
 |---------|-------------|---------|
 | `src/core/storage` | `stor` | On-disk storage: data files, delta files, readers/writers |
-| `src/core/membuf` | `membuf` | In-memory buffers; depends on `stor` |
-| `src/core/compute` | `comp` | Distance computations (L1, L2), KNN scanner; depends on `stor`, `membuf` |
-| `src/core/control` | `cntrl` | Top-level orchestration; depends on all three above |
-
-Both `server` and `tester` link against all four core libraries.
+| `src/core/compute` | `comp` | Distance computations (L1, L2), KNN scanner; depends on `stor` |
+| `src/parasol` | `parasol` | Shared API layer that links core libraries for external consumers |
 
 ### Storage Design
 
@@ -105,4 +94,3 @@ All code lives under the `sketch2` namespace (e.g., `sketch2::storage`).
 ### External Dependencies
 
 - **GoogleTest** v1.15.2 — downloaded automatically via `FetchContent` on first configure
-- **readline** + **ncurses** — used by `client` and `tester`; install `libreadline-dev` if missing

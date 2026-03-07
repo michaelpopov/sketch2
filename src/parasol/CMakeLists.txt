@@ -11,9 +11,7 @@ target_include_directories(parasol
 
 target_link_libraries(parasol
   PRIVATE
-    cntrl
     comp
-    membuf
     stor
     utils
 )

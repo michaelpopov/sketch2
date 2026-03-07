@@ -8,15 +8,11 @@ See `commands.txt` for copy/paste shell commands.
 
 After a Release build, you should have:
 
-- `bin/client`
-- `bin/server`
-- `bin/tester`
+- `bin/libparasol.so` (or platform equivalent)
 
 After a Debug build, you should have:
 
-- `bin-dbg/client`
-- `bin-dbg/server`
-- `bin-dbg/tester`
+- `bin-dbg/libparasol.so` (or platform equivalent)
 
 Unit tests are also built and can be run via `ctest`.
 

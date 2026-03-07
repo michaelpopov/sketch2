@@ -1,22 +1,9 @@
 # src
 
-Various executables.
-The number of exectuables can grow if "writer" and "indexer" will be defined as
-standalone executables running in dedicated processes.
-Control of distributed processing on multiple hosts might be added.
+Source tree for core libraries and the shared `parasol` API.
+Standalone executables can be added later if runtime processes such as "writer"
+or "indexer" are split out.
 
 ## core
 
 Core libraries immplementing base functionality.
-
-## tester
-
-Driver for integration tests. Basically it's a "server" with built-in "client".
-
-## server
-
-Database daemon with all related functionality. Network support.
-
-## client
-
-CLI client to connect to the server and send commands.
