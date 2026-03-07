@@ -22,7 +22,7 @@ Ret DataMerger::merge_data_file(const DataReader& source, const DataReader& upda
         ret = Ret(ex.what());
     }
 
-    if (ret != 0 && std::filesystem::exists(path)) {
+    if (ret.code() != 0 && std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
 
@@ -40,7 +40,7 @@ Ret DataMerger::merge_data_file(
         ret = Ret(ex.what());
     }
 
-    if (ret != 0 && std::filesystem::exists(path)) {
+    if (ret.code() != 0 && std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
 
@@ -187,7 +187,7 @@ Ret DataMerger::merge_delta_file(const DataReader& source, const DataReader& upd
         ret = Ret(ex.what());
     }
 
-    if (ret != 0 && std::filesystem::exists(path)) {
+    if (ret.code() != 0 && std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
 
@@ -205,7 +205,7 @@ Ret DataMerger::merge_delta_file(
         ret = Ret(ex.what());
     }
 
-    if (ret != 0 && std::filesystem::exists(path)) {
+    if (ret.code() != 0 && std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
 

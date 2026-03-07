@@ -206,7 +206,7 @@ static int sk_open_(sk_handle_t* handle, const char *path) {
 
     auto ds = std::make_unique<Dataset>();
     Ret ds_ret = ds->init(file_path.string());
-    if (ds_ret != 0) {
+    if (ds_ret.code() != 0) {
         ERR(ds_ret.message().c_str())
     }
 
@@ -254,12 +254,12 @@ int sk_add_(sk_handle_t* handle, uint64_t id, const char *value) {
 
     std::vector<uint8_t> buf(data_type_size(handle->ds->type()) * handle->ds->dim());
     Ret parse_ret = parse_vector(buf.data(), buf.size(), handle->ds->type(), handle->ds->dim(), value);
-    if (parse_ret != 0) {
+    if (parse_ret.code() != 0) {
         ERR(parse_ret.message().c_str());
     }
 
     Ret add_ret = handle->ds->add_vector(id, buf.data());
-    if (add_ret != 0) {
+    if (add_ret.code() != 0) {
         ERR(add_ret.message().c_str());
     }
 
@@ -282,7 +282,7 @@ int sk_delete_(sk_handle_t* handle, uint64_t id) {
     }
 
     Ret delete_ret = handle->ds->delete_vector(id);
-    if (delete_ret != 0) {
+    if (delete_ret.code() != 0) {
         ERR(delete_ret.message().c_str());
     }
 
@@ -305,7 +305,7 @@ static int sk_load_(sk_handle_t* handle) {
     }
 
     Ret store_ret = handle->ds->store_accumulator();
-    if (store_ret != 0) {
+    if (store_ret.code() != 0) {
         ERR(store_ret.message().c_str())
     }
 
@@ -334,14 +334,14 @@ int sk_knn_(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_c
     std::vector<uint8_t> buf(data_type_size(ds->type()) * ds->dim());
     
     Ret convert_ret = parse_vector(buf.data(), buf.size(), ds->type(), ds->dim(), vec);
-    if (convert_ret != 0) {
+    if (convert_ret.code() != 0) {
         ERR(convert_ret.message().c_str());
     }
 
     std::vector<uint64_t> result;
     Scanner scanner;
     Ret scanner_ret = scanner.find(*ds, DistFunc::L1, count, buf.data(), result);
-    if (scanner_ret != 0) {
+    if (scanner_ret.code() != 0) {
         ERR(scanner_ret.message().c_str());
     }
 
@@ -370,7 +370,7 @@ int sk_get_(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size) {
     }
 
     auto [reader, ret] = handle->ds->get(id);
-    if (ret != 0) {
+    if (ret.code() != 0) {
         ERR(ret.message().c_str());
     }
     if (!reader) {
@@ -383,7 +383,7 @@ int sk_get_(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size) {
     }
 
     Ret print_ret = print_vector(const_cast<uint8_t*>(vec_data), reader->type(), reader->dim(), buf, buf_size);
-    if (print_ret != 0) {
+    if (print_ret.code() != 0) {
         ERR(print_ret.message().c_str());
     }
 
@@ -437,7 +437,7 @@ int sk_generate_(sk_handle_t* handle, uint64_t from_id, uint64_t count, int patt
 
     const std::filesystem::path input_path = std::filesystem::path(handle->dir) / kInputFileName;
     Ret ret = generate_input_file(input_path.string(), cfg);
-    if (ret != 0) {
+    if (ret.code() != 0) {
         ERR(ret.message().c_str());
     }
 
@@ -448,7 +448,7 @@ int sk_generate_(sk_handle_t* handle, uint64_t from_id, uint64_t count, int patt
     fclose(input);
 
     Ret store_ret = handle->ds->store(input_path.string());
-    if (store_ret != 0) {
+    if (store_ret.code() != 0) {
         ERR(store_ret.message().c_str());
     }
 

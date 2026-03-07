@@ -90,7 +90,8 @@ public:
     Ret(const char* message) : code_(-1), message_(message) {}
     Ret(int code, const std::string& message, bool is_content = false)
       : code_(code), message_(message), is_content_(is_content) {}
-    operator int() const { return code_; } // Automatic conversion to int
+    Ret(const Ret& ret) : code_(ret.code_), message_(ret.message_) {}
+    Ret& operator=(const Ret&) = default;
     int code() const { return code_; }
     const std::string& message() const { return message_; }
     bool is_content() const { return is_content_; }
@@ -104,7 +105,7 @@ private:
 #define CHECK(ret) \
     do { \
         const auto check_ret = (ret); \
-        if (check_ret != 0) { return check_ret; } \
+        if (check_ret.code() != 0) { return check_ret; } \
     } while (0)
 
 } // namespace sketch2

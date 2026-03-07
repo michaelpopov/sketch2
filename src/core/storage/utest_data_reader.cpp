@@ -182,7 +182,7 @@ TEST_F(DataReaderTest, SuccessReturnCode) {
     generate(3, 0, DataType::f32, 4);
     DataReader r;
     const auto ret = r.init(data_path_);
-    EXPECT_EQ(0, ret) << ret.message();
+    EXPECT_EQ(0, ret.code()) << ret.message();
 }
 
 TEST_F(DataReaderTest, TypeF32) {

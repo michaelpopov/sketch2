@@ -599,7 +599,7 @@ Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader&
 DatasetReaderPtr Dataset::reader() const {
     DatasetReaderPtr result = std::make_unique<DatasetReader>();
     const auto ret = result->init(metadata_);
-    if (ret != 0) {
+    if (ret.code() != 0) {
         throw std::runtime_error(ret.message());
     }
     return result;
@@ -608,7 +608,7 @@ DatasetReaderPtr Dataset::reader() const {
 std::pair<DataReaderPtr, Ret> Dataset::get(uint64_t id) const {
     DatasetReader reader;
     Ret ret = reader.init(metadata_);
-    if (ret != 0) {
+    if (ret.code() != 0) {
         return {nullptr, ret};
     }
     return reader.get(id);
@@ -637,13 +637,13 @@ std::pair<DataReaderPtr, Ret> DatasetReader::next() {
     } else {
         DataReaderPtr delta_reader = std::make_unique<DataReader>();
         ret = delta_reader->init(item.delta_file_path);
-        if (ret != 0) {
+        if (ret.code() != 0) {
             return {nullptr, ret};
         }
         ret = reader->init(item.data_file_path, std::move(delta_reader));
     }
 
-    if (ret != 0) {
+    if (ret.code() != 0) {
         return {nullptr, ret};
     }
 
@@ -673,13 +673,13 @@ std::pair<DataReaderPtr, Ret> DatasetReader::get(uint64_t id) {
     } else {
         DataReaderPtr delta_reader = std::make_unique<DataReader>();
         ret = delta_reader->init(it->delta_file_path);
-        if (ret != 0) {
+        if (ret.code() != 0) {
             return {nullptr, ret};
         }
         ret = reader->init(it->data_file_path, std::move(delta_reader));
     }
 
-    if (ret != 0) {
+    if (ret.code() != 0) {
         return {nullptr, ret};
     }
 
