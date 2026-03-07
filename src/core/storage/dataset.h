@@ -18,6 +18,11 @@ class DatasetReader;
 using DataReaderPtr = std::unique_ptr<DataReader>;
 using DatasetReaderPtr = std::unique_ptr<DatasetReader>;
 
+enum class DatasetMode {
+    Owner,
+    Guest,
+};
+
 struct DatasetMetadata {
     std::vector<std::string> dirs;
     DataType type = DataType::f32;
@@ -41,6 +46,7 @@ public:
 
     // Initialize with values from ini file.
     Ret init(const std::string& path);
+    void set_guest_mode() { mode_ = DatasetMode::Guest; }
 
     // Read input_path with InputReader, split by id range, and write one
     // data file per range using DataWriter.
@@ -59,6 +65,7 @@ public:
 
 private:
     DatasetMetadata metadata_;
+    DatasetMode mode_ = DatasetMode::Owner;
     std::unique_ptr<Accumulator> accumulator_;
 
     Ret init_(const std::string& path);
@@ -77,6 +84,7 @@ private:
         const std::string& output_path_base, const std::string& ext);
     Ret  merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader,
         const std::string& output_path_base);
+    Ret require_owner_() const;
 };
 
 class DatasetReader {

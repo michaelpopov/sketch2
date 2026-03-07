@@ -8,7 +8,6 @@
 #include "utils/ini_reader.h"
 #include <algorithm>
 #include <cassert>
-#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <experimental/scope>
@@ -142,7 +141,7 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
-    metadata_= metadata;
+    metadata_ = metadata;
     return Ret(0);
 }
 
@@ -173,7 +172,7 @@ Ret Dataset::init_(const std::string& path) {
 
     IniReader cfg;
     CHECK(cfg.init(path));
-    
+
     DatasetMetadata metadata;
     metadata.dirs             = cfg.get_str_list("dataset.dirs");
     CHECK(get_non_negative_ini_u64(cfg, "dataset.dim", 0, &metadata.dim));
@@ -188,6 +187,7 @@ Ret Dataset::init_(const std::string& path) {
 
 Ret Dataset::store(const std::string& input_path) {
     try {
+        CHECK(require_owner_());
         return store_(input_path);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -196,6 +196,7 @@ Ret Dataset::store(const std::string& input_path) {
 
 Ret Dataset::store_accumulator() {
     try {
+        CHECK(require_owner_());
         return store_accumulator_();
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -204,6 +205,7 @@ Ret Dataset::store_accumulator() {
 
 Ret Dataset::merge() {
     try {
+        CHECK(require_owner_());
         return merge_();
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -211,6 +213,7 @@ Ret Dataset::merge() {
 }
 
 Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
+    CHECK(require_owner_());
     if (!data) {
         return Ret("Dataset: invalid data argument");
     }
@@ -222,6 +225,7 @@ Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
 }
 
 Ret Dataset::delete_vector(uint64_t id) {
+    CHECK(require_owner_());
     CHECK(init_accumulator_());
     if (!accumulator_->can_delete_vector(id)) {
         CHECK(store_accumulator_());
@@ -565,6 +569,13 @@ bool Dataset::check_data_file_merge(const DataReader& data_reader, const DataRea
 bool Dataset::check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader) {
     const uint64_t delta_count = delta_reader.count() + delta_reader.deleted_count();
     return (data_reader.count() < delta_count * metadata_.data_merge_ratio);
+}
+
+Ret Dataset::require_owner_() const {
+    if (mode_ == DatasetMode::Guest) {
+        return Ret("Dataset: guest mode is read-only");
+    }
+    return Ret(0);
 }
 
 Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,

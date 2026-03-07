@@ -116,6 +116,23 @@ TEST_F(DatasetTest, InitFromIniUsesAccumulatorSizeForLazyAddVector) {
     EXPECT_EQ("Accumulator: buffer full", ret.message());
 }
 
+TEST_F(DatasetTest, SetGuestModeRejectsMutationsAfterInitFromMetadata) {
+    DatasetMetadata metadata;
+    metadata.dirs = {make_dir("d_guest_metadata")};
+    metadata.range_size = 10;
+    metadata.type = DataType::f32;
+    metadata.dim = 4;
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init(metadata).code());
+    sc.set_guest_mode();
+
+    generate_input_file(input_path_, cfg(1, 0, DataType::f32, 4));
+    const Ret ret = sc.store(input_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Dataset: guest mode is read-only", ret.message());
+}
+
 TEST_F(DatasetTest, InitFromIniFailsOnMissingType) {
     auto dir = make_dir("d");
     write_config(
@@ -195,6 +212,36 @@ TEST_F(DatasetTest, AddVectorFailsWhenNotInitialized) {
 TEST_F(DatasetTest, DeleteVectorFailsWhenNotInitialized) {
     Dataset sc;
     EXPECT_NE(0, sc.delete_vector(1).code());
+}
+
+TEST_F(DatasetTest, GuestModeRejectsMutatingOperations) {
+    auto dir = make_dir("d_guest_mut");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+    sc.set_guest_mode();
+
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
+
+    const Ret store_ret = sc.store(input_path_);
+    EXPECT_NE(0, store_ret.code());
+    EXPECT_EQ("Dataset: guest mode is read-only", store_ret.message());
+
+    const Ret add_ret = sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data()));
+    EXPECT_NE(0, add_ret.code());
+    EXPECT_EQ("Dataset: guest mode is read-only", add_ret.message());
+
+    const Ret delete_ret = sc.delete_vector(1);
+    EXPECT_NE(0, delete_ret.code());
+    EXPECT_EQ("Dataset: guest mode is read-only", delete_ret.message());
+
+    const Ret flush_ret = sc.store_accumulator();
+    EXPECT_NE(0, flush_ret.code());
+    EXPECT_EQ("Dataset: guest mode is read-only", flush_ret.message());
+
+    const Ret merge_ret = sc.merge();
+    EXPECT_NE(0, merge_ret.code());
+    EXPECT_EQ("Dataset: guest mode is read-only", merge_ret.message());
 }
 
 TEST_F(DatasetTest, StoreFailsOnBadInputPath) {
@@ -894,4 +941,28 @@ TEST_F(DatasetTest, DatasetGetReturnsReaderWithDeltaApplied) {
     auto [missing_reader, missing_ret] = sc.get(5000);
     ASSERT_EQ(0, missing_ret.code()) << missing_ret.message();
     EXPECT_EQ(nullptr, missing_reader);
+}
+
+TEST_F(DatasetTest, GuestModeAllowsQueries) {
+    auto dir = make_dir("d_guest_query");
+
+    Dataset owner;
+    ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    Dataset guest;
+    ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
+    guest.set_guest_mode();
+
+    auto [reader, ret] = guest.get(2);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_NE(nullptr, reader);
+    ASSERT_NE(nullptr, reader->get(2));
+
+    auto drs = guest.reader();
+    auto [next_reader, next_ret] = drs->next();
+    ASSERT_EQ(0, next_ret.code()) << next_ret.message();
+    ASSERT_NE(nullptr, next_reader);
+    ASSERT_NE(nullptr, next_reader->get(2));
 }

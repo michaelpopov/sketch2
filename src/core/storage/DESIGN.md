@@ -156,6 +156,11 @@ Dataset implements
        for each data file create DataWriter and write the file with data from the input file
        each DataWriter writes only the items that belong to its range
 
+Dataset can run in two modes: Owner and Guest.
+As Owner a dataset can make modifications in the data. As Guest a dataset can only query data.
+Dataset is Owner by default. Guest mode can be enabled only via `Dataset::set_guest_mode()`.
+Guest mode rejects `store()`, `store_accumulator()`, `merge()`, `add_vector()`, and `delete_vector()`.
+
 DataMerger
 ---------------------------
 We have two types of files:
