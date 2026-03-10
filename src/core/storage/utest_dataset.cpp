@@ -969,6 +969,90 @@ TEST_F(DatasetTest, DatasetGetReturnsReaderWithDeltaApplied) {
     EXPECT_EQ(nullptr, missing_reader);
 }
 
+TEST_F(DatasetTest, DatasetGetCachesOpenedReaders) {
+    auto dir = make_dir("d_ds_cache");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto [reader0, ret0] = sc.get(5);
+    ASSERT_EQ(0, ret0.code()) << ret0.message();
+    ASSERT_NE(nullptr, reader0);
+
+    auto [reader1, ret1] = sc.get(7);
+    ASSERT_EQ(0, ret1.code()) << ret1.message();
+    ASSERT_NE(nullptr, reader1);
+    EXPECT_EQ(reader0.get(), reader1.get());
+}
+
+TEST_F(DatasetTest, DatasetReaderSharesDatasetReaderCache) {
+    auto dir = make_dir("d_ds_reader_cache");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto drs = sc.reader();
+    auto [reader0, ret0] = drs->get(5);
+    ASSERT_EQ(0, ret0.code()) << ret0.message();
+    ASSERT_NE(nullptr, reader0);
+
+    auto [reader1, ret1] = sc.get(7);
+    ASSERT_EQ(0, ret1.code()) << ret1.message();
+    ASSERT_NE(nullptr, reader1);
+    EXPECT_EQ(reader0.get(), reader1.get());
+}
+
+TEST_F(DatasetTest, DatasetInvalidatesCachesAfterStore) {
+    auto dir = make_dir("d_ds_invalidate_store");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto [reader0, ret0] = sc.get(5);
+    ASSERT_EQ(0, ret0.code()) << ret0.message();
+    ASSERT_NE(nullptr, reader0);
+    const void* old_ptr = reader0.get();
+
+    write_input("f32,4\n5 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto [reader1, ret1] = sc.get(5);
+    ASSERT_EQ(0, ret1.code()) << ret1.message();
+    ASSERT_NE(nullptr, reader1);
+    EXPECT_NE(old_ptr, reader1.get());
+
+    const float* v = reinterpret_cast<const float*>(reader1->get(5));
+    ASSERT_NE(nullptr, v);
+    EXPECT_NEAR(99.0f, v[0], 1e-5f);
+}
+
+TEST_F(DatasetTest, DatasetInvalidatesItemCacheAfterStoreCreatesNewRange) {
+    auto dir = make_dir("d_ds_invalidate_items");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto [missing_reader, missing_ret] = sc.get(15);
+    ASSERT_EQ(0, missing_ret.code()) << missing_ret.message();
+    EXPECT_EQ(nullptr, missing_reader);
+
+    write_input("f32,4\n15 : [ 15.1, 15.1, 15.1, 15.1 ]\n");
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto [reader, ret] = sc.get(15);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_NE(nullptr, reader);
+    ASSERT_NE(nullptr, reader->get(15));
+}
+
 TEST_F(DatasetTest, GuestModeAllowsQueries) {
     auto dir = make_dir("d_guest_query");
 

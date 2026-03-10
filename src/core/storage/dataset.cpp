@@ -55,12 +55,12 @@ bool parse_dataset_file_id(const std::string& name, const std::string& ext, uint
     return true;
 }
 
-Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetReader::Item>* items) {
+Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetItem>* items) {
     if (metadata.dirs.empty()) {
         return Ret("DatasetReader::init: dirs are not set");
     }
 
-    std::unordered_map<uint64_t, DatasetReader::Item> items_map;
+    std::unordered_map<uint64_t, DatasetItem> items_map;
 
     for (const std::string& dir : metadata.dirs) {
         std::error_code ec;
@@ -84,7 +84,7 @@ Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetRe
 
             uint64_t file_id = 0;
             if (parse_dataset_file_id(file_name, kDataExt, &file_id)) {
-                DatasetReader::Item& item = items_map[file_id];
+                DatasetItem& item = items_map[file_id];
                 item.id = file_id;
                 if (!item.data_file_path.empty()) {
                     return Ret("DatasetReader::init: duplicate data file id " + std::to_string(file_id));
@@ -94,7 +94,7 @@ Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetRe
             }
 
             if (parse_dataset_file_id(file_name, kDeltaExt, &file_id)) {
-                DatasetReader::Item& item = items_map[file_id];
+                DatasetItem& item = items_map[file_id];
                 item.id = file_id;
                 if (!item.delta_file_path.empty()) {
                     return Ret("DatasetReader::init: duplicate delta file id " + std::to_string(file_id));
@@ -105,7 +105,7 @@ Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetRe
         }
     }
 
-    std::vector<DatasetReader::Item> sorted_items;
+    std::vector<DatasetItem> sorted_items;
     sorted_items.reserve(items_map.size());
     for (const auto& [file_id, item] : items_map) {
         if (item.data_file_path.empty()) {
@@ -115,7 +115,7 @@ Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetRe
     }
 
     std::sort(sorted_items.begin(), sorted_items.end(),
-        [](const DatasetReader::Item& lhs, const DatasetReader::Item& rhs) {
+        [](const DatasetItem& lhs, const DatasetItem& rhs) {
             return lhs.id < rhs.id;
         });
 
@@ -154,6 +154,7 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
         return Ret(ex.what());
     }
     metadata_ = metadata;
+    invalidate_data_caches_();
     return Ret(0);
 }
 
@@ -213,7 +214,11 @@ Ret Dataset::store(const std::string& input_path) {
     try {
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
-        return store_(input_path);
+        const Ret ret = store_(input_path);
+        if (ret.code() == 0) {
+            invalidate_data_caches_();
+        }
+        return ret;
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
@@ -223,7 +228,11 @@ Ret Dataset::store_accumulator() {
     try {
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
-        return store_accumulator_();
+        const Ret ret = store_accumulator_();
+        if (ret.code() == 0) {
+            invalidate_data_caches_();
+        }
+        return ret;
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
@@ -233,7 +242,11 @@ Ret Dataset::merge() {
     try {
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
-        return merge_();
+        const Ret ret = merge_();
+        if (ret.code() == 0) {
+            invalidate_data_caches_();
+        }
+        return ret;
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
@@ -365,10 +378,10 @@ Ret Dataset::merge_() {
         return Ret("Dataset: not initialized.");
     }
 
-    std::vector<DatasetReader::Item> items;
+    std::vector<DatasetItem> items;
     CHECK(collect_dataset_items(metadata_, &items));
 
-    for (const DatasetReader::Item& item : items) {
+    for (const DatasetItem& item : items) {
         if (item.delta_file_path.empty()) {
             continue;
         }
@@ -656,7 +669,11 @@ Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader&
 
 DatasetReaderPtr Dataset::reader() const {
     DatasetReaderPtr result = std::make_unique<DatasetReader>();
-    const auto ret = result->init(metadata_);
+    const Ret cache_ret = ensure_items_cache_();
+    if (cache_ret.code() != 0) {
+        throw std::runtime_error(cache_ret.message());
+    }
+    const auto ret = result->init(this, items_cache_);
     if (ret.code() != 0) {
         throw std::runtime_error(ret.message());
     }
@@ -664,20 +681,28 @@ DatasetReaderPtr Dataset::reader() const {
 }
 
 std::pair<DataReaderPtr, Ret> Dataset::get(uint64_t id) const {
-    DatasetReader reader;
-    Ret ret = reader.init(metadata_);
+    const Ret ret = ensure_items_cache_();
     if (ret.code() != 0) {
         return {nullptr, ret};
     }
-    return reader.get(id);
+    const DatasetItem* item = find_item_(id / metadata_.range_size);
+    if (!item) {
+        return {nullptr, Ret(0)};
+    }
+    return get_cached_reader_(*item);
 }
 
 /***********************************************************
  *  DatasetReader 
  */
-Ret DatasetReader::init(DatasetMetadata metadata) {
-    metadata_ = metadata;
-    return init_items_();
+Ret DatasetReader::init(const Dataset* dataset, std::vector<DatasetItem> items) {
+    if (!dataset) {
+        return Ret("DatasetReader::init: dataset is null");
+    }
+    dataset_ = dataset;
+    items_ = std::move(items);
+    current_ = -1;
+    return Ret(0);
 }
 
 std::pair<DataReaderPtr, Ret> DatasetReader::next() {
@@ -686,14 +711,60 @@ std::pair<DataReaderPtr, Ret> DatasetReader::next() {
         return {nullptr, Ret(0)};
     }
 
-    const Item& item = items_[current_];
-    DataReaderPtr reader = std::make_unique<DataReader>();
+    return dataset_->get_cached_reader_(items_[current_]);
+}
+    
+std::pair<DataReaderPtr, Ret> DatasetReader::get(uint64_t id) {
+    if (!dataset_) {
+        return {nullptr, Ret("DatasetReader::get: reader is not initialized")};
+    }
+
+    const uint64_t file_id = id / dataset_->metadata_.range_size;
+    auto it = std::lower_bound(items_.begin(), items_.end(), file_id,
+        [](const DatasetItem& item, uint64_t value) {
+            return item.id < value;
+        });
+
+    if (it == items_.end() || it->id != file_id) {
+        return {nullptr, Ret(0)};
+    }
+
+    return dataset_->get_cached_reader_(*it);
+}
+
+Ret Dataset::ensure_items_cache_() const {
+    if (items_cache_valid_) {
+        return Ret(0);
+    }
+    CHECK(collect_dataset_items(metadata_, &items_cache_));
+    items_cache_valid_ = true;
+    return Ret(0);
+}
+
+const DatasetItem* Dataset::find_item_(uint64_t file_id) const {
+    auto it = std::lower_bound(items_cache_.begin(), items_cache_.end(), file_id,
+        [](const DatasetItem& item, uint64_t value) {
+            return item.id < value;
+        });
+    if (it == items_cache_.end() || it->id != file_id) {
+        return nullptr;
+    }
+    return &(*it);
+}
+
+std::pair<DataReaderPtr, Ret> Dataset::get_cached_reader_(const DatasetItem& item) const {
+    const auto cache_it = reader_cache_.find(item.id);
+    if (cache_it != reader_cache_.end()) {
+        return {cache_it->second, Ret(0)};
+    }
+
+    DataReaderPtr reader = std::make_shared<DataReader>();
     Ret ret(0);
 
     if (item.delta_file_path.empty()) {
         ret = reader->init(item.data_file_path);
     } else {
-        DataReaderPtr delta_reader = std::make_unique<DataReader>();
+        auto delta_reader = std::make_unique<DataReader>();
         ret = delta_reader->init(item.delta_file_path);
         if (ret.code() != 0) {
             return {nullptr, ret};
@@ -705,47 +776,14 @@ std::pair<DataReaderPtr, Ret> DatasetReader::next() {
         return {nullptr, ret};
     }
 
-    return {std::move(reader), Ret(0)};
-}
-    
-std::pair<DataReaderPtr, Ret> DatasetReader::get(uint64_t id) {
-    if (metadata_.range_size == 0 || metadata_.dirs.empty()) {
-        return {nullptr, Ret("DatasetReader::get: reader is not initialized")};
-    }
-
-    const uint64_t file_id = id / metadata_.range_size;
-    auto it = std::lower_bound(items_.begin(), items_.end(), file_id,
-        [](const Item& item, uint64_t value) {
-            return item.id < value;
-        });
-
-    if (it == items_.end() || it->id != file_id) {
-        return {nullptr, Ret(0)};
-    }
-
-    DataReaderPtr reader = std::make_unique<DataReader>();
-    Ret ret(0);
-
-    if (it->delta_file_path.empty()) {
-        ret = reader->init(it->data_file_path);
-    } else {
-        DataReaderPtr delta_reader = std::make_unique<DataReader>();
-        ret = delta_reader->init(it->delta_file_path);
-        if (ret.code() != 0) {
-            return {nullptr, ret};
-        }
-        ret = reader->init(it->data_file_path, std::move(delta_reader));
-    }
-
-    if (ret.code() != 0) {
-        return {nullptr, ret};
-    }
-
-    return {std::move(reader), Ret(0)};
+    reader_cache_[item.id] = reader;
+    return {reader, Ret(0)};
 }
 
-Ret DatasetReader::init_items_() {
-    return collect_dataset_items(metadata_, &items_);
+void Dataset::invalidate_data_caches_() {
+    items_cache_valid_ = false;
+    items_cache_.clear();
+    reader_cache_.clear();
 }
 
 } // namespace sketch2

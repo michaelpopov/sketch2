@@ -4,6 +4,7 @@
 #include "utils/shared_types.h"
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace sketch2 {
@@ -15,7 +16,7 @@ static constexpr int kRangeSize = 10'000;
 class DataReader;
 class InputReader;
 class DatasetReader;
-using DataReaderPtr = std::unique_ptr<DataReader>;
+using DataReaderPtr = std::shared_ptr<DataReader>;
 using DatasetReaderPtr = std::unique_ptr<DatasetReader>;
 
 enum class DatasetMode {
@@ -31,6 +32,12 @@ struct DatasetMetadata {
     uint64_t data_merge_ratio = 2; // merge data files when the new file is less than
                                    // data_merge_ratio times smaller than the existing file
     uint64_t accumulator_size = kAccumulatorBufferSize;
+};
+
+struct DatasetItem {
+    uint64_t id = 0;
+    std::string data_file_path;
+    std::string delta_file_path;
 };
 
 class Dataset {
@@ -71,6 +78,9 @@ private:
     DatasetMode mode_ = DatasetMode::Owner;
     std::unique_ptr<FileLockGuard> owner_lock_;
     std::unique_ptr<Accumulator> accumulator_;
+    mutable bool items_cache_valid_ = false;
+    mutable std::vector<DatasetItem> items_cache_;
+    mutable std::unordered_map<uint64_t, DataReaderPtr> reader_cache_;
 
     Ret init_(const std::string& path);
 
@@ -90,28 +100,26 @@ private:
         const std::string& output_path_base);
     Ret require_owner_() const;
     Ret ensure_owner_lock_();
+    Ret ensure_items_cache_() const;
+    const DatasetItem* find_item_(uint64_t file_id) const;
+    std::pair<DataReaderPtr, Ret> get_cached_reader_(const DatasetItem& item) const;
+    void invalidate_data_caches_();
+
+    friend class DatasetReader;
 };
 
 class DatasetReader {
 public:
-    struct Item {
-        uint64_t id;
-        std::string data_file_path;
-        std::string delta_file_path;
-    };
-
-    Ret init(DatasetMetadata metadata);
+    Ret init(const Dataset* dataset, std::vector<DatasetItem> items);
     std::pair<DataReaderPtr, Ret> next();
 
     // Get a DataReader that accesses a file with a range containing id.
     std::pair<DataReaderPtr, Ret> get(uint64_t id);
 
 private:
-    DatasetMetadata metadata_;
-    std::vector<Item> items_;
+    const Dataset* dataset_ = nullptr;
+    std::vector<DatasetItem> items_;
     int current_ = -1;
-
-    Ret init_items_();
 };
 
 } // namespace sketch2

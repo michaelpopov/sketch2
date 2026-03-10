@@ -162,6 +162,9 @@ Dataset is Owner by default. Guest mode can be enabled only via `Dataset::set_gu
 `set_guest_mode()` fails if the accumulator contains pending updates.
 Guest mode rejects `store()`, `store_accumulator()`, `merge()`, `add_vector()`, and `delete_vector()`.
 
+Dataset caches opened files after they are accessed. The following access operations do not require
+scanning directories, looking for files and opening them again.
+
 DataMerger
 ---------------------------
 We have two types of files:
