@@ -165,6 +165,10 @@ Guest mode rejects `store()`, `store_accumulator()`, `merge()`, `add_vector()`, 
 Dataset caches opened files after they are accessed. The following access operations do not require
 scanning directories, looking for files and opening them again.
 
+Dataset allows to check is there a specific deleted id in its internal Accumulator.
+This functionality is used in Scanner: function find_ that gets Dataset ref as an argument checks
+is id was deleted and skips adding it to the heap.
+
 DataMerger
 ---------------------------
 We have two types of files:

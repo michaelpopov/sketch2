@@ -268,6 +268,13 @@ const uint8_t* Accumulator::get_vector(uint64_t id) const {
     return vector_slot_(it->second);
 }
 
+bool Accumulator::is_deleted(uint64_t id) const {
+    if (!is_initialized_()) {
+        throw std::runtime_error("Accumulator::is_deleted: not initialized");
+    }
+    return deleted_ids_.find(id) != deleted_ids_.end();
+}
+
 size_t Accumulator::add_vector_size_(uint64_t id) const {
     const bool had_deleted = deleted_ids_.find(id) != deleted_ids_.end();
     const bool had_vector = vector_index_.find(id) != vector_index_.end();

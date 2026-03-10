@@ -72,6 +72,7 @@ public:
 
     Ret add_vector(uint64_t id, const uint8_t* data);
     Ret delete_vector(uint64_t id);
+    bool is_deleted(uint64_t id) const;
 
 private:
     DatasetMetadata metadata_;

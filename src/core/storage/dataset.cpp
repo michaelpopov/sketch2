@@ -275,6 +275,10 @@ Ret Dataset::delete_vector(uint64_t id) {
     return accumulator_->delete_vector(id);
 }
 
+bool Dataset::is_deleted(uint64_t id) const {
+    return accumulator_ && accumulator_->is_deleted(id);
+}
+
 Ret Dataset::init_accumulator_() {
     if (accumulator_) {
         return Ret(0);

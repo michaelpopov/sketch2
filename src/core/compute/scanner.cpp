@@ -61,6 +61,9 @@ Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const ui
         }
 
         for (auto it = reader->begin(); !it.eof(); it.next()) {
+            if (dataset.is_deleted(it.id())) {
+                continue;
+            }
             double d = dist_fn(it.data(), vec, dim);
             if (heap.size() < count) {
                 heap.push({it.id(), d});

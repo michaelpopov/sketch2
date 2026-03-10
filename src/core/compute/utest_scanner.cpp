@@ -419,3 +419,28 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
     // id=0 (value 0.1, dist=0.4) beats all others; id=1 at 500 is not the nearest.
     EXPECT_EQ(0u, result[0]);
 }
+
+TEST_F(ScannerTest, FindDatasetSkipsIdsDeletedInAccumulator) {
+    std::string d = "/tmp/sketch2_utest_sc_dsaccdel_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    ASSERT_EQ(0, ds.delete_vector(2).code());
+    EXPECT_TRUE(ds.is_deleted(2));
+
+    Scanner s;
+    auto q = f32_vec(2.1f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 5, q.data(), result).code());
+
+    EXPECT_EQ(4u, result.size());
+    for (uint64_t id : result) {
+        EXPECT_NE(2u, id);
+    }
+}

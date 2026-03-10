@@ -73,6 +73,7 @@ public:
     std::vector<uint64_t> get_deleted_ids() const;
 
     const uint8_t* get_vector(uint64_t id) const;
+    bool is_deleted(uint64_t id) const;
 
 private:
     size_t vector_size_() const { return static_cast<size_t>(dim_) * data_type_size(type_); }
