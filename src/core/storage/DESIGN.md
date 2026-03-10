@@ -223,6 +223,8 @@ Accumulator interface:
 
   const uint8_t* get_vector(id)
 
+Vector data is stored in a single buffer that improves storage pattern of the vectors.
+Each vector in the buffer is aligned on 32-byte to allow efficient SIMD operations on the vectors.
 
 WAL
 -----------------------
@@ -242,14 +244,6 @@ Record consists of the following parts:
 
 When Accumulator is created, it tries to open existing .wal file. If the file is present, Accumulator
 replays activities registered in the wal and restores its state. After that the wal records are truncated.
-
-When accumulator is updated, it writes a new record into wal:
-  - when a new vector added
-      - if a "delete id" needs to be removed, write "delete id" "remove" "id" record
-      - write "vector" "add" "id" "data" record
-  - when a new "delete id" is added
-      - if a vector in accumulator needs to be removed, write "vector" "remove" "id" record
-      - write "delete id" "add" "id" record.
 
 Records to wal are written before corresponding changes are done in Accumulator in-memory data structures.
 

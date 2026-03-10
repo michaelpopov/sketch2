@@ -13,6 +13,43 @@
 
 namespace sketch2 {
 
+class AlignedByteBuffer {
+public:
+    AlignedByteBuffer() = default;
+    ~AlignedByteBuffer() { reset(); }
+
+    AlignedByteBuffer(const AlignedByteBuffer&) = delete;
+    AlignedByteBuffer& operator=(const AlignedByteBuffer&) = delete;
+
+    AlignedByteBuffer(AlignedByteBuffer&& other) noexcept { move_from_(std::move(other)); }
+    AlignedByteBuffer& operator=(AlignedByteBuffer&& other) noexcept {
+        if (this != &other) {
+            reset();
+            move_from_(std::move(other));
+        }
+        return *this;
+    }
+
+    Ret init(size_t size, size_t alignment);
+    void clear() { size_ = 0; }
+    Ret resize(size_t size);
+    void reset();
+
+    uint8_t* data() { return data_; }
+    const uint8_t* data() const { return data_; }
+    size_t size() const { return size_; }
+    size_t capacity() const { return capacity_; }
+    bool empty() const { return size_ == 0; }
+
+private:
+    void move_from_(AlignedByteBuffer&& other) noexcept;
+
+    uint8_t* data_ = nullptr;
+    size_t size_ = 0;
+    size_t capacity_ = 0;
+    size_t alignment_ = 0;
+};
+
 class Accumulator {
 public:
     Accumulator() = default;
@@ -39,10 +76,13 @@ public:
 
 private:
     size_t vector_size_() const { return static_cast<size_t>(dim_) * data_type_size(type_); }
-    size_t vector_record_size_() const { return sizeof(uint64_t) + vector_size_(); }
+    size_t vector_stride_() const { return align_up(vector_size_(), static_cast<size_t>(kDataAlignment)); }
+    size_t vector_record_size_() const { return sizeof(uint64_t) + vector_stride_(); }
     bool is_initialized_() const { return data_size_ != 0; }
     size_t add_vector_size_(uint64_t id) const;
     size_t delete_vector_size_(uint64_t id) const;
+    uint8_t* vector_slot_(size_t slot) { return vector_data_.data() + slot * vector_stride_(); }
+    const uint8_t* vector_slot_(size_t slot) const { return vector_data_.data() + slot * vector_stride_(); }
 
     size_t data_size_ = 0;
     size_t used_size_ = 0;
@@ -50,7 +90,7 @@ private:
     uint64_t dim_ = 0;
     std::unordered_map<uint64_t, size_t> vector_index_;
     std::vector<uint64_t> vector_ids_;
-    std::vector<uint8_t> vector_data_;
+    AlignedByteBuffer vector_data_;
     std::unordered_set<uint64_t> deleted_ids_;
     std::unique_ptr<AccumulatorWal> wal_;
 

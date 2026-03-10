@@ -319,7 +319,7 @@ TEST_F(DatasetTest, StoreAccumulatorIgnoresDeleteForMissingRange) {
 TEST_F(DatasetTest, StoreAccumulatorClearsAccumulatorAfterSuccess) {
     auto dir = make_dir("d_acc_clear");
     Dataset sc;
-    ASSERT_EQ(0, sc.init({dir}, 100, DataType::i16, 4, 16).code());
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::i16, 4, 40).code());
 
     const std::array<int16_t, 4> vec0 {1, 2, 3, 4};
     const std::array<int16_t, 4> vec1 {5, 6, 7, 8};
@@ -373,7 +373,7 @@ TEST_F(DatasetTest, AddVectorCreatesAccumulatorLazily) {
 TEST_F(DatasetTest, AddVectorFlushesAccumulatorWhenFull) {
     auto dir = make_dir("d_acc_add_flush");
     Dataset sc;
-    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 24).code());
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 40).code());
 
     const std::array<float, 4> vec0 {1.0f, 2.0f, 3.0f, 4.0f};
     const std::array<float, 4> vec1 {5.0f, 6.0f, 7.0f, 8.0f};
@@ -391,7 +391,7 @@ TEST_F(DatasetTest, AddVectorFlushesAccumulatorWhenFull) {
 TEST_F(DatasetTest, AddVectorNullDoesNotFlushPendingAccumulatorData) {
     auto dir = make_dir("d_acc_add_null");
     Dataset sc;
-    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 24).code());
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 40).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
     ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
@@ -432,7 +432,7 @@ TEST_F(DatasetTest, DeleteVectorCreatesAccumulatorLazily) {
 TEST_F(DatasetTest, DeleteVectorFlushesAccumulatorWhenFull) {
     auto dir = make_dir("d_acc_del_flush");
     Dataset sc;
-    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 24).code());
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 40).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
     ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());

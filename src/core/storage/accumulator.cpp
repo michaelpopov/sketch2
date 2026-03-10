@@ -2,10 +2,65 @@
 #include "core/storage/accumulator_wal.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <stdexcept>
 
 namespace sketch2 {
+
+Ret AlignedByteBuffer::init(size_t size, size_t alignment) {
+    if (data_ != nullptr) {
+        return Ret("AlignedByteBuffer: already initialized");
+    }
+    if (alignment == 0) {
+        return Ret("AlignedByteBuffer: alignment must be > 0");
+    }
+    if (size == 0) {
+        return Ret(0);
+    }
+
+    void* ptr = nullptr;
+    const int rc = posix_memalign(&ptr, alignment, size);
+    if (rc != 0) {
+        return Ret("AlignedByteBuffer: allocation failed: " + std::string(std::strerror(rc)));
+    }
+
+    data_ = static_cast<uint8_t*>(ptr);
+    std::memset(data_, 0, size);
+    size_ = 0;
+    capacity_ = size;
+    alignment_ = alignment;
+    return Ret(0);
+}
+
+Ret AlignedByteBuffer::resize(size_t size) {
+    if (size > capacity_) {
+        return Ret("AlignedByteBuffer: size exceeds capacity");
+    }
+    size_ = size;
+    return Ret(0);
+}
+
+void AlignedByteBuffer::reset() {
+    if (data_ != nullptr) {
+        free(data_);
+    }
+    data_ = nullptr;
+    size_ = 0;
+    capacity_ = 0;
+    alignment_ = 0;
+}
+
+void AlignedByteBuffer::move_from_(AlignedByteBuffer&& other) noexcept {
+    data_ = other.data_;
+    size_ = other.size_;
+    capacity_ = other.capacity_;
+    alignment_ = other.alignment_;
+    other.data_ = nullptr;
+    other.size_ = 0;
+    other.capacity_ = 0;
+    other.alignment_ = 0;
+}
 
 Accumulator::~Accumulator() = default;
 
@@ -30,7 +85,7 @@ Ret Accumulator::init(size_t size, DataType type, uint64_t dim) {
     dim_ = dim;
     data_size_ = size;
     used_size_ = 0;
-    vector_data_.reserve(data_size_);
+    CHECK(vector_data_.init(data_size_, kDataAlignment));
     const size_t record_size = vector_record_size_();
     if (record_size != 0) {
         const size_t max_vectors = data_size_ / record_size;
@@ -64,8 +119,8 @@ Ret Accumulator::reset_wal() {
 void Accumulator::clear() {
     vector_index_.clear();
     vector_ids_.clear();
-    vector_data_.clear();
     deleted_ids_.clear();
+    vector_data_.clear();
     used_size_ = 0;
 }
 
@@ -120,14 +175,13 @@ Ret Accumulator::apply_add_vector_(uint64_t id, const uint8_t* data) {
 
     const size_t vector_size = vector_size_();
     if (had_vector) {
-        std::memcpy(vector_data_.data() + vector_it->second * vector_size, data, vector_size);
+        std::memcpy(vector_slot_(vector_it->second), data, vector_size);
     } else {
         const size_t slot = vector_ids_.size();
         vector_index_[id] = slot;
         vector_ids_.push_back(id);
-        const size_t old_size = vector_data_.size();
-        vector_data_.resize(old_size + vector_size);
-        std::memcpy(vector_data_.data() + old_size, data, vector_size);
+        std::memcpy(vector_slot_(slot), data, vector_size);
+        CHECK(vector_data_.resize(vector_ids_.size() * vector_stride_()));
         used_size_ += vector_record_size_();
     }
 
@@ -145,17 +199,13 @@ Ret Accumulator::apply_delete_vector_(uint64_t id) {
         const size_t slot = vector_it->second;
         const size_t last_slot = vector_ids_.size() - 1;
         if (slot != last_slot) {
-            const size_t vector_size = vector_size_();
             const uint64_t moved_id = vector_ids_[last_slot];
-            std::memcpy(
-                vector_data_.data() + slot * vector_size,
-                vector_data_.data() + last_slot * vector_size,
-                vector_size);
+            std::memcpy(vector_slot_(slot), vector_slot_(last_slot), vector_stride_());
             vector_ids_[slot] = moved_id;
             vector_index_[moved_id] = slot;
         }
         vector_ids_.pop_back();
-        vector_data_.resize(vector_ids_.size() * vector_size_());
+        CHECK(vector_data_.resize(vector_ids_.size() * vector_stride_()));
         vector_index_.erase(vector_it);
         used_size_ -= vector_record_size_();
     }
@@ -215,7 +265,7 @@ const uint8_t* Accumulator::get_vector(uint64_t id) const {
     if (it == vector_index_.end()) {
         return nullptr;
     }
-    return vector_data_.data() + it->second * vector_size_();
+    return vector_slot_(it->second);
 }
 
 size_t Accumulator::add_vector_size_(uint64_t id) const {

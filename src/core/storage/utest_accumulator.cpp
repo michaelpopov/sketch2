@@ -1,6 +1,8 @@
 #include "core/storage/accumulator.h"
+#include "core/storage/data_file.h"
 
 #include <array>
+#include <cstdint>
 
 #include <gtest/gtest.h>
 
@@ -36,6 +38,22 @@ TEST(AccumulatorTest, AddAndReadVectorsById) {
     EXPECT_FLOAT_EQ(f0[3], 4.0f);
     EXPECT_FLOAT_EQ(f1[0], 5.0f);
     EXPECT_FLOAT_EQ(f1[3], 8.0f);
+}
+
+TEST(AccumulatorTest, StoredVectorsAre32ByteAligned) {
+    Accumulator accumulator;
+    ASSERT_EQ(0, accumulator.init(256, DataType::f32, 4).code());
+
+    const std::array<float, 4> v0 {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::array<float, 4> v1 {5.0f, 6.0f, 7.0f, 8.0f};
+
+    ASSERT_EQ(0, accumulator.add_vector(10, as_bytes(v0)).code());
+    ASSERT_EQ(0, accumulator.add_vector(20, as_bytes(v1)).code());
+
+    const auto p0 = reinterpret_cast<uintptr_t>(accumulator.get_vector(10));
+    const auto p1 = reinterpret_cast<uintptr_t>(accumulator.get_vector(20));
+    EXPECT_EQ(0u, p0 % kDataAlignment);
+    EXPECT_EQ(0u, p1 % kDataAlignment);
 }
 
 TEST(AccumulatorTest, DeleteVectorTracksSortedDeletedIds) {
@@ -78,7 +96,7 @@ TEST(AccumulatorTest, DeleteRemovesVectorAndAddRemovesDeletedId) {
 
 TEST(AccumulatorTest, AddVectorReplacesExistingValue) {
     Accumulator accumulator;
-    ASSERT_EQ(0, accumulator.init(64, DataType::i16, 4).code());
+    ASSERT_EQ(0, accumulator.init(80, DataType::i16, 4).code());
 
     const std::array<int16_t, 4> vec0 {1, 2, 3, 4};
     const std::array<int16_t, 4> vec1 {5, 6, 7, 8};
@@ -94,7 +112,7 @@ TEST(AccumulatorTest, AddVectorReplacesExistingValue) {
 
 TEST(AccumulatorTest, CanAddVectorReportsCapacity) {
     Accumulator accumulator;
-    ASSERT_EQ(0, accumulator.init(24, DataType::f32, 4).code());
+    ASSERT_EQ(0, accumulator.init(40, DataType::f32, 4).code());
 
     EXPECT_TRUE(accumulator.can_add_vector(1));
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
@@ -134,7 +152,7 @@ TEST(AccumulatorTest, ClearRemovesAllStoredState) {
 
 TEST(AccumulatorTest, BufferFullForVectorReturnsError) {
     Accumulator accumulator;
-    ASSERT_EQ(0, accumulator.init(23, DataType::f32, 4).code());
+    ASSERT_EQ(0, accumulator.init(39, DataType::f32, 4).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
     const Ret ret = accumulator.add_vector(1, as_bytes(vec));
@@ -153,7 +171,7 @@ TEST(AccumulatorTest, BufferFullForDeletedIdReturnsError) {
 
 TEST(AccumulatorTest, DeleteCanFreeSpaceForDeletedId) {
     Accumulator accumulator;
-    ASSERT_EQ(0, accumulator.init(24, DataType::i16, 4).code());
+    ASSERT_EQ(0, accumulator.init(40, DataType::i16, 4).code());
 
     const std::array<int16_t, 4> vec {1, 2, 3, 4};
     ASSERT_EQ(0, accumulator.add_vector(9, as_bytes(vec)).code());
@@ -162,6 +180,27 @@ TEST(AccumulatorTest, DeleteCanFreeSpaceForDeletedId) {
     EXPECT_EQ(accumulator.vectors_count(), 0U);
     EXPECT_EQ(accumulator.deleted_count(), 1U);
     EXPECT_EQ(accumulator.get_deleted_ids(), (std::vector<uint64_t> {9}));
+}
+
+TEST(AccumulatorTest, DeletePreservesAlignmentForMovedVector) {
+    Accumulator accumulator;
+    ASSERT_EQ(0, accumulator.init(128, DataType::f32, 4).code());
+
+    const std::array<float, 4> v0 {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::array<float, 4> v1 {5.0f, 6.0f, 7.0f, 8.0f};
+    const std::array<float, 4> v2 {9.0f, 10.0f, 11.0f, 12.0f};
+
+    ASSERT_EQ(0, accumulator.add_vector(10, as_bytes(v0)).code());
+    ASSERT_EQ(0, accumulator.add_vector(20, as_bytes(v1)).code());
+    ASSERT_EQ(0, accumulator.add_vector(30, as_bytes(v2)).code());
+
+    ASSERT_EQ(0, accumulator.delete_vector(20).code());
+
+    const float* moved = reinterpret_cast<const float*>(accumulator.get_vector(30));
+    ASSERT_NE(nullptr, moved);
+    EXPECT_EQ(0u, reinterpret_cast<uintptr_t>(moved) % kDataAlignment);
+    EXPECT_FLOAT_EQ(9.0f, moved[0]);
+    EXPECT_FLOAT_EQ(12.0f, moved[3]);
 }
 
 TEST(AccumulatorTest, MissingVectorReturnsNull) {
