@@ -7,86 +7,116 @@
 extern "C" {
 #endif
 
-typedef struct sk_dataset_metadata {
-    char dir[256];
-    char type[16];
-    unsigned int dim;
-    unsigned int range_size;
-    unsigned int data_merge_ratio;
-} sk_dataset_metadata_t;
-
 typedef struct sk_handle sk_handle_t;
 
 /*
- *  Initialize sk_handle for further usage.
+ * Initialize a handler for a database root directory.
  */
-sk_handle_t* connect();
+sk_handle_t* sk_connect(const char* db_path);
 
 /*
- *  Release resources associated with sk_handle.
+ * Release resources associated with a handler.
  */
-void disconnect(sk_handle_t* handle);
+void sk_disconnect(sk_handle_t* handle);
 
 /*
- *  sk_create creates data directory and a metadata file for a dataset.
+ * Create dataset metadata, lock file, and data directory under the handler root.
  */
-int sk_create(sk_handle_t* handle, sk_dataset_metadata_t metadata);
+int sk_create(sk_handle_t* handle, const char* name, unsigned int dim, const char* type, unsigned int range_size);
 
 /*
- *  sk_drop removes whole data directory including metadata and data fies for a dataset.
+ * Drop a dataset by name.
  */
-int sk_drop(sk_handle_t* handle);
+int sk_drop(sk_handle_t* handle, const char* name);
 
 /*
- *  sk_open creates a dataset instance and initializes it.
+ * Open a dataset by name.
  */
-int sk_open(sk_handle_t* handle, const char *path);
+int sk_open(sk_handle_t* handle, const char* name);
 
 /*
- *  sk_close deletes a dataset instance and closes temporary files.
+ * Close the currently open dataset. The name must match the open dataset.
  */
-int sk_close(sk_handle_t* handle);
+int sk_close(sk_handle_t* handle, const char* name);
 
 /*
- *  sk_add adds a line with a vector into input file for a dataset.
+ * Upsert a vector encoded as text.
  */
-int sk_add(sk_handle_t* handle, uint64_t id, const char *value);
+int sk_upsert(sk_handle_t* handle, uint64_t id, const char* value);
 
 /*
- *  sk_delete adds a line with a delete marker for an item into input file for a dataset.
+ * Upsert a vector filled with the same scalar in every component.
  */
-int sk_delete(sk_handle_t* handle, uint64_t id);
+int sk_ups2(sk_handle_t* handle, uint64_t id, double value);
 
 /*
- *  sk_load loads input file into a dataset.
+ * Delete a vector by id.
  */
-int sk_load(sk_handle_t* handle);
+int sk_del(sk_handle_t* handle, uint64_t id);
 
 /*
- *  sk_knn finds K nearest neighbors
+ * Run KNN and cache ids on the handler.
  */
-int sk_knn(sk_handle_t* handle, const char* vec, uint64_t* ids, uint64_t* ids_count);
+int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k);
 
 /*
- *  sk_get returns a text content of a vector found by id.
- *  If vector is not found, function returns -1.
+ * Read cached KNN results directly. index=-1 returns count.
+ * Returns 0 if no KNN result is cached or the index is invalid.
  */
-int sk_get(sk_handle_t* handle, uint64_t id, char* buf, uint64_t buf_size);
+uint64_t sk_kres(sk_handle_t* handle, int64_t index);
 
 /*
- *  sk_generate generates an input file with test vectors.
- *  Parameter pattern is translated to PatternType: 0 to PatternType::Sequential and
- *  1 to PatternType::Detailed.
+ * Flush the accumulator to dataset files.
  */
-int sk_generate(sk_handle_t* handle, uint64_t from_id, uint64_t count, int pattern, int every_n_deleted);
+int sk_macc(sk_handle_t* handle);
 
 /*
- *  sk_error returns error code registered during previous call.
+ * Merge delta files into data files.
+ */
+int sk_mdelta(sk_handle_t* handle);
+
+/*
+ * Fetch a vector by id and cache its text form on the handler.
+ */
+int sk_get(sk_handle_t* handle, uint64_t id);
+
+/*
+ * Return the cached vector text. Returns an empty string if no value is cached.
+ */
+const char* sk_gres(sk_handle_t* handle);
+
+/*
+ * Find an id by exact vector value and cache it on the handler.
+ */
+int sk_gid(sk_handle_t* handle, const char* vec);
+
+/*
+ * Copy the cached id into value.
+ */
+int sk_ires(sk_handle_t* handle, uint64_t* value);
+
+/*
+ * Print the current dataset contents to stdout.
+ */
+int sk_print(sk_handle_t* handle);
+
+/*
+ * Generate test vectors and load them into the current dataset.
+ */
+int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
+
+/*
+ * Print dataset file statistics to stdout.
+ */
+int sk_stats(sk_handle_t* handle);
+
+/*
+ * Return the last error code.
  */
 int sk_error(sk_handle_t* handle);
 
 /*
- *  sk_error_message returns error message registered during previous call.
+ * Return the last error message.
  */
 const char* sk_error_message(sk_handle_t* handle);
 
@@ -95,4 +125,3 @@ const char* sk_error_message(sk_handle_t* handle);
 #endif
 
 #endif
-

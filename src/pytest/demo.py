@@ -25,18 +25,18 @@ def expected_topk(from_id: int, count: int, query: float, k: int) -> list[int]:
 
 def run_demo(count: int, dim: int, k: int, keep: bool) -> None:
     root = Path(tempfile.mkdtemp(prefix="sketch2_py_demo_"))
-    dataset_dir = root / "dataset"
+    dataset_name = "dataset"
+    dataset_dir = root / dataset_name
     from_id = 0
 
     try:
-        with Parasol() as ps:
-            ps.create(dataset_dir, type_name="f32", dim=dim, range_size=1000, data_merge_ratio=2)
-            ps.open(dataset_dir)
+        with Parasol(root) as ps:
+            ps.create(dataset_name, type_name="f32", dim=dim, range_size=1000)
+            ps.open(dataset_name)
 
             t0 = time.perf_counter()
-            ps.generate(from_id=from_id, count=count, pattern=0, every_n_deleted=0)
+            ps.generate(count=count, start_id=from_id, pattern=0)
             print(f"generated {count} vectors via sk_generate")
-            ps.load()
             t1 = time.perf_counter()
 
             query = count * 0.631 + 0.123
@@ -53,7 +53,8 @@ def run_demo(count: int, dim: int, k: int, keep: bool) -> None:
                 raise AssertionError("KNN result mismatch")
 
             print("KNN check passed")
-            ps.drop()
+            ps.close(dataset_name)
+            ps.drop(dataset_name)
     finally:
         if keep:
             print(f"dataset preserved at: {root}")

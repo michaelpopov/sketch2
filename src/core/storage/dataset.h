@@ -84,11 +84,15 @@ public:
 
     DataType type() const { return metadata_.type; }
     uint64_t dim() const { return metadata_.dim; }
+    uint64_t range_size() const { return metadata_.range_size; }
+    const std::vector<std::string>& dirs() const { return metadata_.dirs; }
 
     Ret add_vector(uint64_t id, const uint8_t* data);
     Ret delete_vector(uint64_t id);
     bool is_deleted(uint64_t id) const;
     AccumulatorIterator accumulator_begin() const;
+    size_t accumulator_vectors_count() const { return accumulator_ ? accumulator_->vectors_count() : 0; }
+    size_t accumulator_deleted_count() const { return accumulator_ ? accumulator_->deleted_count() : 0; }
 
 private:
     DatasetMetadata metadata_;

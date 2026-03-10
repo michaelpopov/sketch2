@@ -28,6 +28,13 @@ pytest:
 pydemo:
 	python3 src/pytest/demo.py
 
+# Runs Python shell with Sketch2 objects ready
+.PHONY: pyshell
+pyshell:
+	python3 src/pytest/shell.py --db-root /tmp/sketch2_db
+# python3 src/pytest/shell.py --db-root /tmp/skdb --dataset demo --create
+# python3 src/pytest/shell.py --db-root /tmp/skdb --dataset demo
+
 # Optimization: Cleaning the build directory
 .PHONY: clean
 clean:
