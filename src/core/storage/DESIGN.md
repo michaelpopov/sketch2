@@ -169,6 +169,9 @@ Dataset allows to check is there a specific deleted id in its internal Accumulat
 This functionality is used in Scanner: function find_ that gets Dataset ref as an argument checks
 is id was deleted and skips adding it to the heap.
 
+Dataset supports iterator that allows iterating over vectors in accumulator. This iterator is used
+in the Scanner when it scans Dataset data.
+
 DataMerger
 ---------------------------
 We have two types of files:

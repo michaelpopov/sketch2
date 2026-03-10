@@ -42,6 +42,21 @@ struct DatasetItem {
 
 class Dataset {
 public:
+    class AccumulatorIterator {
+    public:
+        void next();
+        bool eof() const;
+        uint64_t id() const;
+        const uint8_t* data() const;
+
+    private:
+        friend class Dataset;
+        explicit AccumulatorIterator(Accumulator::Iterator iterator)
+            : iterator_(std::move(iterator)) {}
+
+        Accumulator::Iterator iterator_;
+    };
+
     Dataset() = default;
     ~Dataset();
 
@@ -73,6 +88,7 @@ public:
     Ret add_vector(uint64_t id, const uint8_t* data);
     Ret delete_vector(uint64_t id);
     bool is_deleted(uint64_t id) const;
+    AccumulatorIterator accumulator_begin() const;
 
 private:
     DatasetMetadata metadata_;

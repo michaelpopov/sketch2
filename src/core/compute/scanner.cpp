@@ -44,21 +44,20 @@ Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const ui
     result.clear();
 
     std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare> heap;
+    const DataType type = dataset.type();
+    const size_t dim = dataset.dim();
+    DistFn dist_fn = nullptr;
+    switch (func) {
+        case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(type); break;
+        case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(type); break;
+        default: return Ret("Scanner::find: unsupported distance function.");
+    }
 
     auto drs = dataset.reader();
     while (true) {
         auto [reader, ret] = drs->next();
         CHECK(ret);
         if (!reader) break;
-
-        DataType type = reader->type();
-        size_t   dim  = reader->dim();
-        DistFn dist_fn = nullptr;
-        switch (func) {
-            case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(type); break;
-            case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(type); break;
-            default: return Ret("Scanner::find: unsupported distance function.");
-        }
 
         for (auto it = reader->begin(); !it.eof(); it.next()) {
             if (dataset.is_deleted(it.id())) {
@@ -71,6 +70,16 @@ Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const ui
                 heap.pop();
                 heap.push({it.id(), d});
             }
+        }
+    }
+
+    for (auto it = dataset.accumulator_begin(); !it.eof(); it.next()) {
+        double d = dist_fn(it.data(), vec, dim);
+        if (heap.size() < count) {
+            heap.push({it.id(), d});
+        } else if (d < heap.top().dist) {
+            heap.pop();
+            heap.push({it.id(), d});
         }
     }
 

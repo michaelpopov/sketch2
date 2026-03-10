@@ -1053,6 +1053,30 @@ TEST_F(DatasetTest, DatasetInvalidatesItemCacheAfterStoreCreatesNewRange) {
     ASSERT_NE(nullptr, reader->get(15));
 }
 
+TEST_F(DatasetTest, AccumulatorIteratorExposesPendingVectors) {
+    auto dir = make_dir("d_acc_iter");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    const std::array<float, 4> vec0 {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::array<float, 4> vec1 {5.0f, 6.0f, 7.0f, 8.0f};
+    ASSERT_EQ(0, sc.add_vector(10, reinterpret_cast<const uint8_t*>(vec0.data())).code());
+    ASSERT_EQ(0, sc.add_vector(20, reinterpret_cast<const uint8_t*>(vec1.data())).code());
+
+    std::vector<uint64_t> ids;
+    std::vector<const uint8_t*> ptrs;
+    for (auto it = sc.accumulator_begin(); !it.eof(); it.next()) {
+        ids.push_back(it.id());
+        ptrs.push_back(it.data());
+    }
+
+    ASSERT_EQ(2u, ids.size());
+    EXPECT_TRUE((ids[0] == 10u && ids[1] == 20u) || (ids[0] == 20u && ids[1] == 10u));
+    for (const uint8_t* ptr : ptrs) {
+        ASSERT_NE(nullptr, ptr);
+    }
+}
+
 TEST_F(DatasetTest, GuestModeAllowsQueries) {
     auto dir = make_dir("d_guest_query");
 

@@ -16,6 +16,22 @@
 
 namespace sketch2 {
 
+void Dataset::AccumulatorIterator::next() {
+    iterator_.next();
+}
+
+bool Dataset::AccumulatorIterator::eof() const {
+    return iterator_.eof();
+}
+
+uint64_t Dataset::AccumulatorIterator::id() const {
+    return iterator_.id();
+}
+
+const uint8_t* Dataset::AccumulatorIterator::data() const {
+    return iterator_.data();
+}
+
 static const std::string kTempExt = ".temp";
 static const std::string kDataExt = ".data";
 static const std::string kDeltaExt = ".delta";
@@ -277,6 +293,13 @@ Ret Dataset::delete_vector(uint64_t id) {
 
 bool Dataset::is_deleted(uint64_t id) const {
     return accumulator_ && accumulator_->is_deleted(id);
+}
+
+Dataset::AccumulatorIterator Dataset::accumulator_begin() const {
+    if (!accumulator_) {
+        return AccumulatorIterator(Accumulator::Iterator());
+    }
+    return AccumulatorIterator(accumulator_->begin());
 }
 
 Ret Dataset::init_accumulator_() {

@@ -52,6 +52,23 @@ private:
 
 class Accumulator {
 public:
+    class Iterator {
+    public:
+        Iterator() = default;
+        void next();
+        bool eof() const;
+        uint64_t id() const;
+        const uint8_t* data() const;
+
+    private:
+        friend class Accumulator;
+        Iterator(const Accumulator* accumulator, size_t index)
+            : accumulator_(accumulator), index_(index) {}
+
+        const Accumulator* accumulator_ = nullptr;
+        size_t index_ = 0;
+    };
+
     Accumulator() = default;
     ~Accumulator();
 
@@ -74,6 +91,7 @@ public:
 
     const uint8_t* get_vector(uint64_t id) const;
     bool is_deleted(uint64_t id) const;
+    Iterator begin() const;
 
 private:
     size_t vector_size_() const { return static_cast<size_t>(dim_) * data_type_size(type_); }

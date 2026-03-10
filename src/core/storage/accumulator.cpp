@@ -8,6 +8,31 @@
 
 namespace sketch2 {
 
+void Accumulator::Iterator::next() {
+    ++index_;
+}
+
+bool Accumulator::Iterator::eof() const {
+    if (!accumulator_) {
+        return true;
+    }
+    return index_ >= accumulator_->vector_ids_.size();
+}
+
+uint64_t Accumulator::Iterator::id() const {
+    if (!accumulator_ || index_ >= accumulator_->vector_ids_.size()) {
+        throw std::out_of_range("Accumulator::Iterator::id: index out of range");
+    }
+    return accumulator_->vector_ids_[index_];
+}
+
+const uint8_t* Accumulator::Iterator::data() const {
+    if (!accumulator_ || index_ >= accumulator_->vector_ids_.size()) {
+        throw std::out_of_range("Accumulator::Iterator::data: index out of range");
+    }
+    return accumulator_->vector_slot_(index_);
+}
+
 Ret AlignedByteBuffer::init(size_t size, size_t alignment) {
     if (data_ != nullptr) {
         return Ret("AlignedByteBuffer: already initialized");
@@ -273,6 +298,13 @@ bool Accumulator::is_deleted(uint64_t id) const {
         throw std::runtime_error("Accumulator::is_deleted: not initialized");
     }
     return deleted_ids_.find(id) != deleted_ids_.end();
+}
+
+Accumulator::Iterator Accumulator::begin() const {
+    if (!is_initialized_()) {
+        throw std::runtime_error("Accumulator::begin: not initialized");
+    }
+    return Iterator(this, 0);
 }
 
 size_t Accumulator::add_vector_size_(uint64_t id) const {
