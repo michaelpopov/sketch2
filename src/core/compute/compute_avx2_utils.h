@@ -14,6 +14,14 @@ inline double hsum_ps_256(__m256 v) {
     return static_cast<double>(_mm_cvtss_f32(sum));
 }
 
+inline __m256 load_f16x8_ps(const void *ptr) {
+    return _mm256_cvtph_ps(_mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr)));
+}
+
+inline __m256 load_f16x8_ps_aligned(const void *ptr) {
+    return _mm256_cvtph_ps(_mm_load_si128(reinterpret_cast<const __m128i *>(ptr)));
+}
+
 } // namespace sketch2
 
 #endif

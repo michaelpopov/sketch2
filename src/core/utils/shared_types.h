@@ -3,17 +3,17 @@
 #include <stdexcept>
 #include <cstdint>
 
-// Support for f16 on aarch64
+// NEON intrinsics are only used by the aarch64 compute path.
 #if defined(__aarch64__)
 #include <arm_neon.h> 
 #endif
 
 namespace sketch2 {
 
-#if defined(__aarch64__)
+#if defined(__FLT16_MANT_DIG__)
 using float16 = _Float16;
 #else
-    using float16 = uint16_t;
+using float16 = uint16_t;
 #endif
 
 enum class DataType {
@@ -23,7 +23,7 @@ enum class DataType {
 };
 
 constexpr bool supports_f16() {
-#if defined(__aarch64__)
+#if defined(__FLT16_MANT_DIG__)
     return true;
 #else
     return false;

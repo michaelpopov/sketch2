@@ -17,8 +17,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   target_compile_options(sketch_compile_options INTERFACE -march=armv8.2-a+fp16)
 endif()
 
-if(SKETCH_ENABLE_AVX2 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
-  target_compile_options(sketch_compile_options INTERFACE -mavx2)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(sketch_compile_options INTERFACE -msse2)
+  endif()
+
+  if(SKETCH_ENABLE_AVX2)
+    target_compile_options(sketch_compile_options INTERFACE -mavx2 -mf16c)
+  endif()
 endif()
 
 # ---------------------------
