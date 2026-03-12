@@ -1,5 +1,6 @@
 #pragma once
 #include "accumulator.h"
+#include "core/compute/compute.h"
 #include "core/utils/file_lock.h"
 #include "utils/shared_types.h"
 #include <memory>
@@ -27,6 +28,7 @@ enum class DatasetMode {
 struct DatasetMetadata {
     std::vector<std::string> dirs;
     DataType type = DataType::f32;
+    DistFunc dist_func = DistFunc::L1;
     uint64_t dim = 4;
     uint64_t range_size = kRangeSize;
     uint64_t data_merge_ratio = 2; // merge data files when the new file is less than
@@ -67,7 +69,8 @@ public:
     // placed in directory dirs[file_id % dirs.size()].
     Ret init(const std::vector<std::string>& dirs, uint64_t range_size,
         DataType type = DataType::f32, uint64_t dim = 4,
-        uint64_t accumulator_size = kAccumulatorBufferSize);
+        uint64_t accumulator_size = kAccumulatorBufferSize,
+        DistFunc dist_func = DistFunc::L1);
 
     // Initialize with values from ini file.
     Ret init(const std::string& path);
@@ -83,6 +86,7 @@ public:
     std::pair<DataReaderPtr, Ret> get(uint64_t id) const;
 
     DataType type() const { return metadata_.type; }
+    DistFunc dist_func() const { return metadata_.dist_func; }
     uint64_t dim() const { return metadata_.dim; }
     uint64_t range_size() const { return metadata_.range_size; }
     const std::vector<std::string>& dirs() const { return metadata_.dirs; }

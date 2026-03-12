@@ -274,7 +274,7 @@ TEST_F(ScannerTest, FindDatasetWorks) {
     Scanner s;
     auto q = f32_vec(15.2f, 4); // nearest to id 15
     std::vector<uint64_t> result;
-    const auto ret = s.find(ds, DistFunc::L1, 3, q.data(), result);
+    const auto ret = s.find(ds, 3, q.data(), result);
     ASSERT_EQ(0, ret.code()) << "\n\nfind failed: " << ret.message() << "\n\n";
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(15u, result[0]);
@@ -293,14 +293,14 @@ TEST_F(ScannerTest, FindDatasetL2Works) {
     });
 
     Dataset ds;
-    ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4).code());
+    ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::L2).code());
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     Scanner s;
     auto q = f32_vec(15.2f, 4);
     std::vector<uint64_t> result;
-    const auto ret = s.find(ds, DistFunc::L2, 3, q.data(), result);
+    const auto ret = s.find(ds, 3, q.data(), result);
     ASSERT_EQ(0, ret.code()) << "\n\nfind failed: " << ret.message() << "\n\n";
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(15u, result[0]);
@@ -320,7 +320,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {
 
     Scanner s;
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(ds, DistFunc::L1, 1, nullptr, result).code());
+    EXPECT_NE(0, s.find(ds, 1, nullptr, result).code());
 }
 
 TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
@@ -336,23 +336,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
     Scanner s;
     auto q = f32_vec(1.0f, 4);
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(ds, DistFunc::L1, 0, q.data(), result).code());
-}
-
-TEST_F(ScannerTest, FindDatasetFailsOnUnknownFunction) {
-    std::string d = "/tmp/sketch2_utest_sc_dsfunc_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    Dataset ds;
-    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
-    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000});
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    Scanner s;
-    auto q = f32_vec(1.0f, 4);
-    std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(ds, static_cast<DistFunc>(999), 1, q.data(), result).code());
+    EXPECT_NE(0, s.find(ds, 0, q.data(), result).code());
 }
 
 TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {
@@ -379,7 +363,7 @@ TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {
     Scanner s;
     auto q = f32_vec(2.1f, 4); // query closest to deleted id=2
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 5, q.data(), result).code());
+    ASSERT_EQ(0, s.find(ds, 5, q.data(), result).code());
 
     // Only 4 vectors survive (0,1,3,4); id=2 must not appear.
     EXPECT_EQ(4u, result.size());
@@ -414,7 +398,7 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
     // rounding), so we use 0.0 to make id=0 the unambiguous nearest neighbour.
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 1, q.data(), result).code());
+    ASSERT_EQ(0, s.find(ds, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     // id=0 (value 0.1, dist=0.4) beats all others; id=1 at 500 is not the nearest.
     EXPECT_EQ(0u, result[0]);
@@ -437,7 +421,7 @@ TEST_F(ScannerTest, FindDatasetSkipsIdsDeletedInAccumulator) {
     Scanner s;
     auto q = f32_vec(2.1f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 5, q.data(), result).code());
+    ASSERT_EQ(0, s.find(ds, 5, q.data(), result).code());
 
     EXPECT_EQ(4u, result.size());
     for (uint64_t id : result) {
@@ -461,7 +445,7 @@ TEST_F(ScannerTest, FindDatasetIncludesVectorsFromAccumulator) {
 
     Scanner s;
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 1, pending.data(), result).code());
+    ASSERT_EQ(0, s.find(ds, 1, pending.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(50u, result[0]);
 }
@@ -482,7 +466,7 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromAccumulator) {
 
     Scanner s;
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, DistFunc::L1, 1, updated.data(), result).code());
+    ASSERT_EQ(0, s.find(ds, 1, updated.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(1u, result[0]);
 }

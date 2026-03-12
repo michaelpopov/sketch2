@@ -19,8 +19,7 @@ class ParasolBasicTest(unittest.TestCase):
 
     def test_create_open_upsert_merge_accumulator_and_knn(self) -> None:
         with Parasol(self.root) as ps:
-            ps.create(self.dataset_name)
-            ps.open(self.dataset_name)
+            ps.create(self.dataset_name, dist_func="l1")
 
             ps.upsert(1, "0.0, 0.0, 0.0, 0.0")
             ps.upsert(2, "10.0, 10.0, 10.0, 10.0")
@@ -39,8 +38,7 @@ class ParasolBasicTest(unittest.TestCase):
 
     def test_load_accepts_unsorted_ids(self) -> None:
         with Parasol(self.root) as ps:
-            ps.create(self.dataset_name)
-            ps.open(self.dataset_name)
+            ps.create(self.dataset_name, dist_func="l1")
 
             ps.upsert(10, "1.0, 2.0, 3.0, 4.0")
             ps.upsert(5, "1.0, 2.0, 3.0, 4.0")
@@ -52,8 +50,7 @@ class ParasolBasicTest(unittest.TestCase):
 
     def test_get_returns_vector_text(self) -> None:
         with Parasol(self.root) as ps:
-            ps.create(self.dataset_name)
-            ps.open(self.dataset_name)
+            ps.create(self.dataset_name, dist_func="l1")
 
             ps.upsert(42, "1.0, 2.0, 3.0, 4.0")
             ps.merge_accumulator()
@@ -66,8 +63,7 @@ class ParasolBasicTest(unittest.TestCase):
 
     def test_generate_sequential(self) -> None:
         with Parasol(self.root) as ps:
-            ps.create(self.dataset_name)
-            ps.open(self.dataset_name)
+            ps.create(self.dataset_name, dist_func="l1")
 
             ps.generate(count=5, start_id=10, pattern=0)
 
@@ -79,13 +75,22 @@ class ParasolBasicTest(unittest.TestCase):
 
     def test_generate_detailed(self) -> None:
         with Parasol(self.root) as ps:
-            ps.create(self.dataset_name)
-            ps.open(self.dataset_name)
+            ps.create(self.dataset_name, dist_func="l1")
 
             ps.generate(count=3, start_id=20, pattern=1)
 
             vec = ps.get(20)
             self.assertEqual("[ 0, 0, 0, 0 ]", vec)
+            ps.close(self.dataset_name)
+            ps.drop(self.dataset_name)
+
+    def test_create_with_l2_writes_distance_function_to_ini(self) -> None:
+        with Parasol(self.root) as ps:
+            ps.create(self.dataset_name, dist_func="l2")
+
+            ini = (self.root / f"{self.dataset_name}.ini").read_text()
+            self.assertIn("dist_func=l2\n", ini)
+
             ps.close(self.dataset_name)
             ps.drop(self.dataset_name)
 

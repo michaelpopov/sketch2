@@ -41,7 +41,7 @@ class Parasol:
         self.lib.sk_disconnect.argtypes = [c_void_p]
         self.lib.sk_disconnect.restype = None
 
-        self.lib.sk_create.argtypes = [c_void_p, c_char_p, c_uint, c_char_p, c_uint]
+        self.lib.sk_create.argtypes = [c_void_p, c_char_p, c_uint, c_char_p, c_uint, c_char_p]
         self.lib.sk_create.restype = c_int
 
         self.lib.sk_drop.argtypes = [c_void_p, c_char_p]
@@ -126,7 +126,8 @@ class Parasol:
             return ""
         return msg.decode("utf-8", errors="replace")
 
-    def create(self, name: str, type_name: str = "f32", dim: int = 4, range_size: int = 1000) -> None:
+    def create(self, name: str, type_name: str = "f32", dim: int = 4,
+               range_size: int = 1000, dist_func: str = "l1") -> None:
         self._check(
             "sk_create",
             self.lib.sk_create(
@@ -135,6 +136,7 @@ class Parasol:
                 c_uint(dim),
                 type_name.encode("utf-8"),
                 c_uint(range_size),
+                dist_func.encode("utf-8"),
             ),
         )
 

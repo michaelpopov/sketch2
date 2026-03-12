@@ -23,27 +23,25 @@ Ret Scanner::find(const DataReader& reader, DistFunc func, size_t count, const u
     }
 }
 
-Ret Scanner::find(const Dataset& dataset, DistFunc func, size_t count, const uint8_t* vec,
+Ret Scanner::find(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     try {
-        return find_(dataset, func, count, vec, result);
+        return find_(dataset, count, vec, result);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
 }
 
-Ret Scanner::find_(const Dataset& dataset, DistFunc func, size_t count, const uint8_t* vec,
+Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
-    }
-    if (func != DistFunc::L1 && func != DistFunc::L2) {
-        return Ret("Scanner::find: unsupported distance function.");
     }
 
     result.clear();
 
     std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare> heap;
+    const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
     const size_t dim = dataset.dim();
     DistFn dist_fn = nullptr;

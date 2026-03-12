@@ -18,13 +18,14 @@ public:
     Ret find(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
 
-    Ret find(const Dataset& dataset, DistFunc func, size_t count, const uint8_t* vec,
+    // Uses the distance function configured in dataset metadata.
+    Ret find(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
 
 private:
     Ret find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
-    Ret find_(const Dataset& dataset, DistFunc func, size_t count, const uint8_t* vec,
+    Ret find_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
 };
 

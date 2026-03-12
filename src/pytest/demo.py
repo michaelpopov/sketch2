@@ -23,7 +23,7 @@ def expected_topk(from_id: int, count: int, query: float, k: int) -> list[int]:
     return [idx for _, idx in scored[:k]]
 
 
-def run_demo(count: int, dim: int, k: int, keep: bool) -> None:
+def run_demo(count: int, dim: int, k: int, keep: bool, dist_func: str) -> None:
     root = Path(tempfile.mkdtemp(prefix="sketch2_py_demo_"))
     dataset_name = "dataset"
     dataset_dir = root / dataset_name
@@ -31,8 +31,7 @@ def run_demo(count: int, dim: int, k: int, keep: bool) -> None:
 
     try:
         with Parasol(root) as ps:
-            ps.create(dataset_name, type_name="f32", dim=dim, range_size=1000)
-            ps.open(dataset_name)
+            ps.create(dataset_name, type_name="f32", dim=dim, range_size=1000, dist_func=dist_func)
 
             t0 = time.perf_counter()
             ps.generate(count=count, start_id=from_id, pattern=0)
@@ -45,6 +44,7 @@ def run_demo(count: int, dim: int, k: int, keep: bool) -> None:
             expected = expected_topk(from_id, count, query, k)
 
             print(f"load+store time: {t1 - t0:.3f}s")
+            print(f"dist_func={dist_func}")
             print(f"query={query:.6f}, k={k}")
             print(f"actual   = {actual}")
             print(f"expected = {expected}")
@@ -67,6 +67,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--count", type=int, default=20000, help="Number of vectors to load")
     parser.add_argument("--dim", type=int, default=4, help="Vector dimension (>=4)")
     parser.add_argument("--k", type=int, default=10, help="Top-K neighbors to query")
+    parser.add_argument("--dist-func", default="l1", choices=("l1", "l2"),
+                        help="Distance function used when creating the dataset")
     parser.add_argument("--keep", action="store_true", help="Keep generated dataset directory")
     return parser.parse_args()
 
@@ -82,7 +84,7 @@ def main() -> None:
     if args.k > args.count:
         raise ValueError("--k must be <= --count")
 
-    run_demo(count=args.count, dim=args.dim, k=args.k, keep=args.keep)
+    run_demo(count=args.count, dim=args.dim, k=args.k, keep=args.keep, dist_func=args.dist_func)
 
 
 if __name__ == "__main__":

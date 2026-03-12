@@ -82,6 +82,7 @@ TEST_F(DatasetTest, InitFromIniSectionKeysWorks) {
         "dirs = " + dir0 + ", " + dir1 + "\n"
         "range_size = 10\n"
         "type = f32\n"
+        "dist_func = l2\n"
         "dim = 4\n");
 
     IniReader ini_cfg;
@@ -91,11 +92,39 @@ TEST_F(DatasetTest, InitFromIniSectionKeysWorks) {
     Dataset sc;
     const Ret ret = sc.init(config_path_);
     ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ(DistFunc::L2, sc.dist_func());
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4));
     ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir0 + "/0.data"));
     EXPECT_TRUE(fs::exists(dir1 + "/1.data"));
     EXPECT_TRUE(fs::exists(dir0 + "/2.data"));
+}
+
+TEST_F(DatasetTest, InitDefaultsDistFuncToL1WhenMissingFromIni) {
+    auto dir = make_dir("d_default_dist");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 10\n"
+        "type = f32\n"
+        "dim = 4\n");
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init(config_path_).code());
+    EXPECT_EQ(DistFunc::L1, sc.dist_func());
+}
+
+TEST_F(DatasetTest, InitFromMetadataExposesDistanceFunction) {
+    DatasetMetadata metadata;
+    metadata.dirs = {make_dir("d_metadata_dist")};
+    metadata.range_size = 10;
+    metadata.type = DataType::f32;
+    metadata.dist_func = DistFunc::L2;
+    metadata.dim = 4;
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init(metadata).code());
+    EXPECT_EQ(DistFunc::L2, sc.dist_func());
 }
 
 TEST_F(DatasetTest, InitFromIniUsesAccumulatorSizeForLazyAddVector) {
@@ -190,6 +219,22 @@ TEST_F(DatasetTest, InitFromIniFailsOnNegativeAccumulatorSize) {
     const Ret ret = sc.init(config_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Dataset: dataset.accumulator_size must be >= 0", ret.message());
+}
+
+TEST_F(DatasetTest, InitFromIniFailsOnInvalidDistanceFunction) {
+    auto dir = make_dir("d_bad_dist");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dist_func = cosine\n"
+        "dim = 4\n");
+
+    Dataset sc;
+    const Ret ret = sc.init(config_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Invalid distance function string.", ret.message());
 }
 
 // --- load error cases ---

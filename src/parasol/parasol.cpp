@@ -127,6 +127,20 @@ Ret validate_dataset_type(const char* type) {
     return Ret(0);
 }
 
+Ret validate_dataset_dist_func(const char* dist_func) {
+    if (dist_func == nullptr || dist_func[0] == '\0') {
+        return Ret("Invalid distance function parameter");
+    }
+
+    try {
+        validate_dist_func(dist_func_from_string(dist_func));
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+
+    return Ret(0);
+}
+
 std::string vector_to_string(const uint8_t* data, DataType type, uint16_t dim) {
     size_t buf_size = std::max<size_t>(64, static_cast<size_t>(dim) * 32);
     for (;;) {
@@ -243,17 +257,17 @@ void sk_disconnect(sk_handle_t* handle) {
 }
 
 static int sk_create_(sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
-        unsigned int range_size);
+        unsigned int range_size, const char* dist_func);
 int sk_create(sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
-        unsigned int range_size) {
+        unsigned int range_size, const char* dist_func) {
     try {
-        return sk_create_(handle, name, dim, type, range_size);
+        return sk_create_(handle, name, dim, type, range_size, dist_func);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
 }
 static int sk_create_(sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
-        unsigned int range_size) {
+        unsigned int range_size, const char* dist_func) {
     DECL
 
     if (handle->db_root.empty()) {
@@ -272,6 +286,10 @@ static int sk_create_(sk_handle_t* handle, const char* name, unsigned int dim, c
     const Ret type_ret = validate_dataset_type(type);
     if (type_ret.code() != 0) {
         ERR(type_ret.message().c_str())
+    }
+    const Ret dist_ret = validate_dataset_dist_func(dist_func);
+    if (dist_ret.code() != 0) {
+        ERR(dist_ret.message().c_str())
     }
 
     std::filesystem::create_directories(handle->db_root);
@@ -298,11 +316,13 @@ static int sk_create_(sk_handle_t* handle, const char* name, unsigned int dim, c
         "dirs=%s\n"
         "range_size=%u\n"
         "dim=%u\n"
-        "type=%s\n",
+        "type=%s\n"
+        "dist_func=%s\n",
         dir_path.string().c_str(),
         range_size,
         dim,
-        type);
+        type,
+        dist_func);
     const int close_rc = std::fclose(ini);
     if (written < 0 || close_rc != 0) {
         std::error_code ec;
@@ -561,7 +581,7 @@ static int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k) {
 
     std::vector<uint64_t> result;
     Scanner scanner;
-    ret = scanner.find(*handle->ds, DistFunc::L1, k, buf.data(), result);
+    ret = scanner.find(*handle->ds, k, buf.data(), result);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
@@ -882,12 +902,14 @@ static int sk_stats_(sk_handle_t* handle) {
             "dataset:\n"
             "    Name: %s\n"
             "    Type: %s\n"
+            "    Dist: %s\n"
             "    Dim: %llu\n"
             "    Range: %llu\n"
             "    Ini path: %s\n"
             "    Data path: %s\n\n",
             handle->dataset_name.c_str(),
             data_type_to_string(handle->ds->type()),
+            dist_func_to_string(handle->ds->dist_func()),
             static_cast<unsigned long long>(handle->ds->dim()),
             static_cast<unsigned long long>(handle->ds->range_size()),
             handle->dataset_ini.c_str(),

@@ -18,6 +18,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--type", default="f32", help="Dataset type for --create")
     parser.add_argument("--dim", type=int, default=4, help="Dataset dimension for --create")
     parser.add_argument("--range-size", type=int, default=1000, help="Dataset range size for --create")
+    parser.add_argument("--dist-func", default="l1", choices=("l1", "l2"),
+                        help="Dataset distance function for --create")
     return parser.parse_args()
 
 
@@ -30,8 +32,9 @@ def main() -> None:
 
     try:
         if dataset_name and args.create:
-            ps.create(dataset_name, type_name=args.type, dim=args.dim, range_size=args.range_size)
-        if dataset_name:
+            ps.create(dataset_name, type_name=args.type, dim=args.dim,
+                      range_size=args.range_size, dist_func=args.dist_func)
+        elif dataset_name:
             ps.open(dataset_name)
 
         banner_lines = [

@@ -20,8 +20,7 @@ constexpr const char* kVliteSchema =
 
 using DatasetInitFromPath = sketch2::Ret (sketch2::Dataset::*)(const std::string&);
 using ScannerFindDataset = sketch2::Ret (sketch2::Scanner::*)(
-    const sketch2::Dataset&, sketch2::DistFunc, size_t, const uint8_t*,
-    std::vector<uint64_t>&) const;
+    const sketch2::Dataset&, size_t, const uint8_t*, std::vector<uint64_t>&) const;
 
 [[maybe_unused]] DatasetInitFromPath kDatasetInitAnchor =
     static_cast<DatasetInitFromPath>(&sketch2::Dataset::init);

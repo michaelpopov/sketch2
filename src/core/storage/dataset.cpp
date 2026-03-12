@@ -166,6 +166,7 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
     }
     try {
         validate_type(metadata.type);
+        validate_dist_func(metadata.dist_func);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
@@ -175,11 +176,12 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
 }
 
 Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size,
-        DataType type, uint64_t dim, uint64_t accumulator_size) {
+        DataType type, uint64_t dim, uint64_t accumulator_size, DistFunc dist_func) {
     DatasetMetadata metadata;
     metadata.dirs             = dirs;
     metadata.range_size       = range_size;
     metadata.type             = type;
+    metadata.dist_func        = dist_func;
     metadata.dim              = dim;
     metadata.accumulator_size = accumulator_size;
     return init(metadata);
@@ -210,6 +212,7 @@ Ret Dataset::init_(const std::string& path) {
 
     std::string type_str = cfg.get_str("dataset.type", "f32");
     metadata.type = data_type_from_string(type_str);
+    metadata.dist_func = dist_func_from_string(cfg.get_str("dataset.dist_func", "l1"));
 
     return init(metadata);
 }
