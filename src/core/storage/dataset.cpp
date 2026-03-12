@@ -32,14 +32,6 @@ const uint8_t* Dataset::AccumulatorIterator::data() const {
     return iterator_.data();
 }
 
-static const std::string kTempExt = ".temp";
-static const std::string kDataExt = ".data";
-static const std::string kDeltaExt = ".delta";
-static const std::string kMergeExt = ".merge";
-static const std::string kLockExt = ".lock";
-static const std::string kOwnerLockFileName = "sketch2.owner.lock";
-static const std::string kAccumulatorWalFileName = "sketch2.accumulator.wal";
-
 namespace {
 
 Ret get_non_negative_ini_u64(const IniReader& cfg, const std::string& name, int def, uint64_t* out) {
@@ -543,7 +535,6 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
             return Ret("Dataset::store_and_merge_accumulator: failed to open output file: " + path);
         }
 
-        constexpr size_t kFileBufferSize = 4 * 1024 * 1024;
         std::vector<char> file_buffer(kFileBufferSize);
         (void)setvbuf(f, file_buffer.data(), _IOFBF, file_buffer.size());
 

@@ -4,15 +4,11 @@
 #include <fstream>
 #include <unistd.h>
 #include <vector>
-#include "core/storage/data_file.h"
 #include "core/storage/input_generator.h"
+#include "core/storage/data_file.h"
 #include "core/storage/data_writer.h"
 
 using namespace sketch2;
-
-static constexpr uint32_t kExpectedMagic   = 0x534B5632;
-static constexpr uint16_t kExpectedKind    = 0; // FileType::Data
-static constexpr uint16_t kExpectedVersion = kVersion;
 
 class DataWriterTest : public ::testing::Test {
 protected:
@@ -149,17 +145,17 @@ TEST_F(DataWriterTest, OutputFileSize) {
 
 TEST_F(DataWriterTest, HeaderMagic) {
     run(3, 0, DataType::f32, 4);
-    EXPECT_EQ(kExpectedMagic, read_header().base.magic);
+    EXPECT_EQ(kMagic, read_header().base.magic);
 }
 
 TEST_F(DataWriterTest, HeaderKind) {
     run(3, 0, DataType::f32, 4);
-    EXPECT_EQ(kExpectedKind, read_header().base.kind);
+    EXPECT_EQ(static_cast<uint16_t>(FileType::Data), read_header().base.kind);
 }
 
 TEST_F(DataWriterTest, HeaderVersion) {
     run(3, 0, DataType::f32, 4);
-    EXPECT_EQ(kExpectedVersion, read_header().base.version);
+    EXPECT_EQ(kVersion, read_header().base.version);
 }
 
 TEST_F(DataWriterTest, HeaderCount) {

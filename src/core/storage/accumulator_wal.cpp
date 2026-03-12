@@ -1,6 +1,7 @@
 #include "core/storage/accumulator_wal.h"
 
 #include "core/storage/accumulator.h"
+#include "core/utils/shared_consts.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -12,9 +13,6 @@
 namespace sketch2 {
 
 namespace {
-
-constexpr uint32_t kFnvOffsetBasis = 2166136261u;
-constexpr uint32_t kFnvPrime = 16777619u;
 
 uint32_t checksum_bytes(uint32_t checksum, const uint8_t* data, size_t size) {
     for (size_t i = 0; i < size; ++i) {

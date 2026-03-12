@@ -1,4 +1,5 @@
 #include "string_utils.h"
+#include <cmath>
 #include <cstdio>
 #include <limits>
 #include <string.h>
@@ -32,6 +33,9 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
             out[d] = strtof(line, &next);
             if (next == line || next > end) {
                 return Ret("InputReader::data: invalid f32 token");
+            }
+            if (!std::isfinite(out[d])) {
+                return Ret("InputReader::data: non-finite f32 token");
             }
             line = next;
             while (line < end && (*line == ',' || *line == ' ')) ++line;
@@ -72,7 +76,13 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
             if (next == line || next > end) {
                 return Ret("InputReader::data: invalid f16 token");
             }
+            if (!std::isfinite(f)) {
+                return Ret("InputReader::data: non-finite f16 token");
+            }
             out[d] = static_cast<float16>(f);
+            if (!std::isfinite(static_cast<double>(out[d]))) {
+                return Ret("InputReader::data: non-finite f16 token");
+            }
             line = next;
             while (line < end && (*line == ',' || *line == ' ')) ++line;
         }

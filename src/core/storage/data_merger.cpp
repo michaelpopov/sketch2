@@ -1,5 +1,6 @@
 #include "data_merger.h"
 #include "core/storage/data_file_layout.h"
+#include "core/utils/shared_consts.h"
 #include <algorithm>
 #include <experimental/scope>
 #include <filesystem>
@@ -16,8 +17,6 @@ struct MergeItem {
     uint64_t id;
     const uint8_t* data;
 };
-
-constexpr size_t kFileBufferSize = 4 * 1024 * 1024;
 
 void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer) {
     file_buffer->resize(kFileBufferSize);

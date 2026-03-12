@@ -515,6 +515,25 @@ TEST_F(ScannerTest, FindDatasetIncludesVectorsFromAccumulator) {
     EXPECT_EQ(50u, result[0]);
 }
 
+TEST_F(ScannerTest, FindDatasetAccumulatorUsesIdTieBreakForEqualDistance) {
+    std::string d = "/tmp/sketch2_utest_sc_dstie_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+
+    const auto vec = f32_vec(1.0f, 4);
+    ASSERT_EQ(0, ds.add_vector(20, vec.data()).code());
+    ASSERT_EQ(0, ds.add_vector(10, vec.data()).code());
+
+    Scanner s;
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 1, vec.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(10u, result[0]);
+}
+
 TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromAccumulator) {
     std::string d = "/tmp/sketch2_utest_sc_dsaccupd_" + std::to_string(getpid());
     fs::create_directories(d);

@@ -72,17 +72,13 @@ TEST(string_utils, parse_vector_i16_out_of_range_fails) {
     EXPECT_EQ("InputReader::data: i16 token out of range", ret.message());
 }
 
-TEST(string_utils, parse_vector_f32_nan_and_inf_success) {
+TEST(string_utils, parse_vector_f32_nan_and_inf_fail) {
     std::array<float, 3> out {};
     const Ret ret = parse_vector(
         reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::f32, out.size(),
         "nan, inf, -inf");
-    ASSERT_EQ(0, ret.code()) << ret.message();
-    EXPECT_TRUE(std::isnan(out[0]));
-    EXPECT_TRUE(std::isinf(out[1]));
-    EXPECT_GT(out[1], 0.0f);
-    EXPECT_TRUE(std::isinf(out[2]));
-    EXPECT_LT(out[2], 0.0f);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("InputReader::data: non-finite f32 token", ret.message());
 }
 
 TEST(string_utils, parse_vector_f16_unsupported_platform_fails) {

@@ -12,6 +12,18 @@ namespace sketch2 {
 namespace {
 
 using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);
+using DistHeap = std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare>;
+
+void push_result(DistHeap* heap, size_t count, uint64_t id, double dist) {
+    const DistItem item{id, dist};
+    DistItem::Compare is_better;
+    if (heap->size() < count) {
+        heap->push(item);
+    } else if (is_better(item, heap->top())) {
+        heap->pop();
+        heap->push(item);
+    }
+}
 
 } // namespace
 
@@ -41,7 +53,7 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
 
     result.clear();
 
-    std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare> heap;
+    DistHeap heap;
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
     const size_t dim = dataset.dim();
@@ -64,23 +76,13 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
                 continue;
             }
             double d = dist_fn(it.data(), vec, dim);
-            if (heap.size() < count) {
-                heap.push({it.id(), d});
-            } else if (d < heap.top().dist) {
-                heap.pop();
-                heap.push({it.id(), d});
-            }
+            push_result(&heap, count, it.id(), d);
         }
     }
 
     for (auto it = dataset.accumulator_begin(); !it.eof(); it.next()) {
         double d = dist_fn(it.data(), vec, dim);
-        if (heap.size() < count) {
-            heap.push({it.id(), d});
-        } else if (d < heap.top().dist) {
-            heap.pop();
-            heap.push({it.id(), d});
-        }
+        push_result(&heap, count, it.id(), d);
     }
 
     result.resize(heap.size());
@@ -111,16 +113,11 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
     size_t   dim  = reader.dim();
 
     // Max-heap of DistItem capped at count — keeps the nearest seen so far.
-    std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare> heap;
+    DistHeap heap;
 
     for (auto it = reader.begin(); !it.eof(); it.next()) {
         double d = dist_fn(it.data(), vec, dim);
-        if (heap.size() < count) {
-            heap.push({it.id(), d});
-        } else if (d < heap.top().dist) {
-            heap.pop();
-            heap.push({it.id(), d});
-        }
+        push_result(&heap, count, it.id(), d);
     }
 
     // Extract ids in ascending distance order.

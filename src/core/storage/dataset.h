@@ -2,6 +2,7 @@
 #include "accumulator.h"
 #include "core/compute/compute.h"
 #include "core/utils/file_lock.h"
+#include "utils/shared_consts.h"
 #include "utils/shared_types.h"
 #include <memory>
 #include <string>
@@ -9,10 +10,6 @@
 #include <vector>
 
 namespace sketch2 {
-
-constexpr const char* kMetadataFileName = "sketch2.metadata";
-static constexpr size_t kAccumulatorBufferSize = 64 * 1024;
-static constexpr int kRangeSize = 10'000;
 
 class DataReader;
 class InputReader;

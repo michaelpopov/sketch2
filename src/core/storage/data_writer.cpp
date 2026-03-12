@@ -1,6 +1,7 @@
 #include "data_writer.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
+#include "core/utils/shared_consts.h"
 #include <experimental/scope>
 #include <cstdint>
 #include <cstdio>
@@ -90,7 +91,6 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     }
 
     // Use a larger stdio buffer to reduce write-related syscalls for large datasets.
-    constexpr size_t kFileBufferSize = 4 * 1024 * 1024;
     std::vector<char> file_buffer(kFileBufferSize);
     (void)setvbuf(f, file_buffer.data(), _IOFBF, file_buffer.size());
 

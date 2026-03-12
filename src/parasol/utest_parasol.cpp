@@ -1,10 +1,13 @@
 #include "parasol.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <gtest/gtest.h>
@@ -217,6 +220,99 @@ TEST(parasol, create_rejects_invalid_distance_function) {
     ASSERT_NE(handle, nullptr);
 
     EXPECT_NE(0, sk_create(handle, "ds", 4, "f32", 1000, "cosine"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, upsert_and_knn_reject_nonfinite_vectors) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    EXPECT_NE(0, sk_upsert(handle, 1, "nan, 0.0, 0.0, 0.0"));
+    EXPECT_STREQ("InputReader::data: non-finite f32 token", sk_error_message(handle));
+    EXPECT_NE(0, sk_knn(handle, "inf, 0.0, 0.0, 0.0", 1));
+    EXPECT_STREQ("InputReader::data: non-finite f32 token", sk_error_message(handle));
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, ups2_rejects_nonfinite_scalar) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    EXPECT_NE(0, sk_ups2(handle, 1, std::numeric_limits<double>::infinity()));
+    EXPECT_STREQ("Value must be finite", sk_error_message(handle));
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, drop_waits_for_dataset_owner_lock) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+
+    int pipefd[2];
+    ASSERT_EQ(0, pipe(pipefd));
+
+    const pid_t pid = fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+        close(pipefd[0]);
+        sk_handle_t* child = sk_connect(root.string().c_str());
+        if (child == nullptr) {
+            _exit(10);
+        }
+        if (sk_open(child, "ds") != 0) {
+            _exit(11);
+        }
+        if (sk_upsert(child, 1, "1.0, 1.0, 1.0, 1.0") != 0) {
+            _exit(12);
+        }
+        const char ready = '1';
+        if (write(pipefd[1], &ready, 1) != 1) {
+            _exit(13);
+        }
+        usleep(300000);
+        if (sk_close(child, "ds") != 0) {
+            _exit(14);
+        }
+        sk_disconnect(child);
+        close(pipefd[1]);
+        _exit(0);
+    }
+
+    close(pipefd[1]);
+    char ready = 0;
+    ASSERT_EQ(1, read(pipefd[0], &ready, 1));
+    close(pipefd[0]);
+
+    const auto started = std::chrono::steady_clock::now();
+    ASSERT_OK(handle, sk_drop(handle, "ds"));
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+    EXPECT_GE(elapsed.count(), 200);
+
+    int status = 0;
+    ASSERT_EQ(pid, waitpid(pid, &status, 0));
+    ASSERT_TRUE(WIFEXITED(status));
+    EXPECT_EQ(0, WEXITSTATUS(status));
 
     sk_disconnect(handle);
     std::filesystem::remove_all(root);

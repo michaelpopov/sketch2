@@ -3,11 +3,15 @@
 #include "core/compute/scanner.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset.h"
+#include "core/utils/file_lock.h"
+#include "core/utils/ini_reader.h"
 #include "core/storage/input_generator.h"
+#include "core/utils/shared_consts.h"
 #include "core/utils/shared_types.h"
 #include "core/utils/string_utils.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -41,8 +45,6 @@ struct sk_handle {
 };
 
 namespace {
-
-const char* kInputFileName = "data.input";
 
 void set_error(sk_handle_t* handle, const char* message) {
     if (handle == nullptr) {
@@ -141,6 +143,22 @@ Ret validate_dataset_dist_func(const char* dist_func) {
     return Ret(0);
 }
 
+Ret lock_dataset_owner(const std::filesystem::path& ini_path, std::unique_ptr<FileLockGuard>* owner_lock) {
+    if (owner_lock == nullptr) {
+        return Ret("Invalid owner lock output parameter");
+    }
+
+    IniReader cfg;
+    CHECK(cfg.init(ini_path.string()));
+    const std::vector<std::string> dirs = cfg.get_str_list("dataset.dirs");
+    if (dirs.empty()) {
+        return Ret("Dataset dirs are not set");
+    }
+
+    owner_lock->reset(new FileLockGuard());
+    return (*owner_lock)->lock(dirs.front() + "/" + kOwnerLockFileName);
+}
+
 std::string vector_to_string(const uint8_t* data, DataType type, uint16_t dim) {
     size_t buf_size = std::max<size_t>(64, static_cast<size_t>(dim) * 32);
     for (;;) {
@@ -197,6 +215,9 @@ int print_stats_block(const std::string& label, size_t vectors_count, size_t del
 Ret fill_vector_with_scalar(std::vector<uint8_t>* buf, DataType type, uint64_t dim, double value) {
     if (buf == nullptr) {
         return Ret("Invalid buffer");
+    }
+    if (!std::isfinite(value)) {
+        return Ret("Value must be finite");
     }
 
     switch (type) {
@@ -367,10 +388,6 @@ static int sk_drop_(sk_handle_t* handle, const char* name) {
         ERR("Invalid dataset name")
     }
 
-    if (handle->ds != nullptr && handle->dataset_name == name) {
-        close_dataset(handle);
-    }
-
     const std::filesystem::path dir_path = dataset_dir_path(handle, name);
     const std::filesystem::path ini_path = dataset_ini_path(handle, name);
     const std::filesystem::path lock_path = dataset_lock_path(handle, name);
@@ -383,6 +400,16 @@ static int sk_drop_(sk_handle_t* handle, const char* name) {
     }
     if (!std::filesystem::exists(dir_path)) {
         ERR("Dataset directory is not present")
+    }
+
+    std::unique_ptr<FileLockGuard> owner_lock;
+    const Ret owner_lock_ret = lock_dataset_owner(ini_path, &owner_lock);
+    if (owner_lock_ret.code() != 0) {
+        ERR(owner_lock_ret.message().c_str())
+    }
+
+    if (handle->ds != nullptr && handle->dataset_name == name) {
+        close_dataset(handle);
     }
 
     std::error_code ec;

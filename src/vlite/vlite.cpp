@@ -2,6 +2,7 @@
 
 #include "core/compute/scanner.h"
 #include "core/storage/dataset.h"
+#include "core/utils/shared_consts.h"
 #include "core/utils/string_utils.h"
 
 #include <cstddef>
@@ -13,10 +14,6 @@
 SQLITE_EXTENSION_INIT1
 
 namespace {
-
-constexpr const char* kVliteModuleName = "vlite";
-constexpr const char* kVliteSchema =
-    "CREATE TABLE x(query TEXT HIDDEN, k INTEGER HIDDEN, id INTEGER, distance REAL)";
 
 using DatasetInitFromPath = sketch2::Ret (sketch2::Dataset::*)(const std::string&);
 using ScannerFindDataset = sketch2::Ret (sketch2::Scanner::*)(
@@ -41,7 +38,7 @@ int vlite_connect(sqlite3* db, sqlite3_vtab** pp_vtab) {
         return SQLITE_ERROR;
     }
 
-    const int declare_rc = sqlite3_declare_vtab(db, kVliteSchema);
+    const int declare_rc = sqlite3_declare_vtab(db, sketch2::kVliteSchema);
     if (declare_rc != SQLITE_OK) {
         return declare_rc;
     }
@@ -276,7 +273,7 @@ extern "C" int sqlite3_vlite_init(sqlite3* db, char** pz_err_msg, const sqlite3_
     }
 
     SQLITE_EXTENSION_INIT2(api);
-    return sqlite3_create_module_v2(db, kVliteModuleName, &kVliteModule, nullptr, nullptr);
+    return sqlite3_create_module_v2(db, sketch2::kVliteModuleName, &kVliteModule, nullptr, nullptr);
 }
 
 extern "C" int sqlite3_extension_init(sqlite3* db, char** pz_err_msg, const sqlite3_api_routines* api) {
