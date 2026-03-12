@@ -50,6 +50,18 @@ class ParasolErrorTest(unittest.TestCase):
             ps.close(self.dataset_name)
             ps.drop(self.dataset_name)
 
+    def test_get_rejects_removed_buf_size_argument(self) -> None:
+        with Parasol(self.root) as ps:
+            ps.create(self.dataset_name, dist_func="l1")
+            ps.upsert(1, "1.0, 2.0, 3.0, 4.0")
+            ps.merge_accumulator()
+
+            with self.assertRaises(TypeError):
+                ps.get(1, buf_size=128)  # type: ignore[call-arg]
+
+            ps.close(self.dataset_name)
+            ps.drop(self.dataset_name)
+
     def test_generate_fails_on_invalid_pattern(self) -> None:
         with Parasol(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l1")

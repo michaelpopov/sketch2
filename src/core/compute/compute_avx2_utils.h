@@ -5,6 +5,12 @@
 
 namespace sketch2 {
 
+// Byte alignment required for aligned AVX2 256-bit loads/stores.
+inline constexpr uintptr_t kAvx2VectorAlignment = 32u;
+
+// Byte alignment required for aligned 128-bit half-precision loads before F16C widening.
+inline constexpr uintptr_t kHalfVectorAlignment = 16u;
+
 inline double hsum_ps_256(__m256 v) {
     const __m128 lo = _mm256_castps256_ps128(v);
     const __m128 hi = _mm256_extractf128_ps(v, 1);

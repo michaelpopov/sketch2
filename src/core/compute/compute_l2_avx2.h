@@ -54,7 +54,8 @@ inline double ComputeL2_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size_
     __m256 acc1 = _mm256_setzero_ps();
     __m256 acc2 = _mm256_setzero_ps();
     __m256 acc3 = _mm256_setzero_ps();
-    const bool aligned = (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & 31u) == 0u);
+    const bool aligned =
+        (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kAvx2VectorAlignment - 1u)) == 0u);
 
     size_t i = 0;
     if (aligned) {
@@ -123,7 +124,8 @@ inline double ComputeL2_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size_
     __m256 acc1 = _mm256_setzero_ps();
     __m256 acc2 = _mm256_setzero_ps();
     __m256 acc3 = _mm256_setzero_ps();
-    const bool aligned = (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & 15u) == 0u);
+    const bool aligned =
+        (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kHalfVectorAlignment - 1u)) == 0u);
 
     size_t i = 0;
     if (aligned) {
@@ -190,7 +192,8 @@ inline double ComputeL2_AVX2::dist_i16(const uint8_t *a, const uint8_t *b, size_
     const int16_t *vb = reinterpret_cast<const int16_t *>(b);
     __m256i acc0 = _mm256_setzero_si256();
     __m256i acc1 = _mm256_setzero_si256();
-    const bool aligned = (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & 31u) == 0u);
+    const bool aligned =
+        (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kAvx2VectorAlignment - 1u)) == 0u);
 
     size_t i = 0;
     if (aligned) {

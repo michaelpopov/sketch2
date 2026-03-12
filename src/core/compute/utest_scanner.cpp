@@ -273,6 +273,26 @@ TEST_F(ScannerTest, DeltaSkipsDeletedIds) {
     }
 }
 
+TEST_F(ScannerTest, DeltaDeletingAllVectorsReturnsEmptyResult) {
+    generate(3, 0, DataType::f32, 4);
+    write_delta_raw(
+        "f32,4\n"
+        "0 : []\n"
+        "1 : []\n"
+        "2 : []\n");
+
+    auto delta = std::make_unique<DataReader>();
+    ASSERT_EQ(0, delta->init(delta_path_).code());
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path_, std::move(delta)).code());
+
+    Scanner s;
+    auto q = f32_vec(1.1f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 3, q.data(), result).code());
+    EXPECT_TRUE(result.empty());
+}
+
 TEST_F(ScannerTest, DeltaUsesUpdatedVectors) {
     generate(4, 10, DataType::f32, 4); // values 10.1, 11.1, 12.1, 13.1
     write_delta_raw(
@@ -494,6 +514,32 @@ TEST_F(ScannerTest, FindDatasetSkipsIdsDeletedInAccumulator) {
     }
 }
 
+TEST_F(ScannerTest, FindDatasetDeleteFlushedFromAccumulatorStaysHidden) {
+    std::string d = "/tmp/sketch2_utest_sc_dsaccflushdel_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    ASSERT_EQ(0, ds.delete_vector(2).code());
+    ASSERT_EQ(0, ds.store_accumulator().code());
+    ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
+
+    Scanner s;
+    auto q = f32_vec(2.1f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 5, q.data(), result).code());
+
+    EXPECT_EQ(4u, result.size());
+    for (uint64_t id : result) {
+        EXPECT_NE(2u, id);
+    }
+}
+
 TEST_F(ScannerTest, FindDatasetIncludesVectorsFromAccumulator) {
     std::string d = "/tmp/sketch2_utest_sc_dsaccadd_" + std::to_string(getpid());
     fs::create_directories(d);
@@ -513,6 +559,29 @@ TEST_F(ScannerTest, FindDatasetIncludesVectorsFromAccumulator) {
     ASSERT_EQ(0, s.find(ds, 1, pending.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(50u, result[0]);
+}
+
+TEST_F(ScannerTest, FindDatasetReAddedDeletedVectorUsesAccumulatorValue) {
+    std::string d = "/tmp/sketch2_utest_sc_dsreadd_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    ASSERT_EQ(0, ds.delete_vector(2).code());
+    const auto updated = f32_vec(500.0f, 4);
+    ASSERT_EQ(0, ds.add_vector(2, updated.data()).code());
+    EXPECT_FALSE(ds.is_deleted(2));
+
+    Scanner s;
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 1, updated.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(2u, result[0]);
 }
 
 TEST_F(ScannerTest, FindDatasetAccumulatorUsesIdTieBreakForEqualDistance) {

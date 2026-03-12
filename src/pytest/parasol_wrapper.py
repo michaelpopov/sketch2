@@ -175,7 +175,7 @@ class Parasol:
     def kres(self, index: int) -> int:
         return int(self.lib.sk_kres(self.handle, c_int64(index)))
 
-    def get(self, item_id: int, buf_size: int = 4096) -> str:
+    def get(self, item_id: int) -> str:
         self._check("sk_get", self.lib.sk_get(self.handle, c_uint64(item_id)))
         out = self.lib.sk_gres(self.handle)
         if not out:
