@@ -94,6 +94,22 @@ class ParasolBasicTest(unittest.TestCase):
             ps.close(self.dataset_name)
             ps.drop(self.dataset_name)
 
+    def test_create_with_cos_supports_knn(self) -> None:
+        with Parasol(self.root) as ps:
+            ps.create(self.dataset_name, dist_func="cos")
+
+            ps.upsert(10, "100.0, 1.0, 0.0, 0.0")
+            ps.upsert(20, "1.0, 1.0, 0.0, 0.0")
+            ps.upsert(30, "-1.0, 0.0, 0.0, 0.0")
+            ps.merge_accumulator()
+
+            ini = (self.root / f"{self.dataset_name}.ini").read_text()
+            self.assertIn("dist_func=cos\n", ini)
+            self.assertEqual([10, 20, 30], ps.knn("1.0, 0.0, 0.0, 0.0", 3))
+
+            ps.close(self.dataset_name)
+            ps.drop(self.dataset_name)
+
 
 if __name__ == "__main__":
     unittest.main()

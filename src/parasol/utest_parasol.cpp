@@ -135,6 +135,33 @@ TEST(parasol, knn_uses_distance_function_from_dataset_ini) {
     std::filesystem::remove_all(root);
 }
 
+TEST(parasol, knn_supports_cosine_distance_function) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "cos"));
+    ASSERT_OK(handle, sk_upsert(handle, 10, "100.0, 1.0, 0.0, 0.0"));
+    ASSERT_OK(handle, sk_upsert(handle, 20, "1.0, 1.0, 0.0, 0.0"));
+    ASSERT_OK(handle, sk_upsert(handle, 30, "-1.0, 0.0, 0.0, 0.0"));
+    ASSERT_OK(handle, sk_macc(handle));
+
+    const std::filesystem::path ini_path = root / "ds.ini";
+    std::string ini = read_file(ini_path);
+    EXPECT_NE(std::string::npos, ini.find("dist_func=cos\n"));
+    ASSERT_OK(handle, sk_knn(handle, "1.0, 0.0, 0.0, 0.0", 3));
+    EXPECT_EQ(10u, sk_kres(handle, 0));
+    EXPECT_EQ(20u, sk_kres(handle, 1));
+    EXPECT_EQ(30u, sk_kres(handle, 2));
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
 TEST(parasol, generate_stats_and_print_smoke) {
     const std::filesystem::path root = make_temp_dir();
 

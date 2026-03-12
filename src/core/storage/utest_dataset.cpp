@@ -114,6 +114,21 @@ TEST_F(DatasetTest, InitDefaultsDistFuncToL1WhenMissingFromIni) {
     EXPECT_EQ(DistFunc::L1, sc.dist_func());
 }
 
+TEST_F(DatasetTest, InitFromIniAcceptsCosDistanceFunction) {
+    auto dir = make_dir("d_cos_dist");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 10\n"
+        "type = f32\n"
+        "dist_func = cos\n"
+        "dim = 4\n");
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init(config_path_).code());
+    EXPECT_EQ(DistFunc::COS, sc.dist_func());
+}
+
 TEST_F(DatasetTest, InitFromMetadataExposesDistanceFunction) {
     DatasetMetadata metadata;
     metadata.dirs = {make_dir("d_metadata_dist")};

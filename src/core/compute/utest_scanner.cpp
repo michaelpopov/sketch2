@@ -65,10 +65,26 @@ protected:
         ASSERT_EQ(0, w.exec().code());
     }
 
+    void write_input_raw(const std::string& path, const std::string& content) {
+        std::ofstream f(path);
+        f << content;
+        f.close();
+    }
+
     std::vector<uint8_t> f32_vec(float val, size_t dim) {
         std::vector<uint8_t> buf(dim * sizeof(float));
         auto* p = reinterpret_cast<float*>(buf.data());
         for (size_t i = 0; i < dim; ++i) p[i] = val;
+        return buf;
+    }
+
+    std::vector<uint8_t> f32_values(std::initializer_list<float> values) {
+        std::vector<uint8_t> buf(values.size() * sizeof(float));
+        auto* p = reinterpret_cast<float*>(buf.data());
+        size_t i = 0;
+        for (float v : values) {
+            p[i++] = v;
+        }
         return buf;
     }
 
@@ -183,6 +199,29 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
     EXPECT_EQ(2u, result[2]);
+}
+
+TEST_F(ScannerTest, FindF32CosK3ReturnsInOrder) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    DataWriter writer;
+    ASSERT_EQ(0, writer.init(input_path_, data_path_).code());
+    ASSERT_EQ(0, writer.exec().code());
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path_).code());
+    Scanner s;
+    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(reader, DistFunc::COS, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(10u, result[0]);
+    EXPECT_EQ(20u, result[1]);
+    EXPECT_EQ(30u, result[2]);
 }
 
 TEST_F(ScannerTest, FindI16AllSortedByDistance) {
@@ -306,6 +345,32 @@ TEST_F(ScannerTest, FindDatasetL2Works) {
     EXPECT_EQ(15u, result[0]);
     EXPECT_EQ(16u, result[1]);
     EXPECT_EQ(14u, result[2]);
+}
+
+TEST_F(ScannerTest, FindDatasetCosWorks) {
+    std::string d = "/tmp/sketch2_utest_sc_cosds_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    const auto ret = s.find(ds, 3, q.data(), result);
+    ASSERT_EQ(0, ret.code()) << "\n\nfind failed: " << ret.message() << "\n\n";
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(10u, result[0]);
+    EXPECT_EQ(20u, result[1]);
+    EXPECT_EQ(30u, result[2]);
 }
 
 TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {

@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--type", default="f32", help="Dataset type for --create")
     parser.add_argument("--dim", type=int, default=4, help="Dataset dimension for --create")
     parser.add_argument("--range-size", type=int, default=1000, help="Dataset range size for --create")
-    parser.add_argument("--dist-func", default="l1", choices=("l1", "l2"),
+    parser.add_argument("--dist-func", default="l1", choices=("l1", "l2", "cos"),
                         help="Dataset distance function for --create")
     return parser.parse_args()
 

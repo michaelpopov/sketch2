@@ -16,11 +16,64 @@ def fmt_vec(value: float, dim: int) -> str:
     return ", ".join(f"{value:.6f}" for _ in range(dim))
 
 
-def expected_topk(from_id: int, count: int, query: float, k: int) -> list[int]:
+def fmt_values(values: list[float]) -> str:
+    return ", ".join(f"{value:.6f}" for value in values)
+
+
+def cosine_distance(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a)
+    norm_b = sum(y * y for y in b)
+    if norm_a == 0.0 and norm_b == 0.0:
+        return 0.0
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 1.0
+    cosine = dot / ((norm_a * norm_b) ** 0.5)
+    cosine = max(-1.0, min(1.0, cosine))
+    return 1.0 - cosine
+
+
+def cosine_demo_vector(item_id: int, dim: int) -> list[float]:
+    values = [0.0] * dim
+    values[0] = float((item_id % 17) + 1)
+    values[1] = float(((item_id * 3) % 11) - 5)
+    values[2] = float(((item_id * 5) % 7) - 3)
+    for index in range(3, dim):
+        values[index] = float(((item_id + index) % 5) - 2)
+    return values
+
+
+def cosine_demo_query(dim: int) -> list[float]:
+    values = [0.0] * dim
+    values[0] = 1.0
+    values[1] = -0.5
+    values[2] = 0.25
+    for index in range(3, dim):
+        values[index] = 0.1 * (1 if index % 2 == 0 else -1)
+    return values
+
+
+def expected_topk_with_metric(from_id: int, count: int, query: float, k: int, dist_func: str,
+                              dim: int) -> list[int]:
+    if dist_func == "cos":
+        query_vec = cosine_demo_query(dim)
+        scored = [
+            (cosine_distance(cosine_demo_vector(item_id, dim), query_vec), item_id)
+            for item_id in range(from_id, from_id + count)
+        ]
+        scored.sort()
+        return [item_id for _, item_id in scored[:k]]
+
     # Sequential generator writes each vector as id+0.1 repeated by dim.
     scored = [(abs((i + 0.1) - query), i) for i in range(from_id, from_id + count)]
     scored.sort()
     return [idx for _, idx in scored[:k]]
+
+
+def load_cosine_demo_vectors(ps: Parasol, from_id: int, count: int, dim: int) -> None:
+    for item_id in range(from_id, from_id + count):
+        ps.upsert(item_id, fmt_values(cosine_demo_vector(item_id, dim)))
+    ps.merge_accumulator()
 
 
 def run_demo(count: int, dim: int, k: int, keep: bool, dist_func: str) -> None:
@@ -34,14 +87,18 @@ def run_demo(count: int, dim: int, k: int, keep: bool, dist_func: str) -> None:
             ps.create(dataset_name, type_name="f32", dim=dim, range_size=1000, dist_func=dist_func)
 
             t0 = time.perf_counter()
-            ps.generate(count=count, start_id=from_id, pattern=0)
-            print(f"generated {count} vectors via sk_generate")
+            if dist_func == "cos":
+                load_cosine_demo_vectors(ps, from_id, count, dim)
+                print(f"generated {count} vectors via sk_upsert for cosine demo")
+            else:
+                ps.generate(count=count, start_id=from_id, pattern=0)
+                print(f"generated {count} vectors via sk_generate")
             t1 = time.perf_counter()
 
             query = count * 0.631 + 0.123
-            query_vec = fmt_vec(query, dim)
+            query_vec = fmt_values(cosine_demo_query(dim)) if dist_func == "cos" else fmt_vec(query, dim)
             actual = ps.knn(query_vec, k)
-            expected = expected_topk(from_id, count, query, k)
+            expected = expected_topk_with_metric(from_id, count, query, k, dist_func, dim)
 
             print(f"load+store time: {t1 - t0:.3f}s")
             print(f"dist_func={dist_func}")
@@ -67,7 +124,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--count", type=int, default=20000, help="Number of vectors to load")
     parser.add_argument("--dim", type=int, default=4, help="Vector dimension (>=4)")
     parser.add_argument("--k", type=int, default=10, help="Top-K neighbors to query")
-    parser.add_argument("--dist-func", default="l1", choices=("l1", "l2"),
+    parser.add_argument("--dist-func", default="l1", choices=("l1", "l2", "cos"),
                         help="Distance function used when creating the dataset")
     parser.add_argument("--keep", action="store_true", help="Keep generated dataset directory")
     return parser.parse_args()

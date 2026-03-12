@@ -1,4 +1,5 @@
 #include "scanner.h"
+#include "core/compute/compute_cos.h"
 #include "core/compute/compute_l1.h"
 #include "core/compute/compute_l2.h"
 #include "core/storage/data_reader.h"
@@ -48,6 +49,7 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
     switch (func) {
         case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(type); break;
         case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(type); break;
+        case DistFunc::COS: dist_fn = ComputeCos::resolve_dist(type); break;
         default: return Ret("Scanner::find: unsupported distance function.");
     }
 
@@ -102,6 +104,7 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
     switch (func) {
         case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(reader.type()); break;
         case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(reader.type()); break;
+        case DistFunc::COS: dist_fn = ComputeCos::resolve_dist(reader.type()); break;
         default: return Ret("Scanner::find: not implemented");
     }
 

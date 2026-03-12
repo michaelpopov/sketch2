@@ -22,6 +22,12 @@ enum class DataType {
     i16,
 };
 
+enum class DistFunc {
+    L1,
+    L2,
+    COS,
+};
+
 constexpr bool supports_f16() {
 #if defined(__FLT16_MANT_DIG__)
     return true;
@@ -80,6 +86,26 @@ inline int data_type_to_int(DataType type)
         case DataType::i16: return 2;
         default: throw std::runtime_error("Invalid data type.");
     }
+}
+
+inline const char* dist_func_to_string(DistFunc func) {
+    switch (func) {
+        case DistFunc::L1: return "l1";
+        case DistFunc::L2: return "l2";
+        case DistFunc::COS: return "cos";
+        default: throw std::runtime_error("Invalid distance function.");
+    }
+}
+
+inline DistFunc dist_func_from_string(const std::string& func_str) {
+    if (func_str == "l1") return DistFunc::L1;
+    if (func_str == "l2") return DistFunc::L2;
+    if (func_str == "cos") return DistFunc::COS;
+    throw std::runtime_error("Invalid distance function string.");
+}
+
+inline void validate_dist_func(DistFunc func) {
+    (void)dist_func_to_string(func);
 }
 
 class Ret
