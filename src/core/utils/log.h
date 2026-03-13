@@ -386,6 +386,27 @@ inline void set_log_level(LogLevel log_level) { FILELog::set_level(log_level); }
 
 inline LogLevel get_log_level() { return FILELog::level(); }
 
+inline bool set_log_level_from_env(const char* env_var_name) {
+    if (env_var_name == nullptr) return false;
+
+    const char* value = std::getenv(env_var_name);
+    if (value == nullptr) return false;
+
+    set_log_level(FILELog::from_string(value));
+    return true;
+}
+
+// LogEnvInitializer applies process-wide logging configuration as soon as the
+// current binary or shared library finishes loading. The inline singleton keeps
+// the behavior automatic for every consumer that links Sketch2 without
+// requiring an explicit init call from application code.
+class LogEnvInitializer {
+public:
+    LogEnvInitializer() { (void)set_log_level_from_env("SKETCH2_LOG_LEVEL"); }
+};
+
+inline LogEnvInitializer g_log_env_initializer;
+
 inline void set_log_fd(int fd) { OutputWriter::set_fd(fd); }
 
 inline int get_log_fd() { return OutputWriter::fd(); }

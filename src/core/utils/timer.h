@@ -24,11 +24,7 @@ public:
     explicit Timer(std::string_view name, bool log_on_destroy = false)
         : name_(name), start_(std::chrono::steady_clock::now()), log_on_destroy_(log_on_destroy) {}
 
-    ~Timer() {
-        if (log_on_destroy_) {
-            LOG_DEBUG << str();
-        }
-    }
+    ~Timer() { if (log_on_destroy_) { LOG_DEBUG << str(); } }
 
     void reset() { start_ = std::chrono::steady_clock::now(); }
 
@@ -36,13 +32,9 @@ public:
 
     std::chrono::steady_clock::duration elapsed() const { return std::chrono::steady_clock::now() - start_; }
 
-    std::int64_t elapsed_ms() const {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed()).count();
-    }
+    std::int64_t elapsed_ms() const { return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed()).count(); }
 
-    std::int64_t elapsed_us() const {
-        return std::chrono::duration_cast<std::chrono::microseconds>(elapsed()).count();
-    }
+    std::int64_t elapsed_us() const { return std::chrono::duration_cast<std::chrono::microseconds>(elapsed()).count(); }
 
     std::int64_t operator()() const { return elapsed_ms(); }
 
