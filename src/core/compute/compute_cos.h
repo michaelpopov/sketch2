@@ -22,7 +22,7 @@ public:
     double dist(const uint8_t *a, const uint8_t *b, DataType type, size_t dim) override;
     static DistFn resolve_dist(DataType type);
 
-private:
+    // Typed entrypoints used by scanner template dispatch and scalar fallback.
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_f16(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_i16(const uint8_t *a, const uint8_t *b, size_t dim);

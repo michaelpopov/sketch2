@@ -12,8 +12,21 @@ namespace sketch2 {
 
 namespace {
 
-using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);
 using DistHeap = std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare>;
+
+#if defined(__AVX2__)
+using ComputeL1Target = ComputeL1_AVX2;
+using ComputeL2Target = ComputeL2_AVX2;
+using ComputeCosTarget = ComputeCos_AVX2;
+#elif defined(__aarch64__)
+using ComputeL1Target = ComputeL1_Neon;
+using ComputeL2Target = ComputeL2_Neon;
+using ComputeCosTarget = ComputeCos_Neon;
+#else
+using ComputeL1Target = ComputeL1;
+using ComputeL2Target = ComputeL2;
+using ComputeCosTarget = ComputeCos;
+#endif
 
 void push_result(DistHeap* heap, size_t count, uint64_t id, double dist) {
     const DistItem item{id, dist};
@@ -42,17 +55,35 @@ void extract_ids(const std::vector<DistItem>& items, std::vector<uint64_t>* resu
 }
 
 template <typename Iterator>
+inline void maybe_prefetch_next(const Iterator& it) {
+#if defined(__GNUC__) || defined(__clang__)
+    // Sequential scanner walks are a plausible place for software prefetch, but the
+    // payoff is workload- and CPU-specific. Keep this conservative and re-benchmark
+    // the distance on representative large datasets before tuning or expanding it.
+    Iterator next_it = it;
+    next_it.next();
+    if (!next_it.eof()) {
+        __builtin_prefetch(next_it.data(), 0, 1);
+    }
+#else
+    (void)it;
+#endif
+}
+
+template <auto DistanceFn, typename Iterator>
 void scan_ordered_reader(Iterator it, const std::vector<uint64_t>& skip_ids,
-        DistFn dist_fn, const uint8_t* vec, size_t dim, size_t count, DistHeap* heap) {
+        const uint8_t* vec, size_t dim, size_t count, DistHeap* heap) {
     if (skip_ids.empty()) {
         for (; !it.eof(); it.next()) {
-            push_result(heap, count, it.id(), dist_fn(it.data(), vec, dim));
+            maybe_prefetch_next(it);
+            push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim));
         }
         return;
     }
 
     auto skip_it = skip_ids.end();
     for (; !it.eof(); it.next()) {
+        maybe_prefetch_next(it);
         const uint64_t id = it.id();
         if (skip_it == skip_ids.end()) {
             skip_it = std::lower_bound(skip_ids.begin(), skip_ids.end(), id);
@@ -63,7 +94,69 @@ void scan_ordered_reader(Iterator it, const std::vector<uint64_t>& skip_ids,
         if (skip_it != skip_ids.end() && *skip_it == id) {
             continue;
         }
-        push_result(heap, count, id, dist_fn(it.data(), vec, dim));
+        push_result(heap, count, id, DistanceFn(it.data(), vec, dim));
+    }
+}
+
+template <auto DistanceFn>
+Ret scan_dataset_items(const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) {
+    DistHeap heap;
+    CHECK(dataset.prepare_read_state());
+    const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();
+    const size_t dim = dataset.dim();
+
+    auto drs = dataset.reader();
+    while (true) {
+        auto [reader, ret] = drs->next();
+        CHECK(ret);
+        if (!reader) break;
+
+        scan_ordered_reader<DistanceFn>(reader->base_begin(), modified_ids, vec, dim, count, &heap);
+        scan_ordered_reader<DistanceFn>(reader->delta_begin(), modified_ids, vec, dim, count, &heap);
+    }
+
+    for (auto it = dataset.accumulator_begin(); !it.eof(); it.next()) {
+        push_result(&heap, count, it.id(), DistanceFn(it.data(), vec, dim));
+    }
+
+    extract_items(&heap, &result);
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_reader_items(const DataReader& reader, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) {
+    const size_t dim = reader.dim();
+    DistHeap heap;
+
+    for (auto it = reader.begin(); !it.eof(); it.next()) {
+        push_result(&heap, count, it.id(), DistanceFn(it.data(), vec, dim));
+    }
+
+    extract_items(&heap, &result);
+    return Ret(0);
+}
+
+template <typename ComputeTarget>
+Ret dispatch_dataset_items(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) {
+    switch (type) {
+        case DataType::f32: return scan_dataset_items<&ComputeTarget::dist_f32>(dataset, count, vec, result);
+        case DataType::f16: return scan_dataset_items<&ComputeTarget::dist_f16>(dataset, count, vec, result);
+        case DataType::i16: return scan_dataset_items<&ComputeTarget::dist_i16>(dataset, count, vec, result);
+        default: return Ret("Scanner::find: unsupported data type.");
+    }
+}
+
+template <typename ComputeTarget>
+Ret dispatch_reader_items(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) {
+    switch (type) {
+        case DataType::f32: return scan_reader_items<&ComputeTarget::dist_f32>(reader, count, vec, result);
+        case DataType::f16: return scan_reader_items<&ComputeTarget::dist_f16>(reader, count, vec, result);
+        case DataType::i16: return scan_reader_items<&ComputeTarget::dist_i16>(reader, count, vec, result);
+        default: return Ret("Scanner::find: unsupported data type.");
     }
 }
 
@@ -120,38 +213,14 @@ Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* ve
     }
 
     result.clear();
-
-    DistHeap heap;
-    CHECK(dataset.prepare_read_state());
-    const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
-    const size_t dim = dataset.dim();
-    DistFn dist_fn = nullptr;
     switch (func) {
-        case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(type); break;
-        case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(type); break;
-        case DistFunc::COS: dist_fn = ComputeCos::resolve_dist(type); break;
+        case DistFunc::L1: return dispatch_dataset_items<ComputeL1Target>(type, dataset, count, vec, result);
+        case DistFunc::L2: return dispatch_dataset_items<ComputeL2Target>(type, dataset, count, vec, result);
+        case DistFunc::COS: return dispatch_dataset_items<ComputeCosTarget>(type, dataset, count, vec, result);
         default: return Ret("Scanner::find: unsupported distance function.");
     }
-
-    auto drs = dataset.reader();
-    while (true) {
-        auto [reader, ret] = drs->next();
-        CHECK(ret);
-        if (!reader) break;
-
-        scan_ordered_reader(reader->base_begin(), modified_ids, dist_fn, vec, dim, count, &heap);
-        scan_ordered_reader(reader->delta_begin(), modified_ids, dist_fn, vec, dim, count, &heap);
-    }
-
-    for (auto it = dataset.accumulator_begin(); !it.eof(); it.next()) {
-        double d = dist_fn(it.data(), vec, dim);
-        push_result(&heap, count, it.id(), d);
-    }
-
-    extract_items(&heap, &result);
-    return Ret(0);
 }
 
 Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
@@ -169,27 +238,13 @@ Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, 
     }
 
     result.clear();
-
-    DistFn dist_fn = nullptr;
+    const DataType type = reader.type();
     switch (func) {
-        case DistFunc::L1: dist_fn = ComputeL1::resolve_dist(reader.type()); break;
-        case DistFunc::L2: dist_fn = ComputeL2::resolve_dist(reader.type()); break;
-        case DistFunc::COS: dist_fn = ComputeCos::resolve_dist(reader.type()); break;
+        case DistFunc::L1: return dispatch_reader_items<ComputeL1Target>(type, reader, count, vec, result);
+        case DistFunc::L2: return dispatch_reader_items<ComputeL2Target>(type, reader, count, vec, result);
+        case DistFunc::COS: return dispatch_reader_items<ComputeCosTarget>(type, reader, count, vec, result);
         default: return Ret("Scanner::find: not implemented");
     }
-
-    size_t   dim  = reader.dim();
-
-    // Max-heap of DistItem capped at count — keeps the nearest seen so far.
-    DistHeap heap;
-
-    for (auto it = reader.begin(); !it.eof(); it.next()) {
-        double d = dist_fn(it.data(), vec, dim);
-        push_result(&heap, count, it.id(), d);
-    }
-
-    extract_items(&heap, &result);
-    return Ret(0);
 }
 
 } // namespace sketch2
