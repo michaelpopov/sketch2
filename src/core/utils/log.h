@@ -7,6 +7,7 @@
 // Typical setup looks like:
 //   sketch2::log::set_log_level(sketch2::log::LogLevel::Debug);
 //   LOG_DEBUG << "scanner started";
+//   sketch2::log::configure_log_file("/tmp/sketch2.log");
 //
 // The logging macros are intended to be used as full statements and are safe in
 // common control-flow forms:
@@ -48,6 +49,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <fcntl.h>
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <streambuf>
@@ -257,9 +260,10 @@ public:
     // its stack buffer directly. That keeps the no-heap design intact all the
     // way to write(2) and removes the final copy from the enabled path.
     static void Output(const char* data, size_t size) {
+        const int fd = output_fd().load(std::memory_order_relaxed);
         size_t remaining = size;
         while (remaining > 0) {
-            const ssize_t ret = write(2, data, remaining);
+            const ssize_t ret = write(fd, data, remaining);
             if (ret < 0) {
                 if (errno == EINTR) continue;
                 break;
@@ -267,6 +271,66 @@ public:
             if (ret == 0) break;
             data += static_cast<size_t>(ret);
             remaining -= static_cast<size_t>(ret);
+        }
+    }
+
+    // set_fd redirects logging to an already-open file descriptor. Ownership
+    // stays with the caller, which keeps this path convenient for tests and for
+    // applications that already manage descriptor lifetime elsewhere.
+    static void set_fd(int fd) {
+        std::lock_guard<std::mutex> lock(config_mutex());
+        close_owned_fd_locked();
+        output_fd().store(fd, std::memory_order_relaxed);
+        owns_fd() = false;
+    }
+
+    static int fd() {
+        return output_fd().load(std::memory_order_relaxed);
+    }
+
+    // configure_file is the convenient "start logging to this file" helper for
+    // normal application setup. The logger opens the file in append mode and
+    // retains ownership so reset_fd() can safely restore stderr later.
+    static bool configure_file(const std::string& path) {
+        const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0666);
+        if (fd < 0) return false;
+
+        std::lock_guard<std::mutex> lock(config_mutex());
+        close_owned_fd_locked();
+        output_fd().store(fd, std::memory_order_relaxed);
+        owns_fd() = true;
+        return true;
+    }
+
+    static void reset_fd() {
+        std::lock_guard<std::mutex> lock(config_mutex());
+        close_owned_fd_locked();
+        output_fd().store(STDERR_FILENO, std::memory_order_relaxed);
+        owns_fd() = false;
+    }
+
+private:
+    static std::atomic<int>& output_fd() {
+        static std::atomic<int> fd{STDERR_FILENO};
+        return fd;
+    }
+
+    static bool& owns_fd() {
+        static bool owns = false;
+        return owns;
+    }
+
+    static std::mutex& config_mutex() {
+        static std::mutex mutex;
+        return mutex;
+    }
+
+    static void close_owned_fd_locked() {
+        if (owns_fd()) {
+            const int fd = output_fd().load(std::memory_order_relaxed);
+            if (fd >= 0 && fd != STDERR_FILENO) {
+                (void)close(fd);
+            }
         }
     }
 };
@@ -321,6 +385,14 @@ private:
 inline void set_log_level(LogLevel log_level) { FILELog::set_level(log_level); }
 
 inline LogLevel get_log_level() { return FILELog::level(); }
+
+inline void set_log_fd(int fd) { OutputWriter::set_fd(fd); }
+
+inline int get_log_fd() { return OutputWriter::fd(); }
+
+inline bool configure_log_file(const std::string& path) { return OutputWriter::configure_file(path); }
+
+inline void reset_log_output() { OutputWriter::reset_fd(); }
 
 } // namespace log
 } // namespace sketch2

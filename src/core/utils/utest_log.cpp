@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <fstream>
 #include <string>
 #include <unistd.h>
 
@@ -149,6 +150,29 @@ TEST(LogTest, LongMessagesAreTruncatedSafely) {
     EXPECT_NE(output.find("[truncated]"), std::string::npos);
 
     set_log_level(original);
+}
+
+TEST(LogTest, CanWriteLogsToDedicatedFile) {
+    LogLevel original_level = get_log_level();
+    set_log_level(LogLevel::Info);
+
+    char path[] = "/tmp/sketch2-log-XXXXXX";
+    const int temp_fd = mkstemp(path);
+    ASSERT_NE(temp_fd, -1);
+    close(temp_fd);
+
+    ASSERT_TRUE(configure_log_file(path));
+    LOG_INFO << "file sink message";
+    reset_log_output();
+
+    std::ifstream input(path);
+    ASSERT_TRUE(input.is_open());
+    const std::string output((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+
+    EXPECT_NE(output.find("file sink message"), std::string::npos);
+
+    unlink(path);
+    set_log_level(original_level);
 }
 
 } // namespace sketch2::log
