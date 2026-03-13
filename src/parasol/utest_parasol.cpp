@@ -90,6 +90,83 @@ TEST(parasol, upsert_get_gid_and_delete_follow_design_results) {
     std::filesystem::remove_all(root);
 }
 
+TEST(parasol, get_reads_pending_accumulator_vector_without_store_accumulator) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_upsert(handle, 42, "1.0, 2.0, 3.0, 4.0"));
+
+    ASSERT_OK(handle, sk_get(handle, 42));
+    EXPECT_STREQ("[ 1, 2, 3, 4 ]", sk_gres(handle));
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, reopen_restores_pending_wal_for_get_and_knn) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_ups2(handle, 1, 0.0));
+    ASSERT_OK(handle, sk_ups2(handle, 2, 10.0));
+    ASSERT_OK(handle, sk_close(handle, "ds"));
+
+    ASSERT_OK(handle, sk_open(handle, "ds"));
+
+    ASSERT_OK(handle, sk_get(handle, 1));
+    EXPECT_STREQ("[ 0, 0, 0, 0 ]", sk_gres(handle));
+
+    ASSERT_OK(handle, sk_knn(handle, "0.0, 0.0, 0.0, 0.0", 2));
+    EXPECT_EQ(2u, sk_kres(handle, -1));
+    EXPECT_EQ(1u, sk_kres(handle, 0));
+    EXPECT_EQ(2u, sk_kres(handle, 1));
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, get_propagates_dataset_read_errors) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_upsert(handle, 42, "1.0, 2.0, 3.0, 4.0"));
+    ASSERT_OK(handle, sk_macc(handle));
+    ASSERT_OK(handle, sk_close(handle, "ds"));
+
+    {
+        std::ofstream out(root / "ds" / "0.data", std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(out.is_open());
+        const char bad = '\0';
+        out.write(&bad, 1);
+        ASSERT_TRUE(out.good());
+    }
+
+    ASSERT_OK(handle, sk_open(handle, "ds"));
+    EXPECT_NE(0, sk_get(handle, 42));
+    EXPECT_NE(std::string(sk_error_message(handle)).find("file too small"), std::string::npos);
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
 TEST(parasol, ups2_knn_and_kres_cache_ids_on_handle) {
     const std::filesystem::path root = make_temp_dir();
 

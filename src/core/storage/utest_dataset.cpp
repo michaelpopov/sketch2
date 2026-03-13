@@ -1044,6 +1044,51 @@ TEST_F(DatasetTest, DatasetGetReturnsReaderWithDeltaApplied) {
     EXPECT_EQ(nullptr, missing_reader);
 }
 
+TEST_F(DatasetTest, DatasetGetVectorPrefersPendingAccumulatorUpdate) {
+    auto dir = make_dir("d_ds_get_vector_pending");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    const std::array<float, 4> updated {500.0f, 500.0f, 500.0f, 500.0f};
+    ASSERT_EQ(0, sc.add_vector(2, reinterpret_cast<const uint8_t*>(updated.data())).code());
+
+    auto [vec_data, ret] = sc.get_vector(2);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_NE(nullptr, vec_data);
+    const float* values = reinterpret_cast<const float*>(vec_data);
+    EXPECT_FLOAT_EQ(500.0f, values[0]);
+}
+
+TEST_F(DatasetTest, DatasetGetVectorLoadsPendingWalAfterReopen) {
+    auto dir = make_dir("d_ds_get_vector_reopen");
+    const std::array<float, 4> updated {500.0f, 500.0f, 500.0f, 500.0f};
+
+    {
+        Dataset owner;
+        ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
+        generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+        ASSERT_EQ(0, owner.store(input_path_).code());
+        ASSERT_EQ(0, owner.add_vector(2, reinterpret_cast<const uint8_t*>(updated.data())).code());
+        ASSERT_EQ(0, owner.delete_vector(3).code());
+    }
+
+    Dataset reopened;
+    ASSERT_EQ(0, reopened.init({dir}, 100, DataType::f32, 4).code());
+
+    auto [vec_data, ret] = reopened.get_vector(2);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_NE(nullptr, vec_data);
+    const float* values = reinterpret_cast<const float*>(vec_data);
+    EXPECT_FLOAT_EQ(500.0f, values[0]);
+
+    auto [deleted_data, deleted_ret] = reopened.get_vector(3);
+    ASSERT_EQ(0, deleted_ret.code()) << deleted_ret.message();
+    EXPECT_EQ(nullptr, deleted_data);
+}
+
 TEST_F(DatasetTest, DatasetGetCachesOpenedReaders) {
     auto dir = make_dir("d_ds_cache");
     Dataset sc;

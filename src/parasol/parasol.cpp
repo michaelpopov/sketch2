@@ -710,21 +710,16 @@ static int sk_get_(sk_handle_t* handle, uint64_t id) {
 
     handle->get_result.clear();
 
-    auto [reader, ret] = handle->ds->get(id);
+    auto [vec_data, ret] = handle->ds->get_vector(id);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
-    if (!reader) {
-        ERR("Vector not found")
-    }
-
-    const uint8_t* vec_data = reader->get(id);
     if (vec_data == nullptr) {
         ERR("Vector not found")
     }
 
     handle->get_result = vector_to_string(
-        vec_data, reader->type(), static_cast<uint16_t>(reader->dim()));
+        vec_data, handle->ds->type(), static_cast<uint16_t>(handle->ds->dim()));
     return 0;
 }
 

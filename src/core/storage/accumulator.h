@@ -91,6 +91,7 @@ public:
 
     const uint8_t* get_vector(uint64_t id) const;
     bool is_deleted(uint64_t id) const;
+    bool is_updated(uint64_t id) const;
     Iterator begin() const;
 
 private:

@@ -663,3 +663,27 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromAccumulator) {
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(1u, result[0]);
 }
+
+TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
+    std::string d = "/tmp/sketch2_utest_sc_dsaccdup_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+
+    write_input_raw(input_path_,
+        "f32,4\n"
+        "1 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+        "2 : [ 20.0, 20.0, 20.0, 20.0 ]\n"
+        "3 : [ 30.0, 30.0, 30.0, 30.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    const auto updated = f32_vec(15.0f, 4);
+    ASSERT_EQ(0, ds.add_vector(1, updated.data()).code());
+
+    Scanner s;
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 3, updated.data(), result).code());
+    ASSERT_EQ((std::vector<uint64_t> {1u, 2u, 3u}), result);
+}

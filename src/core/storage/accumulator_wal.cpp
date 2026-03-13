@@ -103,6 +103,14 @@ Ret AccumulatorWal::replay(Accumulator* accumulator) {
             return Ret(0);
         }
         if (bytes_read < sizeof(header)) {
+            if (0 != ftruncate(fd_, offset)) {
+                return Ret("AccumulatorWal::replay: failed to truncate partial tail: " +
+                    std::string(std::strerror(errno)));
+            }
+            if (lseek(fd_, 0, SEEK_END) < 0) {
+                return Ret("AccumulatorWal::replay: failed to seek wal: " +
+                    std::string(std::strerror(errno)));
+            }
             return Ret(0);
         }
         if (header.size < sizeof(WalRecordHeader)) {
@@ -127,6 +135,14 @@ Ret AccumulatorWal::replay(Accumulator* accumulator) {
             CHECK(pread_all(fd_, payload.data(), payload_size, offset + static_cast<off_t>(sizeof(header)),
                 &bytes_read, "AccumulatorWal::replay: failed to read record payload"));
             if (bytes_read < payload_size) {
+                if (0 != ftruncate(fd_, offset)) {
+                    return Ret("AccumulatorWal::replay: failed to truncate partial payload: " +
+                        std::string(std::strerror(errno)));
+                }
+                if (lseek(fd_, 0, SEEK_END) < 0) {
+                    return Ret("AccumulatorWal::replay: failed to seek wal: " +
+                        std::string(std::strerror(errno)));
+                }
                 return Ret(0);
             }
         }

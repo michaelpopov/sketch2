@@ -130,8 +130,7 @@ Ret Accumulator::attach_wal(const std::string& path) {
 
     wal_ = std::make_unique<AccumulatorWal>();
     CHECK(wal_->init(path, type_, dim_));
-    CHECK(wal_->replay(this));
-    return wal_->reset();
+    return wal_->replay(this);
 }
 
 Ret Accumulator::reset_wal() {
@@ -298,6 +297,13 @@ bool Accumulator::is_deleted(uint64_t id) const {
         throw std::runtime_error("Accumulator::is_deleted: not initialized");
     }
     return deleted_ids_.find(id) != deleted_ids_.end();
+}
+
+bool Accumulator::is_updated(uint64_t id) const {
+    if (!is_initialized_()) {
+        throw std::runtime_error("Accumulator::is_updated: not initialized");
+    }
+    return vector_index_.find(id) != vector_index_.end();
 }
 
 Accumulator::Iterator Accumulator::begin() const {

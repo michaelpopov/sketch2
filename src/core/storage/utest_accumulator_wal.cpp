@@ -38,7 +38,7 @@ protected:
     }
 };
 
-TEST_F(AccumulatorWalTest, ReplayRestoresStateAndTruncatesWal) {
+TEST_F(AccumulatorWalTest, ReplayRestoresStateWithoutTruncatingValidWalRecords) {
     const std::array<float, 4> vec0 {1.0f, 2.0f, 3.0f, 4.0f};
     const std::array<float, 4> vec1 {5.0f, 6.0f, 7.0f, 8.0f};
 
@@ -51,6 +51,7 @@ TEST_F(AccumulatorWalTest, ReplayRestoresStateAndTruncatesWal) {
         ASSERT_EQ(0, accumulator.add_vector(2, as_bytes(vec1)).code());
         ASSERT_EQ(0, accumulator.delete_vector(1).code());
     }
+    const auto wal_size_before_replay = fs::file_size(wal_path_);
 
     Accumulator restored;
     ASSERT_EQ(0, restored.init(256, DataType::f32, 4).code());
@@ -61,10 +62,10 @@ TEST_F(AccumulatorWalTest, ReplayRestoresStateAndTruncatesWal) {
     const float* values = reinterpret_cast<const float*>(restored.get_vector(2));
     ASSERT_NE(nullptr, values);
     EXPECT_FLOAT_EQ(5.0f, values[0]);
-    EXPECT_EQ(static_cast<uintmax_t>(sizeof(WalFileHeader)), fs::file_size(wal_path_));
+    EXPECT_EQ(wal_size_before_replay, fs::file_size(wal_path_));
 }
 
-TEST_F(AccumulatorWalTest, ReplayIgnoresPartialTailRecord) {
+TEST_F(AccumulatorWalTest, ReplayIgnoresAndTruncatesPartialTailRecord) {
     const std::array<float, 4> vec {9.0f, 8.0f, 7.0f, 6.0f};
 
     {
@@ -73,6 +74,7 @@ TEST_F(AccumulatorWalTest, ReplayIgnoresPartialTailRecord) {
         ASSERT_EQ(0, accumulator.attach_wal(wal_path_).code());
         ASSERT_EQ(0, accumulator.add_vector(7, as_bytes(vec)).code());
     }
+    const auto wal_size_before_garbage = fs::file_size(wal_path_);
 
     {
         std::ofstream out(wal_path_, std::ios::binary | std::ios::app);
@@ -86,7 +88,7 @@ TEST_F(AccumulatorWalTest, ReplayIgnoresPartialTailRecord) {
     const float* values = reinterpret_cast<const float*>(restored.get_vector(7));
     ASSERT_NE(nullptr, values);
     EXPECT_FLOAT_EQ(9.0f, values[0]);
-    EXPECT_EQ(static_cast<uintmax_t>(sizeof(WalFileHeader)), fs::file_size(wal_path_));
+    EXPECT_EQ(wal_size_before_garbage, fs::file_size(wal_path_));
 }
 
 TEST_F(AccumulatorWalTest, ReplayFailsOnChecksumMismatch) {

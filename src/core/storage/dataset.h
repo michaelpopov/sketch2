@@ -81,6 +81,9 @@ public:
 
     DatasetReaderPtr reader() const;
     std::pair<DataReaderPtr, Ret> get(uint64_t id) const;
+    // In owner mode, loads pending accumulator/WAL state so reads see unflushed updates.
+    Ret prepare_read_state() const;
+    std::pair<const uint8_t*, Ret> get_vector(uint64_t id) const;
 
     DataType type() const { return metadata_.type; }
     DistFunc dist_func() const { return metadata_.dist_func; }
@@ -91,6 +94,7 @@ public:
     Ret add_vector(uint64_t id, const uint8_t* data);
     Ret delete_vector(uint64_t id);
     bool is_deleted(uint64_t id) const;
+    bool is_modified_in_accumulator(uint64_t id) const;
     AccumulatorIterator accumulator_begin() const;
     size_t accumulator_vectors_count() const { return accumulator_ ? accumulator_->vectors_count() : 0; }
     size_t accumulator_deleted_count() const { return accumulator_ ? accumulator_->deleted_count() : 0; }
@@ -98,8 +102,8 @@ public:
 private:
     DatasetMetadata metadata_;
     DatasetMode mode_ = DatasetMode::Owner;
-    std::unique_ptr<FileLockGuard> owner_lock_;
-    std::unique_ptr<Accumulator> accumulator_;
+    mutable std::unique_ptr<FileLockGuard> owner_lock_;
+    mutable std::unique_ptr<Accumulator> accumulator_;
     mutable bool items_cache_valid_ = false;
     mutable std::vector<DatasetItem> items_cache_;
     mutable std::unordered_map<uint64_t, DataReaderPtr> reader_cache_;

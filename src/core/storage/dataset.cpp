@@ -291,7 +291,15 @@ bool Dataset::is_deleted(uint64_t id) const {
     return accumulator_ && accumulator_->is_deleted(id);
 }
 
+bool Dataset::is_modified_in_accumulator(uint64_t id) const {
+    return accumulator_ && (accumulator_->is_deleted(id) || accumulator_->is_updated(id));
+}
+
 Dataset::AccumulatorIterator Dataset::accumulator_begin() const {
+    const Ret ret = prepare_read_state();
+    if (ret.code() != 0) {
+        throw std::runtime_error(ret.message());
+    }
     if (!accumulator_) {
         return AccumulatorIterator(Accumulator::Iterator());
     }
@@ -712,6 +720,43 @@ std::pair<DataReaderPtr, Ret> Dataset::get(uint64_t id) const {
         return {nullptr, Ret(0)};
     }
     return get_cached_reader_(*item);
+}
+
+Ret Dataset::prepare_read_state() const {
+    if (mode_ == DatasetMode::Guest || accumulator_) {
+        return Ret(0);
+    }
+
+    auto* self = const_cast<Dataset*>(this);
+    CHECK(self->ensure_owner_lock_());
+    return self->init_accumulator_();
+}
+
+std::pair<const uint8_t*, Ret> Dataset::get_vector(uint64_t id) const {
+    const Ret read_state_ret = prepare_read_state();
+    if (read_state_ret.code() != 0) {
+        return {nullptr, read_state_ret};
+    }
+
+    if (accumulator_) {
+        if (accumulator_->is_deleted(id)) {
+            return {nullptr, Ret(0)};
+        }
+        const uint8_t* data = accumulator_->get_vector(id);
+        if (data) {
+            return {data, Ret(0)};
+        }
+    }
+
+    auto [reader, ret] = get(id);
+    if (ret.code() != 0) {
+        return {nullptr, ret};
+    }
+    if (!reader) {
+        return {nullptr, Ret(0)};
+    }
+
+    return {reader->get(id), Ret(0)};
 }
 
 /***********************************************************

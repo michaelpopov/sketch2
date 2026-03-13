@@ -95,6 +95,7 @@ Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* ve
     result.clear();
 
     DistHeap heap;
+    CHECK(dataset.prepare_read_state());
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
     const size_t dim = dataset.dim();
@@ -113,7 +114,7 @@ Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* ve
         if (!reader) break;
 
         for (auto it = reader->begin(); !it.eof(); it.next()) {
-            if (dataset.is_deleted(it.id())) {
+            if (dataset.is_modified_in_accumulator(it.id())) {
                 continue;
             }
             double d = dist_fn(it.data(), vec, dim);

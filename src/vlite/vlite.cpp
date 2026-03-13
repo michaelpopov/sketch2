@@ -199,6 +199,12 @@ int vlite_connect_common(sqlite3* db, int argc, const char* const* argv,
             delete vtab;
             return SQLITE_ERROR;
         }
+        const sketch2::Ret guest_ret = vtab->dataset->set_guest_mode();
+        if (guest_ret.code() != 0) {
+            set_err_msg(err_msg, guest_ret.message());
+            delete vtab;
+            return SQLITE_ERROR;
+        }
 
         *pp_vtab = vtab;
         return SQLITE_OK;
