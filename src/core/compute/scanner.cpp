@@ -55,28 +55,11 @@ void extract_ids(DistHeap* heap, std::vector<uint64_t>* result) {
     }
 }
 
-template <typename Iterator>
-inline void maybe_prefetch_next(const Iterator& it) {
-#if defined(__GNUC__) || defined(__clang__)
-    // Sequential scanner walks are a plausible place for software prefetch, but the
-    // payoff is workload- and CPU-specific. Keep this conservative and re-benchmark
-    // the distance on representative large datasets before tuning or expanding it.
-    Iterator next_it = it;
-    next_it.next();
-    if (!next_it.eof()) {
-        __builtin_prefetch(next_it.data(), 0, 1);
-    }
-#else
-    (void)it;
-#endif
-}
-
 template <auto DistanceFn, typename Iterator>
 void scan_ordered_reader(Iterator it, const std::vector<uint64_t>& skip_ids,
         const uint8_t* vec, size_t dim, size_t count, DistHeap* heap) {
     if (skip_ids.empty()) {
         for (; !it.eof(); it.next()) {
-            maybe_prefetch_next(it);
             push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim));
         }
         return;
@@ -84,7 +67,6 @@ void scan_ordered_reader(Iterator it, const std::vector<uint64_t>& skip_ids,
 
     auto skip_it = skip_ids.end();
     for (; !it.eof(); it.next()) {
-        maybe_prefetch_next(it);
         const uint64_t id = it.id();
         if (skip_it == skip_ids.end()) {
             skip_it = std::lower_bound(skip_ids.begin(), skip_ids.end(), id);

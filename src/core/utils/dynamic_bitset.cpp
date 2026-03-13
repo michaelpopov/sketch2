@@ -25,16 +25,6 @@ void DynamicBitset::resize(size_t size) {
     clear_unused_tail_bits();
 }
 
-bool DynamicBitset::get(size_t index) const {
-    if (index >= bit_count_) {
-        throw std::out_of_range("DynamicBitset::get: index out of range");
-    }
-
-    const size_t word_index = index / kWordBits;
-    const size_t bit_index = index % kWordBits;
-    return (words_[word_index] & (uint64_t{1} << bit_index)) != 0;
-}
-
 void DynamicBitset::set(size_t index, bool value) {
     if (index >= bit_count_) {
         throw std::out_of_range("DynamicBitset::set: index out of range");
