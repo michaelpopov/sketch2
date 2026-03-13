@@ -20,6 +20,15 @@ inline double hsum_ps_256(__m256 v) {
     return static_cast<double>(_mm_cvtss_f32(sum));
 }
 
+// Keep AVX2 kernels buildable without FMA while still using fused multiply-add when enabled.
+inline __m256 fmadd_ps(__m256 a, __m256 b, __m256 acc) {
+#if defined(__FMA__)
+    return _mm256_fmadd_ps(a, b, acc);
+#else
+    return _mm256_add_ps(acc, _mm256_mul_ps(a, b));
+#endif
+}
+
 inline __m256 load_f16x8_ps(const void *ptr) {
     return _mm256_cvtph_ps(_mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr)));
 }

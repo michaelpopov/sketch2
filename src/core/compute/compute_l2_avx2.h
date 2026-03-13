@@ -73,14 +73,14 @@ inline double ComputeL2_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size_
             const __m256 d1 = _mm256_sub_ps(a1, b1);
             const __m256 d2 = _mm256_sub_ps(a2, b2);
             const __m256 d3 = _mm256_sub_ps(a3, b3);
-            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(d0, d0));
-            acc1 = _mm256_add_ps(acc1, _mm256_mul_ps(d1, d1));
-            acc2 = _mm256_add_ps(acc2, _mm256_mul_ps(d2, d2));
-            acc3 = _mm256_add_ps(acc3, _mm256_mul_ps(d3, d3));
+            acc0 = fmadd_ps(d0, d0, acc0);
+            acc1 = fmadd_ps(d1, d1, acc1);
+            acc2 = fmadd_ps(d2, d2, acc2);
+            acc3 = fmadd_ps(d3, d3, acc3);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 d = _mm256_sub_ps(_mm256_load_ps(va + i), _mm256_load_ps(vb + i));
-            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(d, d));
+            acc0 = fmadd_ps(d, d, acc0);
         }
     } else {
         for (; i + 32 <= dim; i += 32) {
@@ -97,14 +97,14 @@ inline double ComputeL2_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size_
             const __m256 d1 = _mm256_sub_ps(a1, b1);
             const __m256 d2 = _mm256_sub_ps(a2, b2);
             const __m256 d3 = _mm256_sub_ps(a3, b3);
-            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(d0, d0));
-            acc1 = _mm256_add_ps(acc1, _mm256_mul_ps(d1, d1));
-            acc2 = _mm256_add_ps(acc2, _mm256_mul_ps(d2, d2));
-            acc3 = _mm256_add_ps(acc3, _mm256_mul_ps(d3, d3));
+            acc0 = fmadd_ps(d0, d0, acc0);
+            acc1 = fmadd_ps(d1, d1, acc1);
+            acc2 = fmadd_ps(d2, d2, acc2);
+            acc3 = fmadd_ps(d3, d3, acc3);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 d = _mm256_sub_ps(_mm256_loadu_ps(va + i), _mm256_loadu_ps(vb + i));
-            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(d, d));
+            acc0 = fmadd_ps(d, d, acc0);
         }
     }
 
@@ -143,14 +143,14 @@ inline double ComputeL2_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size_
             const __m256 d1 = _mm256_sub_ps(a1, b1);
             const __m256 d2 = _mm256_sub_ps(a2, b2);
             const __m256 d3 = _mm256_sub_ps(a3, b3);
-            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(d0, d0));
-            acc1 = _mm256_add_ps(acc1, _mm256_mul_ps(d1, d1));
-            acc2 = _mm256_add_ps(acc2, _mm256_mul_ps(d2, d2));
-            acc3 = _mm256_add_ps(acc3, _mm256_mul_ps(d3, d3));
+            acc0 = fmadd_ps(d0, d0, acc0);
+            acc1 = fmadd_ps(d1, d1, acc1);
+            acc2 = fmadd_ps(d2, d2, acc2);
+            acc3 = fmadd_ps(d3, d3, acc3);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 d = _mm256_sub_ps(load_f16x8_ps_aligned(va + i), load_f16x8_ps_aligned(vb + i));
-            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(d, d));
+            acc0 = fmadd_ps(d, d, acc0);
         }
     } else {
         for (; i + 32 <= dim; i += 32) {
@@ -167,14 +167,14 @@ inline double ComputeL2_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size_
             const __m256 d1 = _mm256_sub_ps(a1, b1);
             const __m256 d2 = _mm256_sub_ps(a2, b2);
             const __m256 d3 = _mm256_sub_ps(a3, b3);
-            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(d0, d0));
-            acc1 = _mm256_add_ps(acc1, _mm256_mul_ps(d1, d1));
-            acc2 = _mm256_add_ps(acc2, _mm256_mul_ps(d2, d2));
-            acc3 = _mm256_add_ps(acc3, _mm256_mul_ps(d3, d3));
+            acc0 = fmadd_ps(d0, d0, acc0);
+            acc1 = fmadd_ps(d1, d1, acc1);
+            acc2 = fmadd_ps(d2, d2, acc2);
+            acc3 = fmadd_ps(d3, d3, acc3);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 d = _mm256_sub_ps(load_f16x8_ps(va + i), load_f16x8_ps(vb + i));
-            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(d, d));
+            acc0 = fmadd_ps(d, d, acc0);
         }
     }
 

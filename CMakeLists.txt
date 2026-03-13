@@ -23,7 +23,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   endif()
 
   if(SKETCH_ENABLE_AVX2)
-    target_compile_options(sketch_compile_options INTERFACE -mavx2 -mf16c)
+    target_compile_options(sketch_compile_options INTERFACE -mavx2 -mf16c -mfma)
   endif()
 endif()
 

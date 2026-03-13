@@ -30,6 +30,33 @@ TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
     return out;
 }
 
+double reference_l2_f16(const float16 *a, const float16 *b, size_t dim) {
+    double sum = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
+        sum += d * d;
+    }
+    return sum;
+}
+
+double reference_l2_f32(const float *a, const float *b, size_t dim) {
+    double sum = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
+        sum += d * d;
+    }
+    return sum;
+}
+
+double reference_l2_i16(const int16_t *a, const int16_t *b, size_t dim) {
+    double sum = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const int64_t d = static_cast<int64_t>(a[i]) - static_cast<int64_t>(b[i]);
+        sum += static_cast<double>(d * d);
+    }
+    return sum;
+}
+
 TEST(ComputeL2Test, DistF32ComputesSquaredDistance) {
     const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
     const std::vector<float> b = {1.0f, 0.0f, 1.0f, 10.0f};
@@ -87,6 +114,28 @@ TEST(ComputeL2Neon, DistF32MatchesReference) {
     EXPECT_DOUBLE_EQ(25.25, got);
 }
 
+TEST(ComputeL2Neon, DistF16MatchesReference) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+
+    const std::vector<float16> a = {
+        float16(1.0f), float16(2.5f), float16(-3.0f), float16(4.25f),
+        float16(-5.5f), float16(6.0f), float16(7.5f), float16(-8.0f),
+        float16(9.0f)
+    };
+    const std::vector<float16> b = {
+        float16(0.5f), float16(2.0f), float16(-1.0f), float16(0.25f),
+        float16(-1.5f), float16(5.0f), float16(8.5f), float16(-9.0f),
+        float16(7.0f)
+    };
+    const double got = ComputeL2_Neon::dist_f16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                a.size());
+    const double ref = reference_l2_f16(a.data(), b.data(), a.size());
+    EXPECT_NEAR(ref, got, std::max(1e-3, ref * 2e-3));
+}
+
 TEST(ComputeL2Neon, DistI16MatchesReference) {
     const std::vector<int16_t> a = {10, -2, 7, -8, 20};
     const std::vector<int16_t> b = {4, -5, 10, -8, 18};
@@ -108,15 +157,6 @@ TEST(ComputeL2AVX2, DistF16ZeroDimIsZero) {
     const double got = ComputeL2_AVX2::dist_f16(reinterpret_cast<uint8_t *>(a.ptr),
                                                 reinterpret_cast<uint8_t *>(b.ptr), 0);
     EXPECT_DOUBLE_EQ(0.0, got);
-}
-
-double reference_l2_f16(const float16 *a, const float16 *b, size_t dim) {
-    double sum = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
-        sum += d * d;
-    }
-    return sum;
 }
 
 void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
@@ -154,13 +194,37 @@ TEST(ComputeL2AVX2, ResolveDistUsesAVX2F16Path) {
 #endif
 
 #if defined(__AVX2__)
-double reference_l2_i16(const int16_t *a, const int16_t *b, size_t dim) {
-    double sum = 0.0;
+void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {
-        const int64_t d = static_cast<int64_t>(a[i]) - static_cast<int64_t>(b[i]);
-        sum += static_cast<double>(d * d);
+        const int32_t ai = static_cast<int32_t>((i * 37 + seed * 11) % 2001) - 1000;
+        const int32_t bi = static_cast<int32_t>((i * 23 + seed * 19) % 2001) - 1000;
+        a[i] = static_cast<float>(ai) * 0.0625f + static_cast<float>(i % 7) * 0.0078125f;
+        b[i] = static_cast<float>(bi) * 0.0625f - static_cast<float>(i % 5) * 0.015625f;
     }
-    return sum;
+}
+
+TEST(ComputeL2AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
+    const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(4)}) {
+            for (size_t misalign_b : {size_t(0), size_t(12)}) {
+                auto a = make_buffer<float>(dim, misalign_a);
+                auto b = make_buffer<float>(dim, misalign_b);
+                fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 29));
+
+                const double ref = reference_l2_f32(a.ptr, b.ptr, dim);
+                const double got = ComputeL2_AVX2::dist_f32(reinterpret_cast<uint8_t *>(a.ptr),
+                                                            reinterpret_cast<uint8_t *>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, std::max(1e-5, ref * 1e-5)) << "dim=" << dim
+                                                                   << " misalign_a=" << misalign_a
+                                                                   << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+TEST(ComputeL2AVX2, ResolveDistUsesAVX2F32Path) {
+    EXPECT_EQ(&ComputeL2_AVX2::dist_f32, ComputeL2::resolve_dist(DataType::f32));
 }
 
 void fill_i16(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {

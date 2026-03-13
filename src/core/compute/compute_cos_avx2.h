@@ -75,7 +75,8 @@ inline double ComputeCos_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size
     __m256 norm_a1 = _mm256_setzero_ps();
     __m256 norm_b0 = _mm256_setzero_ps();
     __m256 norm_b1 = _mm256_setzero_ps();
-    const bool aligned = (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & 31u) == 0u);
+    const bool aligned =
+        (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kAvx2VectorAlignment - 1u)) == 0u);
 
     size_t i = 0;
     if (aligned) {
@@ -85,19 +86,19 @@ inline double ComputeCos_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size
             const __m256 a1 = _mm256_load_ps(va + i + 8);
             const __m256 b1 = _mm256_load_ps(vb + i + 8);
 
-            dot0 = _mm256_add_ps(dot0, _mm256_mul_ps(a0, b0));
-            dot1 = _mm256_add_ps(dot1, _mm256_mul_ps(a1, b1));
-            norm_a0 = _mm256_add_ps(norm_a0, _mm256_mul_ps(a0, a0));
-            norm_a1 = _mm256_add_ps(norm_a1, _mm256_mul_ps(a1, a1));
-            norm_b0 = _mm256_add_ps(norm_b0, _mm256_mul_ps(b0, b0));
-            norm_b1 = _mm256_add_ps(norm_b1, _mm256_mul_ps(b1, b1));
+            dot0 = fmadd_ps(a0, b0, dot0);
+            dot1 = fmadd_ps(a1, b1, dot1);
+            norm_a0 = fmadd_ps(a0, a0, norm_a0);
+            norm_a1 = fmadd_ps(a1, a1, norm_a1);
+            norm_b0 = fmadd_ps(b0, b0, norm_b0);
+            norm_b1 = fmadd_ps(b1, b1, norm_b1);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 a8 = _mm256_load_ps(va + i);
             const __m256 b8 = _mm256_load_ps(vb + i);
-            dot0 = _mm256_add_ps(dot0, _mm256_mul_ps(a8, b8));
-            norm_a0 = _mm256_add_ps(norm_a0, _mm256_mul_ps(a8, a8));
-            norm_b0 = _mm256_add_ps(norm_b0, _mm256_mul_ps(b8, b8));
+            dot0 = fmadd_ps(a8, b8, dot0);
+            norm_a0 = fmadd_ps(a8, a8, norm_a0);
+            norm_b0 = fmadd_ps(b8, b8, norm_b0);
         }
     } else {
         for (; i + 16 <= dim; i += 16) {
@@ -106,19 +107,19 @@ inline double ComputeCos_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size
             const __m256 a1 = _mm256_loadu_ps(va + i + 8);
             const __m256 b1 = _mm256_loadu_ps(vb + i + 8);
 
-            dot0 = _mm256_add_ps(dot0, _mm256_mul_ps(a0, b0));
-            dot1 = _mm256_add_ps(dot1, _mm256_mul_ps(a1, b1));
-            norm_a0 = _mm256_add_ps(norm_a0, _mm256_mul_ps(a0, a0));
-            norm_a1 = _mm256_add_ps(norm_a1, _mm256_mul_ps(a1, a1));
-            norm_b0 = _mm256_add_ps(norm_b0, _mm256_mul_ps(b0, b0));
-            norm_b1 = _mm256_add_ps(norm_b1, _mm256_mul_ps(b1, b1));
+            dot0 = fmadd_ps(a0, b0, dot0);
+            dot1 = fmadd_ps(a1, b1, dot1);
+            norm_a0 = fmadd_ps(a0, a0, norm_a0);
+            norm_a1 = fmadd_ps(a1, a1, norm_a1);
+            norm_b0 = fmadd_ps(b0, b0, norm_b0);
+            norm_b1 = fmadd_ps(b1, b1, norm_b1);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 a8 = _mm256_loadu_ps(va + i);
             const __m256 b8 = _mm256_loadu_ps(vb + i);
-            dot0 = _mm256_add_ps(dot0, _mm256_mul_ps(a8, b8));
-            norm_a0 = _mm256_add_ps(norm_a0, _mm256_mul_ps(a8, a8));
-            norm_b0 = _mm256_add_ps(norm_b0, _mm256_mul_ps(b8, b8));
+            dot0 = fmadd_ps(a8, b8, dot0);
+            norm_a0 = fmadd_ps(a8, a8, norm_a0);
+            norm_b0 = fmadd_ps(b8, b8, norm_b0);
         }
     }
 
@@ -146,7 +147,8 @@ inline double ComputeCos_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size
     __m256 norm_a1 = _mm256_setzero_ps();
     __m256 norm_b0 = _mm256_setzero_ps();
     __m256 norm_b1 = _mm256_setzero_ps();
-    const bool aligned = (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & 15u) == 0u);
+    const bool aligned =
+        (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kHalfVectorAlignment - 1u)) == 0u);
 
     size_t i = 0;
     if (aligned) {
@@ -156,19 +158,19 @@ inline double ComputeCos_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size
             const __m256 a1 = load_f16x8_ps_aligned(va + i + 8);
             const __m256 b1 = load_f16x8_ps_aligned(vb + i + 8);
 
-            dot0 = _mm256_add_ps(dot0, _mm256_mul_ps(a0, b0));
-            dot1 = _mm256_add_ps(dot1, _mm256_mul_ps(a1, b1));
-            norm_a0 = _mm256_add_ps(norm_a0, _mm256_mul_ps(a0, a0));
-            norm_a1 = _mm256_add_ps(norm_a1, _mm256_mul_ps(a1, a1));
-            norm_b0 = _mm256_add_ps(norm_b0, _mm256_mul_ps(b0, b0));
-            norm_b1 = _mm256_add_ps(norm_b1, _mm256_mul_ps(b1, b1));
+            dot0 = fmadd_ps(a0, b0, dot0);
+            dot1 = fmadd_ps(a1, b1, dot1);
+            norm_a0 = fmadd_ps(a0, a0, norm_a0);
+            norm_a1 = fmadd_ps(a1, a1, norm_a1);
+            norm_b0 = fmadd_ps(b0, b0, norm_b0);
+            norm_b1 = fmadd_ps(b1, b1, norm_b1);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 a8 = load_f16x8_ps_aligned(va + i);
             const __m256 b8 = load_f16x8_ps_aligned(vb + i);
-            dot0 = _mm256_add_ps(dot0, _mm256_mul_ps(a8, b8));
-            norm_a0 = _mm256_add_ps(norm_a0, _mm256_mul_ps(a8, a8));
-            norm_b0 = _mm256_add_ps(norm_b0, _mm256_mul_ps(b8, b8));
+            dot0 = fmadd_ps(a8, b8, dot0);
+            norm_a0 = fmadd_ps(a8, a8, norm_a0);
+            norm_b0 = fmadd_ps(b8, b8, norm_b0);
         }
     } else {
         for (; i + 16 <= dim; i += 16) {
@@ -177,19 +179,19 @@ inline double ComputeCos_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size
             const __m256 a1 = load_f16x8_ps(va + i + 8);
             const __m256 b1 = load_f16x8_ps(vb + i + 8);
 
-            dot0 = _mm256_add_ps(dot0, _mm256_mul_ps(a0, b0));
-            dot1 = _mm256_add_ps(dot1, _mm256_mul_ps(a1, b1));
-            norm_a0 = _mm256_add_ps(norm_a0, _mm256_mul_ps(a0, a0));
-            norm_a1 = _mm256_add_ps(norm_a1, _mm256_mul_ps(a1, a1));
-            norm_b0 = _mm256_add_ps(norm_b0, _mm256_mul_ps(b0, b0));
-            norm_b1 = _mm256_add_ps(norm_b1, _mm256_mul_ps(b1, b1));
+            dot0 = fmadd_ps(a0, b0, dot0);
+            dot1 = fmadd_ps(a1, b1, dot1);
+            norm_a0 = fmadd_ps(a0, a0, norm_a0);
+            norm_a1 = fmadd_ps(a1, a1, norm_a1);
+            norm_b0 = fmadd_ps(b0, b0, norm_b0);
+            norm_b1 = fmadd_ps(b1, b1, norm_b1);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 a8 = load_f16x8_ps(va + i);
             const __m256 b8 = load_f16x8_ps(vb + i);
-            dot0 = _mm256_add_ps(dot0, _mm256_mul_ps(a8, b8));
-            norm_a0 = _mm256_add_ps(norm_a0, _mm256_mul_ps(a8, a8));
-            norm_b0 = _mm256_add_ps(norm_b0, _mm256_mul_ps(b8, b8));
+            dot0 = fmadd_ps(a8, b8, dot0);
+            norm_a0 = fmadd_ps(a8, a8, norm_a0);
+            norm_b0 = fmadd_ps(b8, b8, norm_b0);
         }
     }
 
@@ -214,7 +216,8 @@ inline double ComputeCos_AVX2::dist_i16(const uint8_t *a, const uint8_t *b, size
     __m256i dot_acc = _mm256_setzero_si256();
     __m256i norm_a_acc = _mm256_setzero_si256();
     __m256i norm_b_acc = _mm256_setzero_si256();
-    const bool aligned = (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & 31u) == 0u);
+    const bool aligned =
+        (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kAvx2VectorAlignment - 1u)) == 0u);
 
     size_t i = 0;
     if (aligned) {
