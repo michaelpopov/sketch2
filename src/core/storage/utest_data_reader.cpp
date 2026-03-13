@@ -80,17 +80,13 @@ protected:
     // type_field: 0=f16, 1=f32, 2=i16  (matches DataWriter encoding)
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs) {
-        DataFileHeader hdr{};
-        hdr.base.magic   = kMagic;
-        hdr.base.kind    = static_cast<uint16_t>(FileType::Data);
-        hdr.base.version = kVersion;
-        hdr.min_id  = min_id;
-        hdr.max_id  = min_id + static_cast<uint64_t>(vecs.size()) - 1;
-        hdr.count   = static_cast<uint32_t>(vecs.size());
-        hdr.type    = data_type_to_int(type_field);
-        hdr.dim     = dim;
-        hdr.data_offset = static_cast<uint32_t>(
-            ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
+        DataFileHeader hdr = make_data_header(
+            min_id,
+            min_id + static_cast<uint64_t>(vecs.size()) - 1,
+            static_cast<uint32_t>(vecs.size()),
+            0,
+            type_field,
+            dim);
         FILE* f = fopen(data_path_.c_str(), "wb");
         fwrite(&hdr, sizeof(hdr), 1, f);
         const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -98,11 +94,11 @@ protected:
             std::vector<uint8_t> pad(pad_size, 0);
             fwrite(pad.data(), 1, pad.size(), f);
         }
-        for (const auto& v : vecs)
-            fwrite(v.data(), v.size(), 1, f);
-        const size_t vectors_bytes = vecs.size() * static_cast<size_t>(dim) * data_type_size(type_field);
-        const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
-        const size_t ids_pad_size = ids_offset - (static_cast<size_t>(hdr.data_offset) + vectors_bytes);
+        for (const auto& v : vecs) {
+            ASSERT_EQ(0, write_vector_record(f, v.data(), v.size(), hdr.vector_stride, "DataReaderTest::write_raw").code());
+        }
+        const IdsLayout ids_layout = compute_ids_layout(hdr, vecs.size());
+        const size_t ids_pad_size = ids_layout.ids_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             fwrite(pad.data(), 1, pad.size(), f);
@@ -736,9 +732,9 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     DataFileHeader hdr{};
     ASSERT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
     const DataType type = data_type_from_int(hdr.type);
-    const size_t vec_size = static_cast<size_t>(hdr.dim) * data_type_size(type);
-    const size_t vectors_bytes = static_cast<size_t>(hdr.count) * vec_size;
-    const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
+    const size_t vec_size = compute_vector_size(type, hdr.dim);
+    EXPECT_LE(vec_size, static_cast<size_t>(hdr.vector_stride));
+    const size_t ids_offset = compute_ids_layout(hdr, hdr.count).ids_offset;
     const size_t deleted_ids_offset = ids_offset + static_cast<size_t>(hdr.count) * sizeof(uint64_t);
 
     ASSERT_EQ(0, fseek(f, static_cast<long>(deleted_ids_offset), SEEK_SET));

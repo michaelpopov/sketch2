@@ -6,6 +6,7 @@
 #include <vector>
 #include "core/storage/input_generator.h"
 #include "core/storage/data_file.h"
+#include "core/storage/data_file_layout.h"
 #include "core/storage/data_writer.h"
 
 using namespace sketch2;
@@ -55,7 +56,9 @@ protected:
     }
 
     size_t ids_offset(size_t count, size_t vec_size, const DataFileHeader& hdr) {
-        return align_up<size_t>(static_cast<size_t>(hdr.data_offset) + count * vec_size, kIdsAlignment);
+        (void)vec_size;
+        return align_up<size_t>(static_cast<size_t>(hdr.data_offset)
+            + count * static_cast<size_t>(hdr.vector_stride), kIdsAlignment);
     }
 
     std::vector<uint64_t> read_ids(size_t count, size_t vec_size) {
@@ -91,8 +94,10 @@ protected:
         if (f) {
             DataFileHeader hdr{};
             fread(&hdr, sizeof(hdr), 1, f);
-            fseek(f, static_cast<long>(hdr.data_offset), SEEK_SET);
-            fread(data.data(), sizeof(float), count * dim, f);
+            for (size_t i = 0; i < count; ++i) {
+                fseek(f, static_cast<long>(hdr.data_offset + i * static_cast<size_t>(hdr.vector_stride)), SEEK_SET);
+                fread(data.data() + i * dim, sizeof(float), dim, f);
+            }
             fclose(f);
         }
         return data;
@@ -130,8 +135,8 @@ TEST_F(DataWriterTest, OutputFileSize) {
     const size_t ids_off = ids_offset(count, dim * sizeof(float), hdr);
     size_t expected = sizeof(DataFileHeader)
                     + (hdr.data_offset - sizeof(DataFileHeader))
-                    + count * dim * sizeof(float)  // vectors
-                    + (ids_off - (hdr.data_offset + count * dim * sizeof(float))) // ids alignment padding
+                    + count * static_cast<size_t>(hdr.vector_stride)  // padded vector records
+                    + (ids_off - (hdr.data_offset + count * static_cast<size_t>(hdr.vector_stride))) // ids alignment padding
                     + count * sizeof(uint64_t);    // ids
     FILE* f = fopen(output_path_.c_str(), "rb");
     ASSERT_NE(nullptr, f);
@@ -173,6 +178,13 @@ TEST_F(DataWriterTest, HeaderMinMaxId) {
 TEST_F(DataWriterTest, HeaderDim) {
     run(1, 0, DataType::f32, 64);
     EXPECT_EQ(64u, read_header().dim);
+}
+
+TEST_F(DataWriterTest, HeaderVectorStrideIsAligned) {
+    run(1, 0, DataType::f32, 5);
+    const auto hdr = read_header();
+    EXPECT_EQ(compute_vector_stride(5u * sizeof(float)), hdr.vector_stride);
+    EXPECT_EQ(0u, hdr.vector_stride % kDataAlignment);
 }
 
 TEST_F(DataWriterTest, HeaderTypeF32) {

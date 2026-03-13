@@ -24,7 +24,8 @@ inline constexpr uint64_t kMaxDimension = 4096;
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 
 // Binary storage format version written into data/WAL headers and checked when reopening files.
-inline constexpr uint16_t kVersion = 3;
+// Version 4 adds explicit per-record vector stride so persisted vectors stay 32-byte aligned.
+inline constexpr uint16_t kVersion = 4;
 
 // Vector payload alignment used by data files and accumulator storage for SIMD-friendly access.
 inline constexpr uint32_t kDataAlignment = 32;

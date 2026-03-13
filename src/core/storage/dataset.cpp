@@ -554,15 +554,14 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
         CHECK(write_header_and_data_padding(f, hdr, "Dataset::store_and_merge_accumulator"));
 
         const size_t vec_size = static_cast<size_t>(metadata_.dim) * data_type_size(metadata_.type);
-        const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size(), vec_size);
+        const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size());
         for (uint64_t id : ids) {
             const uint8_t* data = accumulator_->get_vector(id);
             if (!data) {
                 return Ret("Dataset::store_and_merge_accumulator: missing vector for id " + std::to_string(id));
             }
-            if (fwrite(data, vec_size, 1, f) != 1) {
-                return Ret("Dataset::store_and_merge_accumulator: failed to write vector data for id " + std::to_string(id));
-            }
+            CHECK(write_vector_record(f, data, vec_size, hdr.vector_stride,
+                "Dataset::store_and_merge_accumulator: failed to write vector data for id " + std::to_string(id)));
         }
 
         CHECK(write_zero_padding(f, ids_layout.ids_padding,

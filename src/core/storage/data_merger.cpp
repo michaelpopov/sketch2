@@ -34,15 +34,6 @@ Ret flush_and_close_merge_file(FILE** f, const char* context) {
     return Ret(0);
 }
 
-void write_data(FILE* f, const uint8_t* data, size_t size) {
-    if (data == nullptr || size == 0) {
-        throw std::runtime_error("DataMerger::write_data: invalid arguments");
-    }
-    if (fwrite(data, size, 1, f) != 1) {
-        throw std::runtime_error("DataMerger::write_data: failed to write merge file");
-    }
-}
-
 std::vector<MergeItem> load_update_records(const DataReader& updater) {
     std::vector<MergeItem> updater_items;
     updater_items.reserve(updater.count());
@@ -145,15 +136,15 @@ Ret merge_records(const DataReader& source,
             const uint64_t update_id = updater_items[j].id;
             if (source_id < update_id) {
                 output_ids->push_back(source_id);
-                emit(source.at(i), source.size());
+                CHECK(emit(source.at(i), source.size()));
                 ++i;
             } else if (source_id > update_id) {
                 output_ids->push_back(update_id);
-                emit(updater_items[j].data, source.size());
+                CHECK(emit(updater_items[j].data, source.size()));
                 ++j;
             } else {
                 output_ids->push_back(update_id);
-                emit(updater_items[j].data, source.size());
+                CHECK(emit(updater_items[j].data, source.size()));
                 ++i;
                 ++j;
             }
@@ -163,12 +154,12 @@ Ret merge_records(const DataReader& source,
         if (has_source) {
             const uint64_t source_id = source.id(i);
             output_ids->push_back(source_id);
-            emit(source.at(i), source.size());
+            CHECK(emit(source.at(i), source.size()));
             ++i;
         } else {
             const uint64_t update_id = updater_items[j].id;
             output_ids->push_back(update_id);
-            emit(updater_items[j].data, source.size());
+            CHECK(emit(updater_items[j].data, source.size()));
             ++j;
         }
     }
@@ -254,10 +245,13 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
             std::vector<uint64_t> output_ids;
             CHECK(merge_records(source, updater_items, deletes,
                 "DataMerger::merge_data_files: updated id is also deleted",
-                [&](const uint8_t* data, size_t size) { write_data(f, data, size); },
+                [&](const uint8_t* data, size_t size) -> Ret {
+                    return write_vector_record(f, data, size, hdr->vector_stride,
+                        "DataMerger::merge_data_files");
+                },
                 &output_ids));
 
-            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size(), source.size());
+            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
             CHECK(write_zero_padding(f, ids_layout.ids_padding,
                 "DataMerger::merge_data_files: failed to write id alignment padding"));
             CHECK(write_u64_array(f, output_ids,
@@ -321,10 +315,13 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
             std::vector<uint64_t> output_ids;
             CHECK(merge_records(source, updater_items, deletes,
                 "DataMerger::merge_delta_file: updated id is also deleted",
-                [&](const uint8_t* data, size_t size) { write_data(f, data, size); },
+                [&](const uint8_t* data, size_t size) -> Ret {
+                    return write_vector_record(f, data, size, hdr->vector_stride,
+                        "DataMerger::merge_delta_file");
+                },
                 &output_ids));
 
-            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size(), source.size());
+            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
             CHECK(write_zero_padding(f, ids_layout.ids_padding,
                 "DataMerger::merge_delta_file: failed to write id alignment padding"));
             CHECK(write_u64_array(f, output_ids,
@@ -355,10 +352,13 @@ Ret DataMerger::merge_data_file_(
             std::vector<uint64_t> output_ids;
             CHECK(merge_records(source, updater_items, deleted_ids,
                 "DataMerger::merge_data_files: updated id is also deleted",
-                [&](const uint8_t* data, size_t size) { write_data(f, data, size); },
+                [&](const uint8_t* data, size_t size) -> Ret {
+                    return write_vector_record(f, data, size, hdr->vector_stride,
+                        "DataMerger::merge_data_files");
+                },
                 &output_ids));
 
-            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size(), source.size());
+            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
             CHECK(write_zero_padding(f, ids_layout.ids_padding,
                 "DataMerger::merge_data_files: failed to write id alignment padding"));
             CHECK(write_u64_array(f, output_ids,
@@ -387,10 +387,13 @@ Ret DataMerger::merge_delta_file_(
             std::vector<uint64_t> output_ids;
             CHECK(merge_records(source, updater_items, deletes,
                 "DataMerger::merge_delta_file: updated id is also deleted",
-                [&](const uint8_t* data, size_t size) { write_data(f, data, size); },
+                [&](const uint8_t* data, size_t size) -> Ret {
+                    return write_vector_record(f, data, size, hdr->vector_stride,
+                        "DataMerger::merge_delta_file");
+                },
                 &output_ids));
 
-            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size(), source.size());
+            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
             CHECK(write_zero_padding(f, ids_layout.ids_padding,
                 "DataMerger::merge_delta_file: failed to write id alignment padding"));
             CHECK(write_u64_array(f, output_ids,

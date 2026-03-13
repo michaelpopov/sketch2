@@ -181,13 +181,17 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     }
 
     size_ = dim * elem_size;
+    stride_ = static_cast<size_t>(hdr_->vector_stride);
     const size_t count = static_cast<size_t>(hdr_->count);
     const size_t deleted_count = static_cast<size_t>(hdr_->deleted_count);
 
-    const IdsLayout ids_layout = compute_ids_layout(*hdr_, count, size_);
+    const IdsLayout ids_layout = compute_ids_layout(*hdr_, count);
     const size_t ids_bytes = (deleted_count + count) * sizeof(uint64_t);
     if (hdr_->data_offset < sizeof(DataFileHeader) || (hdr_->data_offset % kDataAlignment) != 0) {
         return fail("DataReader: invalid data offset alignment");
+    }
+    if (stride_ < size_ || (stride_ % kDataAlignment) != 0) {
+        return fail("DataReader: invalid vector stride");
     }
     if (ids_layout.ids_offset % alignof(uint64_t) != 0) {
         return fail("DataReader: invalid ids offset alignment");
@@ -200,6 +204,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         if (!delta->hdr_) return fail("DataReader: invalid delta");
         if (type_ != delta->type()) return fail("DataReader: invalid delta type");
         if (size_ != delta->size()) return fail("DataReader: invalid delta dim");
+        if (stride_ != delta->stride()) return fail("DataReader: invalid delta stride");
     }
 
     ids_ = reinterpret_cast<const uint64_t*>(map_ + ids_layout.ids_offset);
@@ -305,7 +310,7 @@ const uint8_t* DataReader::at(size_t index) const {
         return nullptr;
     }
 
-    return map_ + hdr_->data_offset + index * size();
+    return map_ + hdr_->data_offset + index * stride_;
 }
 
 const uint8_t* DataReader::get(uint64_t id) const {
@@ -336,7 +341,7 @@ const uint8_t* DataReader::get(uint64_t id) const {
         return nullptr;
     }
 
-    return map_ + hdr_->data_offset + index * size();
+    return map_ + hdr_->data_offset + index * stride_;
 }
 
 bool DataReader::is_hidden(size_t index) const {

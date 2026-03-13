@@ -36,12 +36,14 @@ TEST_F(DataFileLayoutTest, MakeDataHeaderSetsExpectedFields) {
     EXPECT_EQ(64u, hdr.dim);
     EXPECT_EQ(0u, hdr.data_offset % kDataAlignment);
     EXPECT_GE(hdr.data_offset, sizeof(DataFileHeader));
+    EXPECT_EQ(compute_vector_stride(64u * sizeof(float)), hdr.vector_stride);
+    EXPECT_EQ(0u, hdr.vector_stride % kDataAlignment);
 }
 
 TEST_F(DataFileLayoutTest, ComputeIdsLayoutAlignsIdsOffsetTo8Bytes) {
     const auto hdr = make_data_header(0, 0, 0, 0, DataType::f32, 5);
-    const auto layout = compute_ids_layout(hdr, 1, 5 * sizeof(float)); // vectors bytes=20
-    EXPECT_EQ(20u, layout.vectors_bytes);
+    const auto layout = compute_ids_layout(hdr, 1);
+    EXPECT_EQ(static_cast<size_t>(hdr.vector_stride), layout.vectors_bytes);
     EXPECT_EQ(0u, layout.ids_offset % kIdsAlignment);
     EXPECT_EQ(layout.ids_offset - (static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes), layout.ids_padding);
 }
@@ -108,4 +110,22 @@ TEST_F(DataFileLayoutTest, WriteU64ArrayWritesValuesAndHandlesEmpty) {
     ASSERT_EQ(values.size(), fread(read.data(), sizeof(uint64_t), values.size(), fr));
     fclose(fr);
     EXPECT_EQ(values, read);
+}
+
+TEST_F(DataFileLayoutTest, WriteVectorRecordPadsToStride) {
+    const auto hdr = make_data_header(1, 1, 1, 0, DataType::f32, 5);
+    const std::vector<float> values = {1.f, 2.f, 3.f, 4.f, 5.f};
+
+    FILE* f = fopen(path_.c_str(), "wb");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(0, write_vector_record(f, reinterpret_cast<const uint8_t*>(values.data()),
+        values.size() * sizeof(float), hdr.vector_stride, "ctx").code());
+    fclose(f);
+
+    std::ifstream in(path_, std::ios::binary);
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    ASSERT_EQ(static_cast<size_t>(hdr.vector_stride), bytes.size());
+    for (size_t i = values.size() * sizeof(float); i < bytes.size(); ++i) {
+        EXPECT_EQ(0u, bytes[i]);
+    }
 }

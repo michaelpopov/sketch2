@@ -60,6 +60,7 @@ public:
     DataType type() const;
     size_t dim() const;
     size_t size() const;  // size of one vector in bytes
+    size_t stride() const { return stride_; } // distance between persisted vector records in bytes
     size_t count() const; // number of vectors
 
     Iterator        begin() const;
@@ -84,13 +85,14 @@ private:
     const uint64_t*          deleted_ids_ = nullptr; // cached pointer to the deleted ids section
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
+    size_t                   stride_  = 0;        // bytes between persisted vectors
 
     DynamicBitset           bitset_;
     std::unique_ptr<DataReader> delta_;
 
     Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
     Ret init_delta();
-    const uint8_t* get_by_pos(uint32_t pos) { return map_ + hdr_->data_offset + size_ * pos; }
+    const uint8_t* get_by_pos(uint32_t pos) { return map_ + hdr_->data_offset + stride_ * pos; }
 };
 
 } // namespace sketch2

@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <vector>
 #include "core/storage/data_file.h"
+#include "core/storage/data_file_layout.h"
 #include "core/storage/data_merger.h"
 #include "core/storage/data_reader.h"
 
@@ -49,18 +50,14 @@ protected:
         expect_sorted_unique(active_ids);
         expect_sorted_unique(deleted);
 
-        DataFileHeader hdr{};
-        hdr.base.magic         = kMagic;
-        hdr.base.kind          = static_cast<uint16_t>(kind);
-        hdr.base.version       = kVersion;
-        hdr.min_id        = active.empty() ? 0 : active.front().first;
-        hdr.max_id        = active.empty() ? 0 : active.back().first;
-        hdr.count         = static_cast<uint32_t>(active.size());
-        hdr.deleted_count = static_cast<uint32_t>(deleted.size());
-        hdr.type          = static_cast<uint16_t>(data_type_to_int(DataType::f32));
-        hdr.dim           = dim;
-        hdr.data_offset   = static_cast<uint32_t>(
-            ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
+        DataFileHeader hdr = make_data_header(
+            active.empty() ? 0 : active.front().first,
+            active.empty() ? 0 : active.back().first,
+            static_cast<uint32_t>(active.size()),
+            static_cast<uint32_t>(deleted.size()),
+            DataType::f32,
+            dim);
+        hdr.base.kind = static_cast<uint16_t>(kind);
 
         FILE* f = fopen(path.c_str(), "wb");
         ASSERT_NE(nullptr, f);
@@ -73,11 +70,10 @@ protected:
 
         for (const auto& item : active) {
             std::vector<float> vec(dim, item.second);
-            ASSERT_EQ(1u, fwrite(vec.data(), vec.size() * sizeof(float), 1, f));
+            ASSERT_EQ(0, write_vector_record(f, reinterpret_cast<const uint8_t*>(vec.data()),
+                vec.size() * sizeof(float), hdr.vector_stride, "DataMergerTest::write_f32_file").code());
         }
-        const size_t vectors_bytes = static_cast<size_t>(active.size()) * dim * sizeof(float);
-        const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
-        const size_t ids_pad_size = ids_offset - (static_cast<size_t>(hdr.data_offset) + vectors_bytes);
+        const size_t ids_pad_size = compute_ids_layout(hdr, active.size()).ids_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
@@ -105,18 +101,14 @@ protected:
         expect_sorted_unique(active_ids);
         expect_sorted_unique(deleted);
 
-        DataFileHeader hdr{};
-        hdr.base.magic         = kMagic;
-        hdr.base.kind          = static_cast<uint16_t>(kind);
-        hdr.base.version       = kVersion;
-        hdr.min_id        = active.empty() ? 0 : active.front().first;
-        hdr.max_id        = active.empty() ? 0 : active.back().first;
-        hdr.count         = static_cast<uint32_t>(active.size());
-        hdr.deleted_count = static_cast<uint32_t>(deleted.size());
-        hdr.type          = static_cast<uint16_t>(data_type_to_int(DataType::i16));
-        hdr.dim           = dim;
-        hdr.data_offset   = static_cast<uint32_t>(
-            ((sizeof(DataFileHeader) + kDataAlignment - 1) / kDataAlignment) * kDataAlignment);
+        DataFileHeader hdr = make_data_header(
+            active.empty() ? 0 : active.front().first,
+            active.empty() ? 0 : active.back().first,
+            static_cast<uint32_t>(active.size()),
+            static_cast<uint32_t>(deleted.size()),
+            DataType::i16,
+            dim);
+        hdr.base.kind = static_cast<uint16_t>(kind);
 
         FILE* f = fopen(path.c_str(), "wb");
         ASSERT_NE(nullptr, f);
@@ -129,11 +121,10 @@ protected:
 
         for (const auto& item : active) {
             std::vector<int16_t> vec(dim, item.second);
-            ASSERT_EQ(1u, fwrite(vec.data(), vec.size() * sizeof(int16_t), 1, f));
+            ASSERT_EQ(0, write_vector_record(f, reinterpret_cast<const uint8_t*>(vec.data()),
+                vec.size() * sizeof(int16_t), hdr.vector_stride, "DataMergerTest::write_i16_file").code());
         }
-        const size_t vectors_bytes = static_cast<size_t>(active.size()) * dim * sizeof(int16_t);
-        const size_t ids_offset = align_up<size_t>(static_cast<size_t>(hdr.data_offset) + vectors_bytes, kIdsAlignment);
-        const size_t ids_pad_size = ids_offset - (static_cast<size_t>(hdr.data_offset) + vectors_bytes);
+        const size_t ids_pad_size = compute_ids_layout(hdr, active.size()).ids_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));

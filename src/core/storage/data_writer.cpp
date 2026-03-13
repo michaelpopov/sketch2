@@ -104,14 +104,13 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
 
     // Write vector data
     const size_t vec_size = reader.size();
-    const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size(), vec_size);
+    const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size());
     std::vector<uint8_t> buf(vec_size);
     for (size_t i = 0; i < count; ++i) {
         if (!reader.is_no_data(i)) {
             CHECK(reader.data(i, buf.data(), buf.size()));
-            if (fwrite(buf.data(), vec_size, 1, f) != 1) {
-                return Ret("DataWriter: failed to write vector data at index " + std::to_string(i));
-            }
+            CHECK(write_vector_record(f, buf.data(), vec_size, hdr.vector_stride,
+                "DataWriter: failed to write vector data at index " + std::to_string(i)));
         }
     }
 
