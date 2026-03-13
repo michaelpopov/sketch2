@@ -26,6 +26,9 @@ Ret InputReader::init(const std::string& path) {
     }
 }
 
+// Memory-maps the text input file, parses its header and record boundaries,
+// then stores sorted line metadata so later reads can parse vectors on demand
+// without copying the whole file up front.
 Ret InputReader::init_(const std::string& path) {
     if (map_) {
         return Ret("Input reader is initialized already.");
@@ -192,6 +195,8 @@ bool InputReader::is_no_data(size_t index) const {
     return *p == ']';
 }
 
+// Checks whether any parsed id falls into [start_range, end_range) using the
+// sorted line index instead of rescanning the mapped text.
 bool InputReader::is_range_present(uint64_t start_range, uint64_t end_range) const {
     if (start_range >= end_range || lines_.empty()) {
         return false;
@@ -209,6 +214,8 @@ bool InputReader::is_range_present(uint64_t start_range, uint64_t end_range) con
     return it != lines_.end() && it->id < end_range;
 }
 
+// Finds the first parsed line in [start, end) and the number of contiguous
+// entries in that range so InputReaderView can expose a cheap subrange.
 std::pair<size_t, size_t> InputReader::find_index_range(uint64_t start, uint64_t end) const {
     auto first = std::lower_bound(
         lines_.begin(), lines_.end(), start,
@@ -228,6 +235,8 @@ std::pair<size_t, size_t> InputReader::find_index_range(uint64_t start, uint64_t
  *   InputReaderView
  */
 
+// Creates a logical view over either the whole reader or the ids that fall
+// inside [start, end), keeping only offsets into the original reader state.
 InputReaderView::InputReaderView(const InputReader& reader, uint64_t start, uint64_t end)
     : reader_(reader), view_index_(0), count_(0) {
 

@@ -45,6 +45,8 @@ float Accumulator::Iterator::cosine_inv_norm() const {
     return accumulator_->vector_cosine_inv_norms_[index_];
 }
 
+// Allocates zeroed aligned storage once and keeps size/capacity separate so
+// the accumulator can reuse the same backing buffer as records are added or removed.
 Ret AlignedByteBuffer::init(size_t size, size_t alignment) {
     if (data_ != nullptr) {
         return Ret("AlignedByteBuffer: already initialized");
@@ -101,6 +103,8 @@ void AlignedByteBuffer::move_from_(AlignedByteBuffer&& other) noexcept {
 
 Accumulator::~Accumulator() = default;
 
+// Initializes the in-memory write buffer and reserves metadata containers
+// based on the maximum number of vector records that can fit in the byte budget.
 Ret Accumulator::init(size_t size, DataType type, uint64_t dim, bool has_cosine_inv_norms) {
     if (is_initialized_()) {
         return Ret("Accumulator is already initialized.");
@@ -206,6 +210,9 @@ Ret Accumulator::delete_vector(uint64_t id) {
     return apply_delete_vector_(id);
 }
 
+// Applies an add/update operation to the in-memory accumulator without touching
+// the WAL. Existing tombstones are removed first, existing vectors are updated
+// in place, and new vectors are appended to the packed storage.
 Ret Accumulator::apply_add_vector_(uint64_t id, const uint8_t* data) {
     const bool had_deleted = deleted_ids_.find(id) != deleted_ids_.end();
     const auto vector_it = vector_index_.find(id);
@@ -241,6 +248,9 @@ Ret Accumulator::apply_add_vector_(uint64_t id, const uint8_t* data) {
     return Ret(0);
 }
 
+// Applies a delete operation to the in-memory accumulator. Live vectors are
+// removed by swapping with the last packed slot, and the id is tracked in the
+// tombstone set so later merges can suppress older persisted values.
 Ret Accumulator::apply_delete_vector_(uint64_t id) {
     const auto vector_it = vector_index_.find(id);
     const bool had_vector = vector_it != vector_index_.end();
@@ -303,6 +313,8 @@ std::vector<uint64_t> Accumulator::get_vector_ids() const {
     return ids;
 }
 
+// Returns tombstoned ids in sorted order so callers can merge them with
+// persisted file ranges deterministically.
 std::vector<uint64_t> Accumulator::get_deleted_ids() const {
     if (!is_initialized_()) {
         throw std::runtime_error("Accumulator::get_deleted_ids: not initialized");
@@ -381,6 +393,8 @@ size_t Accumulator::delete_vector_size_(uint64_t id) const {
     return used_size_ - freed_size + required_size;
 }
 
+// Validates the internal packed-array bookkeeping in debug builds so add/delete
+// mutations fail fast when ids, storage, and size accounting drift apart.
 void Accumulator::assert_invariants_() const {
 #ifndef NDEBUG
     assert(vector_ids_.size() == vector_index_.size());

@@ -72,6 +72,8 @@ Ret flush_and_close_merge_file(FILE** f, const char* context) {
     return Ret(0);
 }
 
+// Materializes visible updater rows into a sorted merge stream that keeps both
+// vector bytes and optional cosine metadata together.
 std::vector<MergeItem> load_update_records(const DataReader& updater) {
     std::vector<MergeItem> updater_items;
     updater_items.reserve(updater.count());
@@ -91,6 +93,8 @@ std::vector<MergeItem> load_update_records(const DataReader& updater) {
     return updater_items;
 }
 
+// Builds a sorted merge stream from the accumulator for only the ids relevant
+// to a single file range.
 std::vector<MergeItem> load_update_records(const Accumulator& updater, const std::vector<uint64_t>& ids) {
     std::vector<MergeItem> updater_items;
     updater_items.reserve(ids.size());
@@ -120,6 +124,8 @@ std::vector<uint64_t> load_deleted_ids(const DataReader& updater) {
     return deletes;
 }
 
+// Computes the delete set for a merged delta file. Existing deletes survive
+// unless the updater reintroduces that id, and new deletes are then unioned in.
 std::vector<uint64_t> build_delta_deletes(const DataReader& source,
         const std::vector<MergeItem>& updater_items,
         const std::vector<uint64_t>& updater_deletes) {
@@ -150,6 +156,9 @@ std::vector<uint64_t> build_delta_deletes(const DataReader& source,
 }
 
 template <typename EmitFn>
+// Merges the sorted source stream and sorted updater stream into one ordered
+// output. Deletes suppress matching ids, updater rows replace same-id source
+// rows, and emit() writes each surviving record to the destination format.
 Ret merge_records(const DataReader& source,
         const std::vector<MergeItem>& updater_items,
         const std::vector<uint64_t>& deletes,
@@ -225,6 +234,8 @@ Ret merge_records(const DataReader& source,
 }
 
 template <typename FinalizeFn>
+// Creates a merge output file with a provisional header, lets finalize() stream
+// the merged body, and then flushes the file once finalize() has patched header fields.
 Ret merge_to_file(const DataReader& source,
         const std::string& path,
         const char* context,
@@ -287,6 +298,8 @@ Ret DataMerger::merge_data_file(
     return ret;
 }
 
+// Rewrites a full data file by merging persisted rows with another sorted file
+// of updates/deletes, producing a compact output with no tombstone section.
 Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_data_file: incompatible source and updater");
@@ -368,6 +381,8 @@ Ret DataMerger::merge_delta_file(
     return ret;
 }
 
+// Rewrites a delta file while preserving delta semantics: live updates stay in
+// the record stream and the merged tombstone set is carried forward separately.
 Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
     if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
         return Ret("DataMerger::merge_delta_file: incompatible cosine inverse-norm layout");
@@ -413,6 +428,8 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         });
 }
 
+// Merges a persisted data file with range-scoped accumulator contents, using
+// the supplied sorted ids/deletes instead of reading an updater DataReader.
 Ret DataMerger::merge_data_file_(
         const DataReader& source, const Accumulator& updater,
         const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
@@ -456,6 +473,8 @@ Ret DataMerger::merge_data_file_(
         });
 }
 
+// Merges a persisted delta file with range-scoped accumulator contents while
+// rebuilding both the ordered live rows and the delta delete section.
 Ret DataMerger::merge_delta_file_(
         const DataReader& source, const Accumulator& updater,
         const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,

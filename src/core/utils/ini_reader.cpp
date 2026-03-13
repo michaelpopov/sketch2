@@ -7,6 +7,8 @@
 
 namespace sketch2 {
 
+// Removes leading and trailing ASCII whitespace so higher-level parsing can
+// treat section names, keys, and values uniformly.
 static std::string trim(const std::string& s) {
     size_t begin = 0;
     size_t end = s.size();
@@ -19,6 +21,8 @@ static std::string trim(const std::string& s) {
     return s.substr(begin, end - begin);
 }
 
+// Splits a comma-separated list and trims each item, skipping empty entries so
+// config lists like "a, b, ,c" produce only the meaningful values.
 static std::vector<std::string> split_csv(const std::string& s) {
     std::vector<std::string> out;
     size_t start = 0;
@@ -37,6 +41,8 @@ static std::vector<std::string> split_csv(const std::string& s) {
     return out;
 }
 
+// Loads a minimal INI file into a flat key/value map. Sectioned keys are stored
+// as "section.key", while blank lines, comments, and malformed assignments are ignored.
 Ret IniReader::init(const std::string& path) {
     values_.clear();
 
@@ -76,6 +82,8 @@ Ret IniReader::init(const std::string& path) {
     return Ret(0);
 }
 
+// Returns an integer setting or the provided default. The parser accepts
+// surrounding whitespace but rejects partial parses and out-of-range values.
 int IniReader::get_int(const std::string& name, int def) const {
     const auto it = values_.find(name);
     if (it == values_.end()) {

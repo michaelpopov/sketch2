@@ -67,6 +67,8 @@ void set_error(sk_handle_t* handle, const char* message) {
     handle->error = 0; \
     handle->message[0] = '\0';
 
+// Restricts dataset names to a filesystem-safe subset used consistently by the
+// API when deriving directory, ini, and lock file paths.
 bool is_valid_dataset_name(const char* name) {
     if (name == nullptr || name[0] == '\0') {
         return false;
@@ -159,6 +161,8 @@ Ret lock_dataset_owner(const std::filesystem::path& ini_path, std::unique_ptr<Fi
     return (*owner_lock)->lock(dirs.front() + "/" + kOwnerLockFileName);
 }
 
+// Formats a stored vector into text, growing the temporary buffer until
+// print_vector reports success or a non-size-related failure.
 std::string vector_to_string(const uint8_t* data, DataType type, uint16_t dim) {
     size_t buf_size = std::max<size_t>(64, static_cast<size_t>(dim) * 32);
     for (;;) {
@@ -212,6 +216,8 @@ int print_stats_block(const std::string& label, size_t vectors_count, size_t del
     return 0;
 }
 
+// Fills a typed vector buffer with the same scalar value in every component,
+// validating finiteness and numeric range before writing type-specific values.
 Ret fill_vector_with_scalar(std::vector<uint8_t>* buf, DataType type, uint64_t dim, double value) {
     if (buf == nullptr) {
         return Ret("Invalid buffer");
@@ -277,6 +283,8 @@ void sk_disconnect(sk_handle_t* handle) {
     delete handle;
 }
 
+// Creates the dataset directory, ini, and lock files as one logical operation.
+// On any write failure it removes partially created artifacts before returning an error.
 static int sk_create_(sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
         unsigned int range_size, const char* dist_func);
 int sk_create(sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
@@ -381,6 +389,8 @@ int sk_drop(sk_handle_t* handle, const char* name) {
         ERR(ex.what())
     }
 }
+// Drops a dataset only after taking the owner lock so concurrent writers cannot
+// recreate or mutate files while the directory tree is being removed.
 static int sk_drop_(sk_handle_t* handle, const char* name) {
     DECL
 
@@ -437,6 +447,8 @@ int sk_open(sk_handle_t* handle, const char* name) {
         ERR(ex.what())
     }
 }
+// Opens an existing dataset, validates the on-disk metadata through Dataset::init,
+// and refreshes all cached per-handle query results.
 static int sk_open_(sk_handle_t* handle, const char* name) {
     DECL
 
@@ -504,6 +516,8 @@ int sk_upsert(sk_handle_t* handle, uint64_t id, const char* value) {
         ERR(ex.what())
     }
 }
+// Parses a textual vector into the dataset's binary type and forwards it to the
+// dataset write path.
 static int sk_upsert_(sk_handle_t* handle, uint64_t id, const char* value) {
     DECL
 
@@ -537,6 +551,7 @@ int sk_ups2(sk_handle_t* handle, uint64_t id, double value) {
         ERR(ex.what())
     }
 }
+// Builds a uniform vector from one scalar and inserts it into the open dataset.
 static int sk_ups2_(sk_handle_t* handle, uint64_t id, double value) {
     DECL
 
@@ -589,6 +604,8 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k) {
         ERR(ex.what())
     }
 }
+// Runs KNN against the currently open dataset by parsing the query vector,
+// dispatching the scanner, and caching the resulting ids on the handle.
 static int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k) {
     DECL
 
@@ -701,6 +718,8 @@ int sk_get(sk_handle_t* handle, uint64_t id) {
         ERR(ex.what())
     }
 }
+// Resolves a vector by id from the freshest visible dataset state and caches
+// its text representation for sk_gres().
 static int sk_get_(sk_handle_t* handle, uint64_t id) {
     DECL
 
@@ -747,6 +766,8 @@ int sk_gid(sk_handle_t* handle, const char* vec) {
         ERR(ex.what())
     }
 }
+// Performs an exact vector lookup by scanning the pending accumulator first and
+// then every persisted file. The first byte-identical match is cached on the handle.
 static int sk_gid_(sk_handle_t* handle, const char* vec) {
     DECL
 
@@ -827,6 +848,7 @@ int sk_print(sk_handle_t* handle) {
         ERR(ex.what())
     }
 }
+// Streams every persisted data reader to stdout in dataset order.
 static int sk_print_(sk_handle_t* handle) {
     DECL
 
@@ -859,6 +881,8 @@ int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int patt
         ERR(ex.what())
     }
 }
+// Generates a temporary input file using one of the built-in patterns and then
+// imports it through the regular dataset store path.
 static int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
     DECL
 
@@ -913,6 +937,8 @@ int sk_stats(sk_handle_t* handle) {
         ERR(ex.what())
     }
 }
+// Prints high-level dataset metadata followed by per-file vector/deletion counts
+// for the accumulator, base files, and delta files.
 static int sk_stats_(sk_handle_t* handle) {
     DECL
 

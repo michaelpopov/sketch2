@@ -62,6 +62,8 @@ static inline void print_deleted_line(FILE* f, uint64_t id) {
     fprintf(f, "%" PRIu64 " : []\n", id);
 }
 
+// Writes predictable test input where each id maps to a repeated scalar value,
+// with optional tombstones inserted at a fixed cadence.
 static Ret generate_sequential_input_file(const std::string& path, const GeneratorConfig& config) {
     FILE* f = fopen(path.c_str(), "w");
     if (!f) {
@@ -97,6 +99,8 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
     return Ret(0);
 }
 
+// Writes test input with per-dimension variation by advancing an InputVector
+// generator after each emitted record, again allowing periodic deleted entries.
 static Ret generate_detailed_input_file(const std::string& path, const GeneratorConfig& config) {
     FILE* f = fopen(path.c_str(), "w");
     if (!f) {
@@ -147,6 +151,8 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
     return Ret(0);
 }
 
+// Writes manually specified ids and deletion markers using the same textual
+// input format consumed by InputReader.
 Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen) {
     if (gen.dim < kMinDimension || gen.dim > kMaxDimension) {
         return Ret("dim must be in range [" + std::to_string(kMinDimension) +

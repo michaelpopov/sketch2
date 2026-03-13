@@ -35,6 +35,8 @@ enum VliteConstraintBit {
     kConstraintOffset = 1 << 3,
 };
 
+// Removes the outer quoting syntax SQLite may preserve in module arguments so
+// the dataset path can be passed to Dataset::init verbatim.
 std::string dequote_sqlite_arg(const char* text) {
     if (text == nullptr) {
         return "";
@@ -110,6 +112,8 @@ int run_cursor_callback(sqlite3_vtab_cursor* cursor, Func func) {
 }
 
 template <typename Func>
+// Wraps xColumn-style callbacks so C++ exceptions are converted into both a
+// SQLite result error and the virtual table's zErrMsg.
 int run_column_callback(sqlite3_vtab_cursor* cursor, sqlite3_context* context, Func func) {
     try {
         return func();
@@ -164,6 +168,8 @@ struct VliteCursor : sqlite3_vtab_cursor {
     sqlite3_int64 rowid = 1;
 };
 
+// Shared xCreate/xConnect path that validates the module arguments, declares
+// the schema, opens the backing dataset, and switches it into read-only guest mode.
 int vlite_connect_common(sqlite3* db, int argc, const char* const* argv,
     sqlite3_vtab** pp_vtab, char** err_msg) {
     return run_errmsg_callback(err_msg, [&]() -> int {
@@ -223,6 +229,8 @@ int vlite_connect(sqlite3* db, void* aux, int argc, const char* const* argv,
     return vlite_connect_common(db, argc, argv, pp_vtab, err_msg);
 }
 
+// Advertises which constraints the virtual table can consume and encodes that
+// decision in idxNum so xFilter can read query, k, LIMIT, and OFFSET values in order.
 int vlite_best_index(sqlite3_vtab* tab, sqlite3_index_info* index_info) {
     return run_vtab_callback(tab, [&]() -> int {
         if (tab == nullptr || index_info == nullptr) {
@@ -319,6 +327,9 @@ int vlite_close(sqlite3_vtab_cursor* cursor) {
     return SQLITE_OK;
 }
 
+// Executes one virtual-table query. It decodes the planner-selected arguments,
+// normalizes LIMIT/OFFSET pushdown into an effective k, parses the query vector,
+// and materializes the matching rows into the cursor.
 int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
     int argc, sqlite3_value** argv) {
     return run_cursor_callback(cursor, [&]() -> int {
@@ -445,6 +456,8 @@ int vlite_eof(sqlite3_vtab_cursor* cursor) {
     return vlite_cursor->index >= vlite_cursor->rows.size() ? 1 : 0;
 }
 
+// Returns the requested column for the current result row, including range
+// checks when exposing 64-bit vector ids as SQLite INTEGER values.
 int vlite_column(sqlite3_vtab_cursor* cursor, sqlite3_context* context, int column) {
     return run_column_callback(cursor, context, [&]() -> int {
         if (cursor == nullptr || context == nullptr) {

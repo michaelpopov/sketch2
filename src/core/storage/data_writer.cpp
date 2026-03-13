@@ -40,6 +40,9 @@ Ret DataWriter::exec() {
     return load(reader, output_path_, write_cosine_inv_norms_);
 }
 
+// Converts a sorted text-input view into the binary on-disk data-file format.
+// It separates live ids from deletions, streams vectors into the aligned data
+// section, optionally persists cosine inverse norms, and then appends both id tables.
 Ret DataWriter::load(const InputReaderView& reader, const std::string& output_path, bool write_cosine_inv_norms) {
     const size_t count = reader.count();
     if (count == 0) {

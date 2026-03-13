@@ -6,6 +6,9 @@
 
 namespace sketch2 {
 
+// Parses a textual vector payload into the typed binary buffer expected by the
+// storage and compute layers. The function validates buffer size, token count,
+// numeric ranges, and non-finite inputs so callers can treat success as fully parsed data.
 Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const char* line, const char* end) {
     if (buf == nullptr || line == nullptr) {
         return Ret("parse_vector: invalid arguments");
@@ -97,6 +100,8 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
     return Ret(0);
 }
 
+// Formats a binary vector back into "[ ... ]" text while checking buffer
+// capacity after every append so callers can grow the output buffer and retry.
 Ret print_vector(uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size_t buf_size) {
     if (vec_data == nullptr || buf == nullptr || buf_size == 0) {
         return Ret("print_vector: invalid arguments");

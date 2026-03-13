@@ -4,6 +4,8 @@
 
 namespace sketch2 {
 
+// Clears padding bits in the last machine word so resizing never leaves stale
+// bits visible past bit_count_.
 void DynamicBitset::clear_unused_tail_bits() {
     if (words_.empty()) {
         return;

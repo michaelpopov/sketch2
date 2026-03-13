@@ -144,6 +144,9 @@ Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta)
     }
 }
 
+// Memory-maps a binary data file, validates its layout, and caches pointers to
+// the vector, cosine, id, and delete sections. When a delta reader is attached,
+// it also builds a visibility bitset for base rows shadowed by newer updates.
 Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta) {
     if (map_) {
         return Ret("DataReader is initialized already.");
@@ -258,6 +261,8 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     return Ret(0);
 }
 
+// Marks base-file rows hidden when the attached delta either overwrites or
+// deletes the same id, allowing iteration to skip superseded records cheaply.
 Ret DataReader::init_delta() {
     if (!hdr_ || !ids_ || !delta_) {
         return Ret("DataReader::init_delta: reader is not initialized");
@@ -286,6 +291,8 @@ Ret DataReader::init_delta() {
     return Ret(0);
 }
 
+// Checks layout-derived state in debug builds so mmap pointers, strides, ids,
+// and delta metadata stay internally consistent.
 void DataReader::assert_invariants_() const {
 #ifndef NDEBUG
     if (!hdr_) {
@@ -412,6 +419,8 @@ const uint8_t* DataReader::at(size_t index) const {
     return map_ + hdr_->data_offset + index * stride_;
 }
 
+// Looks up an id in the base file and falls back to the attached delta when the
+// base row is absent or hidden by newer updates.
 const uint8_t* DataReader::get(uint64_t id) const {
     const size_t n = count();
     const uint64_t* first = ids_;
@@ -454,6 +463,8 @@ uint64_t DataReader::deleted_id(size_t index) const {
     return deleted_ids_[index];
 }
 
+// Verifies that ids and deleted ids are strictly sorted and disjoint, which is
+// required for binary search, merge logic, and hidden-row bookkeeping.
 bool DataReader::check_consistency() const {
     if (!hdr_) {
         return false;

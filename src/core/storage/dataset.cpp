@@ -67,6 +67,9 @@ bool parse_dataset_file_id(const std::string& name, const std::string& ext, uint
     return true;
 }
 
+// Scans every dataset directory, groups matching .data/.delta files by numeric
+// file id, validates that each group has a base data file, and returns the
+// resulting items sorted by id for deterministic reads and merges.
 Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetItem>* items) {
     if (metadata.dirs.empty()) {
         return Ret("DatasetReader::init: dirs are not set");
@@ -328,6 +331,9 @@ Ret Dataset::init_accumulator_() {
     return accumulator_->attach_wal(dataset_accumulator_wal_path(metadata_));
 }
 
+// Splits a textual input file into dataset file ranges and delegates each
+// touched range to store_and_merge(), which decides whether the new data becomes
+// a base file, a delta file, or a trigger for a larger merge.
 Ret Dataset::store_(const std::string& input_path) {
     if (metadata_.dirs.empty() || metadata_.range_size == 0) {
         return Ret("Dataset: not initialized.");
@@ -366,6 +372,9 @@ Ret Dataset::store_(const std::string& input_path) {
     return Ret(0);
 }
 
+// Flushes buffered accumulator updates into the on-disk file set. It groups ids
+// by file range, merges each affected range independently, then clears the WAL
+// and in-memory accumulator once every range is safely persisted.
 Ret Dataset::store_accumulator_() {
     if (metadata_.dirs.empty() || metadata_.range_size == 0) {
         return Ret("Dataset: not initialized.");
@@ -413,6 +422,8 @@ Ret Dataset::store_accumulator_() {
     return Ret(0);
 }
 
+// Forces every existing delta file to be folded into its corresponding data
+// file, one range at a time, under per-file locks.
 Ret Dataset::merge_() {
     if (metadata_.dirs.empty() || metadata_.range_size == 0) {
         return Ret("Dataset: not initialized.");
@@ -444,6 +455,9 @@ Ret Dataset::merge_() {
     return Ret(0);
 }
 
+// Writes one range slice from the text input into a temporary data file and
+// then promotes or merges it depending on which base/delta files already exist
+// and how large the new slice is relative to the current persisted data.
 Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) {
     const size_t dir_id = file_id % metadata_.dirs.size();
     const std::string& dir = metadata_.dirs[dir_id];
@@ -526,6 +540,9 @@ Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64
     return Ret(0);
 }
 
+// Persists the accumulator's updates for a single file range. The helper first
+// serializes just that slice, then chooses between creating a new data file,
+// creating/updating a delta, or performing a full data merge when the delta grows large enough.
 Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids) {
     const size_t dir_id = file_id % metadata_.dirs.size();
     const std::string& dir = metadata_.dirs[dir_id];
@@ -760,6 +777,8 @@ Ret Dataset::prepare_read_state() const {
     return self->init_accumulator_();
 }
 
+// Resolves reads against the freshest visible state by checking pending
+// accumulator deletes/updates first and then falling back to persisted files.
 std::pair<const uint8_t*, Ret> Dataset::get_vector(uint64_t id) const {
     const Ret read_state_ret = prepare_read_state();
     if (read_state_ret.code() != 0) {
@@ -787,6 +806,8 @@ std::pair<const uint8_t*, Ret> Dataset::get_vector(uint64_t id) const {
     return {reader->get(id), Ret(0)};
 }
 
+// Returns the sorted union of updated and deleted accumulator ids so scans can
+// skip base rows shadowed by in-memory state.
 std::vector<uint64_t> Dataset::accumulator_modified_ids() const {
     const Ret ret = prepare_read_state();
     if (ret.code() != 0) {
@@ -867,6 +888,8 @@ const DatasetItem* Dataset::find_item_(uint64_t file_id) const {
     return &(*it);
 }
 
+// Lazily opens and caches the DataReader for a dataset file pair, attaching the
+// delta reader when present and verifying cosine metadata for cosine datasets.
 std::pair<DataReaderPtr, Ret> Dataset::get_cached_reader_(const DatasetItem& item) const {
     const auto cache_it = reader_cache_.find(item.id);
     if (cache_it != reader_cache_.end()) {

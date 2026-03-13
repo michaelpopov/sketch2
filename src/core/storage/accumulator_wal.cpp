@@ -31,6 +31,8 @@ uint32_t checksum_record(WalOp op, uint64_t id, const uint8_t* payload, size_t p
     return checksum;
 }
 
+// Retries short writes and EINTR so callers can treat a successful return as a
+// fully persisted byte range.
 Ret write_all(int fd, const uint8_t* data, size_t size, const std::string& context) {
     size_t written = 0;
     while (written < size) {
@@ -46,6 +48,8 @@ Ret write_all(int fd, const uint8_t* data, size_t size, const std::string& conte
     return Ret(0);
 }
 
+// Reads up to size bytes from a fixed offset while handling EINTR, reporting
+// how much data was actually available so WAL replay can trim torn records.
 Ret pread_all(int fd, void* data, size_t size, off_t offset, size_t* bytes_read, const std::string& context) {
     uint8_t* out = static_cast<uint8_t*>(data);
     size_t total = 0;
@@ -88,6 +92,9 @@ Ret AccumulatorWal::init(const std::string& path, DataType type, uint64_t dim) {
     return load_or_create_header_();
 }
 
+// Replays WAL records into the accumulator on startup. The function validates
+// record sizes and checksums, truncates incomplete tails left by crashes, and
+// then re-applies each logical add/delete in order.
 Ret AccumulatorWal::replay(Accumulator* accumulator) {
     if (!accumulator) {
         return Ret("AccumulatorWal::replay: accumulator is null");
@@ -200,6 +207,8 @@ Ret AccumulatorWal::open_file_() {
     return Ret(0);
 }
 
+// Opens an existing WAL header or creates a new one. Existing files are
+// validated against the accumulator's type and dimension before appends resume.
 Ret AccumulatorWal::load_or_create_header_() {
     const off_t file_size = lseek(fd_, 0, SEEK_END);
     if (file_size < 0) {
@@ -264,6 +273,8 @@ Ret AccumulatorWal::write_header_() {
     return Ret(0);
 }
 
+// Appends a checksummed WAL record and forces it to stable storage so the
+// accumulator can recover every acknowledged mutation after a crash.
 Ret AccumulatorWal::append_record_(WalOp op, uint64_t id, const uint8_t* payload, size_t payload_size) {
     if (fd_ < 0) {
         return Ret("AccumulatorWal: not initialized");
