@@ -10,7 +10,8 @@ namespace sketch2 {
 
 class DataReader {
 public:
-    // Iterator may produce non-monotonic ids.
+    // Iterator produces visible base rows first and attached delta rows second,
+    // so ids may be non-monotonic when a delta is present.
     class Iterator {
     public:
         void           next();
@@ -29,6 +30,29 @@ public:
         const size_t       count_;
     };
 
+    // Iterates visible rows from the base data file only, ordered by id.
+    class OrderedIterator {
+    public:
+        void           next();
+        bool           eof()  const;
+        const uint8_t* data() const;
+        uint64_t       id()   const;
+
+    private:
+        enum class Source {
+            Base,
+            Delta,
+        };
+
+        friend class DataReader;
+        OrderedIterator(const DataReader* reader, Source source, size_t index)
+            : reader_(reader), source_(source), index_(index) {}
+
+        const DataReader* reader_ = nullptr;
+        Source            source_ = Source::Base;
+        size_t            index_  = 0;
+    };
+
     ~DataReader();
 
     Ret init(const std::string& path, std::unique_ptr<DataReader> delta = nullptr);
@@ -38,7 +62,9 @@ public:
     size_t size() const;  // size of one vector in bytes
     size_t count() const; // number of vectors
 
-    Iterator       begin() const;
+    Iterator        begin() const;
+    OrderedIterator base_begin() const;
+    OrderedIterator delta_begin() const;
     uint64_t       id(size_t index) const;
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     const uint8_t* at(size_t index) const;   // lookup by position; might return nullptr if the vector is deleted

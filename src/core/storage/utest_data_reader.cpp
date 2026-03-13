@@ -628,6 +628,53 @@ TEST_F(DataReaderTest, DeltaIteratorSkipsDeletedAndAppendsUpdatedFromDelta) {
     EXPECT_NEAR(99.0f, v12[0], 1e-5f);
 }
 
+TEST_F(DataReaderTest, BaseBeginReturnsVisibleBaseIdsInSortedOrder) {
+    generate(4, 10, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "11 : []\n"
+        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
+
+    std::vector<uint64_t> seen_ids;
+    for (auto it = r.base_begin(); !it.eof(); it.next()) {
+        seen_ids.push_back(it.id());
+    }
+
+    EXPECT_EQ((std::vector<uint64_t> {10u, 13u}), seen_ids);
+}
+
+TEST_F(DataReaderTest, DeltaBeginReturnsDeltaIdsInSortedOrder) {
+    generate(4, 10, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "13 : [ 77.0, 77.0, 77.0, 77.0 ]\n"
+        "11 : []\n"
+        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
+
+    std::vector<uint64_t> seen_ids;
+    for (auto it = r.delta_begin(); !it.eof(); it.next()) {
+        seen_ids.push_back(it.id());
+    }
+
+    EXPECT_EQ((std::vector<uint64_t> {12u, 13u}), seen_ids);
+}
+
+TEST_F(DataReaderTest, DeltaBeginIsEmptyWithoutAttachedDelta) {
+    generate(3, 10, DataType::f32, 4);
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_TRUE(r.delta_begin().eof());
+}
+
 TEST_F(DataReaderTest, InitFailsWhenDeltaTypeMismatch) {
     generate(3, 0, DataType::f32, 4);
     generate_delta(3, 0, DataType::i16, 4);

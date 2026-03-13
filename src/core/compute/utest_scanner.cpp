@@ -687,3 +687,34 @@ TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
     ASSERT_EQ(0, s.find(ds, 3, updated.data(), result).code());
     ASSERT_EQ((std::vector<uint64_t> {1u, 2u, 3u}), result);
 }
+
+TEST_F(ScannerTest, FindDatasetSkipsPersistedDeltaVersionWhenAccumulatorUpdatesSameId) {
+    std::string d = "/tmp/sketch2_utest_sc_dsaccdeltadup_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+
+    write_input_raw(input_path_,
+        "f32,4\n"
+        "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+        "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n"
+        "12 : [ 12.0, 12.0, 12.0, 12.0 ]\n"
+        "13 : [ 13.0, 13.0, 13.0, 13.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    write_input_raw(input_path_,
+        "f32,4\n"
+        "12 : [ 100.0, 100.0, 100.0, 100.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
+
+    const auto updated = f32_vec(500.0f, 4);
+    ASSERT_EQ(0, ds.add_vector(12, updated.data()).code());
+
+    Scanner s;
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 5, updated.data(), result).code());
+    ASSERT_EQ((std::vector<uint64_t> {12u, 13u, 11u, 10u}), result);
+}

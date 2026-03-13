@@ -759,6 +759,26 @@ std::pair<const uint8_t*, Ret> Dataset::get_vector(uint64_t id) const {
     return {reader->get(id), Ret(0)};
 }
 
+std::vector<uint64_t> Dataset::accumulator_modified_ids() const {
+    const Ret ret = prepare_read_state();
+    if (ret.code() != 0) {
+        throw std::runtime_error(ret.message());
+    }
+    if (!accumulator_) {
+        return {};
+    }
+
+    std::vector<uint64_t> updated_ids = accumulator_->get_vector_ids();
+    std::vector<uint64_t> deleted_ids = accumulator_->get_deleted_ids();
+    std::vector<uint64_t> modified_ids;
+    modified_ids.reserve(updated_ids.size() + deleted_ids.size());
+    std::merge(updated_ids.begin(), updated_ids.end(),
+        deleted_ids.begin(), deleted_ids.end(),
+        std::back_inserter(modified_ids));
+    modified_ids.erase(std::unique(modified_ids.begin(), modified_ids.end()), modified_ids.end());
+    return modified_ids;
+}
+
 /***********************************************************
  *  DatasetReader 
  */

@@ -56,6 +56,52 @@ uint64_t DataReader::Iterator::id() const {
     return ids_[index_];
 }
 
+// --- OrderedIterator ---
+
+void DataReader::OrderedIterator::next() {
+    ++index_;
+    if (!reader_ || source_ != Source::Base) {
+        return;
+    }
+    while (index_ < reader_->count() && reader_->is_hidden(index_)) {
+        ++index_;
+    }
+}
+
+bool DataReader::OrderedIterator::eof() const {
+    if (!reader_) {
+        return true;
+    }
+    if (source_ == Source::Base) {
+        return index_ >= reader_->count();
+    }
+    return !reader_->delta_ || index_ >= reader_->delta_->count();
+}
+
+const uint8_t* DataReader::OrderedIterator::data() const {
+    if (eof()) {
+        throw std::out_of_range("DataReader::OrderedIterator::data: index out of range");
+    }
+
+    if (source_ == Source::Base) {
+        return reader_->at(index_);
+    }
+
+    return reader_->delta_->at(index_);
+}
+
+uint64_t DataReader::OrderedIterator::id() const {
+    if (eof()) {
+        throw std::out_of_range("DataReader::OrderedIterator::id: index out of range");
+    }
+
+    if (source_ == Source::Base) {
+        return reader_->ids_[index_];
+    }
+
+    return reader_->delta_->ids_[index_];
+}
+
 // --- DataReader ---
 
 DataReader::~DataReader() {
@@ -229,6 +275,18 @@ DataReader::Iterator DataReader::begin() const {
         ++index;
     }
     return Iterator(this, delta_ ? delta_.get() : nullptr, index, ids_);
+}
+
+DataReader::OrderedIterator DataReader::base_begin() const {
+    size_t index = 0;
+    while (index < count() && is_hidden(index)) {
+        ++index;
+    }
+    return OrderedIterator(this, OrderedIterator::Source::Base, index);
+}
+
+DataReader::OrderedIterator DataReader::delta_begin() const {
+    return OrderedIterator(this, OrderedIterator::Source::Delta, 0);
 }
 
 uint64_t DataReader::id(size_t index) const {
