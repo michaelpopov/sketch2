@@ -38,7 +38,18 @@ class Parasol:
     @staticmethod
     def _default_lib_path() -> Path:
         repo_root = Path(__file__).resolve().parents[2]
-        return repo_root / "build-dbg" / "lib" / "libparasol.so"
+        candidates = [
+            repo_root / "build" / "lib" / "libparasol.so",
+            repo_root / "bin" / "libparasol.so",
+            repo_root / "build-dbg" / "lib" / "libparasol.so",
+            repo_root / "bin-dbg" / "libparasol.so",
+            repo_root / "build-san" / "lib" / "libparasol.so",
+            repo_root / "bin-san" / "libparasol.so",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
 
     def _configure(self) -> None:
         self.lib.sk_connect.argtypes = [c_char_p]

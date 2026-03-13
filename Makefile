@@ -50,6 +50,11 @@ pytest:
 pydemo:
 	python3 src/pytest/demo.py
 
+# Runs the Python demo against the release libparasol/libvlite artifacts
+.PHONY: demo
+demo:
+	python3 src/pytest/demo.py --parasol-lib $(BUILD_REL)/lib/libparasol.so --vlite-lib $(BUILD_REL)/lib/libvlite.so
+
 # Runs Python shell with Sketch2 objects ready
 .PHONY: pyshell
 pyshell:
