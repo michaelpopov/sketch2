@@ -14,6 +14,12 @@ public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_f16(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_i16(const uint8_t *a, const uint8_t *b, size_t dim);
+    static double dist_f32_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
+    static double dist_f16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
+    static double dist_i16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
+    static double squared_norm_f32(const uint8_t *a, size_t dim);
+    static double squared_norm_f16(const uint8_t *a, size_t dim);
+    static double squared_norm_i16(const uint8_t *a, size_t dim);
 };
 
 #if defined(__AVX2__)
@@ -66,7 +72,40 @@ inline void accumulate_i16_products_as_i64_cos(__m256i a16, __m256i b16, __m256i
     *norm_b_acc = accumulate_mul_i32_as_i64_cos(*norm_b_acc, b_hi32, b_hi32);
 }
 
+inline void accumulate_i16_dot_and_norm_a_as_i64_cos(__m256i a16, __m256i b16, __m256i* dot_acc,
+        __m256i* norm_a_acc) {
+    const __m128i a_lo16 = _mm256_castsi256_si128(a16);
+    const __m128i a_hi16 = _mm256_extracti128_si256(a16, 1);
+    const __m128i b_lo16 = _mm256_castsi256_si128(b16);
+    const __m128i b_hi16 = _mm256_extracti128_si256(b16, 1);
+
+    const __m256i a_lo32 = _mm256_cvtepi16_epi32(a_lo16);
+    const __m256i a_hi32 = _mm256_cvtepi16_epi32(a_hi16);
+    const __m256i b_lo32 = _mm256_cvtepi16_epi32(b_lo16);
+    const __m256i b_hi32 = _mm256_cvtepi16_epi32(b_hi16);
+
+    *dot_acc = accumulate_mul_i32_as_i64_cos(*dot_acc, a_lo32, b_lo32);
+    *dot_acc = accumulate_mul_i32_as_i64_cos(*dot_acc, a_hi32, b_hi32);
+    *norm_a_acc = accumulate_mul_i32_as_i64_cos(*norm_a_acc, a_lo32, a_lo32);
+    *norm_a_acc = accumulate_mul_i32_as_i64_cos(*norm_a_acc, a_hi32, a_hi32);
+}
+
 inline double ComputeCos_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
+    return dist_f32_with_query_norm(a, b, dim, squared_norm_f32(b, dim));
+}
+
+inline double ComputeCos_AVX2::squared_norm_f32(const uint8_t *a, size_t dim) {
+    const float *va = reinterpret_cast<const float *>(a);
+    double norm = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double ai = static_cast<double>(va[i]);
+        norm += ai * ai;
+    }
+    return norm;
+}
+
+inline double ComputeCos_AVX2::dist_f32_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim,
+        double query_norm_sq) {
     const float *va = reinterpret_cast<const float *>(a);
     const float *vb = reinterpret_cast<const float *>(b);
     __m256 dot0 = _mm256_setzero_ps();
@@ -77,10 +116,6 @@ inline double ComputeCos_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size
     __m256 norm_a1 = _mm256_setzero_ps();
     __m256 norm_a2 = _mm256_setzero_ps();
     __m256 norm_a3 = _mm256_setzero_ps();
-    __m256 norm_b0 = _mm256_setzero_ps();
-    __m256 norm_b1 = _mm256_setzero_ps();
-    __m256 norm_b2 = _mm256_setzero_ps();
-    __m256 norm_b3 = _mm256_setzero_ps();
     const bool aligned =
         (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kAvx2VectorAlignment - 1u)) == 0u);
 
@@ -104,17 +139,12 @@ inline double ComputeCos_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size
             norm_a1 = fmadd_ps(a1, a1, norm_a1);
             norm_a2 = fmadd_ps(a2, a2, norm_a2);
             norm_a3 = fmadd_ps(a3, a3, norm_a3);
-            norm_b0 = fmadd_ps(b0, b0, norm_b0);
-            norm_b1 = fmadd_ps(b1, b1, norm_b1);
-            norm_b2 = fmadd_ps(b2, b2, norm_b2);
-            norm_b3 = fmadd_ps(b3, b3, norm_b3);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 a8 = _mm256_load_ps(va + i);
             const __m256 b8 = _mm256_load_ps(vb + i);
             dot0 = fmadd_ps(a8, b8, dot0);
             norm_a0 = fmadd_ps(a8, a8, norm_a0);
-            norm_b0 = fmadd_ps(b8, b8, norm_b0);
         }
     } else {
         for (; i + 32 <= dim; i += 32) {
@@ -135,40 +165,47 @@ inline double ComputeCos_AVX2::dist_f32(const uint8_t *a, const uint8_t *b, size
             norm_a1 = fmadd_ps(a1, a1, norm_a1);
             norm_a2 = fmadd_ps(a2, a2, norm_a2);
             norm_a3 = fmadd_ps(a3, a3, norm_a3);
-            norm_b0 = fmadd_ps(b0, b0, norm_b0);
-            norm_b1 = fmadd_ps(b1, b1, norm_b1);
-            norm_b2 = fmadd_ps(b2, b2, norm_b2);
-            norm_b3 = fmadd_ps(b3, b3, norm_b3);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 a8 = _mm256_loadu_ps(va + i);
             const __m256 b8 = _mm256_loadu_ps(vb + i);
             dot0 = fmadd_ps(a8, b8, dot0);
             norm_a0 = fmadd_ps(a8, a8, norm_a0);
-            norm_b0 = fmadd_ps(b8, b8, norm_b0);
         }
     }
 
     const __m256 dot = _mm256_add_ps(_mm256_add_ps(dot0, dot1), _mm256_add_ps(dot2, dot3));
     const __m256 norm_a = _mm256_add_ps(_mm256_add_ps(norm_a0, norm_a1), _mm256_add_ps(norm_a2, norm_a3));
-    const __m256 norm_b = _mm256_add_ps(_mm256_add_ps(norm_b0, norm_b1), _mm256_add_ps(norm_b2, norm_b3));
 
     double dot_sum = hsum_ps_256(dot);
     double norm_a_sum = hsum_ps_256(norm_a);
-    double norm_b_sum = hsum_ps_256(norm_b);
 
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot_sum += ai * bi;
         norm_a_sum += ai * ai;
-        norm_b_sum += bi * bi;
     }
 
-    return finalize_cosine_distance_avx2(dot_sum, norm_a_sum, norm_b_sum);
+    return finalize_cosine_distance_avx2(dot_sum, norm_a_sum, query_norm_sq);
 }
 
 inline double ComputeCos_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size_t dim) {
+    return dist_f16_with_query_norm(a, b, dim, squared_norm_f16(b, dim));
+}
+
+inline double ComputeCos_AVX2::squared_norm_f16(const uint8_t *a, size_t dim) {
+    const float16 *va = reinterpret_cast<const float16 *>(a);
+    double norm = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double ai = static_cast<double>(va[i]);
+        norm += ai * ai;
+    }
+    return norm;
+}
+
+inline double ComputeCos_AVX2::dist_f16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim,
+        double query_norm_sq) {
     const float16 *va = reinterpret_cast<const float16 *>(a);
     const float16 *vb = reinterpret_cast<const float16 *>(b);
     __m256 dot0 = _mm256_setzero_ps();
@@ -179,10 +216,6 @@ inline double ComputeCos_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size
     __m256 norm_a1 = _mm256_setzero_ps();
     __m256 norm_a2 = _mm256_setzero_ps();
     __m256 norm_a3 = _mm256_setzero_ps();
-    __m256 norm_b0 = _mm256_setzero_ps();
-    __m256 norm_b1 = _mm256_setzero_ps();
-    __m256 norm_b2 = _mm256_setzero_ps();
-    __m256 norm_b3 = _mm256_setzero_ps();
     const bool aligned =
         (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kHalfVectorAlignment - 1u)) == 0u);
 
@@ -206,17 +239,12 @@ inline double ComputeCos_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size
             norm_a1 = fmadd_ps(a1, a1, norm_a1);
             norm_a2 = fmadd_ps(a2, a2, norm_a2);
             norm_a3 = fmadd_ps(a3, a3, norm_a3);
-            norm_b0 = fmadd_ps(b0, b0, norm_b0);
-            norm_b1 = fmadd_ps(b1, b1, norm_b1);
-            norm_b2 = fmadd_ps(b2, b2, norm_b2);
-            norm_b3 = fmadd_ps(b3, b3, norm_b3);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 a8 = load_f16x8_ps_aligned(va + i);
             const __m256 b8 = load_f16x8_ps_aligned(vb + i);
             dot0 = fmadd_ps(a8, b8, dot0);
             norm_a0 = fmadd_ps(a8, a8, norm_a0);
-            norm_b0 = fmadd_ps(b8, b8, norm_b0);
         }
     } else {
         for (; i + 32 <= dim; i += 32) {
@@ -237,45 +265,51 @@ inline double ComputeCos_AVX2::dist_f16(const uint8_t *a, const uint8_t *b, size
             norm_a1 = fmadd_ps(a1, a1, norm_a1);
             norm_a2 = fmadd_ps(a2, a2, norm_a2);
             norm_a3 = fmadd_ps(a3, a3, norm_a3);
-            norm_b0 = fmadd_ps(b0, b0, norm_b0);
-            norm_b1 = fmadd_ps(b1, b1, norm_b1);
-            norm_b2 = fmadd_ps(b2, b2, norm_b2);
-            norm_b3 = fmadd_ps(b3, b3, norm_b3);
         }
         for (; i + 8 <= dim; i += 8) {
             const __m256 a8 = load_f16x8_ps(va + i);
             const __m256 b8 = load_f16x8_ps(vb + i);
             dot0 = fmadd_ps(a8, b8, dot0);
             norm_a0 = fmadd_ps(a8, a8, norm_a0);
-            norm_b0 = fmadd_ps(b8, b8, norm_b0);
         }
     }
 
     const __m256 dot = _mm256_add_ps(_mm256_add_ps(dot0, dot1), _mm256_add_ps(dot2, dot3));
     const __m256 norm_a = _mm256_add_ps(_mm256_add_ps(norm_a0, norm_a1), _mm256_add_ps(norm_a2, norm_a3));
-    const __m256 norm_b = _mm256_add_ps(_mm256_add_ps(norm_b0, norm_b1), _mm256_add_ps(norm_b2, norm_b3));
 
     double dot_sum = hsum_ps_256(dot);
     double norm_a_sum = hsum_ps_256(norm_a);
-    double norm_b_sum = hsum_ps_256(norm_b);
 
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot_sum += ai * bi;
         norm_a_sum += ai * ai;
-        norm_b_sum += bi * bi;
     }
 
-    return finalize_cosine_distance_avx2(dot_sum, norm_a_sum, norm_b_sum);
+    return finalize_cosine_distance_avx2(dot_sum, norm_a_sum, query_norm_sq);
 }
 
 inline double ComputeCos_AVX2::dist_i16(const uint8_t *a, const uint8_t *b, size_t dim) {
+    return dist_i16_with_query_norm(a, b, dim, squared_norm_i16(b, dim));
+}
+
+inline double ComputeCos_AVX2::squared_norm_i16(const uint8_t *a, size_t dim) {
+    const int16_t *va = reinterpret_cast<const int16_t *>(a);
+    double norm = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double ai = static_cast<double>(va[i]);
+        norm += ai * ai;
+    }
+    return norm;
+}
+
+inline double ComputeCos_AVX2::dist_i16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim,
+        double query_norm_sq) {
     const int16_t *va = reinterpret_cast<const int16_t *>(a);
     const int16_t *vb = reinterpret_cast<const int16_t *>(b);
     __m256i dot_acc = _mm256_setzero_si256();
     __m256i norm_a_acc = _mm256_setzero_si256();
-    __m256i norm_b_acc = _mm256_setzero_si256();
     const bool aligned =
         (((reinterpret_cast<uintptr_t>(va) | reinterpret_cast<uintptr_t>(vb)) & (kAvx2VectorAlignment - 1u)) == 0u);
 
@@ -284,29 +318,27 @@ inline double ComputeCos_AVX2::dist_i16(const uint8_t *a, const uint8_t *b, size
         for (; i + 16 <= dim; i += 16) {
             const __m256i a16 = _mm256_load_si256(reinterpret_cast<const __m256i *>(va + i));
             const __m256i b16 = _mm256_load_si256(reinterpret_cast<const __m256i *>(vb + i));
-            accumulate_i16_products_as_i64_cos(a16, b16, &dot_acc, &norm_a_acc, &norm_b_acc);
+            accumulate_i16_dot_and_norm_a_as_i64_cos(a16, b16, &dot_acc, &norm_a_acc);
         }
     } else {
         for (; i + 16 <= dim; i += 16) {
             const __m256i a16 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(va + i));
             const __m256i b16 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(vb + i));
-            accumulate_i16_products_as_i64_cos(a16, b16, &dot_acc, &norm_a_acc, &norm_b_acc);
+            accumulate_i16_dot_and_norm_a_as_i64_cos(a16, b16, &dot_acc, &norm_a_acc);
         }
     }
 
     double dot = hsum_epi64_256_cos(dot_acc);
     double norm_a = hsum_epi64_256_cos(norm_a_acc);
-    double norm_b = hsum_epi64_256_cos(norm_b_acc);
 
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
         norm_a += ai * ai;
-        norm_b += bi * bi;
     }
 
-    return finalize_cosine_distance_avx2(dot, norm_a, norm_b);
+    return finalize_cosine_distance_avx2(dot, norm_a, query_norm_sq);
 }
 
 #endif

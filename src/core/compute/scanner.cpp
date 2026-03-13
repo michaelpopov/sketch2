@@ -81,6 +81,32 @@ void scan_ordered_reader(Iterator it, const std::vector<uint64_t>& skip_ids,
     }
 }
 
+template <auto DistanceFn, typename Iterator>
+void scan_ordered_reader_with_query_norm(Iterator it, const std::vector<uint64_t>& skip_ids,
+        const uint8_t* vec, size_t dim, double query_norm_sq, size_t count, DistHeap* heap) {
+    if (skip_ids.empty()) {
+        for (; !it.eof(); it.next()) {
+            push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim, query_norm_sq));
+        }
+        return;
+    }
+
+    auto skip_it = skip_ids.end();
+    for (; !it.eof(); it.next()) {
+        const uint64_t id = it.id();
+        if (skip_it == skip_ids.end()) {
+            skip_it = std::lower_bound(skip_ids.begin(), skip_ids.end(), id);
+        }
+        while (skip_it != skip_ids.end() && *skip_it < id) {
+            ++skip_it;
+        }
+        if (skip_it != skip_ids.end() && *skip_it == id) {
+            continue;
+        }
+        push_result(heap, count, id, DistanceFn(it.data(), vec, dim, query_norm_sq));
+    }
+}
+
 template <auto DistanceFn>
 Ret scan_dataset_heap(const Dataset& dataset, size_t count, const uint8_t* vec, DistHeap* heap) {
     CHECK(dataset.prepare_read_state());
@@ -131,6 +157,85 @@ Ret scan_reader_heap(const DataReader& reader, size_t count, const uint8_t* vec,
     scan_ordered_reader<DistanceFn>(reader.base_begin(), {}, vec, dim, count, heap);
     scan_ordered_reader<DistanceFn>(reader.delta_begin(), {}, vec, dim, count, heap);
 
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_dataset_heap_with_query_norm(const Dataset& dataset, size_t count, const uint8_t* vec,
+        double query_norm_sq, DistHeap* heap) {
+    CHECK(dataset.prepare_read_state());
+    const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();
+    const size_t dim = dataset.dim();
+
+    auto drs = dataset.reader();
+    while (true) {
+        auto [reader, ret] = drs->next();
+        CHECK(ret);
+        if (!reader) break;
+
+        scan_ordered_reader_with_query_norm<DistanceFn>(
+            reader->base_begin(), modified_ids, vec, dim, query_norm_sq, count, heap);
+        scan_ordered_reader_with_query_norm<DistanceFn>(
+            reader->delta_begin(), modified_ids, vec, dim, query_norm_sq, count, heap);
+    }
+
+    for (auto it = dataset.accumulator_begin(); !it.eof(); it.next()) {
+        push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim, query_norm_sq));
+    }
+
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_dataset_items_with_query_norm(const Dataset& dataset, size_t count, const uint8_t* vec,
+        double query_norm_sq, std::vector<DistItem>& result) {
+    DistHeap heap;
+    CHECK(scan_dataset_heap_with_query_norm<DistanceFn>(dataset, count, vec, query_norm_sq, &heap));
+
+    extract_items(&heap, &result);
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_dataset_ids_with_query_norm(const Dataset& dataset, size_t count, const uint8_t* vec,
+        double query_norm_sq, std::vector<uint64_t>& result) {
+    DistHeap heap;
+    CHECK(scan_dataset_heap_with_query_norm<DistanceFn>(dataset, count, vec, query_norm_sq, &heap));
+
+    extract_ids(&heap, &result);
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_reader_heap_with_query_norm(const DataReader& reader, size_t count, const uint8_t* vec,
+        double query_norm_sq, DistHeap* heap) {
+    const size_t dim = reader.dim();
+
+    scan_ordered_reader_with_query_norm<DistanceFn>(
+        reader.base_begin(), {}, vec, dim, query_norm_sq, count, heap);
+    scan_ordered_reader_with_query_norm<DistanceFn>(
+        reader.delta_begin(), {}, vec, dim, query_norm_sq, count, heap);
+
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_reader_items_with_query_norm(const DataReader& reader, size_t count, const uint8_t* vec,
+        double query_norm_sq, std::vector<DistItem>& result) {
+    DistHeap heap;
+    CHECK(scan_reader_heap_with_query_norm<DistanceFn>(reader, count, vec, query_norm_sq, &heap));
+
+    extract_items(&heap, &result);
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_reader_ids_with_query_norm(const DataReader& reader, size_t count, const uint8_t* vec,
+        double query_norm_sq, std::vector<uint64_t>& result) {
+    DistHeap heap;
+    CHECK(scan_reader_heap_with_query_norm<DistanceFn>(reader, count, vec, query_norm_sq, &heap));
+
+    extract_ids(&heap, &result);
     return Ret(0);
 }
 
@@ -203,6 +308,78 @@ Ret dispatch_reader_items(DataType type, const DataReader& reader, size_t count,
     }
 }
 
+template <typename ComputeTarget>
+Ret dispatch_dataset_cos_ids(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) {
+    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dataset.dim());
+    switch (type) {
+        case DataType::f32:
+            return scan_dataset_ids_with_query_norm<&ComputeTarget::dist_f32_with_query_norm>(
+                dataset, count, vec, query_norm_sq, result);
+        case DataType::f16:
+            return scan_dataset_ids_with_query_norm<&ComputeTarget::dist_f16_with_query_norm>(
+                dataset, count, vec, query_norm_sq, result);
+        case DataType::i16:
+            return scan_dataset_ids_with_query_norm<&ComputeTarget::dist_i16_with_query_norm>(
+                dataset, count, vec, query_norm_sq, result);
+        default: return Ret("Scanner::find: unsupported data type.");
+    }
+}
+
+template <typename ComputeTarget>
+Ret dispatch_dataset_cos_items(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) {
+    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dataset.dim());
+    switch (type) {
+        case DataType::f32:
+            return scan_dataset_items_with_query_norm<&ComputeTarget::dist_f32_with_query_norm>(
+                dataset, count, vec, query_norm_sq, result);
+        case DataType::f16:
+            return scan_dataset_items_with_query_norm<&ComputeTarget::dist_f16_with_query_norm>(
+                dataset, count, vec, query_norm_sq, result);
+        case DataType::i16:
+            return scan_dataset_items_with_query_norm<&ComputeTarget::dist_i16_with_query_norm>(
+                dataset, count, vec, query_norm_sq, result);
+        default: return Ret("Scanner::find: unsupported data type.");
+    }
+}
+
+template <typename ComputeTarget>
+Ret dispatch_reader_cos_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) {
+    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, reader.dim());
+    switch (type) {
+        case DataType::f32:
+            return scan_reader_ids_with_query_norm<&ComputeTarget::dist_f32_with_query_norm>(
+                reader, count, vec, query_norm_sq, result);
+        case DataType::f16:
+            return scan_reader_ids_with_query_norm<&ComputeTarget::dist_f16_with_query_norm>(
+                reader, count, vec, query_norm_sq, result);
+        case DataType::i16:
+            return scan_reader_ids_with_query_norm<&ComputeTarget::dist_i16_with_query_norm>(
+                reader, count, vec, query_norm_sq, result);
+        default: return Ret("Scanner::find: unsupported data type.");
+    }
+}
+
+template <typename ComputeTarget>
+Ret dispatch_reader_cos_items(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) {
+    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, reader.dim());
+    switch (type) {
+        case DataType::f32:
+            return scan_reader_items_with_query_norm<&ComputeTarget::dist_f32_with_query_norm>(
+                reader, count, vec, query_norm_sq, result);
+        case DataType::f16:
+            return scan_reader_items_with_query_norm<&ComputeTarget::dist_f16_with_query_norm>(
+                reader, count, vec, query_norm_sq, result);
+        case DataType::i16:
+            return scan_reader_items_with_query_norm<&ComputeTarget::dist_i16_with_query_norm>(
+                reader, count, vec, query_norm_sq, result);
+        default: return Ret("Scanner::find: unsupported data type.");
+    }
+}
+
 } // namespace
 
 Ret Scanner::find(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
@@ -253,7 +430,7 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
     switch (func) {
         case DistFunc::L1: return dispatch_dataset_ids<ComputeL1Target>(type, dataset, count, vec, result);
         case DistFunc::L2: return dispatch_dataset_ids<ComputeL2Target>(type, dataset, count, vec, result);
-        case DistFunc::COS: return dispatch_dataset_ids<ComputeCosTarget>(type, dataset, count, vec, result);
+        case DistFunc::COS: return dispatch_dataset_cos_ids<ComputeCosTarget>(type, dataset, count, vec, result);
         default: return Ret("Scanner::find: unsupported distance function.");
     }
 }
@@ -270,7 +447,7 @@ Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* ve
     switch (func) {
         case DistFunc::L1: return dispatch_dataset_items<ComputeL1Target>(type, dataset, count, vec, result);
         case DistFunc::L2: return dispatch_dataset_items<ComputeL2Target>(type, dataset, count, vec, result);
-        case DistFunc::COS: return dispatch_dataset_items<ComputeCosTarget>(type, dataset, count, vec, result);
+        case DistFunc::COS: return dispatch_dataset_cos_items<ComputeCosTarget>(type, dataset, count, vec, result);
         default: return Ret("Scanner::find: unsupported distance function.");
     }
 }
@@ -286,7 +463,7 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
     switch (func) {
         case DistFunc::L1: return dispatch_reader_ids<ComputeL1Target>(type, reader, count, vec, result);
         case DistFunc::L2: return dispatch_reader_ids<ComputeL2Target>(type, reader, count, vec, result);
-        case DistFunc::COS: return dispatch_reader_ids<ComputeCosTarget>(type, reader, count, vec, result);
+        case DistFunc::COS: return dispatch_reader_cos_ids<ComputeCosTarget>(type, reader, count, vec, result);
         default: return Ret("Scanner::find: not implemented");
     }
 }
@@ -302,7 +479,7 @@ Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, 
     switch (func) {
         case DistFunc::L1: return dispatch_reader_items<ComputeL1Target>(type, reader, count, vec, result);
         case DistFunc::L2: return dispatch_reader_items<ComputeL2Target>(type, reader, count, vec, result);
-        case DistFunc::COS: return dispatch_reader_items<ComputeCosTarget>(type, reader, count, vec, result);
+        case DistFunc::COS: return dispatch_reader_cos_items<ComputeCosTarget>(type, reader, count, vec, result);
         default: return Ret("Scanner::find: not implemented");
     }
 }

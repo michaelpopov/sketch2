@@ -17,6 +17,12 @@ public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_f16(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_i16(const uint8_t *a, const uint8_t *b, size_t dim);
+    static double dist_f32_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
+    static double dist_f16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
+    static double dist_i16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
+    static double squared_norm_f32(const uint8_t *a, size_t dim);
+    static double squared_norm_f16(const uint8_t *a, size_t dim);
+    static double squared_norm_i16(const uint8_t *a, size_t dim);
 };
 
 #if defined(__aarch64__)
@@ -42,11 +48,25 @@ inline void accumulate_mul_i32_as_i64_cos(int32x4_t a, int32x4_t b, int64x2_t* a
 }
 
 inline double ComputeCos_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
+    return dist_f32_with_query_norm(a, b, dim, squared_norm_f32(b, dim));
+}
+
+inline double ComputeCos_Neon::squared_norm_f32(const uint8_t *a, size_t dim) {
+    const float *va = reinterpret_cast<const float *>(a);
+    double norm = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double ai = static_cast<double>(va[i]);
+        norm += ai * ai;
+    }
+    return norm;
+}
+
+inline double ComputeCos_Neon::dist_f32_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim,
+        double query_norm_sq) {
     const float *va = reinterpret_cast<const float *>(a);
     const float *vb = reinterpret_cast<const float *>(b);
     float32x4_t dot_acc = vdupq_n_f32(0.0f);
     float32x4_t norm_a_acc = vdupq_n_f32(0.0f);
-    float32x4_t norm_b_acc = vdupq_n_f32(0.0f);
 
     size_t i = 0;
     for (; i + 4 <= dim; i += 4) {
@@ -54,32 +74,42 @@ inline double ComputeCos_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size
         const float32x4_t b4 = vld1q_f32(vb + i);
         dot_acc = vmlaq_f32(dot_acc, a4, b4);
         norm_a_acc = vmlaq_f32(norm_a_acc, a4, a4);
-        norm_b_acc = vmlaq_f32(norm_b_acc, b4, b4);
     }
 
     double dot = static_cast<double>(vaddvq_f32(dot_acc));
     double norm_a = static_cast<double>(vaddvq_f32(norm_a_acc));
-    double norm_b = static_cast<double>(vaddvq_f32(norm_b_acc));
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
         norm_a += ai * ai;
-        norm_b += bi * bi;
     }
 
-    return finalize_cosine_distance_neon(dot, norm_a, norm_b);
+    return finalize_cosine_distance_neon(dot, norm_a, query_norm_sq);
 }
 
 inline double ComputeCos_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size_t dim) {
+    return dist_f16_with_query_norm(a, b, dim, squared_norm_f16(b, dim));
+}
+
+inline double ComputeCos_Neon::squared_norm_f16(const uint8_t *a, size_t dim) {
+    const float16 *va = reinterpret_cast<const float16 *>(a);
+    double norm = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double ai = static_cast<double>(va[i]);
+        norm += ai * ai;
+    }
+    return norm;
+}
+
+inline double ComputeCos_Neon::dist_f16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim,
+        double query_norm_sq) {
     const float16 *va = reinterpret_cast<const float16 *>(a);
     const float16 *vb = reinterpret_cast<const float16 *>(b);
     float32x4_t dot_acc0 = vdupq_n_f32(0.0f);
     float32x4_t dot_acc1 = vdupq_n_f32(0.0f);
     float32x4_t norm_a_acc0 = vdupq_n_f32(0.0f);
     float32x4_t norm_a_acc1 = vdupq_n_f32(0.0f);
-    float32x4_t norm_b_acc0 = vdupq_n_f32(0.0f);
-    float32x4_t norm_b_acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
 #if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
@@ -95,8 +125,6 @@ inline double ComputeCos_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size
         dot_acc1 = vmlaq_f32(dot_acc1, a_hi, b_hi);
         norm_a_acc0 = vmlaq_f32(norm_a_acc0, a_lo, a_lo);
         norm_a_acc1 = vmlaq_f32(norm_a_acc1, a_hi, a_hi);
-        norm_b_acc0 = vmlaq_f32(norm_b_acc0, b_lo, b_lo);
-        norm_b_acc1 = vmlaq_f32(norm_b_acc1, b_hi, b_hi);
     }
 #endif
     for (; i + 4 <= dim; i += 4) {
@@ -107,32 +135,42 @@ inline double ComputeCos_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size
 
         dot_acc0 = vmlaq_f32(dot_acc0, a4_f32, b4_f32);
         norm_a_acc0 = vmlaq_f32(norm_a_acc0, a4_f32, a4_f32);
-        norm_b_acc0 = vmlaq_f32(norm_b_acc0, b4_f32, b4_f32);
     }
 
     double dot = static_cast<double>(vaddvq_f32(vaddq_f32(dot_acc0, dot_acc1)));
     double norm_a = static_cast<double>(vaddvq_f32(vaddq_f32(norm_a_acc0, norm_a_acc1)));
-    double norm_b = static_cast<double>(vaddvq_f32(vaddq_f32(norm_b_acc0, norm_b_acc1)));
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
         norm_a += ai * ai;
-        norm_b += bi * bi;
     }
 
-    return finalize_cosine_distance_neon(dot, norm_a, norm_b);
+    return finalize_cosine_distance_neon(dot, norm_a, query_norm_sq);
 }
 
 inline double ComputeCos_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size_t dim) {
+    return dist_i16_with_query_norm(a, b, dim, squared_norm_i16(b, dim));
+}
+
+inline double ComputeCos_Neon::squared_norm_i16(const uint8_t *a, size_t dim) {
+    const int16_t *va = reinterpret_cast<const int16_t *>(a);
+    double norm = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double ai = static_cast<double>(va[i]);
+        norm += ai * ai;
+    }
+    return norm;
+}
+
+inline double ComputeCos_Neon::dist_i16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim,
+        double query_norm_sq) {
     const int16_t *va = reinterpret_cast<const int16_t *>(a);
     const int16_t *vb = reinterpret_cast<const int16_t *>(b);
     int64x2_t dot_acc0 = vdupq_n_s64(0);
     int64x2_t dot_acc1 = vdupq_n_s64(0);
     int64x2_t norm_a_acc0 = vdupq_n_s64(0);
     int64x2_t norm_a_acc1 = vdupq_n_s64(0);
-    int64x2_t norm_b_acc0 = vdupq_n_s64(0);
-    int64x2_t norm_b_acc1 = vdupq_n_s64(0);
 
     size_t i = 0;
     for (; i + 8 <= dim; i += 8) {
@@ -147,22 +185,18 @@ inline double ComputeCos_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size
         accumulate_mul_i32_as_i64_cos(a_hi, b_hi, &dot_acc0, &dot_acc1);
         accumulate_mul_i32_as_i64_cos(a_lo, a_lo, &norm_a_acc0, &norm_a_acc1);
         accumulate_mul_i32_as_i64_cos(a_hi, a_hi, &norm_a_acc0, &norm_a_acc1);
-        accumulate_mul_i32_as_i64_cos(b_lo, b_lo, &norm_b_acc0, &norm_b_acc1);
-        accumulate_mul_i32_as_i64_cos(b_hi, b_hi, &norm_b_acc0, &norm_b_acc1);
     }
 
     double dot = static_cast<double>(hsum_s64x2_cos(dot_acc0) + hsum_s64x2_cos(dot_acc1));
     double norm_a = static_cast<double>(hsum_s64x2_cos(norm_a_acc0) + hsum_s64x2_cos(norm_a_acc1));
-    double norm_b = static_cast<double>(hsum_s64x2_cos(norm_b_acc0) + hsum_s64x2_cos(norm_b_acc1));
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
         norm_a += ai * ai;
-        norm_b += bi * bi;
     }
 
-    return finalize_cosine_distance_neon(dot, norm_a, norm_b);
+    return finalize_cosine_distance_neon(dot, norm_a, query_norm_sq);
 }
 
 #else
@@ -171,11 +205,35 @@ inline double ComputeCos_Neon::dist_f32(const uint8_t *, const uint8_t *, size_t
     throw std::runtime_error("NEON f32 not supported on this platform");
 }
 
+inline double ComputeCos_Neon::dist_f32_with_query_norm(const uint8_t *, const uint8_t *, size_t, double) {
+    throw std::runtime_error("NEON f32 not supported on this platform");
+}
+
 inline double ComputeCos_Neon::dist_f16(const uint8_t *, const uint8_t *, size_t) {
     throw std::runtime_error("NEON f16 not supported on this platform");
 }
 
+inline double ComputeCos_Neon::dist_f16_with_query_norm(const uint8_t *, const uint8_t *, size_t, double) {
+    throw std::runtime_error("NEON f16 not supported on this platform");
+}
+
 inline double ComputeCos_Neon::dist_i16(const uint8_t *, const uint8_t *, size_t) {
+    throw std::runtime_error("NEON i16 not supported on this platform");
+}
+
+inline double ComputeCos_Neon::dist_i16_with_query_norm(const uint8_t *, const uint8_t *, size_t, double) {
+    throw std::runtime_error("NEON i16 not supported on this platform");
+}
+
+inline double ComputeCos_Neon::squared_norm_f32(const uint8_t *, size_t) {
+    throw std::runtime_error("NEON f32 not supported on this platform");
+}
+
+inline double ComputeCos_Neon::squared_norm_f16(const uint8_t *, size_t) {
+    throw std::runtime_error("NEON f16 not supported on this platform");
+}
+
+inline double ComputeCos_Neon::squared_norm_i16(const uint8_t *, size_t) {
     throw std::runtime_error("NEON i16 not supported on this platform");
 }
 
