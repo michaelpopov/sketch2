@@ -1,3 +1,5 @@
+// Declares a compact growable bitset.
+
 #pragma once
 
 #include <cstddef>
@@ -7,6 +9,9 @@
 
 namespace sketch2 {
 
+// DynamicBitset exists to provide a small growable bitset for hot storage paths
+// that need compact visibility flags. It supports resizing plus indexed get/set
+// operations without pulling in a heavier container abstraction.
 class DynamicBitset {
 public:
     void resize(size_t size);

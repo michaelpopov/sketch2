@@ -1,3 +1,5 @@
+// Unit tests for filesystem locking helpers.
+
 #include "utils/file_lock.h"
 
 #include <fcntl.h>

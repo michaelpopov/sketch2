@@ -1,3 +1,5 @@
+// Unit tests for the dynamic bitset utility.
+
 #include "dynamic_bitset.h"
 
 #include <gtest/gtest.h>

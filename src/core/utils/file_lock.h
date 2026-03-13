@@ -1,3 +1,5 @@
+// Declares filesystem lock helpers used to coordinate dataset ownership.
+
 #pragma once
 
 #include "utils/shared_types.h"
@@ -11,6 +13,9 @@
 
 namespace sketch2 {
 
+// FileLockGuard exists to give dataset code a simple RAII wrapper around
+// process-level file locks. It opens a lock file, acquires an exclusive flock,
+// and guarantees unlock/close on destruction so ownership paths stay exception-safe.
 class FileLockGuard {
 public:
     FileLockGuard() = default;

@@ -1,3 +1,5 @@
+// Unit tests for writing binary data files from textual input.
+
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cstdint>

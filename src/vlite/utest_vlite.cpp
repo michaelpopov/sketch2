@@ -1,3 +1,5 @@
+// Unit tests for the SQLite virtual table integration.
+
 #include <gtest/gtest.h>
 
 #include "sqlite3.h"

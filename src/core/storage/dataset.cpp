@@ -1,3 +1,5 @@
+// Implements dataset lifecycle, persistence, merging, and read-state coordination.
+
 #include "dataset.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_reader.h"

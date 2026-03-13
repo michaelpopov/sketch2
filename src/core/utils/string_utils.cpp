@@ -1,3 +1,5 @@
+// Implements parsing and formatting helpers for textual vector values.
+
 #include "string_utils.h"
 #include <cmath>
 #include <cstdio>

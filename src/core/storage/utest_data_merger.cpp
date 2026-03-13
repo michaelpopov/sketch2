@@ -1,3 +1,5 @@
+// Unit tests for merging base data, deltas, and accumulator output.
+
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>

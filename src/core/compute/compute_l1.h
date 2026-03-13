@@ -1,3 +1,5 @@
+// Implements the portable L1-distance primitives.
+
 #pragma once
 #include "core/compute/compute.h"
 #include <cassert>
@@ -14,6 +16,9 @@
 namespace sketch2 {
 
 // Computes L1 (Manhattan) distance between two vectors.
+// ComputeL1 exists to group the portable L1-distance implementation and the
+// typed dispatch helpers used by the scanner. It serves as the scalar fallback
+// when no architecture-specific implementation is selected.
 class ComputeL1 : public ICompute {
 public:
     using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);

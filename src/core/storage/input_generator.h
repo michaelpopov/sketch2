@@ -1,3 +1,5 @@
+// Declares input-generation helpers and patterns for synthetic datasets.
+
 #pragma once
 #include "utils/shared_types.h"
 #include <map>
@@ -33,6 +35,9 @@ struct GeneratorConfig {
 Ret generate_input_file(const std::string& path, const GeneratorConfig& config);
 Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen);
 
+// InputVector exists to generate deterministic per-dimension test vectors for
+// synthetic input files. It advances one column at a time so tests can produce
+// predictable sequences without hand-writing every vector.
 template <typename T>
 class InputVector {
 public:

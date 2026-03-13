@@ -1,3 +1,5 @@
+// Declares the accumulator write-ahead log interface.
+
 #pragma once
 
 #include "core/storage/data_file.h"
@@ -16,6 +18,9 @@ enum class WalOp : uint8_t {
     DeleteVector = 2,
 };
 
+// AccumulatorWal exists to persist accumulator mutations in append-only form so
+// owner-mode datasets can recover pending updates after a crash. It manages the
+// WAL file header, record appends, replay, and log reset.
 class AccumulatorWal {
 public:
     AccumulatorWal() = default;

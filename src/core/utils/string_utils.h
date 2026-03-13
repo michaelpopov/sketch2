@@ -1,3 +1,5 @@
+// Declares parsing and formatting helpers for textual vectors.
+
 #pragma once
 #include "utils/shared_types.h"
 

@@ -1,3 +1,5 @@
+// Implements NEON-optimized cosine-distance kernels.
+
 #pragma once
 #include "core/compute/compute.h"
 #include <algorithm>
@@ -12,6 +14,9 @@
 namespace sketch2 {
 
 // Computes cosine distance between two vectors using NEON.
+// ComputeCos_Neon exists to provide NEON-specialized cosine kernels for ARM
+// targets. It mirrors the AVX2/scalar cosine API so the shared dispatcher can
+// route cosine, dot-product, and norm work to the ARM implementation.
 class ComputeCos_Neon {
 public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);

@@ -1,3 +1,5 @@
+// Unit tests for binary data-file reading.
+
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cstdint>

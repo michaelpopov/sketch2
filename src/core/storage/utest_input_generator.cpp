@@ -1,3 +1,5 @@
+// Unit tests for textual input generation helpers.
+
 #include <gtest/gtest.h>
 #include <fstream>
 #include <sstream>

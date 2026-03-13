@@ -1,3 +1,5 @@
+// Implements a compact growable bitset used by storage readers.
+
 #include "dynamic_bitset.h"
 
 #include <stdexcept>

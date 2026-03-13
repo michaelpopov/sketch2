@@ -1,3 +1,5 @@
+// Unit tests for L2-distance compute implementations.
+
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>

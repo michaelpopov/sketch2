@@ -1,3 +1,5 @@
+// Defines lightweight logging helpers used across the project.
+
 #pragma once
 
 #include <sstream>
@@ -10,6 +12,9 @@
 
 enum LogLevel {LL_CRITICAL, LL_ERROR, LL_WARN, LL_INFO, LL_TRACE, LL_DEBUG};
 
+// Log exists to build log messages with stream syntax and flush them through a
+// pluggable sink when the temporary object goes out of scope. It centralizes
+// severity handling, timestamp formatting, and sink-specific output dispatch.
 template <typename T>
 class Log
 {
@@ -96,6 +101,8 @@ LogLevel Log<T>::FromString(const char* level)
     return LL_INFO;
 }
 
+// OutputWriter is the default sink for Log. It writes fully formatted log
+// messages directly to stderr using a single low-level write call.
 class OutputWriter
 {
 public:
@@ -120,6 +127,8 @@ class FILELog : public Log<OutputWriter> {};
 
 #define CRITICAL_EXIT(x) { LOG_CRITICAL << x; exit(EXIT_FAILURE); }
 
+// TempLogLevel exists to temporarily override the process-wide log level inside
+// a scope and automatically restore the previous level when the scope exits.
 class TempLogLevel
 {
 public:

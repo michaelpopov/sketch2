@@ -1,3 +1,5 @@
+// Implements merge operations for base data files, delta files, and accumulator output.
+
 #include "data_merger.h"
 #include "core/storage/data_file_layout.h"
 #include "core/utils/shared_consts.h"
@@ -155,10 +157,10 @@ std::vector<uint64_t> build_delta_deletes(const DataReader& source,
     return merged_deletes;
 }
 
-template <typename EmitFn>
 // Merges the sorted source stream and sorted updater stream into one ordered
 // output. Deletes suppress matching ids, updater rows replace same-id source
 // rows, and emit() writes each surviving record to the destination format.
+template <typename EmitFn>
 Ret merge_records(const DataReader& source,
         const std::vector<MergeItem>& updater_items,
         const std::vector<uint64_t>& deletes,
@@ -233,9 +235,9 @@ Ret merge_records(const DataReader& source,
     return Ret(0);
 }
 
-template <typename FinalizeFn>
 // Creates a merge output file with a provisional header, lets finalize() stream
 // the merged body, and then flushes the file once finalize() has patched header fields.
+template <typename FinalizeFn>
 Ret merge_to_file(const DataReader& source,
         const std::string& path,
         const char* context,

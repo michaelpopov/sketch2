@@ -1,3 +1,5 @@
+// Implements AVX2-optimized L2-distance kernels.
+
 #pragma once
 #include "core/compute/compute_avx2_utils.h"
 #include "core/compute/compute.h"
@@ -8,6 +10,8 @@
 namespace sketch2 {
 
 // Computes squared L2 distance between two vectors.
+// ComputeL2_AVX2 exists to provide AVX2-specialized squared-L2 kernels for x86
+// scan workloads. It exposes typed entry points compatible with the generic dispatcher.
 class ComputeL2_AVX2 {
 public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);

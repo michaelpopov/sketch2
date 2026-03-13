@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 class ParasolError(RuntimeError):
+    """Raised when a libparasol call reports an error code and message."""
     def __init__(self, operation: str, message: str, code: int = -1):
         super().__init__(f"{operation} failed (code={code}): {message}")
         self.operation = operation
@@ -16,6 +17,11 @@ class ParasolError(RuntimeError):
 
 
 class Parasol:
+    """Python-facing wrapper around the parasol C API.
+
+    The class exists to hide the raw ctypes configuration and expose the
+    dataset lifecycle, mutation, query, and diagnostic operations as Python methods.
+    """
     def __init__(self, db_path: str | Path, lib_path: str | Path | None = None):
         self.lib_path = Path(lib_path) if lib_path else self._default_lib_path()
         if not self.lib_path.exists():

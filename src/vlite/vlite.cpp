@@ -1,3 +1,5 @@
+// Implements the SQLite virtual table that exposes vector search over datasets.
+
 #include "vlite.h"
 
 #include "core/compute/compute_cos.h"
@@ -111,9 +113,9 @@ int run_cursor_callback(sqlite3_vtab_cursor* cursor, Func func) {
     return run_vtab_callback(cursor != nullptr ? cursor->pVtab : nullptr, func);
 }
 
-template <typename Func>
 // Wraps xColumn-style callbacks so C++ exceptions are converted into both a
 // SQLite result error and the virtual table's zErrMsg.
+template <typename Func>
 int run_column_callback(sqlite3_vtab_cursor* cursor, sqlite3_context* context, Func func) {
     try {
         return func();
@@ -154,11 +156,16 @@ sqlite3_int64 saturating_add(sqlite3_int64 lhs, sqlite3_int64 rhs) {
     return lhs + rhs;
 }
 
+// VliteVTab exists to bind SQLite's virtual-table object to the dataset state
+// needed by the extension. It stores the dataset path and the opened Dataset instance.
 struct VliteVTab : sqlite3_vtab {
     std::string dataset_path;
     std::unique_ptr<sketch2::Dataset> dataset;
 };
 
+// VliteCursor exists to hold one materialized query result set for SQLite. It
+// keeps the parsed query buffer, result rows, and iteration state consumed by
+// the xFilter/xNext/xColumn callbacks.
 struct VliteCursor : sqlite3_vtab_cursor {
     std::vector<sketch2::DistItem> rows;
     std::vector<uint8_t> query_buf;

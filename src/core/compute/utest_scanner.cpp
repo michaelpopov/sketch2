@@ -1,3 +1,5 @@
+// Unit tests for nearest-neighbor scanning over readers and datasets.
+
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cstdint>

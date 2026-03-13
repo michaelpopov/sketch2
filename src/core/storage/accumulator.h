@@ -1,3 +1,5 @@
+// Declares the in-memory accumulator and its aligned storage helpers.
+
 #pragma once
 
 #include "core/storage/accumulator_wal.h"
@@ -13,6 +15,9 @@
 
 namespace sketch2 {
 
+// AlignedByteBuffer exists to manage one reusable aligned byte allocation for
+// packed vector storage. It separates logical size from capacity so the
+// accumulator can grow and shrink records without reallocating on every mutation.
 class AlignedByteBuffer {
 public:
     AlignedByteBuffer() = default;
@@ -50,8 +55,13 @@ private:
     size_t alignment_ = 0;
 };
 
+// Accumulator exists to hold recent dataset mutations in memory before they are
+// merged into persisted files. It tracks updated vectors, tombstones, optional
+// cosine metadata, and an attached WAL so reads can see fresh state and writes survive crashes.
 class Accumulator {
 public:
+    // Iterator exists to expose the accumulator's packed in-memory vectors
+    // through a simple forward-iteration API.
     class Iterator {
     public:
         Iterator() = default;

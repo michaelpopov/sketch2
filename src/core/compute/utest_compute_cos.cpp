@@ -1,3 +1,5 @@
+// Unit tests for cosine-distance compute implementations.
+
 #include <gtest/gtest.h>
 
 #include <algorithm>

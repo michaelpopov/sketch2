@@ -1,3 +1,5 @@
+// Implements NEON-optimized L1-distance kernels.
+
 #pragma once
 #include "core/compute/compute.h"
 #include <cmath>
@@ -11,6 +13,8 @@
 namespace sketch2 {
 
 // Computes L1 (Manhattan) distance between two vectors using NEON.
+// ComputeL1_Neon exists to provide NEON-specialized L1 kernels for ARM scan
+// workloads while keeping the same typed API as the portable implementation.
 class ComputeL1_Neon {
 public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);

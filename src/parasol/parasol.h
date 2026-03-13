@@ -1,3 +1,5 @@
+// Declares the public C API exposed by the parasol layer.
+
 #ifndef PARASOL_H
 #define PARASOL_H
 

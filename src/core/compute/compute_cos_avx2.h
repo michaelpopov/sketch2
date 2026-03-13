@@ -1,3 +1,5 @@
+// Implements AVX2-optimized cosine-distance kernels.
+
 #pragma once
 #include "core/compute/compute_avx2_utils.h"
 #include "core/compute/compute.h"
@@ -9,6 +11,9 @@
 namespace sketch2 {
 
 // Computes cosine distance between two vectors using AVX2.
+// ComputeCos_AVX2 exists to provide AVX2-specialized cosine kernels for the
+// hot scan paths on x86. It exposes typed dot, norm, and distance entry points
+// that the generic ComputeCos dispatcher can select at compile time.
 class ComputeCos_AVX2 {
 public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);

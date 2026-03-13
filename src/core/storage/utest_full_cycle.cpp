@@ -1,3 +1,5 @@
+// End-to-end tests covering the full storage write/read/merge flow.
+
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <filesystem>

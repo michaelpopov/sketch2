@@ -1,3 +1,5 @@
+// Unit tests for the INI reader.
+
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>

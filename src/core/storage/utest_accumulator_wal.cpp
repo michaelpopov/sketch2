@@ -1,3 +1,5 @@
+// Unit tests for accumulator WAL persistence and recovery.
+
 #include "core/storage/accumulator.h"
 #include "core/storage/data_file.h"
 

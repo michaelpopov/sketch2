@@ -1,3 +1,5 @@
+// Declares the writer that builds binary data files from input readers.
+
 #pragma once
 #include "utils/shared_types.h"
 #include <string>
@@ -6,6 +8,9 @@ namespace sketch2 {
 
 class InputReaderView;
 
+// DataWriter exists to materialize the project's binary data-file format from
+// textual input records. It builds headers, aligned vector sections, optional
+// cosine metadata, and the sorted id/delete tables written to disk.
 class DataWriter {
 public:
     Ret init(const std::string& input_path, const std::string& output_path,

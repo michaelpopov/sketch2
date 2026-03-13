@@ -1,3 +1,5 @@
+// Declares the binary data-file reader and its iterators.
+
 #pragma once
 #include "utils/shared_types.h"
 #include "core/utils/dynamic_bitset.h"
@@ -8,10 +10,15 @@
 
 namespace sketch2 {
 
+// DataReader exists to expose persisted storage files as fast queryable views.
+// It memory-maps the binary file layout, optionally layers a delta over a base
+// file, and provides iterators and point lookups over the visible rows.
 class DataReader {
 public:
     // Iterator produces visible base rows first and attached delta rows second,
     // so ids may be non-monotonic when a delta is present.
+    // Iterator exists to walk the visible rows of a reader, including attached
+    // delta rows after the base rows.
     class Iterator {
     public:
         void           next();
@@ -32,6 +39,8 @@ public:
     };
 
     // Iterates visible rows from the base data file only, ordered by id.
+    // OrderedIterator exists to scan either the base side or the delta side in
+    // sorted-id order without interleaving the two streams.
     class OrderedIterator {
     public:
         void           next();

@@ -1,3 +1,5 @@
+// Contains placeholder utility-module implementation code.
+
 #include "utils/shared_types.h"
 
 namespace sketch2 {

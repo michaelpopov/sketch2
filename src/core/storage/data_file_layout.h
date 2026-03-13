@@ -1,3 +1,5 @@
+// Provides helpers for computing and writing binary data-file layout sections.
+
 #pragma once
 #include "core/storage/data_file.h"
 #include "utils/shared_types.h"

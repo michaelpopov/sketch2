@@ -1,3 +1,5 @@
+// Implements AVX2-optimized L1-distance kernels.
+
 #pragma once
 #include "core/compute/compute_avx2_utils.h"
 #include "core/compute/compute.h"
@@ -8,6 +10,8 @@
 namespace sketch2 {
 
 // Computes L1 (Manhattan) distance between two vectors.
+// ComputeL1_AVX2 exists to provide AVX2-specialized L1 kernels for x86 scan
+// workloads. It exposes typed entry points that match the portable L1 interface.
 class ComputeL1_AVX2 {
 public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);

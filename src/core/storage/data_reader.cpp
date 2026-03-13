@@ -1,3 +1,5 @@
+// Implements memory-mapped reading of persisted data and delta files.
+
 #include "data_reader.h"
 #include "core/storage/data_file_layout.h"
 #include <algorithm>

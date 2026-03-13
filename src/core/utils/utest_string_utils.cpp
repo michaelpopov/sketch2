@@ -1,3 +1,5 @@
+// Unit tests for textual vector parsing and formatting helpers.
+
 #include "string_utils.h"
 
 #include <array>

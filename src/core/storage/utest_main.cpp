@@ -1,3 +1,5 @@
+// Test runner entry point for the storage module.
+
 #include <gtest/gtest.h>
 #include "utils/shared_types.h"
 #include "core/storage/data_file.h"

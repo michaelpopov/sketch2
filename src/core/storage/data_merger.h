@@ -1,3 +1,5 @@
+// Declares the merge API for combining persisted and buffered storage data.
+
 #pragma once
 #include "accumulator.h"
 #include "data_reader.h"
@@ -6,6 +8,9 @@
 
 namespace sketch2 {
 
+// DataMerger exists to reconcile sorted base data, delta files, and buffered
+// accumulator updates into new on-disk files. It provides the merge operations
+// that keep persisted storage compact while preserving deletes and replacements.
 class DataMerger {
 public:
     Ret merge_data_file(const DataReader& source, const DataReader& updater, const std::string& path);

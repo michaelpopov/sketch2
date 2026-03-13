@@ -1,3 +1,5 @@
+// Implements utilities for generating textual input files used by tests and demos.
+
 #include "input_generator.h"
 #include "core/utils/shared_consts.h"
 #include <cinttypes>

@@ -1,3 +1,5 @@
+// Declares the SQLite extension entry points for the vlite module.
+
 #pragma once
 
 #include "sqlite3ext.h"

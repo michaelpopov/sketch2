@@ -1,3 +1,5 @@
+// Defines the binary on-disk file headers and shared file-format helpers.
+
 #pragma once
 #include "utils/shared_consts.h"
 #include <cstdint>

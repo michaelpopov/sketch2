@@ -1,3 +1,5 @@
+// Declares dataset metadata, dataset operations, and dataset readers.
+
 #pragma once
 #include "accumulator.h"
 #include "core/compute/compute.h"
@@ -39,8 +41,13 @@ struct DatasetItem {
     std::string delta_file_path;
 };
 
+// Dataset exists as the main coordinator for persisted vector storage. It owns
+// dataset metadata, mediates owner/guest behavior, manages the accumulator and
+// WAL, and provides the high-level store, merge, and read APIs used by the rest of the system.
 class Dataset {
 public:
+    // AccumulatorIterator exists to expose pending in-memory updates through the
+    // dataset API without leaking the accumulator implementation details.
     class AccumulatorIterator {
     public:
         void next();
@@ -140,6 +147,8 @@ private:
     friend class DatasetReader;
 };
 
+// DatasetReader exists to iterate through the set of data-file ranges that make
+// up a dataset and to fetch the reader for the range covering a specific id.
 class DatasetReader {
 public:
     Ret init(const Dataset* dataset, std::vector<DatasetItem> items);

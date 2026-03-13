@@ -1,3 +1,5 @@
+// Unit tests for dataset lifecycle and persistence behavior.
+
 #include <gtest/gtest.h>
 #include <array>
 #include <cstdint>

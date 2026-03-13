@@ -1,3 +1,5 @@
+// Implements parsing and range views over textual input files.
+
 #include "input_reader.h"
 #include "utils/shared_consts.h"
 #include "utils/string_utils.h"

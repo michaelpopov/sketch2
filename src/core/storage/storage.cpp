@@ -1,3 +1,5 @@
+// Contains a placeholder storage module version function.
+
 #include <string>
 #include "utils/log.h"
 

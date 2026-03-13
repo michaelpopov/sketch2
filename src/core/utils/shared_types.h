@@ -1,3 +1,5 @@
+// Defines shared enums, return types, and common utility conversions.
+
 #pragma once
 #include <string>
 #include <stdexcept>
@@ -108,6 +110,9 @@ inline void validate_dist_func(DistFunc func) {
     (void)dist_func_to_string(func);
 }
 
+// Ret exists as the project's lightweight result type for functions that need
+// to return either success or an error without throwing. It carries the status
+// code, message, and an optional content flag used by higher-level callers.
 class Ret
 {
 public:

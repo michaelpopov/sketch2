@@ -1,3 +1,5 @@
+// Unit tests for the public parasol API.
+
 #include "parasol.h"
 
 #include <chrono>

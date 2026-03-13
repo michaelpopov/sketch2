@@ -1,3 +1,5 @@
+// Declares the minimal INI reader interface.
+
 #pragma once
 
 #include "utils/shared_types.h"
@@ -7,6 +9,9 @@
 
 namespace sketch2 {
 
+// IniReader exists to load small configuration files like dataset metadata
+// without introducing an external parser. It flattens section/key pairs into a
+// simple lookup table and exposes typed accessors for the values the project uses.
 class IniReader {
 public:
     Ret init(const std::string& path);

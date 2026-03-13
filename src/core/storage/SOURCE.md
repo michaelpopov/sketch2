@@ -1,0 +1,36 @@
+# Source Index
+
+- `CMakeLists.txt`: Build rules for the storage library and storage tests.
+- `DESIGN.md`: Design notes for the storage subsystem.
+- `README.md`: Storage module overview and file-format notes.
+- `accumulator.cpp`: In-memory write buffer for pending vector updates and deletes.
+- `accumulator.h`: Accumulator declarations and aligned byte-buffer helpers.
+- `accumulator_wal.cpp`: Write-ahead log implementation for accumulator recovery.
+- `accumulator_wal.h`: WAL interface used by the accumulator.
+- `data_file.h`: Shared binary file headers and file-format constants.
+- `data_file_layout.h`: Helpers for computing and writing binary data-file layout.
+- `data_merger.cpp`: Merge logic for data files, delta files, and accumulator output.
+- `data_merger.h`: Merge API declarations for storage files.
+- `data_reader.cpp`: Memory-mapped reader for persisted data and delta files.
+- `data_reader.h`: Data reader declarations and iterator types.
+- `data_writer.cpp`: Writer that converts textual input into binary data files.
+- `data_writer.h`: Data writer interface.
+- `dataset.cpp`: Dataset lifecycle, persistence, merge, and read-state coordination.
+- `dataset.h`: Dataset metadata, dataset API, and dataset reader declarations.
+- `input_generator.cpp`: Synthetic textual input generation helpers.
+- `input_generator.h`: Input generation patterns and helper declarations.
+- `input_reader.cpp`: Parser and range-view implementation for textual input files.
+- `input_reader.h`: Text input reader and view declarations.
+- `storage.cpp`: Placeholder storage module version function.
+- `utest_accumulator.cpp`: Unit tests for accumulator behavior.
+- `utest_accumulator_wal.cpp`: Unit tests for accumulator WAL recovery.
+- `utest_data_file_layout.cpp`: Unit tests for binary data-file layout helpers.
+- `utest_data_merger.cpp`: Unit tests for file merge logic.
+- `utest_data_reader.cpp`: Unit tests for reading binary data files.
+- `utest_data_writer.cpp`: Unit tests for writing binary data files.
+- `utest_dataset.cpp`: Unit tests for dataset lifecycle and persistence flows.
+- `utest_full_cycle.cpp`: End-to-end storage tests covering full write/read/merge flows.
+- `utest_input_generator.cpp`: Unit tests for synthetic input generation.
+- `utest_input_reader.cpp`: Unit tests for textual input parsing and views.
+- `utest_main.cpp`: GoogleTest entry point for the storage test binary.
+

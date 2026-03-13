@@ -1,3 +1,5 @@
+// Test runner entry point for the vlite module.
+
 #include <gtest/gtest.h>
 
 int main(int argc, char** argv) {

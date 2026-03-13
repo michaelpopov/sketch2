@@ -1,3 +1,5 @@
+// Implements the public C API for dataset lifecycle, mutation, and query operations.
+
 #include "parasol.h"
 
 #include "core/compute/scanner.h"

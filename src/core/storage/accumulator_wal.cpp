@@ -1,3 +1,5 @@
+// Implements the write-ahead log used to recover accumulator mutations.
+
 #include "core/storage/accumulator_wal.h"
 
 #include "core/storage/accumulator.h"

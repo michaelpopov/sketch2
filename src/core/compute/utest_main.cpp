@@ -1,3 +1,5 @@
+// Test runner entry point for the compute module.
+
 #include <gtest/gtest.h>
 
 TEST(ComputeDummy, Basic) { EXPECT_TRUE(true); }

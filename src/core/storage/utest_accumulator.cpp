@@ -1,3 +1,5 @@
+// Unit tests for the in-memory accumulator behavior.
+
 #include "core/storage/accumulator.h"
 #include "core/storage/data_file.h"
 

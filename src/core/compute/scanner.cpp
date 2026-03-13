@@ -1,3 +1,5 @@
+// Implements top-k scanning over data readers and datasets using the distance kernels.
+
 #include "scanner.h"
 #include "core/compute/compute_cos.h"
 #include "core/compute/compute_l1.h"
@@ -109,9 +111,9 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
     }
 }
 
-template <typename Iterator, typename ScoreFn>
 // Scans one ordered reader while skipping ids shadowed by newer state. The
 // skip list is walked in lockstep with the iterator so each id is compared once.
+template <typename Iterator, typename ScoreFn>
 void scan_ordered_reader_scored(Iterator it, const std::vector<uint64_t>& skip_ids,
         size_t count, DistHeap* heap, const ScoreFn& score) {
     if (skip_ids.empty()) {
@@ -142,10 +144,10 @@ void scan_data_reader_scored(const DataReader& reader, const std::vector<uint64_
     scan_ordered_reader_scored(reader.delta_begin(), skip_ids, count, heap, score);
 }
 
-template <typename ReaderScanFn, typename AccumScoreFn>
 // Builds a top-k heap across the persisted dataset and the pending accumulator.
 // Persisted readers skip ids modified in the accumulator so the heap only sees
 // each logical id once, with the freshest version winning.
+template <typename ReaderScanFn, typename AccumScoreFn>
 Ret scan_dataset_heap_custom(const Dataset& dataset, size_t count, DistHeap* heap,
         const ReaderScanFn& scan_reader, const AccumScoreFn& accum_score,
         bool require_accumulator_cosine_inv_norms = false) {
@@ -401,10 +403,10 @@ Ret dispatch_reader_items(DataType type, const DataReader& reader, size_t count,
     }
 }
 
-template <typename ComputeTarget>
 // Dispatches cosine KNN over a dataset. It computes the query norm once and
 // then uses either precomputed inverse norms or a full query-norm distance path
 // depending on what each backing reader stores.
+template <typename ComputeTarget>
 Ret dispatch_dataset_cos_ids(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
     const size_t dim = dataset.dim();
@@ -430,9 +432,9 @@ Ret dispatch_dataset_cos_ids(DataType type, const Dataset& dataset, size_t count
     }
 }
 
-template <typename ComputeTarget>
 // Dataset cosine item scan variant that returns both ids and distances while
 // reusing the same inverse-norm-aware dispatch logic as the id-only path.
+template <typename ComputeTarget>
 Ret dispatch_dataset_cos_items(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
     const size_t dim = dataset.dim();
@@ -458,9 +460,9 @@ Ret dispatch_dataset_cos_items(DataType type, const Dataset& dataset, size_t cou
     }
 }
 
-template <typename ComputeTarget>
 // Reader cosine KNN variant that computes query normalization once and then
 // dispatches to the type-specific scorer.
+template <typename ComputeTarget>
 Ret dispatch_reader_cos_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
     const size_t dim = reader.dim();
@@ -486,8 +488,8 @@ Ret dispatch_reader_cos_ids(DataType type, const DataReader& reader, size_t coun
     }
 }
 
-template <typename ComputeTarget>
 // Reader cosine item scan variant that returns full distance rows rather than ids only.
+template <typename ComputeTarget>
 Ret dispatch_reader_cos_items(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
     const size_t dim = reader.dim();

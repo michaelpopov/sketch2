@@ -1,3 +1,5 @@
+// Implements the portable L2-distance primitives.
+
 #pragma once
 #include "core/compute/compute.h"
 #include <cassert>
@@ -13,6 +15,9 @@
 namespace sketch2 {
 
 // Computes squared L2 distance between two vectors.
+// ComputeL2 exists to group the portable squared-L2 implementation and the
+// typed dispatch helpers used by the scanner. It is the scalar fallback for
+// platforms without a vectorized L2 backend.
 class ComputeL2 : public ICompute {
 public:
     using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);

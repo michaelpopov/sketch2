@@ -1,3 +1,5 @@
+// Provides AVX2 helper utilities shared by the vectorized compute implementations.
+
 #pragma once
 
 #if defined(__AVX2__)

@@ -1,3 +1,5 @@
+// Implements NEON-optimized L2-distance kernels.
+
 #pragma once
 #include "core/compute/compute.h"
 #include <cmath>
@@ -10,7 +12,8 @@
 
 namespace sketch2 {
 
-// Computes squared L2 distance between two vectors using NEON.
+// ComputeL2_Neon exists to provide NEON-specialized squared-L2 kernels for ARM
+// targets while preserving the same typed entry points as the scalar/x86 backends.
 class ComputeL2_Neon {
 public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);

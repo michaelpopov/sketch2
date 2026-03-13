@@ -1,3 +1,5 @@
+// Defines shared constants used across storage, compute, and API layers.
+
 #pragma once
 
 #include <cstddef>

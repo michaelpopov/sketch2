@@ -1,3 +1,5 @@
+// Implements a minimal INI reader for dataset configuration files.
+
 #include "ini_reader.h"
 #include <cctype>
 #include <cerrno>

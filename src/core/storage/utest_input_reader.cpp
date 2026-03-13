@@ -1,3 +1,5 @@
+// Unit tests for textual input parsing and range views.
+
 #include <gtest/gtest.h>
 #include <fstream>
 #include <cstdio>

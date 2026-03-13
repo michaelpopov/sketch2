@@ -1,3 +1,5 @@
+// Implements the portable cosine-distance primitives and helpers.
+
 #pragma once
 #include "core/compute/compute.h"
 #include <algorithm>
@@ -14,7 +16,9 @@
 
 namespace sketch2 {
 
-// Computes cosine distance between two vectors.
+// ComputeCos exists to collect all cosine-distance functionality behind one
+// backend selector. It provides typed scalar implementations plus runtime
+// dispatch helpers that pick the best cosine, dot-product, and norm routines.
 class ComputeCos : public ICompute {
 public:
     using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);
