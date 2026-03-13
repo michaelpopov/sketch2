@@ -47,10 +47,11 @@ void extract_items(DistHeap* heap, std::vector<DistItem>* result) {
     }
 }
 
-void extract_ids(const std::vector<DistItem>& items, std::vector<uint64_t>* result) {
-    result->resize(items.size());
-    for (size_t i = 0; i < items.size(); ++i) {
-        (*result)[i] = items[i].id;
+void extract_ids(DistHeap* heap, std::vector<uint64_t>* result) {
+    result->resize(heap->size());
+    for (size_t i = heap->size(); i-- > 0;) {
+        (*result)[i] = heap->top().id;
+        heap->pop();
     }
 }
 
@@ -99,9 +100,7 @@ void scan_ordered_reader(Iterator it, const std::vector<uint64_t>& skip_ids,
 }
 
 template <auto DistanceFn>
-Ret scan_dataset_items(const Dataset& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result) {
-    DistHeap heap;
+Ret scan_dataset_heap(const Dataset& dataset, size_t count, const uint8_t* vec, DistHeap* heap) {
     CHECK(dataset.prepare_read_state());
     const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();
     const size_t dim = dataset.dim();
@@ -112,30 +111,92 @@ Ret scan_dataset_items(const Dataset& dataset, size_t count, const uint8_t* vec,
         CHECK(ret);
         if (!reader) break;
 
-        scan_ordered_reader<DistanceFn>(reader->base_begin(), modified_ids, vec, dim, count, &heap);
-        scan_ordered_reader<DistanceFn>(reader->delta_begin(), modified_ids, vec, dim, count, &heap);
+        scan_ordered_reader<DistanceFn>(reader->base_begin(), modified_ids, vec, dim, count, heap);
+        scan_ordered_reader<DistanceFn>(reader->delta_begin(), modified_ids, vec, dim, count, heap);
     }
 
     for (auto it = dataset.accumulator_begin(); !it.eof(); it.next()) {
-        push_result(&heap, count, it.id(), DistanceFn(it.data(), vec, dim));
+        push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim));
     }
+
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_dataset_items(const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) {
+    DistHeap heap;
+    CHECK(scan_dataset_heap<DistanceFn>(dataset, count, vec, &heap));
 
     extract_items(&heap, &result);
     return Ret(0);
 }
 
 template <auto DistanceFn>
+Ret scan_dataset_ids(const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) {
+    DistHeap heap;
+    CHECK(scan_dataset_heap<DistanceFn>(dataset, count, vec, &heap));
+
+    extract_ids(&heap, &result);
+    return Ret(0);
+}
+
+template <auto DistanceFn>
+Ret scan_reader_heap(const DataReader& reader, size_t count, const uint8_t* vec, DistHeap* heap) {
+    const size_t dim = reader.dim();
+
+    scan_ordered_reader<DistanceFn>(reader.base_begin(), {}, vec, dim, count, heap);
+    scan_ordered_reader<DistanceFn>(reader.delta_begin(), {}, vec, dim, count, heap);
+
+    return Ret(0);
+}
+
+template <auto DistanceFn>
 Ret scan_reader_items(const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
-    const size_t dim = reader.dim();
     DistHeap heap;
-
-    for (auto it = reader.begin(); !it.eof(); it.next()) {
-        push_result(&heap, count, it.id(), DistanceFn(it.data(), vec, dim));
-    }
+    CHECK(scan_reader_heap<DistanceFn>(reader, count, vec, &heap));
 
     extract_items(&heap, &result);
     return Ret(0);
+}
+
+template <typename ComputeTarget>
+Ret dispatch_reader_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) {
+    switch (type) {
+        case DataType::f32: {
+            DistHeap heap;
+            CHECK(scan_reader_heap<&ComputeTarget::dist_f32>(reader, count, vec, &heap));
+            extract_ids(&heap, &result);
+            return Ret(0);
+        }
+        case DataType::f16: {
+            DistHeap heap;
+            CHECK(scan_reader_heap<&ComputeTarget::dist_f16>(reader, count, vec, &heap));
+            extract_ids(&heap, &result);
+            return Ret(0);
+        }
+        case DataType::i16: {
+            DistHeap heap;
+            CHECK(scan_reader_heap<&ComputeTarget::dist_i16>(reader, count, vec, &heap));
+            extract_ids(&heap, &result);
+            return Ret(0);
+        }
+        default: return Ret("Scanner::find: unsupported data type.");
+    }
+}
+
+template <typename ComputeTarget>
+Ret dispatch_dataset_ids(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<uint64_t>& result) {
+    switch (type) {
+        case DataType::f32: return scan_dataset_ids<&ComputeTarget::dist_f32>(dataset, count, vec, result);
+        case DataType::f16: return scan_dataset_ids<&ComputeTarget::dist_f16>(dataset, count, vec, result);
+        case DataType::i16: return scan_dataset_ids<&ComputeTarget::dist_i16>(dataset, count, vec, result);
+        default: return Ret("Scanner::find: unsupported data type.");
+    }
 }
 
 template <typename ComputeTarget>
@@ -200,10 +261,19 @@ Ret Scanner::find_items(const Dataset& dataset, size_t count, const uint8_t* vec
 
 Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
-    std::vector<DistItem> items;
-    CHECK(find_items_(dataset, count, vec, items));
-    extract_ids(items, &result);
-    return Ret(0);
+    if (vec == nullptr || count == 0) {
+        return Ret("Scanner::find: invalid arguments.");
+    }
+
+    result.clear();
+    const DistFunc func = dataset.dist_func();
+    const DataType type = dataset.type();
+    switch (func) {
+        case DistFunc::L1: return dispatch_dataset_ids<ComputeL1Target>(type, dataset, count, vec, result);
+        case DistFunc::L2: return dispatch_dataset_ids<ComputeL2Target>(type, dataset, count, vec, result);
+        case DistFunc::COS: return dispatch_dataset_ids<ComputeCosTarget>(type, dataset, count, vec, result);
+        default: return Ret("Scanner::find: unsupported distance function.");
+    }
 }
 
 Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* vec,
@@ -225,10 +295,18 @@ Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* ve
 
 Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
     std::vector<uint64_t>& result) const {
-    std::vector<DistItem> items;
-    CHECK(find_items_(reader, func, count, vec, items));
-    extract_ids(items, &result);
-    return Ret(0);
+    if (vec == nullptr || count == 0) {
+        return Ret("Scanner::find: invalid arguments.");
+    }
+
+    result.clear();
+    const DataType type = reader.type();
+    switch (func) {
+        case DistFunc::L1: return dispatch_reader_ids<ComputeL1Target>(type, reader, count, vec, result);
+        case DistFunc::L2: return dispatch_reader_ids<ComputeL2Target>(type, reader, count, vec, result);
+        case DistFunc::COS: return dispatch_reader_ids<ComputeCosTarget>(type, reader, count, vec, result);
+        default: return Ret("Scanner::find: not implemented");
+    }
 }
 
 Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
