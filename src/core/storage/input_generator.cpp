@@ -1,4 +1,5 @@
 #include "input_generator.h"
+#include "core/utils/shared_consts.h"
 #include <cinttypes>
 #include <experimental/scope>
 #include <cstdint>
@@ -12,8 +13,9 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
     if (config.count == 0) {
         return Ret("count must be greater than zero");
     }
-    if (config.dim < 4 || config.dim > 4096) {
-        return Ret("dim must be in range [4, 4096]");
+    if (config.dim < kMinDimension || config.dim > kMaxDimension) {
+        return Ret("dim must be in range [" + std::to_string(kMinDimension) +
+            ", " + std::to_string(kMaxDimension) + "]");
     }
     try {
         validate_type(config.type);
@@ -146,8 +148,9 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
 }
 
 Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen) {
-    if (gen.dim < 4 || gen.dim > 4096) {
-        return Ret("dim must be in range [4, 4096]");
+    if (gen.dim < kMinDimension || gen.dim > kMaxDimension) {
+        return Ret("dim must be in range [" + std::to_string(kMinDimension) +
+            ", " + std::to_string(kMaxDimension) + "]");
     }
     try {
         validate_type(gen.type);

@@ -187,6 +187,23 @@ TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
+TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
+    generate(5, 0, DataType::f32, 4);
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path_).code());
+    Scanner s;
+    auto q = f32_vec(3.2f, 4);
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(reader, DistFunc::L1, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(3u, result[0].id);
+    EXPECT_EQ(4u, result[1].id);
+    EXPECT_EQ(2u, result[2].id);
+    EXPECT_NEAR(0.4, result[0].dist, 1e-5);
+    EXPECT_NEAR(3.6, result[1].dist, 1e-5);
+    EXPECT_NEAR(4.4, result[2].dist, 1e-5);
+}
+
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
     generate(5, 0, DataType::f32, 4);
     DataReader reader;
@@ -339,6 +356,29 @@ TEST_F(ScannerTest, FindDatasetWorks) {
     EXPECT_EQ(15u, result[0]);
     EXPECT_EQ(16u, result[1]);
     EXPECT_EQ(14u, result[2]);
+}
+
+TEST_F(ScannerTest, FindDatasetItemsReturnsIdsAndDistancesInOrder) {
+    std::string d = "/tmp/sketch2_utest_sc_dsitems_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    auto q = f32_vec(15.2f, 4);
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(ds, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(15u, result[0].id);
+    EXPECT_EQ(16u, result[1].id);
+    EXPECT_EQ(14u, result[2].id);
+    EXPECT_NEAR(0.4, result[0].dist, 1e-5);
+    EXPECT_NEAR(3.6, result[1].dist, 1e-5);
+    EXPECT_NEAR(4.4, result[2].dist, 1e-5);
 }
 
 TEST_F(ScannerTest, FindDatasetL2Works) {

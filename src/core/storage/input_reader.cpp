@@ -1,4 +1,5 @@
 #include "input_reader.h"
+#include "utils/shared_consts.h"
 #include "utils/string_utils.h"
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -83,7 +84,7 @@ Ret InputReader::init_(const std::string& path) {
         return fail("Invalid header: missing dimension");
     }
 
-    if (dim_ < 4 || dim_ > 4096) {
+    if (dim_ < kMinDimension || dim_ > kMaxDimension) {
         return fail("Invalid header: dimension out of range");
     }
 

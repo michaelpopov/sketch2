@@ -153,8 +153,9 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
     if (metadata.range_size == 0) {
         return Ret("Dataset: range_size must be > 0.");
     }
-    if (metadata.dim < 4) {
-        return Ret("Dataset: dim must be >= 4.");
+    if (metadata.dim < kMinDimension || metadata.dim > kMaxDimension) {
+        return Ret("Dataset: dim must be in range [" +
+            std::to_string(kMinDimension) + ", " + std::to_string(kMaxDimension) + "].");
     }
     try {
         validate_type(metadata.type);

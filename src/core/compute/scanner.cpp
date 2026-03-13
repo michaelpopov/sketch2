@@ -25,12 +25,36 @@ void push_result(DistHeap* heap, size_t count, uint64_t id, double dist) {
     }
 }
 
+void extract_items(DistHeap* heap, std::vector<DistItem>* result) {
+    result->resize(heap->size());
+    for (size_t i = heap->size(); i-- > 0;) {
+        (*result)[i] = heap->top();
+        heap->pop();
+    }
+}
+
+void extract_ids(const std::vector<DistItem>& items, std::vector<uint64_t>* result) {
+    result->resize(items.size());
+    for (size_t i = 0; i < items.size(); ++i) {
+        (*result)[i] = items[i].id;
+    }
+}
+
 } // namespace
 
 Ret Scanner::find(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     try {
         return find_(reader, func, count, vec, result);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
+Ret Scanner::find_items(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) const {
+    try {
+        return find_items_(reader, func, count, vec, result);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
@@ -45,8 +69,25 @@ Ret Scanner::find(const Dataset& dataset, size_t count, const uint8_t* vec,
     }
 }
 
+Ret Scanner::find_items(const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) const {
+    try {
+        return find_items_(dataset, count, vec, result);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
 Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
+    std::vector<DistItem> items;
+    CHECK(find_items_(dataset, count, vec, items));
+    extract_ids(items, &result);
+    return Ret(0);
+}
+
+Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
     }
@@ -85,17 +126,20 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
         push_result(&heap, count, it.id(), d);
     }
 
-    result.resize(heap.size());
-    for (size_t i = heap.size(); i-- > 0;) {
-        result[i] = heap.top().id;
-        heap.pop();
-    }
-
+    extract_items(&heap, &result);
     return Ret(0);
 }
 
 Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
     std::vector<uint64_t>& result) const {
+    std::vector<DistItem> items;
+    CHECK(find_items_(reader, func, count, vec, items));
+    extract_ids(items, &result);
+    return Ret(0);
+}
+
+Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
+    std::vector<DistItem>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
     }
@@ -120,13 +164,7 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
         push_result(&heap, count, it.id(), d);
     }
 
-    // Extract ids in ascending distance order.
-    result.resize(heap.size());
-    for (size_t i = heap.size(); i-- > 0;) {
-        result[i] = heap.top().id;
-        heap.pop();
-    }
-
+    extract_items(&heap, &result);
     return Ret(0);
 }
 

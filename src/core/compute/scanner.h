@@ -22,11 +22,23 @@ public:
     Ret find(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
 
+    // Returns up to count nearest items ordered by (distance, id).
+    Ret find_items(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) const;
+
+    // Uses the distance function configured in dataset metadata.
+    Ret find_items(const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) const;
+
 private:
     Ret find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
     Ret find_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
+    Ret find_items_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) const;
+    Ret find_items_(const Dataset& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>& result) const;
 };
 
 } // namespace sketch2

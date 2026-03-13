@@ -14,6 +14,12 @@ inline constexpr size_t kAccumulatorBufferSize = 64 * 1024;
 // Default dataset id range size used when splitting vectors into per-range files.
 inline constexpr uint64_t kRangeSize = 10'000;
 
+// Minimum supported vector dimension enforced by Dataset/InputReader/InputGenerator validation.
+inline constexpr uint64_t kMinDimension = 4;
+
+// Maximum supported vector dimension constrained by current file format and parser APIs.
+inline constexpr uint64_t kMaxDimension = 4096;
+
 // File format magic written by DataWriter/DataMerger and validated by DataReader/WAL replay.
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 

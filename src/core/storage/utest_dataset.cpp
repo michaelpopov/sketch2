@@ -205,6 +205,21 @@ TEST_F(DatasetTest, InitFromIniFailsOnNegativeDim) {
     EXPECT_EQ("Dataset: dataset.dim must be >= 0", ret.message());
 }
 
+TEST_F(DatasetTest, InitFromIniFailsOnTooLargeDim) {
+    auto dir = make_dir("d_big_dim");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = " + std::to_string(kMaxDimension + 1) + "\n");
+
+    Dataset sc;
+    const Ret ret = sc.init(config_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Dataset: dim must be in range [4, 4096].", ret.message());
+}
+
 TEST_F(DatasetTest, InitFromIniFailsOnNegativeRangeSize) {
     auto dir = make_dir("d_neg_range");
     write_config(
