@@ -109,6 +109,9 @@ class Parasol:
         self.lib.sk_generate.argtypes = [c_void_p, c_uint64, c_uint64, c_int]
         self.lib.sk_generate.restype = c_int
 
+        self.lib.sk_load_file.argtypes = [c_void_p, c_char_p]
+        self.lib.sk_load_file.restype = c_int
+
         self.lib.sk_stats.argtypes = [c_void_p]
         self.lib.sk_stats.restype = c_int
 
@@ -213,6 +216,9 @@ class Parasol:
             "sk_generate",
             self.lib.sk_generate(self.handle, c_uint64(count), c_uint64(start_id), c_int(pattern)),
         )
+
+    def load_file(self, path: str | Path) -> None:
+        self._check("sk_load_file", self.lib.sk_load_file(self.handle, str(path).encode("utf-8")))
 
     def stats(self) -> None:
         self._check("sk_stats", self.lib.sk_stats(self.handle))

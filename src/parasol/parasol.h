@@ -109,6 +109,11 @@ int sk_print(sk_handle_t* handle);
 int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
 
 /*
+ * Load vectors from a textual input file into the current dataset.
+ */
+int sk_load_file(sk_handle_t* handle, const char* path);
+
+/*
  * Print dataset file statistics to stdout.
  */
 int sk_stats(sk_handle_t* handle);

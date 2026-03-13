@@ -84,6 +84,27 @@ class ParasolBasicTest(unittest.TestCase):
             ps.close(self.dataset_name)
             ps.drop(self.dataset_name)
 
+    def test_load_file_bulk_imports_vectors(self) -> None:
+        input_path = self.root / "input.txt"
+        input_path.write_text(
+            "f32,4\n"
+            "10 : [ 1.00, 2.00, 3.00, 4.00 ]\n"
+            "20 : [ 5.00, 6.00, 7.00, 8.00 ]\n",
+            encoding="utf-8",
+        )
+
+        with Parasol(self.root) as ps:
+            ps.create(self.dataset_name, dist_func="l1")
+
+            ps.load_file(input_path)
+            ps.merge_accumulator()
+
+            self.assertEqual("[ 1, 2, 3, 4 ]", ps.get(10))
+            self.assertEqual("[ 5, 6, 7, 8 ]", ps.get(20))
+
+            ps.close(self.dataset_name)
+            ps.drop(self.dataset_name)
+
     def test_create_with_l2_writes_distance_function_to_ini(self) -> None:
         with Parasol(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l2")

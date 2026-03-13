@@ -494,6 +494,23 @@ TEST_F(DatasetTest, StoreAccumulatorReplaysWalAfterReopen) {
     EXPECT_EQ(static_cast<uintmax_t>(sizeof(WalFileHeader)), fs::file_size(wal_path));
 }
 
+TEST_F(DatasetTest, DestructorFlushesPendingAccumulatorUpdates) {
+    auto dir = make_dir("d_acc_destructor_flush");
+    const std::array<float, 4> vec {3.0f, 4.0f, 5.0f, 6.0f};
+
+    {
+        Dataset sc;
+        ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+        ASSERT_EQ(0, sc.add_vector(17, reinterpret_cast<const uint8_t*>(vec.data())).code());
+    }
+
+    DataReader dr;
+    ASSERT_EQ(0, dr.init(file_path(dir, 0, ".data")).code());
+    const float* stored = reinterpret_cast<const float*>(dr.get(17));
+    ASSERT_NE(nullptr, stored);
+    EXPECT_NEAR(3.0f, stored[0], 1e-5f);
+}
+
 TEST_F(DatasetTest, AddVectorCreatesAccumulatorLazily) {
     auto dir = make_dir("d_acc_add");
     Dataset sc;

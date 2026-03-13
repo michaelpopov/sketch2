@@ -931,6 +931,34 @@ static int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, 
     return 0;
 }
 
+static int sk_load_file_(sk_handle_t* handle, const char* path);
+int sk_load_file(sk_handle_t* handle, const char* path) {
+    try {
+        return sk_load_file_(handle, path);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+// Reuses the regular dataset store path so bulk imports from Python can stream
+// vectors into a temp text file and hand the whole file to C++ in one call.
+static int sk_load_file_(sk_handle_t* handle, const char* path) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+    if (path == nullptr || path[0] == '\0') {
+        ERR("Invalid path parameter")
+    }
+
+    Ret ret = handle->ds->store(path);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    return 0;
+}
+
 static int sk_stats_(sk_handle_t* handle);
 int sk_stats(sk_handle_t* handle) {
     try {

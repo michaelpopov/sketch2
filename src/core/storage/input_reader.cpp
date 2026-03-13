@@ -1,8 +1,10 @@
 // Implements parsing and range views over textual input files.
 
 #include "input_reader.h"
+#include "utils/log.h"
 #include "utils/shared_consts.h"
 #include "utils/string_utils.h"
+#include "utils/timer.h"
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -32,6 +34,8 @@ Ret InputReader::init(const std::string& path) {
 // then stores sorted line metadata so later reads can parse vectors on demand
 // without copying the whole file up front.
 Ret InputReader::init_(const std::string& path) {
+    Timer timer("InputReader::init_", true);
+
     if (map_) {
         return Ret("Input reader is initialized already.");
     }

@@ -7,6 +7,7 @@
 #include "core/storage/data_writer.h"
 #include "core/storage/input_reader.h"
 #include "core/utils/file_lock.h"
+#include "core/utils/log.h"
 #include "utils/ini_reader.h"
 #include <algorithm>
 #include <cassert>
@@ -150,7 +151,25 @@ std::string dataset_accumulator_wal_path(const DatasetMetadata& metadata) {
 
 } // namespace
 
-Dataset::~Dataset() = default;
+Dataset::~Dataset() {
+    if (!accumulator_ || mode_ != DatasetMode::Owner) {
+        return;
+    }
+    if (accumulator_->vectors_count() == 0 && accumulator_->deleted_count() == 0) {
+        return;
+    }
+
+    try {
+        const Ret ret = store_accumulator();
+        if (ret.code() != 0) {
+            LOG_ERROR << "Dataset destructor failed to flush accumulator: " << ret.message();
+        }
+    } catch (const std::exception& ex) {
+        LOG_ERROR << "Dataset destructor failed to flush accumulator: " << ex.what();
+    } catch (...) {
+        LOG_ERROR << "Dataset destructor failed to flush accumulator: unknown error";
+    }
+}
 
 Ret Dataset::init(const DatasetMetadata& metadata) {
     if (!metadata_.dirs.empty()) {
