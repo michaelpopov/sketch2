@@ -9,16 +9,18 @@ class InputReaderView;
 class DataWriter {
 public:
     Ret init(const std::string& input_path, const std::string& output_path,
-        uint64_t start=0, uint64_t end=0);
+        uint64_t start=0, uint64_t end=0, bool write_cosine_inv_norms=false);
     Ret exec();
 
-    Ret load(const InputReaderView& reader, const std::string& output_path);
+    Ret load(const InputReaderView& reader, const std::string& output_path,
+        bool write_cosine_inv_norms = false);
 
 private:
     std::string input_path_;
     std::string output_path_;
-    uint64_t start_;
-    uint64_t end_;
+    uint64_t start_ = 0;
+    uint64_t end_ = 0;
+    bool write_cosine_inv_norms_ = false;
 };
 
 } // namespace sketch2

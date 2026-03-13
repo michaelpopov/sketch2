@@ -50,13 +50,20 @@ DataWriter
 A class that gets generates sealed data file based on the content of InputReader.
 Format:
 
-|--------|-----------------------------|-------------|-------------|
-  header       array of vectors          array of ids   array of
-                                                        deleted ids
+|--------|-----------------------------|-------------------|-------------|-------------|
+  header       array of vectors          array of cosine    array of ids   array of
+                                         inverse norms                      deleted ids
 
 header is a struct DataFileHeader.
 vector is data (see below).
 ids is an array of u64.
+cosine inverse norms is an optional array of f32 values present only for cosine datasets.
+Each value is `1.0 / ||vector||` for the matching active vector. Zero vectors store `0.0`.
+The values are intentionally stored as `f32` instead of `f64` to keep the section compact and
+cheap to stream during scans. This is a precision/performance tradeoff: cosine distances that use
+the stored section can differ slightly from recomputing norms in `double`, especially for near-ties.
+For files managed as part of a cosine dataset, Sketch2 requires this section to be present on every
+persisted data/delta file.
 
 |----------------------------|
       data
@@ -66,7 +73,7 @@ Interface:
     exec()
 
 Position of id in array ids matches position of a corresponding vector
-in array of vectors.
+in array of vectors and, when present, in the cosine inverse-norm array.
 
 Create an instance of InputReader and init it with input_path.
 Create a vector<u64>, resize it with InputReader::count() and populate with ids.
@@ -74,6 +81,7 @@ Init DataFileHeader (data_file.h)
 Write output file:
   - write header
   - iterate over all data(index) in InputReader and write each vector
+  - for cosine datasets, compute one inverse norm per active vector and write the cosine section
   - write vector of ids.
 
 
@@ -88,6 +96,7 @@ Interface:
     size()  vector size
     count() number of vectors
     begin() get iterator
+    cosine_inv_norm(index) f32 inverse norm for the matching active vector, or 0 if the section is absent
     get(id) u8*
     at(index) u8*
 
@@ -108,6 +117,7 @@ If it is not found, then the vector is deleted.
 Bitset and the map are populated only if a delta DataReader is provided.
 
 Iterator skips deleted vectors by checking the bitset and look up in the map.
+For files with cosine metadata, iterator also exposes the stored inverse norm for each visible vector.
 
 
 Scanner
@@ -124,7 +134,6 @@ They implement L1 distance calculation for the type.
 dist() calls one of these internal functions and return result.
 
 A class that can find K nearest neighbors in data that is provided by Data Reader.
-At stage 1 it can use only the distance function L1.
 This class is required for closing testing loop and making sure that data interfaces
 make sense.
 Interface:
@@ -134,6 +143,17 @@ Interface:
         func enum of distance functions L1, L2, ...
         count a requested number of ids in a returned array
         vector u8* a query vector
+
+For cosine datasets scanner precomputes the query norm once per search. If a data file
+or accumulator entry contains stored cosine inverse norms, scanner uses:
+
+    cosine_distance = 1 - dot(a, q) * inv_norm(a) * inv_norm(q)
+
+That avoids recomputing the stored-vector norm inside the hot scan loop.
+Because persisted inverse norms are stored as `f32`, this fast path may produce slightly different
+results than recomputing norms in `double`. The expected benefit is lower storage cost and lower
+per-candidate work in cosine-heavy scans.
+Cosine datasets reject persisted files that do not contain the inverse-norm section.
 
 
 Dataset
@@ -210,16 +230,19 @@ Accumulator
 Fixed size in-memory buffer. Similar to input file in a sense that items can be added. Then the content of "accumulator"
 is loaded into data file similar to load from input file.
 
-Accumulator contains two collections:
-  - std::unordered_map<uint64_t, std::vector<uint8_t>> vectors_
+Accumulator contains:
+  - sorted-id view over vector ids
+  - one aligned byte buffer for vector payloads
+  - optional per-vector cosine inverse norms for cosine datasets
   - std::unordered_set<uint64_t> deleted_ids_
 
 It has a data member uint64_t data_size_ that controls the overall size of data.
 When size of all items in the collections reaches data_size no new data can be added to accumulator.
 
-When delete_vector(id) is called, accumulator checks the content of vectors_ and remove element with that id.
-When add_vector(id, data) is called, accumulator checks the content of deleted_ids_ and remove element with value id.
-It is ok to replace existing element in vectors_ with a new value when add_vector() is called.
+When delete_vector(id) is called, accumulator removes the active vector with that id, if present.
+When add_vector(id, data) is called, accumulator removes the id from deleted_ids_, if present.
+It is ok to replace an existing vector with a new value when add_vector() is called.
+For cosine datasets accumulator also recomputes and stores the inverse norm of the new vector.
 
 Accumulator interface:
   init(size)
@@ -228,13 +251,16 @@ Accumulator interface:
   vectors_count()
   deleted_count()
 
-  std::vector<uint64_t> get_vector_ids() --- return a sorted vector of keys from vectors_
+  std::vector<uint64_t> get_vector_ids() --- return a sorted vector of active ids
   std::vector<uint64_t> get_deleted_ids() --- return a sorted vector of elements from deleted_id_
 
   const uint8_t* get_vector(id)
+  float get_vector_cosine_inv_norm(id)
 
 Vector data is stored in a single buffer that improves storage pattern of the vectors.
 Each vector in the buffer is aligned on 32-byte to allow efficient SIMD operations on the vectors.
+Cosine inverse norms are stored in a parallel `vector<float>` so pending cosine updates can use
+the same fast path as persisted files.
 
 WAL
 -----------------------

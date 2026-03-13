@@ -32,6 +32,10 @@ const uint8_t* Dataset::AccumulatorIterator::data() const {
     return iterator_.data();
 }
 
+float Dataset::AccumulatorIterator::cosine_inv_norm() const {
+    return iterator_.cosine_inv_norm();
+}
+
 namespace {
 
 Ret get_non_negative_ini_u64(const IniReader& cfg, const std::string& name, int def, uint64_t* out) {
@@ -315,7 +319,12 @@ Ret Dataset::init_accumulator_() {
     }
 
     accumulator_ = std::make_unique<Accumulator>();
-    CHECK(accumulator_->init(metadata_.accumulator_size, metadata_.type, metadata_.dim));
+    CHECK(accumulator_->init(
+        metadata_.accumulator_size,
+        metadata_.type,
+        metadata_.dim,
+        metadata_.dist_func == DistFunc::COS));
+    assert(accumulator_->has_cosine_inv_norms() == (metadata_.dist_func == DistFunc::COS));
     return accumulator_->attach_wal(dataset_accumulator_wal_path(metadata_));
 }
 
@@ -454,7 +463,7 @@ Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64
     {
         InputReaderView view(reader, range_start, range_end);
         DataWriter writer;
-        CHECK(writer.load(view, output_path));
+        CHECK(writer.load(view, output_path, metadata_.dist_func == DistFunc::COS));
     }
 
     DataReader output_reader;
@@ -530,6 +539,13 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
     const auto write_from_accumulator = [this, &ids, &deleted_ids](const std::string& path) -> Ret {
         uint64_t min_id = ids.empty() ? 0 : ids.front();
         uint64_t max_id = ids.empty() ? 0 : ids.back();
+#ifndef NDEBUG
+        assert(std::is_sorted(ids.begin(), ids.end()));
+        assert(std::adjacent_find(ids.begin(), ids.end()) == ids.end());
+        assert(std::is_sorted(deleted_ids.begin(), deleted_ids.end()));
+        assert(std::adjacent_find(deleted_ids.begin(), deleted_ids.end()) == deleted_ids.end());
+        assert(!accumulator_ || accumulator_->has_cosine_inv_norms() == (metadata_.dist_func == DistFunc::COS));
+#endif
 
         DataFileHeader hdr = make_data_header(
             min_id,
@@ -537,7 +553,8 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
             static_cast<uint32_t>(ids.size()),
             static_cast<uint32_t>(deleted_ids.size()),
             metadata_.type,
-            static_cast<uint16_t>(metadata_.dim));
+            static_cast<uint16_t>(metadata_.dim),
+            metadata_.dist_func == DistFunc::COS);
 
         FILE* f = fopen(path.c_str(), "wb");
         if (!f) {
@@ -555,6 +572,10 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
 
         const size_t vec_size = static_cast<size_t>(metadata_.dim) * data_type_size(metadata_.type);
         const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size());
+        std::vector<float> cosine_inv_norms;
+        if (metadata_.dist_func == DistFunc::COS) {
+            cosine_inv_norms.reserve(ids.size());
+        }
         for (uint64_t id : ids) {
             const uint8_t* data = accumulator_->get_vector(id);
             if (!data) {
@@ -562,8 +583,16 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
             }
             CHECK(write_vector_record(f, data, vec_size, hdr.vector_stride,
                 "Dataset::store_and_merge_accumulator: failed to write vector data for id " + std::to_string(id)));
+            if (metadata_.dist_func == DistFunc::COS) {
+                cosine_inv_norms.push_back(accumulator_->get_vector_cosine_inv_norm(id));
+            }
         }
 
+#ifndef NDEBUG
+        assert(metadata_.dist_func != DistFunc::COS || cosine_inv_norms.size() == ids.size());
+#endif
+        CHECK(write_f32_array(f, cosine_inv_norms,
+            "Dataset::store_and_merge_accumulator: failed to write cosine inverse norms"));
         CHECK(write_zero_padding(f, ids_layout.ids_padding,
             "Dataset::store_and_merge_accumulator: failed to write id alignment padding"));
         CHECK(write_u64_array(f, ids, "Dataset::store_and_merge_accumulator: failed to write ids"));
@@ -860,6 +889,11 @@ std::pair<DataReaderPtr, Ret> Dataset::get_cached_reader_(const DatasetItem& ite
 
     if (ret.code() != 0) {
         return {nullptr, ret};
+    }
+
+    if (metadata_.dist_func == DistFunc::COS && !reader->has_cosine_inv_norms()) {
+        return {nullptr, Ret("Dataset: cosine file is missing stored inverse norms: " +
+            item.data_file_path)};
     }
 
     reader_cache_[item.id] = reader;

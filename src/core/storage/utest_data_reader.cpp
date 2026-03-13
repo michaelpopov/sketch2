@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include <unistd.h>
 #include <memory>
@@ -241,6 +242,24 @@ TEST_F(DataReaderTest, CountIsCorrect) {
     DataReader r;
     EXPECT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(7u, r.count());
+}
+
+TEST_F(DataReaderTest, ReadsCosineValuesWhenSectionIsPresent) {
+    GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
+    generate_input_file(input_path_, cfg);
+    DataWriter w;
+    ASSERT_EQ(0, w.init(input_path_, data_path_, 0, 0, true).code());
+    ASSERT_EQ(0, w.exec().code());
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    ASSERT_TRUE(r.has_cosine_inv_norms());
+    EXPECT_NEAR(1.0 / std::sqrt(4.0 * 0.1 * 0.1), static_cast<double>(r.cosine_inv_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / std::sqrt(4.0 * 1.1 * 1.1), static_cast<double>(r.cosine_inv_norm(1)), 1e-6);
+
+    auto it = r.base_begin();
+    ASSERT_FALSE(it.eof());
+    EXPECT_NEAR(static_cast<double>(r.cosine_inv_norm(0)), static_cast<double>(it.cosine_inv_norm()), 1e-6);
 }
 
 TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {

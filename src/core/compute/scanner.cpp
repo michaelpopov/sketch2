@@ -5,6 +5,8 @@
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset.h"
 #include <algorithm>
+#include <cassert>
+#include <cmath>
 #include <queue>
 #include <stdexcept>
 
@@ -55,222 +57,287 @@ void extract_ids(DistHeap* heap, std::vector<uint64_t>* result) {
     }
 }
 
-template <auto DistanceFn, typename Iterator>
-void scan_ordered_reader(Iterator it, const std::vector<uint64_t>& skip_ids,
-        const uint8_t* vec, size_t dim, size_t count, DistHeap* heap) {
-    if (skip_ids.empty()) {
-        for (; !it.eof(); it.next()) {
-            push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim));
-        }
-        return;
+inline double query_inverse_norm(double query_norm_sq) {
+    if (query_norm_sq == 0.0) {
+        return 0.0;
     }
-
-    auto skip_it = skip_ids.end();
-    for (; !it.eof(); it.next()) {
-        const uint64_t id = it.id();
-        if (skip_it == skip_ids.end()) {
-            skip_it = std::lower_bound(skip_ids.begin(), skip_ids.end(), id);
-        }
-        while (skip_it != skip_ids.end() && *skip_it < id) {
-            ++skip_it;
-        }
-        if (skip_it != skip_ids.end() && *skip_it == id) {
-            continue;
-        }
-        push_result(heap, count, id, DistanceFn(it.data(), vec, dim));
-    }
-}
-
-template <auto DistanceFn, typename Iterator>
-void scan_ordered_reader_with_query_norm(Iterator it, const std::vector<uint64_t>& skip_ids,
-        const uint8_t* vec, size_t dim, double query_norm_sq, size_t count, DistHeap* heap) {
-    if (skip_ids.empty()) {
-        for (; !it.eof(); it.next()) {
-            push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim, query_norm_sq));
-        }
-        return;
-    }
-
-    auto skip_it = skip_ids.end();
-    for (; !it.eof(); it.next()) {
-        const uint64_t id = it.id();
-        if (skip_it == skip_ids.end()) {
-            skip_it = std::lower_bound(skip_ids.begin(), skip_ids.end(), id);
-        }
-        while (skip_it != skip_ids.end() && *skip_it < id) {
-            ++skip_it;
-        }
-        if (skip_it != skip_ids.end() && *skip_it == id) {
-            continue;
-        }
-        push_result(heap, count, id, DistanceFn(it.data(), vec, dim, query_norm_sq));
-    }
+    return 1.0 / std::sqrt(query_norm_sq);
 }
 
 template <auto DistanceFn>
-Ret scan_dataset_heap(const Dataset& dataset, size_t count, const uint8_t* vec, DistHeap* heap) {
+struct DistanceScore {
+    const uint8_t* vec = nullptr;
+    size_t dim = 0;
+
+    template <typename Iterator>
+    double operator()(const Iterator& it) const {
+        return DistanceFn(it.data(), vec, dim);
+    }
+};
+
+template <auto DistanceFn>
+struct QueryNormScore {
+    const uint8_t* vec = nullptr;
+    size_t dim = 0;
+    double query_norm_sq = 0.0;
+
+    template <typename Iterator>
+    double operator()(const Iterator& it) const {
+        return DistanceFn(it.data(), vec, dim, query_norm_sq);
+    }
+};
+
+template <auto DotFn>
+struct InvNormScore {
+    const uint8_t* vec = nullptr;
+    size_t dim = 0;
+    double query_inv_norm = 0.0;
+
+    template <typename Iterator>
+    double operator()(const Iterator& it) const {
+        assert(query_inv_norm >= 0.0);
+        const double dot = DotFn(it.data(), vec, dim);
+        return finalize_cosine_distance_from_inverse_norms(
+            dot, static_cast<double>(it.cosine_inv_norm()), query_inv_norm);
+    }
+};
+
+template <typename Iterator, typename ScoreFn>
+void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const ScoreFn& score) {
+    for (; !it.eof(); it.next()) {
+        push_result(heap, count, it.id(), score(it));
+    }
+}
+
+template <typename Iterator, typename ScoreFn>
+void scan_ordered_reader_scored(Iterator it, const std::vector<uint64_t>& skip_ids,
+        size_t count, DistHeap* heap, const ScoreFn& score) {
+    if (skip_ids.empty()) {
+        scan_iterator_scored(it, count, heap, score);
+        return;
+    }
+
+    auto skip_it = skip_ids.end();
+    for (; !it.eof(); it.next()) {
+        const uint64_t id = it.id();
+        if (skip_it == skip_ids.end()) {
+            skip_it = std::lower_bound(skip_ids.begin(), skip_ids.end(), id);
+        }
+        while (skip_it != skip_ids.end() && *skip_it < id) {
+            ++skip_it;
+        }
+        if (skip_it != skip_ids.end() && *skip_it == id) {
+            continue;
+        }
+        push_result(heap, count, id, score(it));
+    }
+}
+
+template <typename ScoreFn>
+void scan_data_reader_scored(const DataReader& reader, const std::vector<uint64_t>& skip_ids,
+        size_t count, DistHeap* heap, const ScoreFn& score) {
+    scan_ordered_reader_scored(reader.base_begin(), skip_ids, count, heap, score);
+    scan_ordered_reader_scored(reader.delta_begin(), skip_ids, count, heap, score);
+}
+
+template <typename ReaderScanFn, typename AccumScoreFn>
+Ret scan_dataset_heap_custom(const Dataset& dataset, size_t count, DistHeap* heap,
+        const ReaderScanFn& scan_reader, const AccumScoreFn& accum_score,
+        bool require_accumulator_cosine_inv_norms = false) {
     CHECK(dataset.prepare_read_state());
+    assert(!require_accumulator_cosine_inv_norms ||
+        !dataset.has_accumulator() || dataset.accumulator_has_cosine_inv_norms());
     const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();
-    const size_t dim = dataset.dim();
 
     auto drs = dataset.reader();
     while (true) {
         auto [reader, ret] = drs->next();
         CHECK(ret);
-        if (!reader) break;
-
-        scan_ordered_reader<DistanceFn>(reader->base_begin(), modified_ids, vec, dim, count, heap);
-        scan_ordered_reader<DistanceFn>(reader->delta_begin(), modified_ids, vec, dim, count, heap);
+        if (!reader) {
+            break;
+        }
+        scan_reader(*reader, modified_ids, count, heap);
     }
 
-    for (auto it = dataset.accumulator_begin(); !it.eof(); it.next()) {
-        push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim));
-    }
-
+    scan_iterator_scored(dataset.accumulator_begin(), count, heap, accum_score);
     return Ret(0);
 }
 
-template <auto DistanceFn>
-Ret scan_dataset_items(const Dataset& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result) {
-    DistHeap heap;
-    CHECK(scan_dataset_heap<DistanceFn>(dataset, count, vec, &heap));
+template <typename ReaderScanFn>
+Ret scan_reader_heap_custom(const DataReader& reader, size_t count, DistHeap* heap,
+        const ReaderScanFn& scan_reader) {
+    scan_reader(reader, {}, count, heap);
+    return Ret(0);
+}
 
+template <typename HeapBuildFn>
+Ret collect_items(const HeapBuildFn& build, std::vector<DistItem>& result) {
+    DistHeap heap;
+    CHECK(build(&heap));
     extract_items(&heap, &result);
     return Ret(0);
 }
 
-template <auto DistanceFn>
-Ret scan_dataset_ids(const Dataset& dataset, size_t count, const uint8_t* vec,
+template <typename HeapBuildFn>
+Ret collect_ids(const HeapBuildFn& build, std::vector<uint64_t>& result) {
+    DistHeap heap;
+    CHECK(build(&heap));
+    extract_ids(&heap, &result);
+    return Ret(0);
+}
+
+template <typename ScoreFn>
+Ret scan_dataset_items_with_score(const Dataset& dataset, size_t count, const ScoreFn& score,
+        std::vector<DistItem>& result) {
+    return collect_items([&](DistHeap* heap) {
+        return scan_dataset_heap_custom(
+            dataset,
+            count,
+            heap,
+            [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
+                scan_data_reader_scored(reader, skip_ids, local_count, local_heap, score);
+            },
+            score);
+    }, result);
+}
+
+template <typename ScoreFn>
+Ret scan_dataset_ids_with_score(const Dataset& dataset, size_t count, const ScoreFn& score,
         std::vector<uint64_t>& result) {
-    DistHeap heap;
-    CHECK(scan_dataset_heap<DistanceFn>(dataset, count, vec, &heap));
-
-    extract_ids(&heap, &result);
-    return Ret(0);
+    return collect_ids([&](DistHeap* heap) {
+        return scan_dataset_heap_custom(
+            dataset,
+            count,
+            heap,
+            [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
+                scan_data_reader_scored(reader, skip_ids, local_count, local_heap, score);
+            },
+            score);
+    }, result);
 }
 
-template <auto DistanceFn>
-Ret scan_reader_heap(const DataReader& reader, size_t count, const uint8_t* vec, DistHeap* heap) {
-    const size_t dim = reader.dim();
-
-    scan_ordered_reader<DistanceFn>(reader.base_begin(), {}, vec, dim, count, heap);
-    scan_ordered_reader<DistanceFn>(reader.delta_begin(), {}, vec, dim, count, heap);
-
-    return Ret(0);
-}
-
-template <auto DistanceFn>
-Ret scan_dataset_heap_with_query_norm(const Dataset& dataset, size_t count, const uint8_t* vec,
-        double query_norm_sq, DistHeap* heap) {
-    CHECK(dataset.prepare_read_state());
-    const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();
-    const size_t dim = dataset.dim();
-
-    auto drs = dataset.reader();
-    while (true) {
-        auto [reader, ret] = drs->next();
-        CHECK(ret);
-        if (!reader) break;
-
-        scan_ordered_reader_with_query_norm<DistanceFn>(
-            reader->base_begin(), modified_ids, vec, dim, query_norm_sq, count, heap);
-        scan_ordered_reader_with_query_norm<DistanceFn>(
-            reader->delta_begin(), modified_ids, vec, dim, query_norm_sq, count, heap);
-    }
-
-    for (auto it = dataset.accumulator_begin(); !it.eof(); it.next()) {
-        push_result(heap, count, it.id(), DistanceFn(it.data(), vec, dim, query_norm_sq));
-    }
-
-    return Ret(0);
-}
-
-template <auto DistanceFn>
-Ret scan_dataset_items_with_query_norm(const Dataset& dataset, size_t count, const uint8_t* vec,
-        double query_norm_sq, std::vector<DistItem>& result) {
-    DistHeap heap;
-    CHECK(scan_dataset_heap_with_query_norm<DistanceFn>(dataset, count, vec, query_norm_sq, &heap));
-
-    extract_items(&heap, &result);
-    return Ret(0);
-}
-
-template <auto DistanceFn>
-Ret scan_dataset_ids_with_query_norm(const Dataset& dataset, size_t count, const uint8_t* vec,
-        double query_norm_sq, std::vector<uint64_t>& result) {
-    DistHeap heap;
-    CHECK(scan_dataset_heap_with_query_norm<DistanceFn>(dataset, count, vec, query_norm_sq, &heap));
-
-    extract_ids(&heap, &result);
-    return Ret(0);
-}
-
-template <auto DistanceFn>
-Ret scan_reader_heap_with_query_norm(const DataReader& reader, size_t count, const uint8_t* vec,
-        double query_norm_sq, DistHeap* heap) {
-    const size_t dim = reader.dim();
-
-    scan_ordered_reader_with_query_norm<DistanceFn>(
-        reader.base_begin(), {}, vec, dim, query_norm_sq, count, heap);
-    scan_ordered_reader_with_query_norm<DistanceFn>(
-        reader.delta_begin(), {}, vec, dim, query_norm_sq, count, heap);
-
-    return Ret(0);
-}
-
-template <auto DistanceFn>
-Ret scan_reader_items_with_query_norm(const DataReader& reader, size_t count, const uint8_t* vec,
-        double query_norm_sq, std::vector<DistItem>& result) {
-    DistHeap heap;
-    CHECK(scan_reader_heap_with_query_norm<DistanceFn>(reader, count, vec, query_norm_sq, &heap));
-
-    extract_items(&heap, &result);
-    return Ret(0);
-}
-
-template <auto DistanceFn>
-Ret scan_reader_ids_with_query_norm(const DataReader& reader, size_t count, const uint8_t* vec,
-        double query_norm_sq, std::vector<uint64_t>& result) {
-    DistHeap heap;
-    CHECK(scan_reader_heap_with_query_norm<DistanceFn>(reader, count, vec, query_norm_sq, &heap));
-
-    extract_ids(&heap, &result);
-    return Ret(0);
-}
-
-template <auto DistanceFn>
-Ret scan_reader_items(const DataReader& reader, size_t count, const uint8_t* vec,
+template <typename InvScoreFn, typename QueryScoreFn>
+Ret scan_dataset_items_with_cos_scores(const Dataset& dataset, size_t count,
+        const InvScoreFn& inv_score, const QueryScoreFn& query_score,
         std::vector<DistItem>& result) {
-    DistHeap heap;
-    CHECK(scan_reader_heap<DistanceFn>(reader, count, vec, &heap));
+    return collect_items([&](DistHeap* heap) {
+        return scan_dataset_heap_custom(
+            dataset,
+            count,
+            heap,
+            [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
+                if (reader.has_cosine_inv_norms()) {
+                    scan_data_reader_scored(reader, skip_ids, local_count, local_heap, inv_score);
+                } else {
+                    scan_data_reader_scored(reader, skip_ids, local_count, local_heap, query_score);
+                }
+            },
+            inv_score,
+            true);
+    }, result);
+}
 
-    extract_items(&heap, &result);
-    return Ret(0);
+template <typename InvScoreFn, typename QueryScoreFn>
+Ret scan_dataset_ids_with_cos_scores(const Dataset& dataset, size_t count,
+        const InvScoreFn& inv_score, const QueryScoreFn& query_score,
+        std::vector<uint64_t>& result) {
+    return collect_ids([&](DistHeap* heap) {
+        return scan_dataset_heap_custom(
+            dataset,
+            count,
+            heap,
+            [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
+                if (reader.has_cosine_inv_norms()) {
+                    scan_data_reader_scored(reader, skip_ids, local_count, local_heap, inv_score);
+                } else {
+                    scan_data_reader_scored(reader, skip_ids, local_count, local_heap, query_score);
+                }
+            },
+            inv_score,
+            true);
+    }, result);
+}
+
+template <typename ScoreFn>
+Ret scan_reader_items_with_score(const DataReader& reader, size_t count, const ScoreFn& score,
+        std::vector<DistItem>& result) {
+    return collect_items([&](DistHeap* heap) {
+        return scan_reader_heap_custom(
+            reader,
+            count,
+            heap,
+            [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
+                scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, score);
+            });
+    }, result);
+}
+
+template <typename ScoreFn>
+Ret scan_reader_ids_with_score(const DataReader& reader, size_t count, const ScoreFn& score,
+        std::vector<uint64_t>& result) {
+    return collect_ids([&](DistHeap* heap) {
+        return scan_reader_heap_custom(
+            reader,
+            count,
+            heap,
+            [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
+                scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, score);
+            });
+    }, result);
+}
+
+template <typename InvScoreFn, typename QueryScoreFn>
+Ret scan_reader_items_with_cos_scores(const DataReader& reader, size_t count,
+        const InvScoreFn& inv_score, const QueryScoreFn& query_score,
+        std::vector<DistItem>& result) {
+    return collect_items([&](DistHeap* heap) {
+        return scan_reader_heap_custom(
+            reader,
+            count,
+            heap,
+            [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
+                if (local_reader.has_cosine_inv_norms()) {
+                    scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, inv_score);
+                } else {
+                    scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, query_score);
+                }
+            });
+    }, result);
+}
+
+template <typename InvScoreFn, typename QueryScoreFn>
+Ret scan_reader_ids_with_cos_scores(const DataReader& reader, size_t count,
+        const InvScoreFn& inv_score, const QueryScoreFn& query_score,
+        std::vector<uint64_t>& result) {
+    return collect_ids([&](DistHeap* heap) {
+        return scan_reader_heap_custom(
+            reader,
+            count,
+            heap,
+            [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
+                if (local_reader.has_cosine_inv_norms()) {
+                    scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, inv_score);
+                } else {
+                    scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, query_score);
+                }
+            });
+    }, result);
 }
 
 template <typename ComputeTarget>
 Ret dispatch_reader_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
+    const size_t dim = reader.dim();
     switch (type) {
-        case DataType::f32: {
-            DistHeap heap;
-            CHECK(scan_reader_heap<&ComputeTarget::dist_f32>(reader, count, vec, &heap));
-            extract_ids(&heap, &result);
-            return Ret(0);
-        }
-        case DataType::f16: {
-            DistHeap heap;
-            CHECK(scan_reader_heap<&ComputeTarget::dist_f16>(reader, count, vec, &heap));
-            extract_ids(&heap, &result);
-            return Ret(0);
-        }
-        case DataType::i16: {
-            DistHeap heap;
-            CHECK(scan_reader_heap<&ComputeTarget::dist_i16>(reader, count, vec, &heap));
-            extract_ids(&heap, &result);
-            return Ret(0);
-        }
+        case DataType::f32:
+            return scan_reader_ids_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, result);
+        case DataType::f16:
+            return scan_reader_ids_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, result);
+        case DataType::i16:
+            return scan_reader_ids_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, result);
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -278,10 +345,17 @@ Ret dispatch_reader_ids(DataType type, const DataReader& reader, size_t count, c
 template <typename ComputeTarget>
 Ret dispatch_dataset_ids(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
+    const size_t dim = dataset.dim();
     switch (type) {
-        case DataType::f32: return scan_dataset_ids<&ComputeTarget::dist_f32>(dataset, count, vec, result);
-        case DataType::f16: return scan_dataset_ids<&ComputeTarget::dist_f16>(dataset, count, vec, result);
-        case DataType::i16: return scan_dataset_ids<&ComputeTarget::dist_i16>(dataset, count, vec, result);
+        case DataType::f32:
+            return scan_dataset_ids_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, result);
+        case DataType::f16:
+            return scan_dataset_ids_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, result);
+        case DataType::i16:
+            return scan_dataset_ids_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, result);
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -289,10 +363,17 @@ Ret dispatch_dataset_ids(DataType type, const Dataset& dataset, size_t count, co
 template <typename ComputeTarget>
 Ret dispatch_dataset_items(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
+    const size_t dim = dataset.dim();
     switch (type) {
-        case DataType::f32: return scan_dataset_items<&ComputeTarget::dist_f32>(dataset, count, vec, result);
-        case DataType::f16: return scan_dataset_items<&ComputeTarget::dist_f16>(dataset, count, vec, result);
-        case DataType::i16: return scan_dataset_items<&ComputeTarget::dist_i16>(dataset, count, vec, result);
+        case DataType::f32:
+            return scan_dataset_items_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, result);
+        case DataType::f16:
+            return scan_dataset_items_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, result);
+        case DataType::i16:
+            return scan_dataset_items_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, result);
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -300,10 +381,17 @@ Ret dispatch_dataset_items(DataType type, const Dataset& dataset, size_t count, 
 template <typename ComputeTarget>
 Ret dispatch_reader_items(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
+    const size_t dim = reader.dim();
     switch (type) {
-        case DataType::f32: return scan_reader_items<&ComputeTarget::dist_f32>(reader, count, vec, result);
-        case DataType::f16: return scan_reader_items<&ComputeTarget::dist_f16>(reader, count, vec, result);
-        case DataType::i16: return scan_reader_items<&ComputeTarget::dist_i16>(reader, count, vec, result);
+        case DataType::f32:
+            return scan_reader_items_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, result);
+        case DataType::f16:
+            return scan_reader_items_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, result);
+        case DataType::i16:
+            return scan_reader_items_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, result);
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -311,17 +399,25 @@ Ret dispatch_reader_items(DataType type, const DataReader& reader, size_t count,
 template <typename ComputeTarget>
 Ret dispatch_dataset_cos_ids(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
-    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dataset.dim());
+    const size_t dim = dataset.dim();
+    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dim);
+    const double query_inv = query_inverse_norm(query_norm_sq);
     switch (type) {
-        case DataType::f32:
-            return scan_dataset_ids_with_query_norm<&ComputeTarget::dist_f32_with_query_norm>(
-                dataset, count, vec, query_norm_sq, result);
-        case DataType::f16:
-            return scan_dataset_ids_with_query_norm<&ComputeTarget::dist_f16_with_query_norm>(
-                dataset, count, vec, query_norm_sq, result);
-        case DataType::i16:
-            return scan_dataset_ids_with_query_norm<&ComputeTarget::dist_i16_with_query_norm>(
-                dataset, count, vec, query_norm_sq, result);
+        case DataType::f32: {
+            const InvNormScore<&ComputeTarget::dot_f32> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_f32_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_dataset_ids_with_cos_scores(dataset, count, inv_score, query_score, result);
+        }
+        case DataType::f16: {
+            const InvNormScore<&ComputeTarget::dot_f16> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_f16_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_dataset_ids_with_cos_scores(dataset, count, inv_score, query_score, result);
+        }
+        case DataType::i16: {
+            const InvNormScore<&ComputeTarget::dot_i16> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_i16_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_dataset_ids_with_cos_scores(dataset, count, inv_score, query_score, result);
+        }
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -329,17 +425,25 @@ Ret dispatch_dataset_cos_ids(DataType type, const Dataset& dataset, size_t count
 template <typename ComputeTarget>
 Ret dispatch_dataset_cos_items(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
-    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dataset.dim());
+    const size_t dim = dataset.dim();
+    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dim);
+    const double query_inv = query_inverse_norm(query_norm_sq);
     switch (type) {
-        case DataType::f32:
-            return scan_dataset_items_with_query_norm<&ComputeTarget::dist_f32_with_query_norm>(
-                dataset, count, vec, query_norm_sq, result);
-        case DataType::f16:
-            return scan_dataset_items_with_query_norm<&ComputeTarget::dist_f16_with_query_norm>(
-                dataset, count, vec, query_norm_sq, result);
-        case DataType::i16:
-            return scan_dataset_items_with_query_norm<&ComputeTarget::dist_i16_with_query_norm>(
-                dataset, count, vec, query_norm_sq, result);
+        case DataType::f32: {
+            const InvNormScore<&ComputeTarget::dot_f32> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_f32_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_dataset_items_with_cos_scores(dataset, count, inv_score, query_score, result);
+        }
+        case DataType::f16: {
+            const InvNormScore<&ComputeTarget::dot_f16> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_f16_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_dataset_items_with_cos_scores(dataset, count, inv_score, query_score, result);
+        }
+        case DataType::i16: {
+            const InvNormScore<&ComputeTarget::dot_i16> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_i16_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_dataset_items_with_cos_scores(dataset, count, inv_score, query_score, result);
+        }
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -347,17 +451,25 @@ Ret dispatch_dataset_cos_items(DataType type, const Dataset& dataset, size_t cou
 template <typename ComputeTarget>
 Ret dispatch_reader_cos_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
-    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, reader.dim());
+    const size_t dim = reader.dim();
+    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dim);
+    const double query_inv = query_inverse_norm(query_norm_sq);
     switch (type) {
-        case DataType::f32:
-            return scan_reader_ids_with_query_norm<&ComputeTarget::dist_f32_with_query_norm>(
-                reader, count, vec, query_norm_sq, result);
-        case DataType::f16:
-            return scan_reader_ids_with_query_norm<&ComputeTarget::dist_f16_with_query_norm>(
-                reader, count, vec, query_norm_sq, result);
-        case DataType::i16:
-            return scan_reader_ids_with_query_norm<&ComputeTarget::dist_i16_with_query_norm>(
-                reader, count, vec, query_norm_sq, result);
+        case DataType::f32: {
+            const InvNormScore<&ComputeTarget::dot_f32> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_f32_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_reader_ids_with_cos_scores(reader, count, inv_score, query_score, result);
+        }
+        case DataType::f16: {
+            const InvNormScore<&ComputeTarget::dot_f16> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_f16_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_reader_ids_with_cos_scores(reader, count, inv_score, query_score, result);
+        }
+        case DataType::i16: {
+            const InvNormScore<&ComputeTarget::dot_i16> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_i16_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_reader_ids_with_cos_scores(reader, count, inv_score, query_score, result);
+        }
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -365,17 +477,25 @@ Ret dispatch_reader_cos_ids(DataType type, const DataReader& reader, size_t coun
 template <typename ComputeTarget>
 Ret dispatch_reader_cos_items(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
-    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, reader.dim());
+    const size_t dim = reader.dim();
+    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dim);
+    const double query_inv = query_inverse_norm(query_norm_sq);
     switch (type) {
-        case DataType::f32:
-            return scan_reader_items_with_query_norm<&ComputeTarget::dist_f32_with_query_norm>(
-                reader, count, vec, query_norm_sq, result);
-        case DataType::f16:
-            return scan_reader_items_with_query_norm<&ComputeTarget::dist_f16_with_query_norm>(
-                reader, count, vec, query_norm_sq, result);
-        case DataType::i16:
-            return scan_reader_items_with_query_norm<&ComputeTarget::dist_i16_with_query_norm>(
-                reader, count, vec, query_norm_sq, result);
+        case DataType::f32: {
+            const InvNormScore<&ComputeTarget::dot_f32> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_f32_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_reader_items_with_cos_scores(reader, count, inv_score, query_score, result);
+        }
+        case DataType::f16: {
+            const InvNormScore<&ComputeTarget::dot_f16> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_f16_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_reader_items_with_cos_scores(reader, count, inv_score, query_score, result);
+        }
+        case DataType::i16: {
+            const InvNormScore<&ComputeTarget::dot_i16> inv_score{vec, dim, query_inv};
+            const QueryNormScore<&ComputeTarget::dist_i16_with_query_norm> query_score{vec, dim, query_norm_sq};
+            return scan_reader_items_with_cos_scores(reader, count, inv_score, query_score, result);
+        }
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }

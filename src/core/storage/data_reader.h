@@ -17,6 +17,7 @@ public:
         void           next();
         bool           eof()  const;
         const uint8_t* data() const;
+        float          cosine_inv_norm() const;
         uint64_t       id()   const;
 
     private:
@@ -36,6 +37,7 @@ public:
         void           next();
         bool           eof()  const;
         const uint8_t* data() const;
+        float          cosine_inv_norm() const;
         uint64_t       id()   const;
 
     private:
@@ -62,11 +64,13 @@ public:
     size_t size() const;  // size of one vector in bytes
     size_t stride() const { return stride_; } // distance between persisted vector records in bytes
     size_t count() const; // number of vectors
+    bool has_cosine_inv_norms() const;
 
     Iterator        begin() const;
     OrderedIterator base_begin() const;
     OrderedIterator delta_begin() const;
     uint64_t       id(size_t index) const;
+    float          cosine_inv_norm(size_t index) const;
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     const uint8_t* at(size_t index) const;   // lookup by position; might return nullptr if the vector is deleted
     bool           is_hidden(size_t index) const;
@@ -82,6 +86,7 @@ private:
     size_t                   map_len_ = 0;
     const DataFileHeader*    hdr_     = nullptr;
     const uint64_t*          ids_     = nullptr; // cached pointer to the ids section
+    const float*             cosine_inv_norms_ = nullptr; // cached pointer to optional cosine inverse norms
     const uint64_t*          deleted_ids_ = nullptr; // cached pointer to the deleted ids section
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
@@ -93,6 +98,7 @@ private:
     Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
     Ret init_delta();
     const uint8_t* get_by_pos(uint32_t pos) { return map_ + hdr_->data_offset + stride_ * pos; }
+    void assert_invariants_() const;
 };
 
 } // namespace sketch2

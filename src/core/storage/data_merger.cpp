@@ -2,6 +2,7 @@
 #include "core/storage/data_file_layout.h"
 #include "core/utils/shared_consts.h"
 #include <algorithm>
+#include <cassert>
 #include <experimental/scope>
 #include <filesystem>
 #include <stdio.h>
@@ -16,6 +17,43 @@ namespace {
 struct MergeItem {
     uint64_t id;
     const uint8_t* data;
+    float cosine_inv_norm;
+};
+
+class CosineInvNormOutput {
+public:
+    explicit CosineInvNormOutput(bool enabled) : enabled_(enabled) {}
+
+    void reserve(size_t count) {
+        if (enabled_) {
+            values_.reserve(count);
+        }
+    }
+
+    void push(float value) {
+        if (enabled_) {
+            values_.push_back(value);
+        }
+    }
+
+    void assert_matches(size_t count) const {
+#ifndef NDEBUG
+        assert(!enabled_ || values_.size() == count);
+#else
+        (void)count;
+#endif
+    }
+
+    Ret write(FILE* f, const char* context) const {
+        return write_f32_array(
+            f,
+            values_,
+            std::string(context) + ": failed to write cosine inverse norms");
+    }
+
+private:
+    bool enabled_ = false;
+    std::vector<float> values_;
 };
 
 void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer) {
@@ -38,11 +76,18 @@ std::vector<MergeItem> load_update_records(const DataReader& updater) {
     std::vector<MergeItem> updater_items;
     updater_items.reserve(updater.count());
     for (auto iter = updater.begin(); !iter.eof(); iter.next()) {
+        assert(iter.data() != nullptr);
         updater_items.push_back(MergeItem {
             .id = iter.id(),
             .data = iter.data(),
+            .cosine_inv_norm = iter.cosine_inv_norm(),
         });
     }
+#ifndef NDEBUG
+    for (size_t i = 1; i < updater_items.size(); ++i) {
+        assert(updater_items[i - 1].id < updater_items[i].id);
+    }
+#endif
     return updater_items;
 }
 
@@ -50,11 +95,19 @@ std::vector<MergeItem> load_update_records(const Accumulator& updater, const std
     std::vector<MergeItem> updater_items;
     updater_items.reserve(ids.size());
     for (uint64_t id : ids) {
+        const uint8_t* data = updater.get_vector(id);
+        assert(data != nullptr);
         updater_items.push_back(MergeItem {
             .id = id,
-            .data = updater.get_vector(id),
+            .data = data,
+            .cosine_inv_norm = updater.get_vector_cosine_inv_norm(id),
         });
     }
+#ifndef NDEBUG
+    for (size_t i = 1; i < updater_items.size(); ++i) {
+        assert(updater_items[i - 1].id < updater_items[i].id);
+    }
+#endif
     return updater_items;
 }
 
@@ -136,15 +189,15 @@ Ret merge_records(const DataReader& source,
             const uint64_t update_id = updater_items[j].id;
             if (source_id < update_id) {
                 output_ids->push_back(source_id);
-                CHECK(emit(source.at(i), source.size()));
+                CHECK(emit(source.at(i), source.cosine_inv_norm(i), source.size()));
                 ++i;
             } else if (source_id > update_id) {
                 output_ids->push_back(update_id);
-                CHECK(emit(updater_items[j].data, source.size()));
+                CHECK(emit(updater_items[j].data, updater_items[j].cosine_inv_norm, source.size()));
                 ++j;
             } else {
                 output_ids->push_back(update_id);
-                CHECK(emit(updater_items[j].data, source.size()));
+                CHECK(emit(updater_items[j].data, updater_items[j].cosine_inv_norm, source.size()));
                 ++i;
                 ++j;
             }
@@ -154,16 +207,20 @@ Ret merge_records(const DataReader& source,
         if (has_source) {
             const uint64_t source_id = source.id(i);
             output_ids->push_back(source_id);
-            CHECK(emit(source.at(i), source.size()));
+            CHECK(emit(source.at(i), source.cosine_inv_norm(i), source.size()));
             ++i;
         } else {
             const uint64_t update_id = updater_items[j].id;
             output_ids->push_back(update_id);
-            CHECK(emit(updater_items[j].data, source.size()));
+            CHECK(emit(updater_items[j].data, updater_items[j].cosine_inv_norm, source.size()));
             ++j;
         }
     }
 
+#ifndef NDEBUG
+    assert(std::is_sorted(output_ids->begin(), output_ids->end()));
+    assert(std::adjacent_find(output_ids->begin(), output_ids->end()) == output_ids->end());
+#endif
     return Ret(0);
 }
 
@@ -184,7 +241,8 @@ Ret merge_to_file(const DataReader& source,
         }
     });
 
-    DataFileHeader hdr = make_data_header(0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()));
+    DataFileHeader hdr = make_data_header(
+        0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()), source.has_cosine_inv_norms());
     CHECK(write_header_and_data_padding(f, hdr, context));
     CHECK(finalize(f, &hdr));
     return flush_and_close_merge_file(&f, context);
@@ -233,6 +291,9 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_data_file: incompatible source and updater");
     }
+    if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
+        return Ret("DataMerger::merge_data_file: incompatible cosine inverse-norm layout");
+    }
     if (source.has_delta() || updater.has_delta()) {
         return Ret("DataMerger::merge_data_file: source and updater must not have deltas");
     }
@@ -243,15 +304,21 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     return merge_to_file(source, path, "DataMerger::merge_data_files",
         [&](FILE* f, DataFileHeader* hdr) -> Ret {
             std::vector<uint64_t> output_ids;
+            CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
+            output_cosine_inv_norms.reserve(source.count() + updater_items.size());
             CHECK(merge_records(source, updater_items, deletes,
                 "DataMerger::merge_data_files: updated id is also deleted",
-                [&](const uint8_t* data, size_t size) -> Ret {
-                    return write_vector_record(f, data, size, hdr->vector_stride,
-                        "DataMerger::merge_data_files");
+                [&](const uint8_t* data, float cosine_inv_norm, size_t size) -> Ret {
+                    CHECK(write_vector_record(f, data, size, hdr->vector_stride,
+                        "DataMerger::merge_data_files"));
+                    output_cosine_inv_norms.push(cosine_inv_norm);
+                    return Ret(0);
                 },
                 &output_ids));
 
+            output_cosine_inv_norms.assert_matches(output_ids.size());
             const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
+            CHECK(output_cosine_inv_norms.write(f, "DataMerger::merge_data_files"));
             CHECK(write_zero_padding(f, ids_layout.ids_padding,
                 "DataMerger::merge_data_files: failed to write id alignment padding"));
             CHECK(write_u64_array(f, output_ids,
@@ -302,6 +369,9 @@ Ret DataMerger::merge_delta_file(
 }
 
 Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
+    if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
+        return Ret("DataMerger::merge_delta_file: incompatible cosine inverse-norm layout");
+    }
     if (source.has_delta() || updater.has_delta()) {
         return Ret("DataMerger::merge_delta_file: source and updater must not have deltas");
     }
@@ -313,15 +383,21 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     return merge_to_file(source, path, "DataMerger::merge_delta_file",
         [&](FILE* f, DataFileHeader* hdr) -> Ret {
             std::vector<uint64_t> output_ids;
+            CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
+            output_cosine_inv_norms.reserve(source.count() + updater_items.size());
             CHECK(merge_records(source, updater_items, deletes,
                 "DataMerger::merge_delta_file: updated id is also deleted",
-                [&](const uint8_t* data, size_t size) -> Ret {
-                    return write_vector_record(f, data, size, hdr->vector_stride,
-                        "DataMerger::merge_delta_file");
+                [&](const uint8_t* data, float cosine_inv_norm, size_t size) -> Ret {
+                    CHECK(write_vector_record(f, data, size, hdr->vector_stride,
+                        "DataMerger::merge_delta_file"));
+                    output_cosine_inv_norms.push(cosine_inv_norm);
+                    return Ret(0);
                 },
                 &output_ids));
 
+            output_cosine_inv_norms.assert_matches(output_ids.size());
             const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
+            CHECK(output_cosine_inv_norms.write(f, "DataMerger::merge_delta_file"));
             CHECK(write_zero_padding(f, ids_layout.ids_padding,
                 "DataMerger::merge_delta_file: failed to write id alignment padding"));
             CHECK(write_u64_array(f, output_ids,
@@ -341,6 +417,9 @@ Ret DataMerger::merge_data_file_(
         const DataReader& source, const Accumulator& updater,
         const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
         const std::string& path) {
+    if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
+        return Ret("DataMerger::merge_data_file: incompatible cosine inverse-norm layout");
+    }
     if (source.has_delta()) {
         return Ret("DataMerger::merge_data_file: source and updater must not have deltas");
     }
@@ -350,15 +429,21 @@ Ret DataMerger::merge_data_file_(
     return merge_to_file(source, path, "DataMerger::merge_data_files",
         [&](FILE* f, DataFileHeader* hdr) -> Ret {
             std::vector<uint64_t> output_ids;
+            CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
+            output_cosine_inv_norms.reserve(source.count() + updater_items.size());
             CHECK(merge_records(source, updater_items, deleted_ids,
                 "DataMerger::merge_data_files: updated id is also deleted",
-                [&](const uint8_t* data, size_t size) -> Ret {
-                    return write_vector_record(f, data, size, hdr->vector_stride,
-                        "DataMerger::merge_data_files");
+                [&](const uint8_t* data, float cosine_inv_norm, size_t size) -> Ret {
+                    CHECK(write_vector_record(f, data, size, hdr->vector_stride,
+                        "DataMerger::merge_data_files"));
+                    output_cosine_inv_norms.push(cosine_inv_norm);
+                    return Ret(0);
                 },
                 &output_ids));
 
+            output_cosine_inv_norms.assert_matches(output_ids.size());
             const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
+            CHECK(output_cosine_inv_norms.write(f, "DataMerger::merge_data_files"));
             CHECK(write_zero_padding(f, ids_layout.ids_padding,
                 "DataMerger::merge_data_files: failed to write id alignment padding"));
             CHECK(write_u64_array(f, output_ids,
@@ -375,6 +460,9 @@ Ret DataMerger::merge_delta_file_(
         const DataReader& source, const Accumulator& updater,
         const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
         const std::string& path) {
+    if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
+        return Ret("DataMerger::merge_delta_file: incompatible cosine inverse-norm layout");
+    }
     if (source.has_delta()) {
         return Ret("DataMerger::merge_delta_file: source and updater must not have deltas");
     }
@@ -385,15 +473,21 @@ Ret DataMerger::merge_delta_file_(
     return merge_to_file(source, path, "DataMerger::merge_delta_file",
         [&](FILE* f, DataFileHeader* hdr) -> Ret {
             std::vector<uint64_t> output_ids;
+            CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
+            output_cosine_inv_norms.reserve(source.count() + updater_items.size());
             CHECK(merge_records(source, updater_items, deletes,
                 "DataMerger::merge_delta_file: updated id is also deleted",
-                [&](const uint8_t* data, size_t size) -> Ret {
-                    return write_vector_record(f, data, size, hdr->vector_stride,
-                        "DataMerger::merge_delta_file");
+                [&](const uint8_t* data, float cosine_inv_norm, size_t size) -> Ret {
+                    CHECK(write_vector_record(f, data, size, hdr->vector_stride,
+                        "DataMerger::merge_delta_file"));
+                    output_cosine_inv_norms.push(cosine_inv_norm);
+                    return Ret(0);
                 },
                 &output_ids));
 
+            output_cosine_inv_norms.assert_matches(output_ids.size());
             const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
+            CHECK(output_cosine_inv_norms.write(f, "DataMerger::merge_delta_file"));
             CHECK(write_zero_padding(f, ids_layout.ids_padding,
                 "DataMerger::merge_delta_file: failed to write id alignment padding"));
             CHECK(write_u64_array(f, output_ids,

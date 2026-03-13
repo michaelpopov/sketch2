@@ -24,14 +24,18 @@ inline constexpr uint64_t kMaxDimension = 4096;
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 
 // Binary storage format version written into data/WAL headers and checked when reopening files.
-// Version 4 adds explicit per-record vector stride so persisted vectors stay 32-byte aligned.
-inline constexpr uint16_t kVersion = 4;
+// Version 5 adds an optional cosine inverse-norm section after vector payloads.
+inline constexpr uint16_t kVersion = 5;
 
 // Vector payload alignment used by data files and accumulator storage for SIMD-friendly access.
 inline constexpr uint32_t kDataAlignment = 32;
 
 // Id section alignment used by data-file layout code when placing active/deleted id arrays.
 inline constexpr uint32_t kIdsAlignment = 8;
+
+// Data-file header flag marking that a float inverse-norm section is present for active vectors.
+// This is used by cosine datasets so scanner can avoid recomputing stored-vector norms.
+inline constexpr uint32_t kDataFileHasCosineInvNorms = 1u;
 
 // Shared stdio buffer size used by DataWriter, DataMerger, and Dataset merge/store paths.
 inline constexpr size_t kFileBufferSize = 4 * 1024 * 1024;

@@ -2,6 +2,7 @@
 #include "core/storage/data_file.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 
 #include <gtest/gtest.h>
@@ -54,6 +55,28 @@ TEST(AccumulatorTest, StoredVectorsAre32ByteAligned) {
     const auto p1 = reinterpret_cast<uintptr_t>(accumulator.get_vector(20));
     EXPECT_EQ(0u, p0 % kDataAlignment);
     EXPECT_EQ(0u, p1 % kDataAlignment);
+}
+
+TEST(AccumulatorTest, ComputesAndMovesCosineValuesWhenEnabled) {
+    Accumulator accumulator;
+    ASSERT_EQ(0, accumulator.init(256, DataType::f32, 4, true).code());
+
+    const std::array<float, 4> v0 {1.0f, 0.0f, 0.0f, 0.0f};
+    const std::array<float, 4> v1 {3.0f, 4.0f, 0.0f, 0.0f};
+    ASSERT_EQ(0, accumulator.add_vector(10, as_bytes(v0)).code());
+    ASSERT_EQ(0, accumulator.add_vector(20, as_bytes(v1)).code());
+
+    EXPECT_TRUE(accumulator.has_cosine_inv_norms());
+    EXPECT_NEAR(1.0, static_cast<double>(accumulator.get_vector_cosine_inv_norm(10)), 1e-6);
+    EXPECT_NEAR(0.2, static_cast<double>(accumulator.get_vector_cosine_inv_norm(20)), 1e-6);
+
+    ASSERT_EQ(0, accumulator.delete_vector(10).code());
+    EXPECT_NEAR(0.2, static_cast<double>(accumulator.get_vector_cosine_inv_norm(20)), 1e-6);
+
+    auto it = accumulator.begin();
+    ASSERT_FALSE(it.eof());
+    EXPECT_EQ(20u, it.id());
+    EXPECT_NEAR(0.2, static_cast<double>(it.cosine_inv_norm()), 1e-6);
 }
 
 TEST(AccumulatorTest, DeleteVectorTracksSortedDeletedIds) {

@@ -38,6 +38,13 @@ TEST_F(DataFileLayoutTest, MakeDataHeaderSetsExpectedFields) {
     EXPECT_GE(hdr.data_offset, sizeof(DataFileHeader));
     EXPECT_EQ(compute_vector_stride(64u * sizeof(float)), hdr.vector_stride);
     EXPECT_EQ(0u, hdr.vector_stride % kDataAlignment);
+    EXPECT_FALSE(data_file_has_cosine_inv_norms(hdr));
+}
+
+TEST_F(DataFileLayoutTest, MakeDataHeaderSetsCosineFlagWhenRequested) {
+    const auto hdr = make_data_header(10, 20, 7, 2, DataType::f32, 64, true);
+    EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
+    EXPECT_EQ(kDataFileHasCosineInvNorms, hdr.flags);
 }
 
 TEST_F(DataFileLayoutTest, ComputeIdsLayoutAlignsIdsOffsetTo8Bytes) {
@@ -46,6 +53,16 @@ TEST_F(DataFileLayoutTest, ComputeIdsLayoutAlignsIdsOffsetTo8Bytes) {
     EXPECT_EQ(static_cast<size_t>(hdr.vector_stride), layout.vectors_bytes);
     EXPECT_EQ(0u, layout.ids_offset % kIdsAlignment);
     EXPECT_EQ(layout.ids_offset - (static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes), layout.ids_padding);
+}
+
+TEST_F(DataFileLayoutTest, ComputeIdsLayoutPlacesCosineSectionBeforeIds) {
+    const auto hdr = make_data_header(0, 0, 0, 0, DataType::f32, 5, true);
+    const auto layout = compute_ids_layout(hdr, 3);
+    EXPECT_EQ(static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes, layout.cosine_inv_norms_offset);
+    EXPECT_EQ(3u * sizeof(float), layout.cosine_inv_norms_bytes);
+    EXPECT_EQ(0u, layout.ids_offset % kIdsAlignment);
+    EXPECT_EQ(layout.ids_offset,
+        align_up<size_t>(layout.cosine_inv_norms_offset + layout.cosine_inv_norms_bytes, kIdsAlignment));
 }
 
 TEST_F(DataFileLayoutTest, WriteZeroPaddingWritesRequestedZeros) {

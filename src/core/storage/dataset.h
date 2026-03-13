@@ -47,6 +47,7 @@ public:
         bool eof() const;
         uint64_t id() const;
         const uint8_t* data() const;
+        float cosine_inv_norm() const;
 
     private:
         friend class Dataset;
@@ -97,6 +98,10 @@ public:
     bool is_deleted(uint64_t id) const;
     bool is_modified_in_accumulator(uint64_t id) const;
     AccumulatorIterator accumulator_begin() const;
+    bool has_accumulator() const { return static_cast<bool>(accumulator_); }
+    bool accumulator_has_cosine_inv_norms() const {
+        return accumulator_ && accumulator_->has_cosine_inv_norms();
+    }
     size_t accumulator_vectors_count() const { return accumulator_ ? accumulator_->vectors_count() : 0; }
     size_t accumulator_deleted_count() const { return accumulator_ ? accumulator_->deleted_count() : 0; }
 

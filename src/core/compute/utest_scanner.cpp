@@ -241,6 +241,93 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrder) {
     EXPECT_EQ(30u, result[2]);
 }
 
+TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithStoredCosineValues) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    DataWriter writer;
+    ASSERT_EQ(0, writer.init(input_path_, data_path_, 0, 0, true).code());
+    ASSERT_EQ(0, writer.exec().code());
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path_).code());
+    ASSERT_TRUE(reader.has_cosine_inv_norms());
+
+    Scanner s;
+    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(reader, DistFunc::COS, 3, q.data(), result).code());
+    ASSERT_EQ((std::vector<uint64_t> {10u, 20u, 30u}), result);
+}
+
+TEST_F(ScannerTest, FindF32CosStoredCosineValuesHandleZeroVectors) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n");
+    DataWriter writer;
+    ASSERT_EQ(0, writer.init(input_path_, data_path_, 0, 0, true).code());
+    ASSERT_EQ(0, writer.exec().code());
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path_).code());
+    ASSERT_TRUE(reader.has_cosine_inv_norms());
+
+    Scanner s;
+    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(reader, DistFunc::COS, 2, q.data(), result).code());
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].dist);
+    EXPECT_EQ(20u, result[1].id);
+    EXPECT_DOUBLE_EQ(1.0, result[1].dist);
+}
+
+TEST_F(ScannerTest, FindF32CosStoredAndComputedPathsMatchRanking) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 10.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 2.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ 1.0, 2.0, 0.0, 0.0 ]\n"
+        "40 : [ 0.0, 1.0, 0.0, 0.0 ]\n"
+        "50 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+
+    const std::string with_inv_path = data_path_ + ".cos";
+    std::experimental::scope_exit cleanup([&]() { std::remove(with_inv_path.c_str()); });
+
+    DataWriter plain_writer;
+    ASSERT_EQ(0, plain_writer.init(input_path_, data_path_).code());
+    ASSERT_EQ(0, plain_writer.exec().code());
+
+    DataWriter inv_writer;
+    ASSERT_EQ(0, inv_writer.init(input_path_, with_inv_path, 0, 0, true).code());
+    ASSERT_EQ(0, inv_writer.exec().code());
+
+    DataReader plain_reader;
+    ASSERT_EQ(0, plain_reader.init(data_path_).code());
+    ASSERT_FALSE(plain_reader.has_cosine_inv_norms());
+
+    DataReader inv_reader;
+    ASSERT_EQ(0, inv_reader.init(with_inv_path).code());
+    ASSERT_TRUE(inv_reader.has_cosine_inv_norms());
+
+    Scanner s;
+    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> plain_result;
+    std::vector<uint64_t> inv_result;
+    ASSERT_EQ(0, s.find(plain_reader, DistFunc::COS, 5, q.data(), plain_result).code());
+    ASSERT_EQ(0, s.find(inv_reader, DistFunc::COS, 5, q.data(), inv_result).code());
+
+    ASSERT_EQ((std::vector<uint64_t> {10u, 20u, 30u, 40u, 50u}), plain_result);
+    EXPECT_EQ(plain_result, inv_result);
+}
+
 TEST_F(ScannerTest, FindI16AllSortedByDistance) {
     generate(3, 0, DataType::i16, 4);
     DataReader reader;
@@ -431,6 +518,65 @@ TEST_F(ScannerTest, FindDatasetCosWorks) {
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
+}
+
+TEST_F(ScannerTest, FindDatasetCosStoredDeltaHandlesZeroVectors) {
+    std::string d = "/tmp/sketch2_utest_sc_cosdelta_zero_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "21 : [ 2.0, 0.0, 0.0, 0.0 ]\n"
+        "22 : [ 3.0, 0.0, 0.0, 0.0 ]\n"
+        "23 : [ 4.0, 0.0, 0.0, 0.0 ]\n"
+        "24 : [ 5.0, 0.0, 0.0, 0.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    const auto zero = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
+    ASSERT_EQ(0, ds.add_vector(10, zero.data()).code());
+    ASSERT_EQ(0, ds.store_accumulator().code());
+    ASSERT_TRUE(fs::exists(d + "/0.delta"));
+
+    Scanner s;
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(ds, 2, zero.data(), result).code());
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].dist);
+    EXPECT_EQ(20u, result[1].id);
+    EXPECT_DOUBLE_EQ(1.0, result[1].dist);
+}
+
+TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
+    std::string d = "/tmp/sketch2_utest_sc_cosds_legacy_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    DataWriter writer;
+    ASSERT_EQ(0, writer.init(input_path_, d + "/0.data").code());
+    ASSERT_EQ(0, writer.exec().code());
+
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+
+    Scanner s;
+    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    const Ret ret = s.find(ds, 3, q.data(), result);
+    EXPECT_NE(0, ret.code());
+    EXPECT_TRUE(result.empty());
+    EXPECT_NE(std::string(ret.message()).find("missing stored inverse norms"), std::string::npos);
 }
 
 TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {

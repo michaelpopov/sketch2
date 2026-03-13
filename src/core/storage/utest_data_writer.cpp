@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cstdint>
+#include <cmath>
 #include <fstream>
 #include <unistd.h>
 #include <vector>
@@ -28,11 +29,12 @@ protected:
     }
 
     // Generate input and run DataWriter::exec(), return the Ret from exec()
-    Ret run(size_t count, size_t min_id, DataType type, size_t dim, size_t every_n_deleted = 0) {
+    Ret run(size_t count, size_t min_id, DataType type, size_t dim,
+            size_t every_n_deleted = 0, bool write_cosine_inv_norms = false) {
         GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, every_n_deleted};
         generate_input_file(input_path_, cfg);
         DataWriter w;
-        w.init(input_path_, output_path_);
+        w.init(input_path_, output_path_, 0, 0, write_cosine_inv_norms);
         return w.exec();
     }
 
@@ -101,6 +103,20 @@ protected:
             fclose(f);
         }
         return data;
+    }
+
+    std::vector<float> read_cosine_inv_norms(size_t count) {
+        std::vector<float> values(count);
+        FILE* f = fopen(output_path_.c_str(), "rb");
+        if (f) {
+            DataFileHeader hdr{};
+            fread(&hdr, sizeof(hdr), 1, f);
+            const IdsLayout layout = compute_ids_layout(hdr, count);
+            fseek(f, static_cast<long>(layout.cosine_inv_norms_offset), SEEK_SET);
+            fread(values.data(), sizeof(float), count, f);
+            fclose(f);
+        }
+        return values;
     }
 };
 
@@ -204,6 +220,11 @@ TEST_F(DataWriterTest, HeaderTypeI16) {
     EXPECT_EQ(data_type_to_int(DataType::i16), read_header().type);
 }
 
+TEST_F(DataWriterTest, HeaderCosineFlagIsSetWhenRequested) {
+    ASSERT_EQ(0, run(3, 0, DataType::f32, 4, 0, true).code());
+    EXPECT_TRUE(data_file_has_cosine_inv_norms(read_header()));
+}
+
 // --- ids section ---
 
 TEST_F(DataWriterTest, IdsAreCorrect) {
@@ -228,6 +249,30 @@ TEST_F(DataWriterTest, F32VectorDataIsCorrect) {
                 << "vector " << i << " dim " << d;
         }
     }
+}
+
+TEST_F(DataWriterTest, CosineValuesSectionIsWritten) {
+    ASSERT_EQ(0, run(2, 0, DataType::f32, 4, 0, true).code());
+    const auto hdr = read_header();
+    ASSERT_TRUE(data_file_has_cosine_inv_norms(hdr));
+
+    const auto cosine_inv_norms = read_cosine_inv_norms(hdr.count);
+    ASSERT_EQ(2u, cosine_inv_norms.size());
+    const float inv_norm0 = 1.0f / std::sqrt(4.0f * 0.1f * 0.1f);
+    const float inv_norm1 = 1.0f / std::sqrt(4.0f * 1.1f * 1.1f);
+    EXPECT_NEAR(inv_norm0, cosine_inv_norms[0], 1e-5f);
+    EXPECT_NEAR(inv_norm1, cosine_inv_norms[1], 1e-5f);
+}
+
+TEST_F(DataWriterTest, CosineValuesSectionIsWrittenForI16) {
+    ASSERT_EQ(0, run(2, 0, DataType::i16, 4, 0, true).code());
+    const auto hdr = read_header();
+    ASSERT_TRUE(data_file_has_cosine_inv_norms(hdr));
+
+    const auto cosine_inv_norms = read_cosine_inv_norms(hdr.count);
+    ASSERT_EQ(2u, cosine_inv_norms.size());
+    EXPECT_FLOAT_EQ(0.0f, cosine_inv_norms[0]);
+    EXPECT_NEAR(1.0f / std::sqrt(4.0f), cosine_inv_norms[1], 1e-6f);
 }
 
 TEST_F(DataWriterTest, UnsortedInputIsWrittenInSortedIdOrder) {

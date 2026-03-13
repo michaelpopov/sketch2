@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -41,7 +42,8 @@ protected:
                         FileType kind,
                         const std::vector<std::pair<uint64_t, float>>& active,
                         const std::vector<uint64_t>& deleted,
-                        uint16_t dim = kDim) {
+                        uint16_t dim = kDim,
+                        bool has_cosine_inv_norms = false) {
         std::vector<uint64_t> active_ids;
         active_ids.reserve(active.size());
         for (const auto& item : active) {
@@ -56,7 +58,8 @@ protected:
             static_cast<uint32_t>(active.size()),
             static_cast<uint32_t>(deleted.size()),
             DataType::f32,
-            dim);
+            dim,
+            has_cosine_inv_norms);
         hdr.base.kind = static_cast<uint16_t>(kind);
 
         FILE* f = fopen(path.c_str(), "wb");
@@ -72,6 +75,17 @@ protected:
             std::vector<float> vec(dim, item.second);
             ASSERT_EQ(0, write_vector_record(f, reinterpret_cast<const uint8_t*>(vec.data()),
                 vec.size() * sizeof(float), hdr.vector_stride, "DataMergerTest::write_f32_file").code());
+        }
+        if (has_cosine_inv_norms) {
+            std::vector<float> cosine_inv_norms;
+            cosine_inv_norms.reserve(active.size());
+            for (const auto& item : active) {
+                std::vector<float> vec(dim, item.second);
+                cosine_inv_norms.push_back(compute_cosine_inverse_norm(
+                    reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim));
+            }
+            ASSERT_EQ(0, write_f32_array(f, cosine_inv_norms,
+                "DataMergerTest::write_f32_file cosine").code());
         }
         const size_t ids_pad_size = compute_ids_layout(hdr, active.size()).ids_padding;
         if (ids_pad_size > 0) {
@@ -214,6 +228,28 @@ TEST_F(DataMergerTest, MergeDataFileWithEmptyUpdaterKeepsSource) {
     EXPECT_FLOAT_EQ(2.2f, first_f32(out_reader, 2));
 }
 
+TEST_F(DataMergerTest, MergeDataFilePreservesCosineValuesSection) {
+    const std::string source_path = p("source_cos.data");
+    const std::string updater_path = p("updater_cos.data");
+    const std::string out_path = p("merged_cos.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 3.0f}, {3, 4.0f}}, {}, kDim, true);
+    write_f32_file(updater_path, FileType::Data, {{2, 5.0f}, {3, 8.0f}}, {}, kDim, true);
+
+    DataReader source_reader, updater_reader, out_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, updater_reader, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_TRUE(out_reader.has_cosine_inv_norms());
+    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(2)), 1e-6);
+}
+
 TEST_F(DataMergerTest, MergeDataFileAllDeletedProducesEmptyFile) {
     const std::string source_path = p("source.data");
     const std::string updater_path = p("updater.data");
@@ -332,6 +368,37 @@ TEST_F(DataMergerTest, MergeDeltaFileMergesRecordsAndDeletes) {
     EXPECT_EQ(6u, hdr.max_id);
     EXPECT_EQ(4u, hdr.count);
     EXPECT_EQ(3u, hdr.deleted_count);
+}
+
+TEST_F(DataMergerTest, MergeDeltaFilePreservesCosineValuesSection) {
+    const std::string source_path = p("source_cos.delta");
+    const std::string updater_path = p("updater_cos.delta");
+    const std::string out_path = p("merged_cos.delta");
+
+    write_f32_file(source_path, FileType::Data, {{2, 2.0f}, {4, 4.0f}}, {1}, kDim, true);
+    write_f32_file(updater_path, FileType::Data, {{3, 3.0f}, {4, 8.0f}}, {5}, kDim, true);
+
+    DataReader source_reader, updater_reader, out_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_TRUE(out_reader.has_cosine_inv_norms());
+    ASSERT_EQ(3u, out_reader.count());
+    EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(2)), 1e-6);
+    EXPECT_EQ((std::vector<uint64_t>{1u, 5u}),
+        [&]() {
+            std::vector<uint64_t> ids;
+            for (size_t i = 0; i < out_reader.deleted_count(); ++i) {
+                ids.push_back(out_reader.deleted_id(i));
+            }
+            return ids;
+        }());
 }
 
 TEST_F(DataMergerTest, MergeDeltaFileDeleteOnlyProducesNoActiveIds) {

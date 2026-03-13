@@ -1,7 +1,9 @@
 #include "accumulator.h"
 #include "core/storage/accumulator_wal.h"
+#include "core/storage/data_file_layout.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
@@ -31,6 +33,16 @@ const uint8_t* Accumulator::Iterator::data() const {
         throw std::out_of_range("Accumulator::Iterator::data: index out of range");
     }
     return accumulator_->vector_slot_(index_);
+}
+
+float Accumulator::Iterator::cosine_inv_norm() const {
+    if (!accumulator_ || index_ >= accumulator_->vector_ids_.size()) {
+        throw std::out_of_range("Accumulator::Iterator::cosine_inv_norm: index out of range");
+    }
+    if (!accumulator_->has_cosine_inv_norms_) {
+        return 0.0f;
+    }
+    return accumulator_->vector_cosine_inv_norms_[index_];
 }
 
 Ret AlignedByteBuffer::init(size_t size, size_t alignment) {
@@ -89,7 +101,7 @@ void AlignedByteBuffer::move_from_(AlignedByteBuffer&& other) noexcept {
 
 Accumulator::~Accumulator() = default;
 
-Ret Accumulator::init(size_t size, DataType type, uint64_t dim) {
+Ret Accumulator::init(size_t size, DataType type, uint64_t dim, bool has_cosine_inv_norms) {
     if (is_initialized_()) {
         return Ret("Accumulator is already initialized.");
     }
@@ -108,6 +120,7 @@ Ret Accumulator::init(size_t size, DataType type, uint64_t dim) {
 
     type_ = type;
     dim_ = dim;
+    has_cosine_inv_norms_ = has_cosine_inv_norms;
     data_size_ = size;
     used_size_ = 0;
     CHECK(vector_data_.init(data_size_, kDataAlignment));
@@ -116,7 +129,11 @@ Ret Accumulator::init(size_t size, DataType type, uint64_t dim) {
         const size_t max_vectors = data_size_ / record_size;
         vector_ids_.reserve(max_vectors);
         vector_index_.reserve(max_vectors);
+        if (has_cosine_inv_norms_) {
+            vector_cosine_inv_norms_.reserve(max_vectors);
+        }
     }
+    assert_invariants_();
     return Ret(0);
 }
 
@@ -143,9 +160,11 @@ Ret Accumulator::reset_wal() {
 void Accumulator::clear() {
     vector_index_.clear();
     vector_ids_.clear();
+    vector_cosine_inv_norms_.clear();
     deleted_ids_.clear();
     vector_data_.clear();
     used_size_ = 0;
+    assert_invariants_();
 }
 
 Ret Accumulator::add_vector(uint64_t id, const uint8_t* data) {
@@ -191,6 +210,9 @@ Ret Accumulator::apply_add_vector_(uint64_t id, const uint8_t* data) {
     const bool had_deleted = deleted_ids_.find(id) != deleted_ids_.end();
     const auto vector_it = vector_index_.find(id);
     const bool had_vector = vector_it != vector_index_.end();
+    const float cosine_inv_norm = has_cosine_inv_norms_
+        ? compute_cosine_inverse_norm(data, type_, static_cast<size_t>(dim_))
+        : 0.0f;
 
     if (had_deleted) {
         deleted_ids_.erase(id);
@@ -200,15 +222,22 @@ Ret Accumulator::apply_add_vector_(uint64_t id, const uint8_t* data) {
     const size_t vector_size = vector_size_();
     if (had_vector) {
         std::memcpy(vector_slot_(vector_it->second), data, vector_size);
+        if (has_cosine_inv_norms_) {
+            vector_cosine_inv_norms_[vector_it->second] = cosine_inv_norm;
+        }
     } else {
         const size_t slot = vector_ids_.size();
         vector_index_[id] = slot;
         vector_ids_.push_back(id);
+        if (has_cosine_inv_norms_) {
+            vector_cosine_inv_norms_.push_back(cosine_inv_norm);
+        }
         std::memcpy(vector_slot_(slot), data, vector_size);
         CHECK(vector_data_.resize(vector_ids_.size() * vector_stride_()));
         used_size_ += vector_record_size_();
     }
 
+    assert_invariants_();
     return Ret(0);
 }
 
@@ -216,6 +245,7 @@ Ret Accumulator::apply_delete_vector_(uint64_t id) {
     const auto vector_it = vector_index_.find(id);
     const bool had_vector = vector_it != vector_index_.end();
     if (!had_vector && deleted_ids_.find(id) != deleted_ids_.end()) {
+        assert_invariants_();
         return Ret(0);
     }
 
@@ -227,8 +257,14 @@ Ret Accumulator::apply_delete_vector_(uint64_t id) {
             std::memcpy(vector_slot_(slot), vector_slot_(last_slot), vector_stride_());
             vector_ids_[slot] = moved_id;
             vector_index_[moved_id] = slot;
+            if (has_cosine_inv_norms_) {
+                vector_cosine_inv_norms_[slot] = vector_cosine_inv_norms_[last_slot];
+            }
         }
         vector_ids_.pop_back();
+        if (has_cosine_inv_norms_) {
+            vector_cosine_inv_norms_.pop_back();
+        }
         CHECK(vector_data_.resize(vector_ids_.size() * vector_stride_()));
         vector_index_.erase(vector_it);
         used_size_ -= vector_record_size_();
@@ -238,6 +274,7 @@ Ret Accumulator::apply_delete_vector_(uint64_t id) {
         used_size_ += sizeof(uint64_t);
     }
 
+    assert_invariants_();
     return Ret(0);
 }
 
@@ -292,6 +329,21 @@ const uint8_t* Accumulator::get_vector(uint64_t id) const {
     return vector_slot_(it->second);
 }
 
+float Accumulator::get_vector_cosine_inv_norm(uint64_t id) const {
+    if (!is_initialized_()) {
+        throw std::runtime_error("Accumulator::get_vector_cosine_inv_norm: not initialized");
+    }
+    if (!has_cosine_inv_norms_) {
+        return 0.0f;
+    }
+
+    const auto it = vector_index_.find(id);
+    if (it == vector_index_.end()) {
+        return 0.0f;
+    }
+    return vector_cosine_inv_norms_[it->second];
+}
+
 bool Accumulator::is_deleted(uint64_t id) const {
     if (!is_initialized_()) {
         throw std::runtime_error("Accumulator::is_deleted: not initialized");
@@ -327,6 +379,29 @@ size_t Accumulator::delete_vector_size_(uint64_t id) const {
     const size_t freed_size = had_vector ? vector_record_size_() : 0;
     const size_t required_size = had_deleted ? 0 : sizeof(uint64_t);
     return used_size_ - freed_size + required_size;
+}
+
+void Accumulator::assert_invariants_() const {
+#ifndef NDEBUG
+    assert(vector_ids_.size() == vector_index_.size());
+    assert(vector_data_.size() == vector_ids_.size() * vector_stride_());
+    assert(vector_data_.size() <= data_size_);
+    assert(used_size_ <= data_size_);
+    assert(used_size_ ==
+        vector_ids_.size() * vector_record_size_() + deleted_ids_.size() * sizeof(uint64_t));
+
+    if (has_cosine_inv_norms_) {
+        assert(vector_cosine_inv_norms_.size() == vector_ids_.size());
+    } else {
+        assert(vector_cosine_inv_norms_.empty());
+    }
+
+    for (size_t i = 0; i < vector_ids_.size(); ++i) {
+        const auto it = vector_index_.find(vector_ids_[i]);
+        assert(it != vector_index_.end());
+        assert(it->second == i);
+    }
+#endif
 }
 
 } // namespace sketch2

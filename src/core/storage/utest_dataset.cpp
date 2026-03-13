@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include "core/storage/input_generator.h"
 #include "core/storage/data_file.h"
+#include "core/storage/data_writer.h"
 #include "core/storage/dataset.h"
 #include "core/storage/data_reader.h"
 #include "utils/ini_reader.h"
@@ -342,6 +343,61 @@ TEST_F(DatasetTest, StoreCreatesOutputFile) {
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
+}
+
+TEST_F(DatasetTest, CosineDatasetStoresCosineValuesSection) {
+    auto dir = make_dir("d_cos_store");
+    write_input(
+        "f32,4\n"
+        "10 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    DataReader dr;
+    ASSERT_EQ(0, dr.init(dir + "/0.data").code());
+    ASSERT_TRUE(dr.has_cosine_inv_norms());
+    EXPECT_NEAR(1.0 / 6.0, static_cast<double>(dr.cosine_inv_norm(0)), 1e-6);
+}
+
+TEST_F(DatasetTest, CosineDatasetAccumulatorFlushStoresCosineValuesInDeltaFile) {
+    auto dir = make_dir("d_cos_acc_delta");
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    const std::array<float, 4> updated {10.0f, 0.0f, 0.0f, 0.0f};
+    ASSERT_EQ(0, sc.add_vector(2, reinterpret_cast<const uint8_t*>(updated.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    DataReader dr;
+    ASSERT_EQ(0, dr.init(dir + "/0.delta").code());
+    ASSERT_TRUE(dr.has_cosine_inv_norms());
+    ASSERT_EQ(1u, dr.count());
+    EXPECT_NEAR(0.1, static_cast<double>(dr.cosine_inv_norm(0)), 1e-6);
+}
+
+TEST_F(DatasetTest, CosineDatasetRejectsPersistedFilesWithoutStoredInverseNorms) {
+    auto dir = make_dir("d_cos_missing_inv_norms");
+    write_input(
+        "f32,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n");
+
+    DataWriter writer;
+    ASSERT_EQ(0, writer.init(input_path_, file_path(dir, 0, ".data")).code());
+    ASSERT_EQ(0, writer.exec().code());
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+
+    auto [reader, ret] = sc.get(10);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ(nullptr, reader);
+    EXPECT_NE(std::string(ret.message()).find("missing stored inverse norms"), std::string::npos);
 }
 
 TEST_F(DatasetTest, StoreAccumulatorSucceedsWhenMissing) {

@@ -31,7 +31,7 @@ struct DataFileHeader {
     uint16_t dim;
     uint32_t data_offset; // offset from file start to vectors section
     uint32_t vector_stride; // bytes between consecutive persisted vectors, including padding
-    uint32_t reserved;
+    uint32_t flags; // optional section flags, e.g. cosine inverse norms
 };
 
 struct WalFileHeader {

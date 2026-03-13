@@ -2,6 +2,7 @@
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
 #include "core/utils/shared_consts.h"
+#include <algorithm>
 #include <experimental/scope>
 #include <cstdint>
 #include <cstdio>
@@ -13,12 +14,13 @@
 namespace sketch2 {
 
 Ret DataWriter::init(const std::string& input_path, const std::string& output_path,
-    uint64_t start, uint64_t end) {
+    uint64_t start, uint64_t end, bool write_cosine_inv_norms) {
 
     input_path_  = input_path;
     output_path_ = output_path;
     start_ = start;
     end_ = end;
+    write_cosine_inv_norms_ = write_cosine_inv_norms;
     return Ret(0);
 }
 
@@ -35,10 +37,10 @@ Ret DataWriter::exec() {
     CHECK(source.init(input_path_));
 
     InputReaderView reader(source, start_, end_);
-    return load(reader, output_path_);
+    return load(reader, output_path_, write_cosine_inv_norms_);
 }
 
-Ret DataWriter::load(const InputReaderView& reader, const std::string& output_path) {
+Ret DataWriter::load(const InputReaderView& reader, const std::string& output_path, bool write_cosine_inv_norms) {
     const size_t count = reader.count();
     if (count == 0) {
         return Ret("Invalid count of vectors in reader.");
@@ -75,6 +77,12 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
         min_id = max_id = 0;
     }
 
+#ifndef NDEBUG
+    assert(ids.size() + deleted_ids.size() == count);
+    assert(std::is_sorted(ids.begin(), ids.end()));
+    assert(std::is_sorted(deleted_ids.begin(), deleted_ids.end()));
+#endif
+
     // Build DataFileHeader
     DataFileHeader hdr = make_data_header(
         min_id,
@@ -82,7 +90,8 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
         static_cast<uint32_t>(ids.size()),
         static_cast<uint32_t>(deleted_ids.size()),
         reader.type(),
-        static_cast<uint16_t>(reader.dim()));
+        static_cast<uint16_t>(reader.dim()),
+        write_cosine_inv_norms);
 
     // Write output file
     FILE *f = fopen(output_path.c_str(), "wb");
@@ -106,14 +115,26 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     const size_t vec_size = reader.size();
     const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size());
     std::vector<uint8_t> buf(vec_size);
+    std::vector<float> cosine_inv_norms;
+    if (write_cosine_inv_norms) {
+        cosine_inv_norms.reserve(ids.size());
+    }
     for (size_t i = 0; i < count; ++i) {
         if (!reader.is_no_data(i)) {
             CHECK(reader.data(i, buf.data(), buf.size()));
             CHECK(write_vector_record(f, buf.data(), vec_size, hdr.vector_stride,
                 "DataWriter: failed to write vector data at index " + std::to_string(i)));
+            if (write_cosine_inv_norms) {
+                cosine_inv_norms.push_back(compute_cosine_inverse_norm(buf.data(), reader.type(), reader.dim()));
+            }
         }
     }
 
+#ifndef NDEBUG
+    assert(!write_cosine_inv_norms || cosine_inv_norms.size() == ids.size());
+#endif
+    CHECK(write_f32_array(f, cosine_inv_norms,
+        "DataWriter: failed to write cosine inverse norms"));
     CHECK(write_zero_padding(f, ids_layout.ids_padding, "DataWriter: failed to write id alignment padding"));
 
     // Write ids

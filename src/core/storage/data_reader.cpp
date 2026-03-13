@@ -42,6 +42,20 @@ const uint8_t* DataReader::Iterator::data() const {
     return reader_->at(index_);
 }
 
+float DataReader::Iterator::cosine_inv_norm() const {
+    if (index_ >= count_) {
+        throw std::out_of_range("DataReader::Iterator::cosine_inv_norm: index out of range");
+    }
+
+    if (index_ >= reader_->count()) {
+        assert(delta_reader_);
+        const size_t ind = index_ - reader_->count();
+        return delta_reader_->cosine_inv_norm(ind);
+    }
+
+    return reader_->cosine_inv_norm(index_);
+}
+
 uint64_t DataReader::Iterator::id() const {
     if (index_ >= count_) {
         throw std::out_of_range("DataReader::Iterator::id: index out of range");
@@ -88,6 +102,18 @@ const uint8_t* DataReader::OrderedIterator::data() const {
     }
 
     return reader_->delta_->at(index_);
+}
+
+float DataReader::OrderedIterator::cosine_inv_norm() const {
+    if (eof()) {
+        throw std::out_of_range("DataReader::OrderedIterator::cosine_inv_norm: index out of range");
+    }
+
+    if (source_ == Source::Base) {
+        return reader_->cosine_inv_norm(index_);
+    }
+
+    return reader_->delta_->cosine_inv_norm(index_);
 }
 
 uint64_t DataReader::OrderedIterator::id() const {
@@ -154,8 +180,10 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         map_len_ = 0;
         hdr_ = nullptr;
         ids_ = nullptr;
+        cosine_inv_norms_ = nullptr;
         deleted_ids_ = nullptr;
         size_ = 0;
+        stride_ = 0;
         return Ret(message);
     };
 
@@ -185,6 +213,10 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     const size_t count = static_cast<size_t>(hdr_->count);
     const size_t deleted_count = static_cast<size_t>(hdr_->deleted_count);
 
+    if ((hdr_->flags & ~kDataFileHasCosineInvNorms) != 0u) {
+        return fail("DataReader: unsupported data-file flags");
+    }
+
     const IdsLayout ids_layout = compute_ids_layout(*hdr_, count);
     const size_t ids_bytes = (deleted_count + count) * sizeof(uint64_t);
     if (hdr_->data_offset < sizeof(DataFileHeader) || (hdr_->data_offset % kDataAlignment) != 0) {
@@ -205,8 +237,14 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         if (type_ != delta->type()) return fail("DataReader: invalid delta type");
         if (size_ != delta->size()) return fail("DataReader: invalid delta dim");
         if (stride_ != delta->stride()) return fail("DataReader: invalid delta stride");
+        if (has_cosine_inv_norms() != delta->has_cosine_inv_norms()) {
+            return fail("DataReader: invalid delta cosine inverse-norm layout");
+        }
     }
 
+    cosine_inv_norms_ = ids_layout.cosine_inv_norms_bytes == 0
+        ? nullptr
+        : reinterpret_cast<const float*>(map_ + ids_layout.cosine_inv_norms_offset);
     ids_ = reinterpret_cast<const uint64_t*>(map_ + ids_layout.ids_offset);
     deleted_ids_ = ids_ + count;
     delta_  = std::move(delta);
@@ -216,6 +254,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         CHECK(init_delta());
     }
 
+    assert_invariants_();
     return Ret(0);
 }
 
@@ -246,6 +285,49 @@ Ret DataReader::init_delta() {
 
     return Ret(0);
 }
+
+void DataReader::assert_invariants_() const {
+#ifndef NDEBUG
+    if (!hdr_) {
+        assert(map_ == nullptr);
+        assert(ids_ == nullptr);
+        assert(cosine_inv_norms_ == nullptr);
+        assert(deleted_ids_ == nullptr);
+        assert(size_ == 0);
+        assert(stride_ == 0);
+        return;
+    }
+
+    assert(map_ != nullptr);
+    assert(hdr_->base.magic == kMagic);
+    assert(hdr_->base.kind == static_cast<uint16_t>(FileType::Data));
+    assert(hdr_->base.version == kVersion);
+    assert(size_ == compute_vector_size(type_, hdr_->dim));
+    assert(stride_ == hdr_->vector_stride);
+    assert(stride_ >= size_);
+    assert((hdr_->data_offset % kDataAlignment) == 0);
+    assert((stride_ % kDataAlignment) == 0);
+    assert(ids_ != nullptr);
+    assert(deleted_ids_ == ids_ + hdr_->count);
+
+    if (data_file_has_cosine_inv_norms(*hdr_)) {
+        assert(hdr_->count == 0 || cosine_inv_norms_ != nullptr);
+    } else {
+        assert(cosine_inv_norms_ == nullptr);
+    }
+
+    if (delta_) {
+        assert(bitset_.size() == hdr_->count);
+        assert(type_ == delta_->type());
+        assert(size_ == delta_->size());
+        assert(stride_ == delta_->stride());
+        assert(has_cosine_inv_norms() == delta_->has_cosine_inv_norms());
+    } else {
+        assert(bitset_.size() == 0);
+    }
+#endif
+}
+
 DataType DataReader::type() const {
     if (!hdr_) {
         throw std::runtime_error("DataReader::type: reader is not initialized");
@@ -274,6 +356,13 @@ size_t DataReader::count() const {
     return hdr_->count;
 }
 
+bool DataReader::has_cosine_inv_norms() const {
+    if (!hdr_) {
+        throw std::runtime_error("DataReader::has_cosine_inv_norms: reader is not initialized");
+    }
+    return data_file_has_cosine_inv_norms(*hdr_);
+}
+
 DataReader::Iterator DataReader::begin() const {
     size_t index = 0;
     while (index < count() && is_hidden(index)) {
@@ -299,6 +388,16 @@ uint64_t DataReader::id(size_t index) const {
         throw std::out_of_range("DataReader::id: index out of range");
     }
     return ids_[index];
+}
+
+float DataReader::cosine_inv_norm(size_t index) const {
+    if (index >= count()) {
+        throw std::out_of_range("DataReader::cosine_inv_norm: index out of range");
+    }
+    if (!cosine_inv_norms_) {
+        return 0.0f;
+    }
+    return cosine_inv_norms_[index];
 }
 
 const uint8_t* DataReader::at(size_t index) const {

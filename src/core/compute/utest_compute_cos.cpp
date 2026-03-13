@@ -32,14 +32,22 @@ TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
 }
 
 template <typename T>
-double reference_cosine_distance(const T *a, const T *b, size_t dim) {
+double reference_dot(const T *a, const T *b, size_t dim) {
     double dot = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        dot += static_cast<double>(a[i]) * static_cast<double>(b[i]);
+    }
+    return dot;
+}
+
+template <typename T>
+double reference_cosine_distance(const T *a, const T *b, size_t dim) {
+    const double dot = reference_dot(a, b, dim);
     double norm_a = 0.0;
     double norm_b = 0.0;
     for (size_t i = 0; i < dim; ++i) {
         const double ai = static_cast<double>(a[i]);
         const double bi = static_cast<double>(b[i]);
-        dot += ai * bi;
         norm_a += ai * ai;
         norm_b += bi * bi;
     }
@@ -157,6 +165,44 @@ TEST(ComputeCosTest, ResolveDistReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeCos::resolve_dist(DataType::i16));
 }
 
+TEST(ComputeCosTest, ResolveDotReturnsFunctionForAllTypes) {
+    EXPECT_NE(nullptr, ComputeCos::resolve_dot(DataType::f32));
+    if (supports_f16()) {
+        EXPECT_NE(nullptr, ComputeCos::resolve_dot(DataType::f16));
+    }
+    EXPECT_NE(nullptr, ComputeCos::resolve_dot(DataType::i16));
+}
+
+TEST(ComputeCosTest, ResolveDotComputesKnownValues) {
+    const std::vector<float> a_f32 = {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::vector<float> b_f32 = {5.0f, 6.0f, 7.0f, 8.0f};
+    const double got_f32 = ComputeCos::resolve_dot(DataType::f32)(
+        reinterpret_cast<const uint8_t*>(a_f32.data()),
+        reinterpret_cast<const uint8_t*>(b_f32.data()),
+        a_f32.size());
+    EXPECT_DOUBLE_EQ(70.0, got_f32);
+
+    const std::vector<int16_t> a_i16 = {1, -2, 3, -4};
+    const std::vector<int16_t> b_i16 = {5, 6, -7, -8};
+    const double got_i16 = ComputeCos::resolve_dot(DataType::i16)(
+        reinterpret_cast<const uint8_t*>(a_i16.data()),
+        reinterpret_cast<const uint8_t*>(b_i16.data()),
+        a_i16.size());
+    EXPECT_DOUBLE_EQ(4.0, got_i16);
+
+#if defined(__FLT16_MANT_DIG__)
+    if (supports_f16()) {
+        const std::vector<float16> a_f16 = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
+        const std::vector<float16> b_f16 = {float16(5.0f), float16(6.0f), float16(7.0f), float16(8.0f)};
+        const double got_f16 = ComputeCos::resolve_dot(DataType::f16)(
+            reinterpret_cast<const uint8_t*>(a_f16.data()),
+            reinterpret_cast<const uint8_t*>(b_f16.data()),
+            a_f16.size());
+        EXPECT_DOUBLE_EQ(70.0, got_f16);
+    }
+#endif
+}
+
 #if !defined(__AVX2__) && !defined(__aarch64__)
 TEST(ComputeCosScalar, DistI16UsesScalarFallback) {
     const std::vector<int16_t> a = {1, 2, -1, 0};
@@ -174,6 +220,15 @@ TEST(ComputeCosScalar, NotBuiltForThisTarget) {
 #endif
 
 #if defined(__aarch64__)
+TEST(ComputeCosNeon, DotF32MatchesReference) {
+    const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, -5.0f};
+    const std::vector<float> b = {0.0f, 2.5f, 1.0f, 0.0f, -1.0f};
+    const double got = ComputeCos_Neon::dot_f32(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                a.size());
+    EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
+}
+
 TEST(ComputeCosNeon, DistF32MatchesReference) {
     const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, -5.0f};
     const std::vector<float> b = {0.0f, 2.5f, 1.0f, 0.0f, -1.0f};
@@ -181,6 +236,30 @@ TEST(ComputeCosNeon, DistF32MatchesReference) {
                                                  reinterpret_cast<const uint8_t*>(b.data()),
                                                  a.size());
     EXPECT_NEAR(reference_cosine_distance(a.data(), b.data(), a.size()), got, 1e-6);
+}
+
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeCosNeon, DotF16MatchesReference) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+
+    const std::vector<float16> a = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
+    const std::vector<float16> b = {float16(5.0f), float16(6.0f), float16(7.0f), float16(8.0f)};
+    const double got = ComputeCos_Neon::dot_f16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                a.size());
+    EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
+}
+#endif
+
+TEST(ComputeCosNeon, DotI16MatchesReference) {
+    const std::vector<int16_t> a = {10, -2, 7, -8, 20};
+    const std::vector<int16_t> b = {4, -5, 10, -8, 18};
+    const double got = ComputeCos_Neon::dot_i16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                a.size());
+    EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
 }
 
 TEST(ComputeCosNeon, DistI16MatchesReference) {
@@ -198,6 +277,25 @@ TEST(ComputeCosNeon, NotBuiltForThisTarget) {
 #endif
 
 #if defined(__AVX2__)
+TEST(ComputeCosAVX2, DotF32MatchesReferenceAlignedAndUnaligned) {
+    const std::vector<size_t> dims = {1, 7, 8, 9, 31, 32, 33, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(4)}) {
+            for (size_t misalign_b : {size_t(0), size_t(12)}) {
+                auto a = make_buffer<float>(dim, misalign_a);
+                auto b = make_buffer<float>(dim, misalign_b);
+                fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 101));
+
+                const double ref = reference_dot(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_AVX2::dot_f32(reinterpret_cast<uint8_t *>(a.ptr),
+                                                            reinterpret_cast<uint8_t *>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, 5e-5) << "dim=" << dim << " misalign_a=" << misalign_a
+                                            << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
 TEST(ComputeCosAVX2, DistF32ZeroDimIsZero) {
     auto a = make_buffer<float>(1, 0);
     auto b = make_buffer<float>(1, 0);
@@ -226,6 +324,25 @@ TEST(ComputeCosAVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
 }
 
 #if defined(__FLT16_MANT_DIG__)
+TEST(ComputeCosAVX2, DotF16MatchesReferenceAlignedAndUnaligned) {
+    const std::vector<size_t> dims = {1, 7, 8, 9, 31, 32, 33, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<float16>(dim, misalign_a);
+                auto b = make_buffer<float16>(dim, misalign_b);
+                fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 131));
+
+                const double ref = reference_dot(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_AVX2::dot_f16(reinterpret_cast<uint8_t *>(a.ptr),
+                                                            reinterpret_cast<uint8_t *>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, 1e-2) << "dim=" << dim << " misalign_a=" << misalign_a
+                                            << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
 TEST(ComputeCosAVX2, DistF16ZeroDimIsZero) {
     auto a = make_buffer<float16>(1, 0);
     auto b = make_buffer<float16>(1, 0);
@@ -264,6 +381,25 @@ TEST(ComputeCosAVX2, DistI16ZeroDimIsZero) {
     const double got = ComputeCos_AVX2::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
                                                  reinterpret_cast<uint8_t *>(b.ptr), 0);
     EXPECT_DOUBLE_EQ(0.0, got);
+}
+
+TEST(ComputeCosAVX2, DotI16MatchesReferenceAlignedAndUnaligned) {
+    const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 96, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<int16_t>(dim, misalign_a);
+                auto b = make_buffer<int16_t>(dim, misalign_b);
+                fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 151));
+
+                const double ref = reference_dot(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_AVX2::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
+                                                            reinterpret_cast<uint8_t *>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, 1e-9) << "dim=" << dim << " misalign_a=" << misalign_a
+                                            << " misalign_b=" << misalign_b;
+            }
+        }
+    }
 }
 
 TEST(ComputeCosAVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
