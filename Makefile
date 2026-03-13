@@ -1,5 +1,7 @@
 # --- Configuration ---
-BUILD_DIR := build-dbg
+BUILD_DBG := build-dbg
+BUILD_REL := build
+BUILD_SAN := build-san
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
 
 # --- Targets ---
@@ -11,12 +13,32 @@ all: build
 # Compiles the project using the specified build directory
 .PHONY: build
 build:
-	cmake --build $(BUILD_DIR) --parallel $(JOBS)
+	cmake --build $(BUILD_DBG) --parallel $(JOBS)
+
+# Compiles the project in release build
+.PHONY: rel
+rel:
+	cmake --build $(BUILD_REL) --parallel $(JOBS)
+
+# Compiles the project in sanitizer build
+.PHONY: san
+san:
+	cmake --build $(BUILD_SAN) --parallel $(JOBS)
 
 # Runs the test suite with failure output enabled
 .PHONY: test
 test:
-	ctest --test-dir $(BUILD_DIR) --output-on-failure
+	ctest --test-dir $(BUILD_DBG) --output-on-failure
+
+# Runs the test suite in release build
+.PHONY: rtest
+rtest:
+	ctest --test-dir $(BUILD_REL) --output-on-failure
+
+# Runs the test suite in sanitizer build
+.PHONY: santest
+santest:
+	ctest --test-dir $(BUILD_SAN) --output-on-failure
 
 # Runs Python API tests
 .PHONY: pytest
@@ -38,6 +60,6 @@ pyshell:
 # Optimization: Cleaning the build directory
 .PHONY: clean
 clean:
-	@if [ -d "$(BUILD_DIR)" ]; then \
-		find "$(BUILD_DIR)" -type f \( -name '*.o' -o -name '*.obj' \) -delete; \
+	@if [ -d "$(BUILD_DBG)" ]; then \
+		find "$(BUILD_DBG)" -type f \( -name '*.o' -o -name '*.obj' \) -delete; \
 	fi

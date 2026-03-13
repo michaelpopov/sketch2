@@ -18,6 +18,12 @@ After a Debug build, you should have:
 - `bin-dbg/libvlite.so` (or platform equivalent)
 - `bin-dbg/sqlite3`
 
+After a Sanitizer build, you should have:
+
+- `bin-san/libparasol.so` (or platform equivalent)
+- `bin-san/libvlite.so` (or platform equivalent)
+- `bin-san/sqlite3`
+
 Unit tests are also built and can be run via `ctest`.
 
 ## Notes

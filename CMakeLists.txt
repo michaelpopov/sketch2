@@ -41,17 +41,50 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Sanitizer build type for GCC/Clang.
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set(SKETCH_SANITIZER_FLAGS
+      "-fsanitize=address,undefined,leak -fno-omit-frame-pointer"
+      CACHE STRING "Compiler and linker flags used by the Sanitizer build type")
+endif()
+
 # Threading (safe default for executables/tests)
 find_package(Threads REQUIRED)
 
 # Output directories (Ninja is single-config; this uses CMAKE_BUILD_TYPE)
 if (NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel, Sanitizer)" FORCE)
 endif()
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel Sanitizer)
 
 string(TOLOWER "${CMAKE_BUILD_TYPE}" _bt_lower)
+
+if (_bt_lower STREQUAL "sanitizer")
+  if (NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR "The Sanitizer build type is supported only with GCC or Clang.")
+  endif()
+
+  set(CMAKE_C_FLAGS_SANITIZER
+      "${CMAKE_C_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
+      CACHE STRING "Flags used by the C compiler during Sanitizer builds" FORCE)
+  set(CMAKE_CXX_FLAGS_SANITIZER
+      "${CMAKE_CXX_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
+      CACHE STRING "Flags used by the C++ compiler during Sanitizer builds" FORCE)
+  set(CMAKE_EXE_LINKER_FLAGS_SANITIZER
+      "${CMAKE_EXE_LINKER_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
+      CACHE STRING "Flags used for linking executables during Sanitizer builds" FORCE)
+  set(CMAKE_SHARED_LINKER_FLAGS_SANITIZER
+      "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
+      CACHE STRING "Flags used for linking shared libraries during Sanitizer builds" FORCE)
+  set(CMAKE_MODULE_LINKER_FLAGS_SANITIZER
+      "${CMAKE_MODULE_LINKER_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
+      CACHE STRING "Flags used for linking loadable modules during Sanitizer builds" FORCE)
+endif()
+
 if (_bt_lower STREQUAL "debug")
   set(_RUNTIME_OUT_DIR "${CMAKE_SOURCE_DIR}/bin-dbg")
+elseif (_bt_lower STREQUAL "sanitizer")
+  set(_RUNTIME_OUT_DIR "${CMAKE_SOURCE_DIR}/bin-san")
 else()
   set(_RUNTIME_OUT_DIR "${CMAKE_SOURCE_DIR}/bin")
 endif()

@@ -1,10 +1,12 @@
 # Build directories
 build/
 build-dbg/
+build-san/
 
 # Output binaries
 bin/
 bin-dbg/
+bin-san/
 
 # CMake
 CMakeCache.txt
