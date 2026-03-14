@@ -51,6 +51,7 @@ In a debug build, the important artifacts are typically:
 
 - SQLite shell: `bin-dbg/sqlite3`
 - Extension library: `build-dbg/lib/libvlite.so`
+- Shared runtime library: `build-dbg/lib/libutils.so`
 
 Build them with:
 
@@ -59,12 +60,82 @@ cmake -S . -B build-dbg -DCMAKE_BUILD_TYPE=Debug
 cmake --build build-dbg --target sqlite3_cli vlite
 ```
 
+## Runtime Library Dependency
+
+`libvlite.so` now depends on `libutils.so`.
+
+This dependency is important. Sketch2 runtime state is centralized in the
+ shared utilities library so the whole process sees one copy of:
+
+- the global log level
+- the configured log file sink
+- the singleton-owned thread pool
+- the one-time runtime initialization state
+
+If `vlite` and `parasol` each carried their own private copy of that state,
+ loading both into the same process would create duplicated startup behavior and
+ separate thread pools. Keeping both linked to the same `libutils.so` avoids
+ that.
+
+When you deploy or load `libvlite.so`, make sure `libutils.so` is available in
+ the same runtime library search path, typically alongside `libvlite.so`.
+
+Typical release artifacts:
+
+- `build/lib/libvlite.so`
+- `build/lib/libutils.so`
+
+Typical debug artifacts:
+
+- `build-dbg/lib/libvlite.so`
+- `build-dbg/lib/libutils.so`
+
+## Startup Initialization
+
+Sketch2 runtime initialization is explicit now.
+
+For `vlite`, this happens inside the extension entry point
+`sqlite3_vlite_init()` when SQLite loads the module. That entry point calls the
+ shared Sketch2 runtime initializer before the SQLite virtual table module is
+ registered.
+
+Configuration sources and precedence:
+
+1. built-in defaults
+2. `SKETCH2_CONFIG` ini file, if present and readable
+3. `SKETCH2_LOG_LEVEL`, overriding `log.level`
+4. `SKETCH2_THREAD_POOL_SIZE`, overriding `thread_pool.size`
+5. `SKETCH2_LOG_FILE`, selecting the log sink
+
+If `SKETCH2_CONFIG` is missing, initialization still succeeds using defaults
+ and env overrides. If it is set but unreadable, startup logs a warning and
+ continues with direct env overrides.
+
+After the first successful initialization, the shared runtime is sealed:
+
+- later startup config attempts do nothing
+- log destination does not change
+- log level does not change through config reload
+- thread-pool size does not change
+
+That matters when `vlite` and `parasol` are loaded into the same process: both
+ use the same sealed process-wide runtime state through `libutils.so`.
+
 ## Loading In SQLite
 
 From the bundled SQLite shell:
 
 ```sql
 .load /absolute/path/to/build-dbg/lib/libvlite.so
+```
+
+Before loading, set any desired runtime config in the environment of the SQLite
+ process. For example:
+
+```bash
+export SKETCH2_LOG_LEVEL=DEBUG
+export SKETCH2_THREAD_POOL_SIZE=8
+export SKETCH2_LOG_FILE=/tmp/sketch2.log
 ```
 
 Then create a virtual table bound to a dataset INI:

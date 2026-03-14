@@ -12,6 +12,11 @@ extern "C" {
 typedef struct sk_handle sk_handle_t;
 
 /*
+ * Initialize process-wide Sketch2 runtime configuration once.
+ */
+int sk_runtime_init(void);
+
+/*
  * Initialize a handler for a database root directory.
  */
 sk_handle_t* sk_connect(const char* db_path);

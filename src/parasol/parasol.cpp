@@ -10,7 +10,10 @@
 #include "core/storage/input_generator.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/shared_types.h"
+#include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
+#include "core/utils/log.h"
+#include "core/utils/timer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -263,6 +266,15 @@ Ret fill_vector_with_scalar(std::vector<uint8_t>* buf, DataType type, uint64_t d
 }
 
 } // namespace
+
+int sk_runtime_init(void) {
+    try {
+        (void)sketch2_runtime_init();
+        return 0;
+    } catch (...) {
+        return -1;
+    }
+}
 
 sk_handle_t* sk_connect(const char* db_path) {
     try {
@@ -938,15 +950,19 @@ static int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start
     cfg.binary = binary;
 
     const std::filesystem::path input_path = std::filesystem::path(handle->dataset_dir) / kInputFileName;
+    Timer generate_timer(binary ? "sk_generate_bin: generate input" : "sk_generate: generate input");
     Ret ret = generate_input_file(input_path.string(), cfg);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
+    LOG_DEBUG << generate_timer.str();
 
+    Timer store_timer(binary ? "sk_generate_bin: store input" : "sk_generate: store input");
     ret = handle->ds->store(input_path.string());
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
+    LOG_DEBUG << store_timer.str();
 
     return 0;
 }

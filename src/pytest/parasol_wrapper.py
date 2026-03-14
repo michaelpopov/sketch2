@@ -31,6 +31,9 @@ class Parasol:
         self.lib = ctypes.CDLL(str(self.lib_path))
         self._configure()
 
+        if self.lib.sk_runtime_init() != 0:
+            raise RuntimeError("sk_runtime_init() failed")
+
         self.handle = self.lib.sk_connect(str(self.db_path).encode("utf-8"))
         if not self.handle:
             raise RuntimeError("sk_connect() returned null handle")
@@ -52,6 +55,9 @@ class Parasol:
         return candidates[0]
 
     def _configure(self) -> None:
+        self.lib.sk_runtime_init.argtypes = []
+        self.lib.sk_runtime_init.restype = c_int
+
         self.lib.sk_connect.argtypes = [c_char_p]
         self.lib.sk_connect.restype = c_void_p
 

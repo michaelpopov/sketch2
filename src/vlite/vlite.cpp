@@ -6,6 +6,7 @@
 #include "core/compute/scanner.h"
 #include "core/storage/dataset.h"
 #include "core/utils/shared_consts.h"
+#include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
 
 #include <algorithm>
@@ -653,6 +654,7 @@ extern "C" int sqlite3_vlite_init(sqlite3* db, char** pz_err_msg, const sqlite3_
         }
 
         SQLITE_EXTENSION_INIT2(api);
+        (void)sketch2::sketch2_runtime_init();
         return sqlite3_create_module_v2(db, sketch2::kVliteModuleName, &kVliteModule, nullptr, nullptr);
     });
 }

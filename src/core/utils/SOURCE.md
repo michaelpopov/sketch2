@@ -6,6 +6,7 @@
 - `file_lock.h`: Filesystem lock helper declarations.
 - `ini_reader.cpp`: Minimal INI parser implementation for dataset config files.
 - `ini_reader.h`: INI reader interface.
+- `log.cpp`: Shared logging state and sink implementation for the utilities library.
 - `log.h`: Lightweight logging helper macros and utilities.
 - `shared_consts.h`: Shared constants used across the codebase.
 - `shared_types.h`: Shared enums, return types, and type-conversion helpers.

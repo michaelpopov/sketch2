@@ -11,6 +11,7 @@
 #include "core/storage/data_writer.h"
 #include "core/storage/dataset.h"
 #include "core/storage/data_reader.h"
+#include "core/utils/singleton.h"
 #include "utils/ini_reader.h"
 
 using namespace sketch2;
@@ -101,6 +102,28 @@ TEST_F(DatasetTest, InitFromIniSectionKeysWorks) {
     EXPECT_TRUE(fs::exists(dir0 + "/0.data"));
     EXPECT_TRUE(fs::exists(dir1 + "/1.data"));
     EXPECT_TRUE(fs::exists(dir0 + "/2.data"));
+}
+
+TEST_F(DatasetTest, StoreProcessesIndependentRangesThroughConfiguredThreadPool) {
+    const auto dir0 = make_dir("d_tp0");
+    const auto dir1 = make_dir("d_tp1");
+
+    write_config("[thread_pool]\nsize=2\n");
+    ASSERT_TRUE(Singleton::apply_config_file(config_path_));
+    ASSERT_NE(nullptr, get_singleton().thread_pool());
+
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir0, dir1}, 10, DataType::f32, 4).code());
+    ASSERT_EQ(0, generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4)).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(dir0 + "/0.data"));
+    EXPECT_TRUE(fs::exists(dir1 + "/1.data"));
+    EXPECT_TRUE(fs::exists(dir0 + "/2.data"));
+
+    write_config("[thread_pool]\nsize=1\n");
+    EXPECT_FALSE(Singleton::apply_config_file(config_path_));
+    EXPECT_NE(nullptr, get_singleton().thread_pool());
 }
 
 TEST_F(DatasetTest, InitDefaultsDistFuncToL1WhenMissingFromIni) {

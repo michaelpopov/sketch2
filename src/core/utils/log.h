@@ -7,8 +7,10 @@
 // Typical setup looks like:
 //   sketch2::log::set_log_level(sketch2::log::LogLevel::Debug);
 //   LOG_DEBUG << "scanner started";
-//   sketch2::log::configure_log_file("/tmp/sketch2.log");
 //
+// To route logs to a dedicated file, set SKETCH2_LOG_FILE before the process
+// or shared library initializes. The output sink is intentionally fixed during
+// startup and does not support later reconfiguration.
 // The logging macros are intended to be used as full statements and are safe in
 // common control-flow forms:
 //   if (ready)
@@ -42,17 +44,11 @@
 
 #pragma once
 
-#include "singleton.h"
-
-#include <atomic>
-#include <cerrno>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <fcntl.h>
-#include <mutex>
 #include <ostream>
 #include <string>
 #include <streambuf>
@@ -62,6 +58,13 @@ namespace sketch2 {
 namespace log {
 
 enum class LogLevel { Critical, Error, Warn, Info, Trace, Debug };
+
+LogLevel current_log_level();
+void set_current_log_level(LogLevel level);
+const char* log_level_to_string(LogLevel level);
+LogLevel parse_log_level(const char* level);
+bool initialize_log_file(const std::string& path);
+int current_log_fd();
 
 class FixedBufferStreamBuf : public std::streambuf {
 public:
@@ -158,8 +161,6 @@ protected:
     std::ostream stream_;
 
 private:
-    static std::atomic<LogLevel>& level_storage();
-
     Log(const Log&) = delete;
     Log& operator=(const Log&) = delete;
 };
@@ -212,46 +213,23 @@ Log<T>::~Log() {
 }
 
 template <typename T>
-std::atomic<LogLevel>& Log<T>::level_storage() {
-    static std::atomic<LogLevel> level{LogLevel::Info};
-    return level;
-}
-
-template <typename T>
 LogLevel Log<T>::level() {
-    return level_storage().load(std::memory_order_relaxed);
+    return current_log_level();
 }
 
 template <typename T>
 void Log<T>::set_level(LogLevel level) {
-    level_storage().store(level, std::memory_order_relaxed);
+    set_current_log_level(level);
 }
 
 template <typename T>
 const char* Log<T>::to_string(LogLevel level) {
-    static const char* const buffer[] = {
-        "CRITICAL ",
-        "ERROR    ",
-        "WARN     ",
-        "INFO     ",
-        "TRACE    ",
-        "DEBUG    ",
-    };
-    const size_t index = static_cast<size_t>(level);
-    return (index < sizeof(buffer) / sizeof(*buffer)) ? buffer[index] : "UNKNOWN";
+    return log_level_to_string(level);
 }
 
 template <typename T>
 LogLevel Log<T>::from_string(const char* level) {
-    if (level == nullptr) return LogLevel::Info;
-    if (strcasecmp(level, "DEBUG") == 0) return LogLevel::Debug;
-    if (strcasecmp(level, "TRACE") == 0) return LogLevel::Trace;
-    if (strcasecmp(level, "INFO") == 0) return LogLevel::Info;
-    if (strcasecmp(level, "WARN") == 0) return LogLevel::Warn;
-    if (strcasecmp(level, "ERROR") == 0) return LogLevel::Error;
-    if (strcasecmp(level, "CRITICAL") == 0) return LogLevel::Critical;
-
-    return LogLevel::Info;
+    return parse_log_level(level);
 }
 
 // OutputWriter is the default sink for Log. It writes fully formatted log
@@ -261,88 +239,17 @@ public:
     // Output accepts a raw byte span rather than std::string so Log can flush
     // its stack buffer directly. That keeps the no-heap design intact all the
     // way to write(2) and removes the final copy from the enabled path.
-    static void Output(const char* data, size_t size) {
-        const int fd = output_fd().load(std::memory_order_relaxed);
-        size_t remaining = size;
-        while (remaining > 0) {
-            const ssize_t ret = write(fd, data, remaining);
-            if (ret < 0) {
-                if (errno == EINTR) continue;
-                break;
-            }
-            if (ret == 0) break;
-            data += static_cast<size_t>(ret);
-            remaining -= static_cast<size_t>(ret);
-        }
-    }
-
-    // set_fd redirects logging to an already-open file descriptor. Ownership
-    // stays with the caller, which keeps this path convenient for tests and for
-    // applications that already manage descriptor lifetime elsewhere.
-    static void set_fd(int fd) {
-        std::lock_guard<std::mutex> lock(config_mutex());
-        close_owned_fd_locked();
-        output_fd().store(fd, std::memory_order_relaxed);
-        owns_fd() = false;
-    }
-
-    static int fd() {
-        return output_fd().load(std::memory_order_relaxed);
-    }
+    static void Output(const char* data, size_t size);
 
     // configure_file is the convenient "start logging to this file" helper for
-    // normal application setup. The logger opens the file in append mode and
-    // retains ownership so reset_fd() can safely restore stderr later.
-    static bool configure_file(const std::string& path) {
-        const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0666);
-        if (fd < 0) return false;
-
-        std::lock_guard<std::mutex> lock(config_mutex());
-        close_owned_fd_locked();
-        output_fd().store(fd, std::memory_order_relaxed);
-        owns_fd() = true;
-        return true;
-    }
-
-    static void reset_fd() {
-        std::lock_guard<std::mutex> lock(config_mutex());
-        close_owned_fd_locked();
-        output_fd().store(STDERR_FILENO, std::memory_order_relaxed);
-        owns_fd() = false;
-    }
-
-private:
-    static std::atomic<int>& output_fd() {
-        static std::atomic<int> fd{STDERR_FILENO};
-        return fd;
-    }
-
-    static bool& owns_fd() {
-        static bool owns = false;
-        return owns;
-    }
-
-    static std::mutex& config_mutex() {
-        static std::mutex mutex;
-        return mutex;
-    }
-
-    static void close_owned_fd_locked() {
-        if (owns_fd()) {
-            const int fd = output_fd().load(std::memory_order_relaxed);
-            if (fd >= 0 && fd != STDERR_FILENO) {
-                (void)close(fd);
-            }
-        }
-    }
+    // normal application setup. It is intentionally used only during runtime
+    // initialization so the process-wide sink does not change after startup.
+    static bool configure_file(const std::string& path);
 };
 
 class FILELog : public Log<OutputWriter> {};
 
-inline void ensure_singleton() { (void)::sketch2::Singleton::instance(); }
-
 inline bool should_log(LogLevel level) {
-    ensure_singleton();
     return level <= FILELog::level();
 }
 
@@ -390,22 +297,14 @@ private:
 };
 
 inline void set_log_level(LogLevel log_level) {
-    ensure_singleton();
     FILELog::set_level(log_level);
 }
 
 inline LogLevel get_log_level() {
-    ensure_singleton();
     return FILELog::level();
 }
 
-inline void set_log_fd(int fd) { OutputWriter::set_fd(fd); }
-
-inline int get_log_fd() { return OutputWriter::fd(); }
-
-inline bool configure_log_file(const std::string& path) { return OutputWriter::configure_file(path); }
-
-inline void reset_log_output() { OutputWriter::reset_fd(); }
+inline int get_log_fd() { return current_log_fd(); }
 
 } // namespace log
 } // namespace sketch2

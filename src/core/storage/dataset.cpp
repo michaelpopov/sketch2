@@ -8,12 +8,15 @@
 #include "core/storage/input_reader.h"
 #include "core/utils/file_lock.h"
 #include "core/utils/log.h"
+#include "core/utils/singleton.h"
+#include "core/utils/thread_pool.h"
 #include "utils/ini_reader.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
 #include <experimental/scope>
+#include <future>
 #include <limits>
 #include <unordered_map>
 
@@ -69,6 +72,12 @@ bool parse_dataset_file_id(const std::string& name, const std::string& ext, uint
     *out = std::stoull(id_part);
     return true;
 }
+
+struct StoreRangeTask {
+    uint64_t file_id;
+    uint64_t range_start;
+    uint64_t range_end;
+};
 
 // Scans every dataset directory, groups matching .data/.delta files by numeric
 // file id, validates that each group has a base data file, and returns the
@@ -380,14 +389,47 @@ Ret Dataset::store_(const std::string& input_path) {
 
     const uint64_t first_file = min_id / metadata_.range_size;
     const uint64_t last_file  = max_id / metadata_.range_size;
+    std::vector<StoreRangeTask> tasks;
+    tasks.reserve(static_cast<size_t>(last_file - first_file + 1));
 
     for (uint64_t file_id = first_file; file_id <= last_file; ++file_id) {
         const uint64_t range_start = file_id * metadata_.range_size;
         const uint64_t range_end   = range_start + metadata_.range_size;
 
         if (reader.is_range_present(range_start, range_end)) {
-            CHECK(store_and_merge(reader, file_id, range_start, range_end));
+            tasks.push_back({file_id, range_start, range_end});
         }
+    }
+
+    const auto thread_pool = get_singleton().thread_pool();
+    if (!thread_pool || tasks.size() <= 1) {
+        for (const StoreRangeTask& task : tasks) {
+            CHECK(store_and_merge(reader, task.file_id, task.range_start, task.range_end));
+        }
+        return Ret(0);
+    }
+
+    std::vector<std::future<Ret>> futures;
+    futures.reserve(tasks.size());
+    for (const StoreRangeTask& task : tasks) {
+        // This parallel path relies on InputReader staying immutable after
+        // init(), and on store_and_merge() touching only per-range files
+        // instead of shared dataset caches.
+        futures.push_back(thread_pool->submit([this, &reader, task]() -> Ret {
+            return store_and_merge(reader, task.file_id, task.range_start, task.range_end);
+        }));
+    }
+
+    Ret first_error(0);
+    for (auto& future : futures) {
+        const Ret ret = future.get();
+        if (first_error.code() == 0 && ret.code() != 0) {
+            first_error = ret;
+        }
+    }
+
+    if (first_error.code() != 0) {
+        return first_error;
     }
 
     return Ret(0);

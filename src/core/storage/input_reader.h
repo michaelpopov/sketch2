@@ -18,6 +18,8 @@ struct LineInfo {
 // InputReader exists to parse the text and binary import formats used by tests
 // and bulk loading. It indexes ids and payload spans in a memory-mapped file so
 // later range checks and record reads can avoid rescanning the whole input.
+// After init() succeeds, concurrent read-only access is supported because the
+// reader only serves immutable metadata and mmap-backed payload slices.
 class InputReader {
 public:
     ~InputReader();
