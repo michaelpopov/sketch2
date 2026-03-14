@@ -27,7 +27,7 @@ san:
 
 # Runs the test suite with failure output enabled
 .PHONY: test
-test:
+test: build
 	ctest --test-dir $(BUILD_DBG) --output-on-failure
 
 # Runs the standalone thread-pool unit tests on demand
@@ -57,7 +57,7 @@ pydemo:
 
 # Runs the Python demo against the release libparasol/libvlite artifacts
 .PHONY: demo
-demo:
+demo: rel
 	SKETCH2_LOG_LEVEL=DEBUG \
 	SKETCH2_THREAD_POOL_SIZE=12 \
 	python3 src/pytest/demo.py \

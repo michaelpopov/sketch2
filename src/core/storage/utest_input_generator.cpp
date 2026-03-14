@@ -38,6 +38,11 @@ protected:
         std::getline(f, header);
         return header;
     }
+
+    std::string read_file_bytes() {
+        std::ifstream f(path_, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    }
 };
 
 TEST_F(InputGeneratorTest, FailsOnZeroCount) {
@@ -82,6 +87,32 @@ TEST_F(InputGeneratorTest, SuccessReturnCode) {
     GeneratorConfig cfg{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000};
     Ret ret = generate_input_file(path_, cfg);
     EXPECT_EQ(0, ret.code());
+}
+
+TEST_F(InputGeneratorTest, SuccessReplacesExistingFile) {
+    {
+        std::ofstream out(path_, std::ios::binary);
+        ASSERT_TRUE(out.is_open());
+        out << "old contents";
+    }
+
+    GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f32, 4, 1000};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    EXPECT_EQ("f32,4\n7 : [ 7.10, 7.10, 7.10, 7.10 ]\n", read_file_bytes());
+}
+
+TEST_F(InputGeneratorTest, FailureLeavesExistingFileUntouched) {
+    {
+        std::ofstream out(path_, std::ios::binary);
+        ASSERT_TRUE(out.is_open());
+        out << "keep me";
+    }
+
+    GeneratorConfig cfg{PatternType::Sequential, 10, 0, DataType::f32, 4, 1000, 2, true};
+    const Ret ret = generate_input_file(path_, cfg);
+    ASSERT_NE(0, ret.code());
+    EXPECT_EQ("keep me", read_file_bytes());
 }
 
 TEST_F(InputGeneratorTest, HeaderLineF32) {
@@ -268,6 +299,92 @@ TEST_F(InputGeneratorTest, BinarySequentialWritesIdAndVectorPayload) {
     EXPECT_EQ(7u, id);
     EXPECT_FLOAT_EQ(7.1f, vec[0]);
     EXPECT_FLOAT_EQ(7.1f, vec[3]);
+}
+
+TEST_F(InputGeneratorTest, BinarySequentialLargeFilePreservesChunkBoundaryRecords) {
+    constexpr size_t kCount = 20050;
+    constexpr size_t kMinId = 100;
+    GeneratorConfig cfg{PatternType::Sequential, kCount, kMinId, DataType::i16, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    const std::string header = "i16,4,bin\n";
+    const std::streamoff record_size =
+        static_cast<std::streamoff>(sizeof(uint64_t) + cfg.dim * sizeof(int16_t));
+
+    std::ifstream in(path_, std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(in.is_open());
+    const std::streamoff file_size = in.tellg();
+    ASSERT_NE(-1, file_size);
+    EXPECT_EQ(static_cast<std::streamoff>(header.size()) + static_cast<std::streamoff>(kCount) * record_size,
+        file_size);
+
+    auto expect_record = [&](size_t index, uint64_t expected_id) {
+        in.seekg(static_cast<std::streamoff>(header.size()) +
+                 static_cast<std::streamoff>(index) * record_size,
+            std::ios::beg);
+        ASSERT_TRUE(in.good());
+
+        uint64_t id = 0;
+        std::array<int16_t, 4> vec {};
+        in.read(reinterpret_cast<char*>(&id), sizeof(id));
+        in.read(reinterpret_cast<char*>(vec.data()), sizeof(vec));
+
+        ASSERT_TRUE(in.good());
+        EXPECT_EQ(expected_id, id);
+        const std::array<int16_t, 4> expected_vec {
+            static_cast<int16_t>(expected_id),
+            static_cast<int16_t>(expected_id),
+            static_cast<int16_t>(expected_id),
+            static_cast<int16_t>(expected_id),
+        };
+        EXPECT_EQ(expected_vec, vec);
+    };
+
+    expect_record(0, kMinId);
+    expect_record(9999, kMinId + 9999);
+    expect_record(10000, kMinId + 10000);
+    expect_record(kCount - 1, kMinId + kCount - 1);
+}
+
+TEST_F(InputGeneratorTest, BinarySequentialLargeF32FilePreservesChunkBoundaryRecords) {
+    constexpr size_t kCount = 20050;
+    constexpr size_t kMinId = 100;
+    GeneratorConfig cfg{PatternType::Sequential, kCount, kMinId, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    const std::string header = "f32,4,bin\n";
+    const std::streamoff record_size =
+        static_cast<std::streamoff>(sizeof(uint64_t) + cfg.dim * sizeof(float));
+
+    std::ifstream in(path_, std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(in.is_open());
+    const std::streamoff file_size = in.tellg();
+    ASSERT_NE(-1, file_size);
+    EXPECT_EQ(static_cast<std::streamoff>(header.size()) + static_cast<std::streamoff>(kCount) * record_size,
+        file_size);
+
+    auto expect_record = [&](size_t index, uint64_t expected_id) {
+        in.seekg(static_cast<std::streamoff>(header.size()) +
+                 static_cast<std::streamoff>(index) * record_size,
+            std::ios::beg);
+        ASSERT_TRUE(in.good());
+
+        uint64_t id = 0;
+        std::array<float, 4> vec {};
+        in.read(reinterpret_cast<char*>(&id), sizeof(id));
+        in.read(reinterpret_cast<char*>(vec.data()), sizeof(vec));
+
+        ASSERT_TRUE(in.good());
+        EXPECT_EQ(expected_id, id);
+        const float expected_value = static_cast<float>(expected_id) + 0.1f;
+        EXPECT_FLOAT_EQ(expected_value, vec[0]);
+        EXPECT_FLOAT_EQ(expected_value, vec[3]);
+    };
+
+    expect_record(0, kMinId);
+    expect_record(9999, kMinId + 9999);
+    expect_record(10000, kMinId + 10000);
+    expect_record(kCount - 1, kMinId + kCount - 1);
 }
 
 TEST_F(InputGeneratorTest, BinarySequentialF16WritesIdAndVectorPayloadWhenSupported) {

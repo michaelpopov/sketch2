@@ -39,6 +39,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace sketch2 {
@@ -47,16 +48,20 @@ class ThreadPool;
 
 class Singleton {
 public:
-    Singleton();
-
     static Singleton& instance();
     static bool runtime_init();
     static bool apply_config_from_env();
     static bool apply_config_file(const std::string& path);
 
-    std::shared_ptr<ThreadPool> thread_pool() const;
+    const std::shared_ptr<ThreadPool>& thread_pool() const;
 
 private:
+    Singleton();
+    Singleton(const Singleton&) = delete;
+    Singleton& operator=(const Singleton&) = delete;
+    Singleton(Singleton&&) = delete;
+    Singleton& operator=(Singleton&&) = delete;
+
     struct ConfigValues {
         std::string level;
         std::string thread_pool_size;
@@ -72,6 +77,7 @@ private:
     bool apply_thread_pool_size_(const std::string& size);
     bool apply_log_file_(const std::string& path);
 
+    std::mutex mutex_;
     std::shared_ptr<ThreadPool> thread_pool_;
     bool initialized_ = false;
 };

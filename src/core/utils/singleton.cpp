@@ -6,9 +6,27 @@
 #include "log.h"
 #include "thread_pool.h"
 
+#include <algorithm>
 #include <cstdlib>
+#include <thread>
 
 namespace sketch2 {
+
+namespace {
+
+constexpr unsigned int kFallbackThreadPoolCap = 64;
+constexpr unsigned int kHardThreadPoolCap = 256;
+constexpr unsigned int kThreadPoolCapMultiplier = 4;
+
+unsigned int max_thread_pool_size() {
+    const unsigned int hardware_threads = std::thread::hardware_concurrency();
+    const unsigned int scaled_threads = hardware_threads == 0
+        ? kFallbackThreadPoolCap
+        : hardware_threads * kThreadPoolCapMultiplier;
+    return std::max(2u, std::min(kHardThreadPoolCap, scaled_threads));
+}
+
+} // namespace
 
 Singleton::Singleton() {}
 
@@ -37,11 +55,12 @@ bool Singleton::apply_config_file(const std::string& path) {
     return instance().apply_config_file_(path);
 }
 
-std::shared_ptr<ThreadPool> Singleton::thread_pool() const {
+const std::shared_ptr<ThreadPool>& Singleton::thread_pool() const {
     return thread_pool_;
 }
 
 bool Singleton::runtime_init_() {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {
         return false;
     }
@@ -53,6 +72,7 @@ bool Singleton::runtime_init_() {
 }
 
 bool Singleton::apply_config_from_env_() {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {
         return false;
     }
@@ -66,6 +86,7 @@ bool Singleton::apply_config_from_env_() {
 }
 
 bool Singleton::apply_config_file_(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {
         return false;
     }
@@ -160,8 +181,17 @@ bool Singleton::apply_thread_pool_size_(const std::string& size) {
     try {
         const int thread_pool_size = std::stoi(size);
         if (thread_pool_size > 1) {
-            thread_pool_ = std::make_shared<ThreadPool>(static_cast<size_t>(thread_pool_size));
-            LOG_INFO << "Started thread pool with " << thread_pool_size << " threads.";
+            const unsigned int capped_thread_pool_size = max_thread_pool_size();
+            const unsigned int requested_thread_pool_size = static_cast<unsigned int>(thread_pool_size);
+            const unsigned int effective_thread_pool_size =
+                std::min(requested_thread_pool_size, capped_thread_pool_size);
+            if (effective_thread_pool_size != requested_thread_pool_size) {
+                LOG_WARN << "Configured thread pool size " << requested_thread_pool_size
+                         << " exceeds maximum " << capped_thread_pool_size
+                         << "; clamping to " << effective_thread_pool_size << ".";
+            }
+            thread_pool_ = std::make_shared<ThreadPool>(effective_thread_pool_size);
+            LOG_INFO << "Started thread pool with " << effective_thread_pool_size << " threads.";
         } else {
             thread_pool_.reset();
             LOG_INFO << "Thread pool disabled by configured size " << thread_pool_size << ".";

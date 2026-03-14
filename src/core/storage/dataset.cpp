@@ -401,7 +401,7 @@ Ret Dataset::store_(const std::string& input_path) {
         }
     }
 
-    const auto thread_pool = get_singleton().thread_pool();
+    const auto& thread_pool = get_singleton().thread_pool();
     if (!thread_pool || tasks.size() <= 1) {
         for (const StoreRangeTask& task : tasks) {
             CHECK(store_and_merge(reader, task.file_id, task.range_start, task.range_end));
@@ -421,8 +421,14 @@ Ret Dataset::store_(const std::string& input_path) {
     }
 
     Ret first_error(0);
-    for (auto& future : futures) {
-        const Ret ret = future.get();
+    for (size_t i = 0; i < futures.size(); ++i) {
+        const Ret ret = futures[i].get();
+        if (ret.code() != 0) {
+            const StoreRangeTask& task = tasks[i];
+            LOG_ERROR << "Dataset::store_: range task failed for file_id=" << task.file_id
+                      << " range=[" << task.range_start << ", " << task.range_end
+                      << "): " << ret.message();
+        }
         if (first_error.code() == 0 && ret.code() != 0) {
             first_error = ret;
         }
@@ -521,7 +527,7 @@ Ret Dataset::merge_() {
 // Writes one range slice from the text input into a temporary data file and
 // then promotes or merges it depending on which base/delta files already exist
 // and how large the new slice is relative to the current persisted data.
-Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) {
+Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) const {
     const size_t dir_id = file_id % metadata_.dirs.size();
     const std::string& dir = metadata_.dirs[dir_id];
     const std::string output_path_base = dir + "/" + std::to_string(file_id);
@@ -741,12 +747,12 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
     return Ret(0);
 }
 
-bool Dataset::check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader) {
+bool Dataset::check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader) const {
     const uint64_t output_count = output_reader.count() + output_reader.deleted_count();
     return (data_reader.count() < output_count * metadata_.data_merge_ratio);
 }
 
-bool Dataset::check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader) {
+bool Dataset::check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader) const {
     const uint64_t delta_count = delta_reader.count() + delta_reader.deleted_count();
     return (data_reader.count() < delta_count * metadata_.data_merge_ratio);
 }
@@ -768,7 +774,7 @@ Ret Dataset::ensure_owner_lock_() {
 }
 
 Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
-        const std::string& output_path_base, const std::string& ext) {
+        const std::string& output_path_base, const std::string& ext) const {
 
     const std::string source_path = output_path_base + ext;
     std::experimental::scope_exit file_guard([source_path]() {
@@ -787,7 +793,7 @@ Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& ou
     return Ret(0);
 }
 
-Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base) {
+Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base) const {
     const std::string source_path = output_path_base + kTempExt;
     std::experimental::scope_exit file_guard([source_path]() {
         if (std::filesystem::exists(source_path)) {

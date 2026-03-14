@@ -126,17 +126,17 @@ private:
     Ret store_(const std::string& input_path);
     Ret store_accumulator_();
     Ret merge_();
-    Ret store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end);
+    Ret store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) const;
     Ret store_and_merge_accumulator(uint64_t file_id, const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids);
     Ret init_accumulator_();
 
-    bool check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader);
-    bool check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader);
+    bool check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader) const;
+    bool check_data_delta_merge(const DataReader& data_reader, const DataReader& delta_reader) const;
 
     Ret  merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
-        const std::string& output_path_base, const std::string& ext);
+        const std::string& output_path_base, const std::string& ext) const;
     Ret  merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader,
-        const std::string& output_path_base);
+        const std::string& output_path_base) const;
     Ret require_owner_() const;
     Ret ensure_owner_lock_();
     Ret ensure_items_cache_() const;
