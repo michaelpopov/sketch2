@@ -9,12 +9,14 @@
 - `log.h`: Lightweight logging helper macros and utilities.
 - `shared_consts.h`: Shared constants used across the codebase.
 - `shared_types.h`: Shared enums, return types, and type-conversion helpers.
+- `singleton.cpp`: Startup singleton implementation that applies utility init hooks at load time.
+- `singleton.h`: Startup singleton declaration for process-wide utility initialization.
 - `string_utils.cpp`: Parsing and formatting helpers for textual vectors.
 - `string_utils.h`: Declarations for textual vector parsing and formatting.
 - `utest_dynamic_bitset.cpp`: Unit tests for the dynamic bitset.
 - `utest_file_lock.cpp`: Unit tests for file locking behavior.
 - `utest_ini_reader.cpp`: Unit tests for the INI reader.
 - `utest_main.cpp`: GoogleTest entry point for the utils test binary.
+- `utest_singleton.cpp`: Unit tests for config-driven singleton initialization helpers.
 - `utest_string_utils.cpp`: Unit tests for textual vector parsing and printing.
 - `utils.cpp`: Placeholder translation unit for the utilities library.
-

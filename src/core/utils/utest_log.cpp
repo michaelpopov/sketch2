@@ -89,20 +89,6 @@ TEST(LogTest, TempLogLevel) {
     EXPECT_EQ(get_log_level(), original);
 }
 
-TEST(LogTest, SetLogLevelFromEnv) {
-    LogLevel original = get_log_level();
-
-    unsetenv("SKETCH2_TEST_LOG_LEVEL");
-    EXPECT_FALSE(set_log_level_from_env("SKETCH2_TEST_LOG_LEVEL"));
-
-    ASSERT_EQ(0, setenv("SKETCH2_TEST_LOG_LEVEL", "warn", 1));
-    EXPECT_TRUE(set_log_level_from_env("SKETCH2_TEST_LOG_LEVEL"));
-    EXPECT_EQ(get_log_level(), LogLevel::Warn);
-
-    unsetenv("SKETCH2_TEST_LOG_LEVEL");
-    set_log_level(original);
-}
-
 TEST(LogTest, Macros) {
     // This just verifies that the macros compile and can be called.
     // We don't easily capture stderr here, but we can check if it doesn't crash.

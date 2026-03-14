@@ -42,6 +42,8 @@
 
 #pragma once
 
+#include "singleton.h"
+
 #include <atomic>
 #include <cerrno>
 #include <cstddef>
@@ -337,7 +339,12 @@ private:
 
 class FILELog : public Log<OutputWriter> {};
 
-inline bool should_log(LogLevel level) { return level <= FILELog::level(); }
+inline void ensure_singleton() { (void)::sketch2::Singleton::instance(); }
+
+inline bool should_log(LogLevel level) {
+    ensure_singleton();
+    return level <= FILELog::level();
+}
 
 // FILE_LOG is intentionally implemented as a single-iteration for loop rather
 // than an if/else macro. The level expression is evaluated once, and the
@@ -382,30 +389,15 @@ private:
     LogLevel m_old;
 };
 
-inline void set_log_level(LogLevel log_level) { FILELog::set_level(log_level); }
-
-inline LogLevel get_log_level() { return FILELog::level(); }
-
-inline bool set_log_level_from_env(const char* env_var_name) {
-    if (env_var_name == nullptr) return false;
-
-    const char* value = std::getenv(env_var_name);
-    if (value == nullptr) return false;
-
-    set_log_level(FILELog::from_string(value));
-    return true;
+inline void set_log_level(LogLevel log_level) {
+    ensure_singleton();
+    FILELog::set_level(log_level);
 }
 
-// LogEnvInitializer applies process-wide logging configuration as soon as the
-// current binary or shared library finishes loading. The inline singleton keeps
-// the behavior automatic for every consumer that links Sketch2 without
-// requiring an explicit init call from application code.
-class LogEnvInitializer {
-public:
-    LogEnvInitializer() { (void)set_log_level_from_env("SKETCH2_LOG_LEVEL"); }
-};
-
-inline LogEnvInitializer g_log_env_initializer;
+inline LogLevel get_log_level() {
+    ensure_singleton();
+    return FILELog::level();
+}
 
 inline void set_log_fd(int fd) { OutputWriter::set_fd(fd); }
 
