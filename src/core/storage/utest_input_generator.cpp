@@ -1,7 +1,9 @@
 // Unit tests for textual input generation helpers.
 
 #include <gtest/gtest.h>
+#include <array>
 #include <fstream>
+#include <cstring>
 #include <sstream>
 #include <cstdio>
 #include <unistd.h>
@@ -28,6 +30,13 @@ protected:
         while (std::getline(f, line))
             lines.push_back(line);
         return lines;
+    }
+
+    std::string read_binary_header() {
+        std::ifstream f(path_, std::ios::binary);
+        std::string header;
+        std::getline(f, header);
+        return header;
     }
 };
 
@@ -62,6 +71,13 @@ TEST_F(InputGeneratorTest, FailsOnBadPath) {
     EXPECT_NE(0, ret.code());
 }
 
+TEST_F(InputGeneratorTest, BinaryModeRejectsDeletedItems) {
+    GeneratorConfig cfg{PatternType::Sequential, 10, 0, DataType::f32, 4, 1000, 2, true};
+    const Ret ret = generate_input_file(path_, cfg);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("binary input format does not support deleted items", ret.message());
+}
+
 TEST_F(InputGeneratorTest, SuccessReturnCode) {
     GeneratorConfig cfg{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000};
     Ret ret = generate_input_file(path_, cfg);
@@ -88,6 +104,19 @@ TEST_F(InputGeneratorTest, HeaderLineF16) {
     auto lines = read_lines();
     ASSERT_FALSE(lines.empty());
     EXPECT_EQ("f16,64", lines[0]);
+}
+
+TEST_F(InputGeneratorTest, F16SequentialTextValueIsIdPlusPointOneWhenSupported) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+
+    GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f16, 4, 1000};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    auto lines = read_lines();
+    ASSERT_EQ(2u, lines.size());
+    EXPECT_EQ("7 : [ 7.10, 7.10, 7.10, 7.10 ]", lines[1]);
 }
 
 TEST_F(InputGeneratorTest, LineCount) {
@@ -213,6 +242,84 @@ TEST_F(InputGeneratorTest, DetailedHeaderLineI16) {
     auto lines = read_lines();
     ASSERT_FALSE(lines.empty());
     EXPECT_EQ("i16,4", lines[0]);
+}
+
+TEST_F(InputGeneratorTest, BinarySequentialHeaderAddsBinMarker) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+    EXPECT_EQ("f32,4,bin", read_binary_header());
+}
+
+TEST_F(InputGeneratorTest, BinarySequentialWritesIdAndVectorPayload) {
+    GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    std::ifstream in(path_, std::ios::binary);
+    std::string header;
+    std::getline(in, header);
+    ASSERT_EQ("f32,4,bin", header);
+
+    uint64_t id = 0;
+    std::array<float, 4> vec {};
+    in.read(reinterpret_cast<char*>(&id), sizeof(id));
+    in.read(reinterpret_cast<char*>(vec.data()), sizeof(vec));
+
+    ASSERT_TRUE(in.good());
+    EXPECT_EQ(7u, id);
+    EXPECT_FLOAT_EQ(7.1f, vec[0]);
+    EXPECT_FLOAT_EQ(7.1f, vec[3]);
+}
+
+TEST_F(InputGeneratorTest, BinarySequentialF16WritesIdAndVectorPayloadWhenSupported) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+
+    GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f16, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    std::ifstream in(path_, std::ios::binary);
+    std::string header;
+    std::getline(in, header);
+    ASSERT_EQ("f16,4,bin", header);
+
+    uint64_t id = 0;
+    std::array<float16, 4> vec {};
+    in.read(reinterpret_cast<char*>(&id), sizeof(id));
+    in.read(reinterpret_cast<char*>(vec.data()), sizeof(vec));
+
+    ASSERT_TRUE(in.good());
+    EXPECT_EQ(7u, id);
+    const float expected = static_cast<float>(static_cast<float16>(7.1f));
+    EXPECT_FLOAT_EQ(expected, static_cast<float>(vec[0]));
+    EXPECT_FLOAT_EQ(expected, static_cast<float>(vec[3]));
+}
+
+TEST_F(InputGeneratorTest, BinaryDetailedWritesPerDimensionVariation) {
+    GeneratorConfig cfg{PatternType::Detailed, 2, 20, DataType::i16, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    std::ifstream in(path_, std::ios::binary);
+    std::string header;
+    std::getline(in, header);
+    ASSERT_EQ("i16,4,bin", header);
+
+    uint64_t first_id = 0;
+    std::array<int16_t, 4> first_vec {};
+    uint64_t second_id = 0;
+    std::array<int16_t, 4> second_vec {};
+    in.read(reinterpret_cast<char*>(&first_id), sizeof(first_id));
+    in.read(reinterpret_cast<char*>(first_vec.data()), sizeof(first_vec));
+    in.read(reinterpret_cast<char*>(&second_id), sizeof(second_id));
+    in.read(reinterpret_cast<char*>(second_vec.data()), sizeof(second_vec));
+
+    ASSERT_TRUE(in.good());
+    EXPECT_EQ(20u, first_id);
+    EXPECT_EQ(21u, second_id);
+    const std::array<int16_t, 4> expected_first {0, 0, 0, 0};
+    const std::array<int16_t, 4> expected_second {1, 0, 0, 0};
+    EXPECT_EQ(expected_first, first_vec);
+    EXPECT_EQ(expected_second, second_vec);
 }
 
 TEST_F(InputGeneratorTest, DetailedI16LineCount) {

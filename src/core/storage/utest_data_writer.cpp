@@ -40,6 +40,15 @@ protected:
         return w.exec();
     }
 
+    Ret run_binary(size_t count, size_t min_id, DataType type, size_t dim,
+                   bool write_cosine_inv_norms = false) {
+        GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, 0, true};
+        generate_input_file(input_path_, cfg);
+        DataWriter w;
+        w.init(input_path_, output_path_, 0, 0, write_cosine_inv_norms);
+        return w.exec();
+    }
+
     Ret run_raw_input(const std::string& content) {
         std::ofstream f(input_path_);
         f << content;
@@ -243,6 +252,19 @@ TEST_F(DataWriterTest, IdsAreCorrect) {
 TEST_F(DataWriterTest, F32VectorDataIsCorrect) {
     const size_t count = 3, min_id = 5, dim = 4;
     run(count, min_id, DataType::f32, dim);
+    auto data = read_f32_vectors(count, dim);
+    for (size_t i = 0; i < count; ++i) {
+        float expected = static_cast<float>(min_id + i) + 0.1f;
+        for (size_t d = 0; d < dim; ++d) {
+            EXPECT_NEAR(expected, data[i * dim + d], 1e-4f)
+                << "vector " << i << " dim " << d;
+        }
+    }
+}
+
+TEST_F(DataWriterTest, BinaryInputVectorDataIsCorrect) {
+    const size_t count = 3, min_id = 5, dim = 4;
+    ASSERT_EQ(0, run_binary(count, min_id, DataType::f32, dim).code());
     auto data = read_f32_vectors(count, dim);
     for (size_t i = 0; i < count; ++i) {
         float expected = static_cast<float>(min_id + i) + 0.1f;

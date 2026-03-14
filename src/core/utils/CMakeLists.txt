@@ -6,6 +6,11 @@ set_target_properties(utils PROPERTIES OUTPUT_NAME "utils")
 
 target_link_libraries(utils PUBLIC sketch_compile_options)
 
-add_executable(utest_utils utest_main.cpp utest_ini_reader.cpp utest_string_utils.cpp utest_dynamic_bitset.cpp utest_file_lock.cpp utest_log.cpp utest_thread_pool.cpp)
+add_executable(utest_utils utest_main.cpp utest_ini_reader.cpp utest_string_utils.cpp utest_dynamic_bitset.cpp utest_file_lock.cpp utest_log.cpp)
 target_link_libraries(utest_utils PRIVATE utils GTest::gtest Threads::Threads)
 add_test(NAME utest_utils COMMAND utest_utils)
+
+# Keep thread-pool tests available for focused runs, but do not include them in
+# the routine utils test target because they add noticeable latency.
+add_executable(utest_thread_pool utest_main.cpp utest_thread_pool.cpp)
+target_link_libraries(utest_thread_pool PRIVATE utils GTest::gtest Threads::Threads)

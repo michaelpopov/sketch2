@@ -1,6 +1,7 @@
 // Unit tests for textual input parsing and range views.
 
 #include <gtest/gtest.h>
+#include <array>
 #include <fstream>
 #include <cstdio>
 #include <unistd.h>
@@ -113,6 +114,17 @@ TEST_F(InputReaderTest, TypeI16) {
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
     EXPECT_EQ(DataType::i16, r.type());
+}
+
+TEST_F(InputReaderTest, BinaryHeaderIsAccepted) {
+    GeneratorConfig gen {PatternType::Sequential, 2, 7, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_EQ(DataType::f32, r.type());
+    EXPECT_EQ(4u, r.dim());
+    EXPECT_EQ(2u, r.count());
 }
 
 TEST_F(InputReaderTest, DimIsCorrect) {
@@ -308,6 +320,96 @@ TEST_F(InputReaderTest, F16DataWorks) {
     EXPECT_NE(0, v[0]); // should contain parsed f16 value
 }
 
+TEST_F(InputReaderTest, BinaryDataReturnsSequentialPayload) {
+    GeneratorConfig gen {PatternType::Sequential, 2, 7, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    std::vector<uint8_t> buf(r.size());
+
+    ASSERT_EQ(0, r.data(0, buf.data(), buf.size()).code());
+    const float* first = reinterpret_cast<const float*>(buf.data());
+    EXPECT_FLOAT_EQ(7.1f, first[0]);
+    EXPECT_FLOAT_EQ(7.1f, first[3]);
+
+    ASSERT_EQ(0, r.data(1, buf.data(), buf.size()).code());
+    const float* second = reinterpret_cast<const float*>(buf.data());
+    EXPECT_FLOAT_EQ(8.1f, second[0]);
+    EXPECT_FLOAT_EQ(8.1f, second[3]);
+}
+
+TEST_F(InputReaderTest, BinaryRawDataReturnsMappedPayload) {
+    GeneratorConfig gen {PatternType::Sequential, 2, 7, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    ASSERT_TRUE(r.is_binary());
+
+    const uint8_t* raw = nullptr;
+    ASSERT_EQ(0, r.raw_data(0, &raw).code());
+    ASSERT_NE(nullptr, raw);
+    const float* first = reinterpret_cast<const float*>(raw);
+    EXPECT_FLOAT_EQ(7.1f, first[0]);
+    EXPECT_FLOAT_EQ(7.1f, first[3]);
+}
+
+TEST_F(InputReaderTest, TextRawDataIsRejected) {
+    generate_input_file(path_, cfg(1, 0, DataType::f32, 4));
+
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    ASSERT_FALSE(r.is_binary());
+
+    const uint8_t* raw = nullptr;
+    EXPECT_NE(0, r.raw_data(0, &raw).code());
+}
+
+TEST_F(InputReaderTest, BinaryReaderSortsIdsByValue) {
+    std::ofstream out(path_, std::ios::binary);
+    out << "i16,4,bin\n";
+    const uint64_t id10 = 10;
+    const std::array<int16_t, 4> vec10 {10, 10, 10, 10};
+    const uint64_t id9 = 9;
+    const std::array<int16_t, 4> vec9 {9, 9, 9, 9};
+    out.write(reinterpret_cast<const char*>(&id10), sizeof(id10));
+    out.write(reinterpret_cast<const char*>(vec10.data()), sizeof(vec10));
+    out.write(reinterpret_cast<const char*>(&id9), sizeof(id9));
+    out.write(reinterpret_cast<const char*>(vec9.data()), sizeof(vec9));
+    out.close();
+
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    ASSERT_EQ(2u, r.count());
+    EXPECT_EQ(9u, r.id(0));
+    EXPECT_EQ(10u, r.id(1));
+}
+
+TEST_F(InputReaderTest, BinaryIsNoDataAlwaysReturnsFalse) {
+    GeneratorConfig gen {PatternType::Sequential, 1, 7, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    EXPECT_FALSE(r.is_no_data(0));
+}
+
+TEST_F(InputReaderTest, BinaryInitFailsOnTruncatedPayload) {
+    std::ofstream out(path_, std::ios::binary);
+    out << "f32,4,bin\n";
+    const uint64_t id = 7;
+    const std::array<float, 2> partial {7.1f, 7.1f};
+    out.write(reinterpret_cast<const char*>(&id), sizeof(id));
+    out.write(reinterpret_cast<const char*>(partial.data()), sizeof(partial));
+    out.close();
+
+    InputReader r;
+    const Ret ret = r.init(path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Invalid binary payload size", ret.message());
+}
+
 // --- is_range_present() ---
 
 TEST_F(InputReaderTest, IsRangePresentReturnsTrueForOverlap) {
@@ -417,6 +519,23 @@ TEST_F(InputReaderViewTest, WholeViewData) {
             EXPECT_NEAR(expected, vd[d], 1e-4f) << "vector " << i << " dim " << d;
         }
     }
+}
+
+TEST_F(InputReaderViewTest, BinaryWholeViewRawDataReturnsMappedPayload) {
+    GeneratorConfig gen {PatternType::Sequential, 3, 10, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, gen).code());
+
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+    InputReaderView v(r, 0, 0);
+    ASSERT_TRUE(v.is_binary());
+
+    const uint8_t* raw = nullptr;
+    ASSERT_EQ(0, v.raw_data(1, &raw).code());
+    ASSERT_NE(nullptr, raw);
+    const float* values = reinterpret_cast<const float*>(raw);
+    EXPECT_FLOAT_EQ(11.1f, values[0]);
+    EXPECT_FLOAT_EQ(11.1f, values[3]);
 }
 
 // --- partial range ---

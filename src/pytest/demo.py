@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import heapq
 import os
 import shutil
 import sqlite3
@@ -43,14 +42,6 @@ def parse_size_arg(value: str) -> int:
     return int(text)
 
 
-def fmt_scalar_vector(value: float, dim: int) -> str:
-    return ", ".join(f"{value:.6f}" for _ in range(dim))
-
-
-def fmt_values(values: list[float]) -> str:
-    return ", ".join(f"{value:.6f}" for value in values)
-
-
 def quantize_value(type_name: str, value: float) -> float | int:
     if type_name == "f32":
         return struct.unpack("f", struct.pack("f", value))[0]
@@ -69,12 +60,6 @@ def fmt_typed_vector(values: list[float | int], type_name: str) -> str:
     if type_name == "i16":
         return ", ".join(str(int(value)) for value in values)
     return ", ".join(f"{float(value):.3f}" for value in values)
-
-
-def generated_scalar_value(item_id: int, type_name: str) -> float | int:
-    if type_name == "i16":
-        return quantize_value(type_name, float(item_id))
-    return quantize_value(type_name, item_id + 0.1)
 
 
 def cosine_distance(a: list[float], b: list[float]) -> float:
@@ -118,54 +103,6 @@ def l2_distance_sq(a: list[float | int], b: list[float | int]) -> float:
     return sum((float(x) - float(y)) ** 2 for x, y in zip(a, b))
 
 
-def first_ids_by_period(from_id: int, count: int, period: int) -> list[int]:
-    limit = min(count, period)
-    return [from_id + offset for offset in range(limit)]
-
-
-def next_id_in_period(item_id: int, from_id: int, count: int, period: int) -> int | None:
-    next_item_id = item_id + period
-    if next_item_id >= from_id + count:
-        return None
-    return next_item_id
-
-
-def expected_topk(
-    from_id: int,
-    count: int,
-    query_value: float,
-    k: int,
-    dist_func: str,
-    dim: int,
-    type_name: str,
-) -> list[int]:
-    period = 17 * 11 * 7 * 5
-    if dist_func == "COS":
-        query_vec = cosine_demo_query(dim, type_name)
-        distance_fn = lambda item_id: cosine_distance(cosine_demo_vector(item_id, dim, type_name), query_vec)
-    else:
-        query_component = quantize_value(type_name, query_value)
-        query_vec = [query_component] * dim
-        if dist_func == "L2":
-            distance_fn = lambda item_id: l2_distance_sq(cosine_demo_vector(item_id, dim, type_name), query_vec)
-        else:
-            distance_fn = lambda item_id: l1_distance(cosine_demo_vector(item_id, dim, type_name), query_vec)
-
-    residue_heap: list[tuple[float, int, int]] = []
-    for item_id in first_ids_by_period(from_id, count, period):
-        heapq.heappush(residue_heap, (distance_fn(item_id), item_id, item_id))
-
-    top_ids: list[int] = []
-    while residue_heap and len(top_ids) < k:
-        distance, item_id, residue_first_id = heapq.heappop(residue_heap)
-        top_ids.append(item_id)
-        next_item_id = next_id_in_period(item_id, from_id, count, period)
-        if next_item_id is not None:
-            heapq.heappush(residue_heap, (distance, next_item_id, residue_first_id))
-
-    return top_ids
-
-
 def default_vlite_path() -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     candidates = [
@@ -186,15 +123,21 @@ def dataset_ini_path(root: Path, dataset_name: str) -> Path:
     return root / f"{dataset_name}.ini"
 
 
-def load_dataset_with_generator(ps: Parasol, from_id: int, count: int) -> tuple[float, float]:
+def load_dataset_with_binary_generator(ps: Parasol, from_id: int, count: int) -> tuple[float, float]:
     log_step(
-        f"loading {count} generated vectors through libparasol "
+        f"loading {count} generated binary vectors through libparasol "
         f"(pattern=sequential, start_id={from_id})"
     )
     t0 = time.perf_counter()
-    ps.generate(count=count, start_id=from_id, pattern=0)
+    ps.generate_bin(count=count, start_id=from_id, pattern=0)
     t1 = time.perf_counter()
     return 0.0, t1 - t0
+
+
+def effective_input_format(binary: bool, dist_func: str) -> str:
+    if dist_func == "COS":
+        return "text"
+    return "binary" if binary else "text"
 
 
 def write_input_chunk(
@@ -279,7 +222,7 @@ def load_dataset_from_python_input_file(
     dim: int,
     type_name: str,
 ) -> tuple[float, float]:
-    log_step(f"writing {count} Python-generated vectors to temporary input file: {input_path}")
+    log_step(f"writing {count} Python-generated vectors to temporary text input file: {input_path}")
     t0 = time.perf_counter()
     write_input_file(input_path, from_id=from_id, count=count, dim=dim, type_name=type_name)
     t1 = time.perf_counter()
@@ -297,19 +240,23 @@ def fill_dataset(
     count: int,
     dim: int,
     type_name: str,
+    binary: bool,
     dist_func: str,
 ) -> tuple[float, float]:
     log_step(f"writing {count} vectors into the Parasol dataset using dist_func={dist_func}")
+    if dist_func == "COS":
+        log_step("cosine demo keeps the original Python-generated input path")
+        return load_dataset_from_python_input_file(
+            ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name
+        )
+
+    if binary:
+        log_step("binary demo uses libparasol binary generation instead of Python-side input file generation")
+        return load_dataset_with_binary_generator(ps, from_id=from_id, count=count)
+
     return load_dataset_from_python_input_file(
         ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name
-     )
-#    if dist_func == "COS":
-#        log_step("cosine demo uses Python-generated vectors written to a temp input file")
-#        return load_dataset_from_python_input_file(
-#            ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name
-#        )
-#
-#    return load_dataset_with_generator(ps, from_id=from_id, count=count)
+    )
 
 
 def sqlite_knn(dataset_ini: Path, vlite_lib: Path, query_vec: str, k: int) -> tuple[list[int], float]:
@@ -340,6 +287,7 @@ def run_demo(
     k: int,
     range_size: int,
     type_name: str,
+    binary: bool,
     keep: bool,
     dist_func: str,
     parasol_lib: Path | None,
@@ -366,7 +314,7 @@ def run_demo(
             ps.create(dataset_name, type_name=type_name, dim=dim, range_size=range_size, dist_func=dist_func.lower())
 
             generate_time, load_time = fill_dataset(
-                ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name, dist_func=dist_func
+                ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name, binary=binary, dist_func=dist_func
             )
 
             # SQLite reads only the persisted dataset state, so the writer must
@@ -395,6 +343,7 @@ def run_demo(
             print(f"merge time: {merge_time:.3f}s")
             print(f"sqlite query time: {query_time:.3f}s")
             print(f"type={type_name}")
+            print(f"input_format={effective_input_format(binary, dist_func)}")
             print(f"dist_func={dist_func}")
             print(f"k={k}")
             print(f"actual   = {actual}")
@@ -439,6 +388,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--parasol-lib", type=Path, help="Path to libparasol.so")
     parser.add_argument("--vlite-lib", type=Path, help="Path to libvlite.so")
+    parser.add_argument(
+        "--binary",
+        action="store_true",
+        help="Use libparasol binary generation instead of the Python text input file path",
+    )
     parser.add_argument("--keep", action="store_true", help="Keep generated dataset directory")
     return parser.parse_args()
 
@@ -462,6 +416,7 @@ def main() -> None:
         k=args.k,
         range_size=args.range_size,
         type_name=args.type,
+        binary=args.binary,
         keep=args.keep,
         dist_func=args.dist_func,
         parasol_lib=args.parasol_lib,

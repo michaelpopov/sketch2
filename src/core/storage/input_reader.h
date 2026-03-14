@@ -1,4 +1,4 @@
-// Declares the text input reader and subrange view types.
+// Declares the input reader and subrange view types for text and binary imports.
 
 #pragma once
 #include "utils/shared_types.h"
@@ -12,12 +12,12 @@ namespace sketch2 {
 struct LineInfo {
     uint64_t id;
     uint64_t offset; // byte offset where vector data starts in the mapped file
-    uint64_t end;    // byte offset of closing ']' for this vector
+    uint64_t end;    // text: closing ']' offset, binary: end of vector payload
 };
 
-// InputReader exists to parse the textual import format used by tests and bulk
-// loading. It indexes ids and vector payload spans in a memory-mapped file so
-// later range checks and record reads can avoid reparsing the whole input.
+// InputReader exists to parse the text and binary import formats used by tests
+// and bulk loading. It indexes ids and payload spans in a memory-mapped file so
+// later range checks and record reads can avoid rescanning the whole input.
 class InputReader {
 public:
     ~InputReader();
@@ -31,6 +31,8 @@ public:
 
     uint64_t id(size_t index) const;
     Ret data(size_t index, uint8_t* buf, size_t size) const;
+    bool is_binary() const;
+    Ret raw_data(size_t index, const uint8_t** data) const;
     bool is_no_data(size_t index) const;
 
     bool is_range_present(uint64_t start_range, uint64_t end_range) const;
@@ -42,6 +44,7 @@ private:
     size_t                map_len_ = 0;
     DataType              type_    = DataType::f32;
     size_t                dim_     = 0;
+    bool                  binary_  = false;
     std::vector<LineInfo> lines_;
 
     Ret init_(const std::string &path);
@@ -61,6 +64,8 @@ public:
 
     uint64_t id(size_t index) const;
     Ret data(size_t index, uint8_t* buf, size_t size) const;
+    bool is_binary() const;
+    Ret raw_data(size_t index, const uint8_t** data) const;
     bool is_no_data(size_t index) const;
 private:
     const InputReader& reader_;

@@ -109,7 +109,12 @@ int sk_print(sk_handle_t* handle);
 int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
 
 /*
- * Load vectors from a textual input file into the current dataset.
+ * Generate test vectors in binary input format and load them into the current dataset.
+ */
+int sk_generate_bin(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
+
+/*
+ * Load vectors from a text or binary input file into the current dataset.
  */
 int sk_load_file(sk_handle_t* handle, const char* path);
 

@@ -30,6 +30,7 @@ struct GeneratorConfig {
     size_t dim;
     size_t max_val;
     size_t every_n_deleted = 0;
+    bool binary = false;
 };
 
 Ret generate_input_file(const std::string& path, const GeneratorConfig& config);

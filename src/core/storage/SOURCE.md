@@ -13,14 +13,14 @@
 - `data_merger.h`: Merge API declarations for storage files.
 - `data_reader.cpp`: Memory-mapped reader for persisted data and delta files.
 - `data_reader.h`: Data reader declarations and iterator types.
-- `data_writer.cpp`: Writer that converts textual input into binary data files.
+- `data_writer.cpp`: Writer that converts text or binary input records into binary data files.
 - `data_writer.h`: Data writer interface.
 - `dataset.cpp`: Dataset lifecycle, persistence, merge, and read-state coordination.
 - `dataset.h`: Dataset metadata, dataset API, and dataset reader declarations.
-- `input_generator.cpp`: Synthetic textual input generation helpers.
-- `input_generator.h`: Input generation patterns and helper declarations.
-- `input_reader.cpp`: Parser and range-view implementation for textual input files.
-- `input_reader.h`: Text input reader and view declarations.
+- `input_generator.cpp`: Synthetic text and binary input generation helpers.
+- `input_generator.h`: Input generation patterns, binary-mode option, and helper declarations.
+- `input_reader.cpp`: Parser and range-view implementation for text and binary input files.
+- `input_reader.h`: Input reader and view declarations for text and binary imports.
 - `storage.cpp`: Placeholder storage module version function.
 - `utest_accumulator.cpp`: Unit tests for accumulator behavior.
 - `utest_accumulator_wal.cpp`: Unit tests for accumulator WAL recovery.
@@ -30,7 +30,6 @@
 - `utest_data_writer.cpp`: Unit tests for writing binary data files.
 - `utest_dataset.cpp`: Unit tests for dataset lifecycle and persistence flows.
 - `utest_full_cycle.cpp`: End-to-end storage tests covering full write/read/merge flows.
-- `utest_input_generator.cpp`: Unit tests for synthetic input generation.
-- `utest_input_reader.cpp`: Unit tests for textual input parsing and views.
+- `utest_input_generator.cpp`: Unit tests for synthetic text and binary input generation.
+- `utest_input_reader.cpp`: Unit tests for text and binary input parsing and views.
 - `utest_main.cpp`: GoogleTest entry point for the storage test binary.
-

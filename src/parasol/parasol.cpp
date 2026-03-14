@@ -875,6 +875,7 @@ static int sk_print_(sk_handle_t* handle) {
     return 0;
 }
 
+static int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern, bool binary);
 static int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
 int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
     try {
@@ -886,6 +887,24 @@ int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int patt
 // Generates a temporary input file using one of the built-in patterns and then
 // imports it through the regular dataset store path.
 static int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
+    return sk_generate_impl_(handle, count, start_id, pattern, false);
+}
+
+static int sk_generate_bin_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
+int sk_generate_bin(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
+    try {
+        return sk_generate_bin_(handle, count, start_id, pattern);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+// Generates a temporary binary input file using one of the built-in patterns
+// and then imports it through the regular dataset store path.
+static int sk_generate_bin_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
+    return sk_generate_impl_(handle, count, start_id, pattern, true);
+}
+
+static int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern, bool binary) {
     DECL
 
     if (handle->ds == nullptr) {
@@ -916,6 +935,7 @@ static int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, 
     cfg.type = handle->ds->type();
     cfg.dim = static_cast<size_t>(handle->ds->dim());
     cfg.max_val = 1000;
+    cfg.binary = binary;
 
     const std::filesystem::path input_path = std::filesystem::path(handle->dataset_dir) / kInputFileName;
     Ret ret = generate_input_file(input_path.string(), cfg);

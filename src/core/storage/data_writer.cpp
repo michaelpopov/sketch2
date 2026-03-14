@@ -1,4 +1,4 @@
-// Implements conversion from textual input records into the binary data-file format.
+// Implements conversion from text or binary input records into the binary data-file format.
 
 #include "data_writer.h"
 #include "core/storage/input_reader.h"
@@ -42,7 +42,7 @@ Ret DataWriter::exec() {
     return load(reader, output_path_, write_cosine_inv_norms_);
 }
 
-// Converts a sorted text-input view into the binary on-disk data-file format.
+// Converts a sorted text-or-binary input view into the binary on-disk data-file format.
 // It separates live ids from deletions, streams vectors into the aligned data
 // section, optionally persists cosine inverse norms, and then appends both id tables.
 Ret DataWriter::load(const InputReaderView& reader, const std::string& output_path, bool write_cosine_inv_norms) {
@@ -119,18 +119,38 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     // Write vector data
     const size_t vec_size = reader.size();
     const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size());
-    std::vector<uint8_t> buf(vec_size);
+    const bool binary_input = reader.is_binary();
+    std::vector<uint8_t> buf = binary_input ? std::vector<uint8_t>() : std::vector<uint8_t>(vec_size);
     std::vector<float> cosine_inv_norms;
     if (write_cosine_inv_norms) {
         cosine_inv_norms.reserve(ids.size());
     }
-    for (size_t i = 0; i < count; ++i) {
-        if (!reader.is_no_data(i)) {
-            CHECK(reader.data(i, buf.data(), buf.size()));
-            CHECK(write_vector_record(f, buf.data(), vec_size, hdr.vector_stride,
+
+    if (binary_input) {
+        for (size_t i = 0; i < count; ++i) {
+            if (reader.is_no_data(i)) {
+                continue;
+            }
+
+            const uint8_t* vector_data = nullptr;
+            CHECK(reader.raw_data(i, &vector_data));
+            CHECK(write_vector_record(f, vector_data, vec_size, hdr.vector_stride,
                 "DataWriter: failed to write vector data at index " + std::to_string(i)));
             if (write_cosine_inv_norms) {
-                cosine_inv_norms.push_back(compute_cosine_inverse_norm(buf.data(), reader.type(), reader.dim()));
+                cosine_inv_norms.push_back(compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
+            }
+        }
+    } else {
+        for (size_t i = 0; i < count; ++i) {
+            if (!reader.is_no_data(i)) {
+                const uint8_t* vector_data = nullptr;
+                CHECK(reader.data(i, buf.data(), buf.size()));
+                vector_data = buf.data();
+                CHECK(write_vector_record(f, vector_data, vec_size, hdr.vector_stride,
+                    "DataWriter: failed to write vector data at index " + std::to_string(i)));
+                if (write_cosine_inv_norms) {
+                    cosine_inv_norms.push_back(compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
+                }
             }
         }
     }

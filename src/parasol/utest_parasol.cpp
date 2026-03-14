@@ -2,6 +2,8 @@
 
 #include "parasol.h"
 
+#include "storage/input_generator.h"
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -269,6 +271,58 @@ TEST(parasol, generate_stats_and_print_smoke) {
     ASSERT_OK(handle, sk_print(handle));
     const std::string print_out = testing::internal::GetCapturedStdout();
     EXPECT_NE(print_out.find("10 : ["), std::string::npos);
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, generate_bin_creates_and_loads_binary_input) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_generate_bin(handle, 8, 10, 0));
+
+    ASSERT_OK(handle, sk_get(handle, 10));
+    EXPECT_NE(std::string(sk_gres(handle)).find("[ 10.1"), std::string::npos);
+
+    ASSERT_OK(handle, sk_knn(handle, "10.0, 10.0, 10.0, 10.0", 1));
+    EXPECT_EQ(10u, sk_kres(handle, 0));
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(parasol, load_file_accepts_binary_input) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path input_path = root / "input.bin";
+
+    sketch2::GeneratorConfig cfg;
+    cfg.pattern_type = sketch2::PatternType::Sequential;
+    cfg.count = 3;
+    cfg.min_id = 20;
+    cfg.type = sketch2::DataType::f32;
+    cfg.dim = 4;
+    cfg.max_val = 1000;
+    cfg.binary = true;
+    ASSERT_EQ(0, sketch2::generate_input_file(input_path.string(), cfg).code());
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_load_file(handle, input_path.string().c_str()));
+
+    ASSERT_OK(handle, sk_get(handle, 20));
+    EXPECT_NE(std::string(sk_gres(handle)).find("[ 20.1"), std::string::npos);
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));

@@ -30,6 +30,11 @@ san:
 test:
 	ctest --test-dir $(BUILD_DBG) --output-on-failure
 
+# Runs the standalone thread-pool unit tests on demand
+.PHONY: tpooltest
+tpooltest:
+	bin-dbg/utest_thread_pool
+
 # Runs the test suite in release build
 .PHONY: rtest
 rtest:
@@ -54,10 +59,11 @@ pydemo:
 .PHONY: demo
 demo:
 	SKETCH2_LOG_LEVEL=DEBUG python3 src/pytest/demo.py \
-		--count 1M \
+		--count 10M \
 		--dim 256 \
 		--k 10 \
 		--range-size 100K \
+		--binary \
 		--dist-func L2 \
 		--parasol-lib $(BUILD_REL)/lib/libparasol.so \
 		--vlite-lib $(BUILD_REL)/lib/libvlite.so
