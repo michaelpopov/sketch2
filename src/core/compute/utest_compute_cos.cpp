@@ -65,6 +65,7 @@ double reference_cosine_distance(const T *a, const T *b, size_t dim) {
     return 1.0 - cosine;
 }
 
+#if defined(__AVX2__)
 void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {
         const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
@@ -92,6 +93,7 @@ void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
         b[i] = static_cast<float16>(static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f);
     }
 }
+#endif
 #endif
 
 TEST(ComputeCosTest, DistF32ComputesDistance) {

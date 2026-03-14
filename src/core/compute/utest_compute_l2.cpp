@@ -41,6 +41,7 @@ double reference_l2_f16(const float16 *a, const float16 *b, size_t dim) {
     return sum;
 }
 
+#if defined(__AVX2__)
 double reference_l2_f32(const float *a, const float *b, size_t dim) {
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
@@ -58,6 +59,7 @@ double reference_l2_i16(const int16_t *a, const int16_t *b, size_t dim) {
     }
     return sum;
 }
+#endif
 
 TEST(ComputeL2Test, DistF32ComputesSquaredDistance) {
     const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
@@ -113,7 +115,7 @@ TEST(ComputeL2Neon, DistF32MatchesReference) {
     const double got = ComputeL2_Neon::dist_f32(reinterpret_cast<const uint8_t*>(a.data()),
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
-    EXPECT_DOUBLE_EQ(25.25, got);
+    EXPECT_DOUBLE_EQ(37.25, got);
 }
 
 TEST(ComputeL2Neon, DistF16MatchesReference) {

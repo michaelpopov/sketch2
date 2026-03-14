@@ -150,7 +150,7 @@ void scan_data_reader_scored(const DataReader& reader, const std::vector<uint64_
 template <typename ReaderScanFn, typename AccumScoreFn>
 Ret scan_dataset_heap_custom(const Dataset& dataset, size_t count, DistHeap* heap,
         const ReaderScanFn& scan_reader, const AccumScoreFn& accum_score,
-        bool require_accumulator_cosine_inv_norms = false) {
+        [[maybe_unused]] bool require_accumulator_cosine_inv_norms = false) {
     CHECK(dataset.prepare_read_state());
     assert(!require_accumulator_cosine_inv_norms ||
         !dataset.has_accumulator() || dataset.accumulator_has_cosine_inv_norms());
