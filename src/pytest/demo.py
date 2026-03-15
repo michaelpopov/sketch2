@@ -11,9 +11,14 @@ import struct
 import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor
+from math import isfinite
 from pathlib import Path
 
 from parasol_wrapper import Parasol
+
+F16_MAX = 65504.0
+I16_MIN = -32768
+I16_MAX = 32767
 
 
 def log_step(message: str) -> None:
@@ -54,6 +59,22 @@ def quantize_value(type_name: str, value: float) -> float | int:
 
 def quantize_values(type_name: str, values: list[float]) -> list[float | int]:
     return [quantize_value(type_name, value) for value in values]
+
+
+def demo_query_scalar(count: int, type_name: str) -> float | int:
+    raw_value = count * 0.631 + 0.123
+    if type_name == "f32":
+        return quantize_value(type_name, raw_value)
+    if type_name == "f16":
+        bounded = max(-F16_MAX, min(F16_MAX, raw_value))
+        quantized = quantize_value(type_name, bounded)
+        if not isfinite(float(quantized)):
+            raise ValueError("demo f16 query value must remain finite")
+        return quantized
+    if type_name == "i16":
+        bounded = max(I16_MIN, min(I16_MAX, int(raw_value)))
+        return quantize_value(type_name, float(bounded))
+    raise ValueError(f"unsupported type: {type_name}")
 
 
 def fmt_typed_vector(values: list[float | int], type_name: str) -> str:
@@ -325,7 +346,7 @@ def run_demo(
             t1 = time.perf_counter()
             merge_time = t1 - t0
 
-            query_value = count * 0.631 + 0.123
+            query_value = demo_query_scalar(count, type_name)
             query_vec = (
                 fmt_typed_vector(cosine_demo_query(dim, type_name), type_name)
                 if dist_func == "COS"

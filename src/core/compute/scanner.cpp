@@ -6,6 +6,7 @@
 #include "core/compute/compute_l2.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset.h"
+#include "core/utils/log.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -17,6 +18,31 @@ namespace sketch2 {
 namespace {
 
 using DistHeap = std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare>;
+
+const char* dist_func_name(DistFunc func) {
+    switch (func) {
+        case DistFunc::L1: return "L1";
+        case DistFunc::L2: return "L2";
+        case DistFunc::COS: return "COS";
+        default: return "unknown";
+    }
+}
+
+const char* query_result_name(bool items) {
+    return items ? "items" : "ids";
+}
+
+void log_query_dispatch(const char* source, DistFunc func, DataType type, size_t dim,
+        size_t count, bool items) {
+    LOG_INFO << "Scanner query dispatch: backend='"
+             << get_singleton().compute_unit().name()
+             << "' source=" << source
+             << " metric=" << dist_func_name(func)
+             << " type=" << data_type_to_string(type)
+             << " dim=" << dim
+             << " k=" << count
+             << " result=" << query_result_name(items);
+}
 
 void push_result(DistHeap* heap, size_t count, uint64_t id, double dist) {
     const DistItem item{id, dist};
@@ -643,6 +669,7 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
     result.clear();
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
+    log_query_dispatch("dataset", func, type, dataset.dim(), count, false);
     switch (get_singleton().compute_unit().kind()) {
 #if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx512_vnni:
@@ -682,6 +709,7 @@ Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* ve
     result.clear();
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
+    log_query_dispatch("dataset", func, type, dataset.dim(), count, true);
     switch (get_singleton().compute_unit().kind()) {
 #if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx512_vnni:
@@ -721,6 +749,7 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
 
     result.clear();
     const DataType type = reader.type();
+    log_query_dispatch("reader", func, type, reader.dim(), count, false);
     switch (get_singleton().compute_unit().kind()) {
 #if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx512_vnni:
@@ -759,6 +788,7 @@ Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, 
 
     result.clear();
     const DataType type = reader.type();
+    log_query_dispatch("reader", func, type, reader.dim(), count, true);
     switch (get_singleton().compute_unit().kind()) {
 #if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx512_vnni:
