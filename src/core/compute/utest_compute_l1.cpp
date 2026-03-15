@@ -72,6 +72,22 @@ TEST(ComputeL1Neon, DistF32MatchesReference) {
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_DOUBLE_EQ(11.5, got);
+
+    // Also verify across multiple SIMD widths (f32 SIMD width = 4).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<float> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<float>(i % 7 + 1) * 0.5f - 2.0f;
+            b2[i] = static_cast<float>(i % 5) * 0.3f - 0.75f;
+        }
+        double ref = 0.0;
+        for (size_t i = 0; i < dim; ++i)
+            ref += std::abs(static_cast<double>(a2[i]) - static_cast<double>(b2[i]));
+        const double got2 = ComputeL1_Neon::dist_f32(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim);
+        EXPECT_NEAR(ref, got2, std::max(1e-5, ref * 1e-5)) << "dim=" << dim;
+    }
 }
 
 TEST(ComputeL1Neon, DistI16MatchesReference) {
@@ -81,6 +97,22 @@ TEST(ComputeL1Neon, DistI16MatchesReference) {
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_DOUBLE_EQ(14.0, got);
+
+    // Also verify across multiple SIMD widths (i16 SIMD width = 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<int16_t> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<int16_t>(static_cast<int>((i * 13 + 7) % 200) - 100);
+            b2[i] = static_cast<int16_t>(static_cast<int>((i * 17 + 3) % 200) - 100);
+        }
+        int64_t ref_int = 0;
+        for (size_t i = 0; i < dim; ++i)
+            ref_int += std::abs(static_cast<int>(a2[i]) - static_cast<int>(b2[i]));
+        const double got2 = ComputeL1_Neon::dist_i16(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim);
+        EXPECT_DOUBLE_EQ(static_cast<double>(ref_int), got2) << "dim=" << dim;
+    }
 }
 #else
 TEST(ComputeL1Neon, NotBuiltForThisTarget) {
@@ -180,6 +212,17 @@ TEST(ComputeL1Neon, DistF16MatchesReference) {
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_NEAR(7.5, got, 1e-3);
+
+    // Also verify across multiple SIMD widths (f16 SIMD width = 4 or 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        auto a2 = make_buffer<float16>(dim, 0);
+        auto b2 = make_buffer<float16>(dim, 0);
+        fill_f16(a2.ptr, b2.ptr, dim, static_cast<uint32_t>(dim + 42));
+        const double ref = reference_l1_f16(a2.ptr, b2.ptr, dim);
+        const double got2 = ComputeL1_Neon::dist_f16(
+            reinterpret_cast<uint8_t*>(a2.ptr), reinterpret_cast<uint8_t*>(b2.ptr), dim);
+        EXPECT_NEAR(ref, got2, std::max(1e-2, ref * 2e-3)) << "dim=" << dim;
+    }
 }
 #endif
 
@@ -273,6 +316,45 @@ TEST(ComputeL1Neon, DistI16HandlesExtremes) {
     EXPECT_DOUBLE_EQ(ref, got);
 }
 
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeL1Neon, DistF16HandlesExtremes) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    // Use a[i] = ±32752, b[i] = ∓32752 so the f16 difference is ±65504 (f16 max),
+    // which stays in range for vsubq_f16 in the __ARM_FEATURE_FP16_VECTOR_ARITHMETIC path.
+    // With dim=8 each of the 8 f16 accumulator lanes is updated exactly once before
+    // the horizontal sum is promoted to f32, so the lane total (65504) also stays in range.
+    const size_t dim = 8;
+    std::vector<float16> a(dim), b(dim);
+    for (size_t i = 0; i < dim; ++i) {
+        a[i] = (i % 2 == 0) ? float16(32752.0f) : float16(-32752.0f);
+        b[i] = (i % 2 == 0) ? float16(-32752.0f) : float16(32752.0f);
+    }
+    const double ref = reference_l1_f16(a.data(), b.data(), dim);
+    const double got = ComputeL1_Neon::dist_f16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                dim);
+    EXPECT_NEAR(ref, got, std::max(1.0, ref * 1e-5));
+}
+#endif
+
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeL1Neon, DistF16LargeDim) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    const size_t dim = 512;
+    auto a = make_buffer<float16>(dim, 0);
+    auto b = make_buffer<float16>(dim, 0);
+    fill_f16(a.ptr, b.ptr, dim, 9012);
+    const double ref = reference_l1_f16(a.ptr, b.ptr, dim);
+    const double got = ComputeL1_Neon::dist_f16(
+        reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+    EXPECT_NEAR(ref, got, std::max(1e-2, ref * 2e-3));
+}
+#endif
+
 TEST(ComputeL1Neon, DistF32LargeDim) {
     const size_t dim = 512;
     auto a = make_buffer<float>(dim, 0);
@@ -294,6 +376,67 @@ TEST(ComputeL1Neon, DistI16LargeDim) {
         reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
     EXPECT_DOUBLE_EQ(ref, got);
 }
+
+// Misalignment: vld1q handles unaligned loads, but test explicitly to guard against
+// compiler or linker changes that might introduce alignment assumptions.
+TEST(ComputeL1Neon, DistF32MisalignedMatchesReference) {
+    const std::vector<size_t> dims = {1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(4)}) {
+            for (size_t misalign_b : {size_t(0), size_t(8)}) {
+                auto a = make_buffer<float>(dim, misalign_a);
+                auto b = make_buffer<float>(dim, misalign_b);
+                fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 3));
+                const double ref = reference_l1_f32(a.ptr, b.ptr, dim);
+                const double got = ComputeL1_Neon::dist_f32(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, std::max(1e-5, ref * 1e-5))
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+TEST(ComputeL1Neon, DistI16MisalignedMatchesReference) {
+    const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<int16_t>(dim, misalign_a);
+                auto b = make_buffer<int16_t>(dim, misalign_b);
+                fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 5));
+                const double ref = reference_l1_i16(a.ptr, b.ptr, dim);
+                const double got = ComputeL1_Neon::dist_i16(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_DOUBLE_EQ(ref, got)
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeL1Neon, DistF16MisalignedMatchesReference) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<float16>(dim, misalign_a);
+                auto b = make_buffer<float16>(dim, misalign_b);
+                fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 11));
+                const double ref = reference_l1_f16(a.ptr, b.ptr, dim);
+                const double got = ComputeL1_Neon::dist_f16(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, std::max(1e-2, ref * 2e-3))
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+#endif
 
 // Dispatch verification: on aarch64, resolve_dist returns NEON function pointers.
 TEST(ComputeL1Neon, ResolveDistUsesNeonF32Path) {

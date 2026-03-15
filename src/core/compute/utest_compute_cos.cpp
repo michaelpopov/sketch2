@@ -231,6 +231,20 @@ TEST(ComputeCosNeon, DotF32MatchesReference) {
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
+
+    // Also verify across multiple SIMD widths (f32 SIMD width = 4).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<float> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<float>(i % 7 + 1) * 0.5f - 2.0f;
+            b2[i] = static_cast<float>(i % 5) * 0.3f - 0.75f;
+        }
+        const double ref = reference_dot(a2.data(), b2.data(), dim);
+        const double got2 = ComputeCos_Neon::dot_f32(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim);
+        EXPECT_NEAR(ref, got2, std::max(1e-5, std::abs(ref) * 5e-5)) << "dim=" << dim;
+    }
 }
 
 TEST(ComputeCosNeon, DistF32MatchesReference) {
@@ -240,6 +254,20 @@ TEST(ComputeCosNeon, DistF32MatchesReference) {
                                                  reinterpret_cast<const uint8_t*>(b.data()),
                                                  a.size());
     EXPECT_NEAR(reference_cosine_distance(a.data(), b.data(), a.size()), got, 1e-6);
+
+    // Also verify across multiple SIMD widths (f32 SIMD width = 4).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<float> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<float>(i % 7 + 1) * 0.5f - 2.0f;
+            b2[i] = static_cast<float>(i % 5) * 0.3f - 0.75f;
+        }
+        const double ref = reference_cosine_distance(a2.data(), b2.data(), dim);
+        const double got2 = ComputeCos_Neon::dist_f32(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim);
+        EXPECT_NEAR(ref, got2, 5e-5) << "dim=" << dim;
+    }
 }
 
 #if defined(__FLT16_MANT_DIG__)
@@ -254,6 +282,20 @@ TEST(ComputeCosNeon, DotF16MatchesReference) {
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
+
+    // Also verify across multiple SIMD widths (f16 SIMD width = 4 or 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<float16> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<float16>(static_cast<float>(i % 7 + 1) * 0.5f - 2.0f);
+            b2[i] = static_cast<float16>(static_cast<float>(i % 5) * 0.3f - 0.75f);
+        }
+        const double ref = reference_dot(a2.data(), b2.data(), dim);
+        const double got2 = ComputeCos_Neon::dot_f16(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim);
+        EXPECT_NEAR(ref, got2, std::max(1e-2, std::abs(ref) * 1e-2)) << "dim=" << dim;
+    }
 }
 #endif
 
@@ -264,6 +306,20 @@ TEST(ComputeCosNeon, DotI16MatchesReference) {
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
+
+    // Also verify across multiple SIMD widths (i16 SIMD width = 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<int16_t> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<int16_t>(static_cast<int>((i * 13 + 7) % 200) - 100);
+            b2[i] = static_cast<int16_t>(static_cast<int>((i * 17 + 3) % 200) - 100);
+        }
+        const double ref = reference_dot(a2.data(), b2.data(), dim);
+        const double got2 = ComputeCos_Neon::dot_i16(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim);
+        EXPECT_DOUBLE_EQ(ref, got2) << "dim=" << dim;
+    }
 }
 
 TEST(ComputeCosNeon, DistI16MatchesReference) {
@@ -273,6 +329,20 @@ TEST(ComputeCosNeon, DistI16MatchesReference) {
                                                  reinterpret_cast<const uint8_t*>(b.data()),
                                                  a.size());
     EXPECT_NEAR(reference_cosine_distance(a.data(), b.data(), a.size()), got, 1e-6);
+
+    // Also verify across multiple SIMD widths (i16 SIMD width = 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<int16_t> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<int16_t>(static_cast<int>((i * 13 + 7) % 200) - 100);
+            b2[i] = static_cast<int16_t>(static_cast<int>((i * 17 + 3) % 200) - 100);
+        }
+        const double ref = reference_cosine_distance(a2.data(), b2.data(), dim);
+        const double got2 = ComputeCos_Neon::dist_i16(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim);
+        EXPECT_NEAR(ref, got2, 2e-4) << "dim=" << dim;
+    }
 }
 
 static void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
@@ -312,6 +382,19 @@ TEST(ComputeCosNeon, SquaredNormF32MatchesReference) {
     const double got = ComputeCos_Neon::squared_norm_f32(
         reinterpret_cast<const uint8_t*>(a.data()), a.size());
     EXPECT_DOUBLE_EQ(55.0, got);
+
+    // Also verify across multiple SIMD widths (f32 SIMD width = 4).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<float> a2(dim);
+        for (size_t i = 0; i < dim; ++i)
+            a2[i] = static_cast<float>(i % 7 + 1) * 0.5f - 2.0f;
+        double ref = 0.0;
+        for (size_t i = 0; i < dim; ++i)
+            ref += static_cast<double>(a2[i]) * static_cast<double>(a2[i]);
+        const double got2 = ComputeCos_Neon::squared_norm_f32(
+            reinterpret_cast<const uint8_t*>(a2.data()), dim);
+        EXPECT_NEAR(ref, got2, std::max(1e-5, ref * 1e-5)) << "dim=" << dim;
+    }
 }
 
 TEST(ComputeCosNeon, SquaredNormI16MatchesReference) {
@@ -320,6 +403,19 @@ TEST(ComputeCosNeon, SquaredNormI16MatchesReference) {
     const double got = ComputeCos_Neon::squared_norm_i16(
         reinterpret_cast<const uint8_t*>(a.data()), a.size());
     EXPECT_DOUBLE_EQ(5500.0, got);
+
+    // Also verify across multiple SIMD widths (i16 SIMD width = 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<int16_t> a2(dim);
+        for (size_t i = 0; i < dim; ++i)
+            a2[i] = static_cast<int16_t>(static_cast<int>((i * 13 + 7) % 200) - 100);
+        double ref = 0.0;
+        for (size_t i = 0; i < dim; ++i)
+            ref += static_cast<double>(a2[i]) * static_cast<double>(a2[i]);
+        const double got2 = ComputeCos_Neon::squared_norm_i16(
+            reinterpret_cast<const uint8_t*>(a2.data()), dim);
+        EXPECT_DOUBLE_EQ(ref, got2) << "dim=" << dim;
+    }
 }
 
 #if defined(__FLT16_MANT_DIG__)
@@ -332,6 +428,19 @@ TEST(ComputeCosNeon, SquaredNormF16MatchesReference) {
     const double got = ComputeCos_Neon::squared_norm_f16(
         reinterpret_cast<const uint8_t*>(a.data()), a.size());
     EXPECT_NEAR(30.0, got, 1e-2);
+
+    // Also verify across multiple SIMD widths (f16 SIMD width = 4 or 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<float16> a2(dim);
+        for (size_t i = 0; i < dim; ++i)
+            a2[i] = static_cast<float16>(static_cast<float>(i % 7 + 1) * 0.5f - 2.0f);
+        double ref = 0.0;
+        for (size_t i = 0; i < dim; ++i)
+            ref += static_cast<double>(a2[i]) * static_cast<double>(a2[i]);
+        const double got2 = ComputeCos_Neon::squared_norm_f16(
+            reinterpret_cast<const uint8_t*>(a2.data()), dim);
+        EXPECT_NEAR(ref, got2, std::max(1e-2, ref * 1e-2)) << "dim=" << dim;
+    }
 }
 #endif
 
@@ -344,6 +453,23 @@ TEST(ComputeCosNeon, DistF32WithQueryNormMatchesReference) {
         reinterpret_cast<const uint8_t*>(b.data()),
         a.size(), 8.25);
     EXPECT_NEAR(reference_cosine_distance(a.data(), b.data(), a.size()), got, 1e-6);
+
+    // Also verify across multiple SIMD widths (f32 SIMD width = 4).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<float> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<float>(i % 7 + 1) * 0.5f - 2.0f;
+            b2[i] = static_cast<float>(i % 5) * 0.3f - 0.75f;
+        }
+        double b_norm_sq = 0.0;
+        for (size_t i = 0; i < dim; ++i)
+            b_norm_sq += static_cast<double>(b2[i]) * static_cast<double>(b2[i]);
+        const double ref = reference_cosine_distance(a2.data(), b2.data(), dim);
+        const double got2 = ComputeCos_Neon::dist_f32_with_query_norm(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim, b_norm_sq);
+        EXPECT_NEAR(ref, got2, 5e-5) << "dim=" << dim;
+    }
 }
 
 TEST(ComputeCosNeon, DistI16WithQueryNormMatchesReference) {
@@ -355,6 +481,23 @@ TEST(ComputeCosNeon, DistI16WithQueryNormMatchesReference) {
         reinterpret_cast<const uint8_t*>(b.data()),
         a.size(), 529.0);
     EXPECT_NEAR(reference_cosine_distance(a.data(), b.data(), a.size()), got, 1e-6);
+
+    // Also verify across multiple SIMD widths (i16 SIMD width = 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<int16_t> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<int16_t>(static_cast<int>((i * 13 + 7) % 200) - 100);
+            b2[i] = static_cast<int16_t>(static_cast<int>((i * 17 + 3) % 200) - 100);
+        }
+        double b_norm_sq = 0.0;
+        for (size_t i = 0; i < dim; ++i)
+            b_norm_sq += static_cast<double>(b2[i]) * static_cast<double>(b2[i]);
+        const double ref = reference_cosine_distance(a2.data(), b2.data(), dim);
+        const double got2 = ComputeCos_Neon::dist_i16_with_query_norm(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim, b_norm_sq);
+        EXPECT_NEAR(ref, got2, 2e-4) << "dim=" << dim;
+    }
 }
 
 #if defined(__FLT16_MANT_DIG__)
@@ -370,6 +513,23 @@ TEST(ComputeCosNeon, DistF16WithQueryNormMatchesReference) {
         reinterpret_cast<const uint8_t*>(b.data()),
         a.size(), 7.5);
     EXPECT_NEAR(reference_cosine_distance(a.data(), b.data(), a.size()), got, 1e-2);
+
+    // Also verify across multiple SIMD widths (f16 SIMD width = 4 or 8).
+    for (size_t dim : {size_t(16), size_t(32)}) {
+        std::vector<float16> a2(dim), b2(dim);
+        for (size_t i = 0; i < dim; ++i) {
+            a2[i] = static_cast<float16>(static_cast<float>(i % 7 + 1) * 0.5f - 2.0f);
+            b2[i] = static_cast<float16>(static_cast<float>(i % 5) * 0.3f - 0.75f);
+        }
+        double b_norm_sq = 0.0;
+        for (size_t i = 0; i < dim; ++i)
+            b_norm_sq += static_cast<double>(b2[i]) * static_cast<double>(b2[i]);
+        const double ref = reference_cosine_distance(a2.data(), b2.data(), dim);
+        const double got2 = ComputeCos_Neon::dist_f16_with_query_norm(
+            reinterpret_cast<const uint8_t*>(a2.data()),
+            reinterpret_cast<const uint8_t*>(b2.data()), dim, b_norm_sq);
+        EXPECT_NEAR(ref, got2, 1e-2) << "dim=" << dim;
+    }
 }
 #endif
 
@@ -505,6 +665,46 @@ TEST(ComputeCosNeon, DistI16HandlesExtremes) {
     EXPECT_NEAR(ref, got, 2e-4);
 }
 
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeCosNeon, DistF16HandlesExtremes) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    // b = -a: dot(a,b) = -||a||^2, cosine = -1, distance = 2.0.
+    // All arithmetic in f32 after vcvt; 65504^2 is exactly representable in f32.
+    const size_t dim = 8;
+    std::vector<float16> a(dim), b(dim);
+    for (size_t i = 0; i < dim; ++i) {
+        a[i] = (i % 2 == 0) ? float16(65504.0f) : float16(-65504.0f);
+        b[i] = (i % 2 == 0) ? float16(-65504.0f) : float16(65504.0f);
+    }
+    const double ref = reference_cosine_distance(a.data(), b.data(), dim);
+    const double got = ComputeCos_Neon::dist_f16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                 reinterpret_cast<const uint8_t*>(b.data()),
+                                                 dim);
+    EXPECT_NEAR(2.0, ref, 1e-10);   // sanity-check the reference itself
+    EXPECT_NEAR(ref, got, 1e-4);
+}
+
+TEST(ComputeCosNeon, DotF16HandlesExtremes) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    // dot(a, -a) = -||a||^2; all products computed in f32 after vcvt.
+    const size_t dim = 8;
+    std::vector<float16> a(dim), b(dim);
+    for (size_t i = 0; i < dim; ++i) {
+        a[i] = float16(65504.0f);
+        b[i] = float16(-65504.0f);
+    }
+    const double ref = reference_dot(a.data(), b.data(), dim);
+    const double got = ComputeCos_Neon::dot_f16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                reinterpret_cast<const uint8_t*>(b.data()),
+                                                dim);
+    EXPECT_NEAR(ref, got, std::max(1.0, std::abs(ref) * 1e-5));
+}
+#endif
+
 TEST(ComputeCosNeon, DotF32LargeDim) {
     const size_t dim = 128;
     auto a = make_buffer<float>(dim, 0);
@@ -538,6 +738,154 @@ TEST(ComputeCosNeon, DistI16LargeDim) {
     EXPECT_NEAR(ref, got, 2e-4);
 }
 
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeCosNeon, DotF16LargeDim) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    const size_t dim = 128;
+    auto a = make_buffer<float16>(dim, 0);
+    auto b = make_buffer<float16>(dim, 0);
+    fill_f16(a.ptr, b.ptr, dim, 9999);
+    const double ref = reference_dot(a.ptr, b.ptr, dim);
+    const double got = ComputeCos_Neon::dot_f16(
+        reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+    EXPECT_NEAR(ref, got, std::max(1e-2, std::abs(ref) * 1e-2));
+}
+
+TEST(ComputeCosNeon, DistF16LargeDim) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    const size_t dim = 128;
+    auto a = make_buffer<float16>(dim, 0);
+    auto b = make_buffer<float16>(dim, 0);
+    fill_f16(a.ptr, b.ptr, dim, 12345);
+    const double ref = reference_cosine_distance(a.ptr, b.ptr, dim);
+    const double got = ComputeCos_Neon::dist_f16(
+        reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+    EXPECT_NEAR(ref, got, 1e-2);
+}
+#endif
+
+// Misalignment: vld1q handles unaligned loads, but test explicitly to guard against
+// compiler or linker changes that might introduce alignment assumptions.
+TEST(ComputeCosNeon, DotF32MisalignedMatchesReference) {
+    const std::vector<size_t> dims = {1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(4)}) {
+            for (size_t misalign_b : {size_t(0), size_t(8)}) {
+                auto a = make_buffer<float>(dim, misalign_a);
+                auto b = make_buffer<float>(dim, misalign_b);
+                fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 101));
+                const double ref = reference_dot(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_Neon::dot_f32(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, std::max(1e-5, std::abs(ref) * 5e-5))
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+TEST(ComputeCosNeon, DistF32MisalignedMatchesReference) {
+    const std::vector<size_t> dims = {1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(4)}) {
+            for (size_t misalign_b : {size_t(0), size_t(8)}) {
+                auto a = make_buffer<float>(dim, misalign_a);
+                auto b = make_buffer<float>(dim, misalign_b);
+                fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 3));
+                const double ref = reference_cosine_distance(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_Neon::dist_f32(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, 5e-5)
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+TEST(ComputeCosNeon, DotI16MisalignedMatchesReference) {
+    const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<int16_t>(dim, misalign_a);
+                auto b = make_buffer<int16_t>(dim, misalign_b);
+                fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 151));
+                const double ref = reference_dot(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_Neon::dot_i16(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_DOUBLE_EQ(ref, got)
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+TEST(ComputeCosNeon, DistI16MisalignedMatchesReference) {
+    const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<int16_t>(dim, misalign_a);
+                auto b = make_buffer<int16_t>(dim, misalign_b);
+                fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 19));
+                const double ref = reference_cosine_distance(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_Neon::dist_i16(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, 2e-4)
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeCosNeon, DotF16MisalignedMatchesReference) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<float16>(dim, misalign_a);
+                auto b = make_buffer<float16>(dim, misalign_b);
+                fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 131));
+                const double ref = reference_dot(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_Neon::dot_f16(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, std::max(1e-2, std::abs(ref) * 1e-2))
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+TEST(ComputeCosNeon, DistF16MisalignedMatchesReference) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<float16>(dim, misalign_a);
+                auto b = make_buffer<float16>(dim, misalign_b);
+                fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 11));
+                const double ref = reference_cosine_distance(a.ptr, b.ptr, dim);
+                const double got = ComputeCos_Neon::dist_f16(
+                    reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, 1e-2)
+                    << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+#endif
+
 // Dispatch verification: on aarch64, resolve_* returns NEON function pointers.
 TEST(ComputeCosNeon, ResolveDistUsesNeonF32Path) {
     EXPECT_EQ(&ComputeCos_Neon::dist_f32, ComputeCos::resolve_dist(DataType::f32));
@@ -570,6 +918,13 @@ TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonI16Path) {
     EXPECT_EQ(&ComputeCos_Neon::dist_i16_with_query_norm,
               ComputeCos::resolve_dist_with_query_norm(DataType::i16));
 }
+
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonF16Path) {
+    EXPECT_EQ(&ComputeCos_Neon::dist_f16_with_query_norm,
+              ComputeCos::resolve_dist_with_query_norm(DataType::f16));
+}
+#endif
 
 #else
 TEST(ComputeCosNeon, NotBuiltForThisTarget) {
