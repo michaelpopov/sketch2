@@ -16,6 +16,11 @@
 // - the Python Parasol wrapper before sk_connect()
 // - sqlite3_vlite_init() when the SQLite extension is loaded directly
 //
+// Compute backend selection is also process-wide. The singleton chooses the
+// best supported ComputeUnit when it is first created, optionally honoring the
+// SKETCH2_COMPUTE_BACKEND environment override. Queries then reuse that fixed
+// selection. Tests may override the selected backend explicitly.
+//
 // Configuration precedence is:
 // - start from built-in defaults
 // - if SKETCH2_CONFIG points to a readable ini file, read values from it
@@ -38,6 +43,8 @@
 
 #pragma once
 
+#include "compute_unit.h"
+
 #include <memory>
 #include <mutex>
 #include <string>
@@ -52,7 +59,9 @@ public:
     static bool runtime_init();
     static bool apply_config_from_env();
     static bool apply_config_file(const std::string& path);
+    static bool force_compute_unit_for_testing(ComputeBackendKind kind);
 
+    const ComputeUnit& compute_unit() const;
     const std::shared_ptr<ThreadPool>& thread_pool() const;
 
 private:
@@ -71,6 +80,7 @@ private:
     bool runtime_init_();
     bool apply_config_from_env_();
     bool apply_config_file_(const std::string& path);
+    bool force_compute_unit_for_testing_(ComputeBackendKind kind);
     bool collect_config_values_(const std::string* path, ConfigValues* values);
     bool apply_config_values_(const ConfigValues& values);
     bool apply_log_level_(const std::string& level);
@@ -78,6 +88,7 @@ private:
     bool apply_log_file_(const std::string& path);
 
     std::mutex mutex_;
+    ComputeUnit compute_unit_;
     std::shared_ptr<ThreadPool> thread_pool_;
     bool initialized_ = false;
 };

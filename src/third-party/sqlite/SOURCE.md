@@ -7,4 +7,3 @@
 - `sqlite3.c`: Amalgamated SQLite library source.
 - `sqlite3.h`: Public SQLite C API header.
 - `sqlite3ext.h`: SQLite extension API header.
-

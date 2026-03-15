@@ -18,6 +18,8 @@ constexpr unsigned int kFallbackThreadPoolCap = 64;
 constexpr unsigned int kHardThreadPoolCap = 256;
 constexpr unsigned int kThreadPoolCapMultiplier = 4;
 
+// Clamp configured worker counts relative to hardware so an aggressive config
+// cannot spawn an unbounded number of threads on large machines.
 unsigned int max_thread_pool_size() {
     const unsigned int hardware_threads = std::thread::hardware_concurrency();
     const unsigned int scaled_threads = hardware_threads == 0
@@ -28,7 +30,8 @@ unsigned int max_thread_pool_size() {
 
 } // namespace
 
-Singleton::Singleton() {}
+Singleton::Singleton()
+    : compute_unit_(ComputeUnit::detect_best()) {}
 
 Singleton& Singleton::instance() {
     static Singleton singleton;
@@ -55,10 +58,21 @@ bool Singleton::apply_config_file(const std::string& path) {
     return instance().apply_config_file_(path);
 }
 
+bool Singleton::force_compute_unit_for_testing(ComputeBackendKind kind) {
+    return instance().force_compute_unit_for_testing_(kind);
+}
+
+const ComputeUnit& Singleton::compute_unit() const {
+    return compute_unit_;
+}
+
 const std::shared_ptr<ThreadPool>& Singleton::thread_pool() const {
     return thread_pool_;
 }
 
+// runtime_init_ always seals the singleton, even when it ends up using only
+// defaults. Once the process commits to a runtime configuration, later init
+// attempts are rejected so logging, threading, and compute dispatch stay fixed.
 bool Singleton::runtime_init_() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {
@@ -71,6 +85,9 @@ bool Singleton::runtime_init_() {
     return applied;
 }
 
+// This narrower helper is mainly for tests and focused init paths. Unlike
+// runtime_init_, it only seals on success so callers can recover from bad env
+// input and try another initialization path.
 bool Singleton::apply_config_from_env_() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {
@@ -85,6 +102,8 @@ bool Singleton::apply_config_from_env_() {
     return applied;
 }
 
+// File-based init follows the same "seal only on success" rule as the env-only
+// helper so callers can report or recover from a bad config file path.
 bool Singleton::apply_config_file_(const std::string& path) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {
@@ -99,6 +118,20 @@ bool Singleton::apply_config_file_(const std::string& path) {
     return applied;
 }
 
+// Tests are allowed to force the active compute backend after initialization so
+// resolver selection can be verified without rebuilding for each ISA variant.
+bool Singleton::force_compute_unit_for_testing_(ComputeBackendKind kind) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!ComputeUnit::is_supported(kind)) {
+        return false;
+    }
+    compute_unit_ = ComputeUnit(kind);
+    return true;
+}
+
+// Merge configuration in precedence order: optional file first, then direct
+// environment overrides. The merged struct is returned instead of mutating
+// state incrementally so callers can decide when to seal the singleton.
 bool Singleton::collect_config_values_(const std::string* path, ConfigValues* values) {
     if (values == nullptr) {
         return false;
@@ -146,6 +179,8 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
     return true;
 }
 
+// Apply sinks before log level so any warnings or info messages emitted by
+// later steps already flow to the final destination.
 bool Singleton::apply_config_values_(const ConfigValues& values) {
     bool applied = false;
 
@@ -173,6 +208,8 @@ bool Singleton::apply_log_level_(const std::string& level) {
     return true;
 }
 
+// Parse, clamp, and create the pool in one place so all initialization paths
+// share the same enable/disable semantics and maximum-size protection.
 bool Singleton::apply_thread_pool_size_(const std::string& size) {
     if (size.empty()) {
         return false;

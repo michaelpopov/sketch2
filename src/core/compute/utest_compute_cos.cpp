@@ -16,6 +16,10 @@ using namespace sketch2;
 
 namespace {
 
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+#define SKETCH2_COMPUTE_AVX2_TESTS 1
+#endif
+
 template <typename T>
 struct TestBuffer {
     std::vector<uint8_t> storage;
@@ -65,7 +69,7 @@ double reference_cosine_distance(const T *a, const T *b, size_t dim) {
     return 1.0 - cosine;
 }
 
-#if defined(__AVX2__)
+#if defined(SKETCH2_COMPUTE_AVX2_TESTS)
 void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {
         const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
@@ -267,8 +271,10 @@ TEST(ComputeCosTest, ResolveSquaredNormComputesKnownValues) {
 #endif
 }
 
-#if !defined(__AVX2__) && !defined(__aarch64__)
 TEST(ComputeCosScalar, DistI16UsesScalarFallback) {
+    if (get_singleton().compute_unit().kind() != ComputeBackendKind::scalar) {
+        GTEST_SKIP() << "scalar fallback is not the active runtime implementation";
+    }
     const std::vector<int16_t> a = {1, 2, -1, 0};
     const std::vector<int16_t> b = {2, 1, -2, 0};
     ComputeCos cos;
@@ -277,11 +283,6 @@ TEST(ComputeCosScalar, DistI16UsesScalarFallback) {
                                 DataType::i16, a.size());
     EXPECT_NEAR(reference_cosine_distance(a.data(), b.data(), a.size()), got, 1e-12);
 }
-#else
-TEST(ComputeCosScalar, NotBuiltForThisTarget) {
-    GTEST_SKIP() << "scalar fallback is not the active implementation on this target";
-}
-#endif
 
 #if defined(__aarch64__)
 TEST(ComputeCosNeon, DotF32MatchesReference) {
@@ -1073,8 +1074,31 @@ TEST(ComputeCosNeon, NotBuiltForThisTarget) {
 }
 #endif
 
-#if defined(__AVX2__)
-TEST(ComputeCosAVX2, DotF32MatchesReferenceAlignedAndUnaligned) {
+#if defined(SKETCH2_COMPUTE_AVX2_TESTS)
+
+class ComputeCosAVX2 : public ::testing::Test {
+protected:
+    void SetUp() override {
+        if (!ComputeUnit::is_supported(ComputeBackendKind::avx2)) {
+            GTEST_SKIP() << "AVX2 is not supported on this CPU";
+        }
+        original_ = get_singleton().compute_unit().kind();
+        ASSERT_TRUE(Singleton::force_compute_unit_for_testing(ComputeBackendKind::avx2));
+        overridden_ = true;
+    }
+
+    void TearDown() override {
+        if (overridden_) {
+            EXPECT_TRUE(Singleton::force_compute_unit_for_testing(original_));
+        }
+    }
+
+private:
+    ComputeBackendKind original_ = ComputeBackendKind::scalar;
+    bool overridden_ = false;
+};
+
+TEST_F(ComputeCosAVX2, DotF32MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 31, 32, 33, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(4)}) {
@@ -1093,7 +1117,7 @@ TEST(ComputeCosAVX2, DotF32MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeCosAVX2, DistF32ZeroDimIsZero) {
+TEST_F(ComputeCosAVX2, DistF32ZeroDimIsZero) {
     auto a = make_buffer<float>(1, 0);
     auto b = make_buffer<float>(1, 0);
     const double got = ComputeCos_AVX2::dist_f32(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1101,7 +1125,7 @@ TEST(ComputeCosAVX2, DistF32ZeroDimIsZero) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-TEST(ComputeCosAVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeCosAVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 31, 32, 33, 63, 64, 65, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(4)}) {
@@ -1121,7 +1145,7 @@ TEST(ComputeCosAVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
 }
 
 #if defined(__FLT16_MANT_DIG__)
-TEST(ComputeCosAVX2, DotF16MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeCosAVX2, DotF16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 31, 32, 33, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -1140,7 +1164,7 @@ TEST(ComputeCosAVX2, DotF16MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeCosAVX2, DistF16ZeroDimIsZero) {
+TEST_F(ComputeCosAVX2, DistF16ZeroDimIsZero) {
     auto a = make_buffer<float16>(1, 0);
     auto b = make_buffer<float16>(1, 0);
     const double got = ComputeCos_AVX2::dist_f16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1148,7 +1172,7 @@ TEST(ComputeCosAVX2, DistF16ZeroDimIsZero) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-TEST(ComputeCosAVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeCosAVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -1167,16 +1191,16 @@ TEST(ComputeCosAVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeCosAVX2, ResolveDistUsesAVX2F16Path) {
+TEST_F(ComputeCosAVX2, ResolveDistUsesAVX2F16Path) {
     EXPECT_EQ(&ComputeCos_AVX2::dist_f16, ComputeCos::resolve_dist(DataType::f16));
 }
 
-TEST(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F16Path) {
+TEST_F(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F16Path) {
     EXPECT_EQ(&ComputeCos_AVX2::squared_norm_f16, ComputeCos::resolve_squared_norm(DataType::f16));
 }
 #endif
 
-TEST(ComputeCosAVX2, DistI16ZeroDimIsZero) {
+TEST_F(ComputeCosAVX2, DistI16ZeroDimIsZero) {
     auto a = make_buffer<int16_t>(1, 0);
     auto b = make_buffer<int16_t>(1, 0);
     const double got = ComputeCos_AVX2::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1184,7 +1208,7 @@ TEST(ComputeCosAVX2, DistI16ZeroDimIsZero) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-TEST(ComputeCosAVX2, DotI16MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeCosAVX2, DotI16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 96, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -1203,7 +1227,7 @@ TEST(ComputeCosAVX2, DotI16MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeCosAVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeCosAVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 47, 48, 49, 96, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -1222,13 +1246,20 @@ TEST(ComputeCosAVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F32Path) {
+TEST_F(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F32Path) {
     EXPECT_EQ(&ComputeCos_AVX2::squared_norm_f32, ComputeCos::resolve_squared_norm(DataType::f32));
 }
 
-TEST(ComputeCosAVX2, ResolveSquaredNormUsesAVX2I16Path) {
+TEST_F(ComputeCosAVX2, ResolveSquaredNormUsesAVX2I16Path) {
     EXPECT_EQ(&ComputeCos_AVX2::squared_norm_i16, ComputeCos::resolve_squared_norm(DataType::i16));
 }
+
+#else
+
+TEST(ComputeCosAVX2, NotBuiltForThisTarget) {
+    GTEST_SKIP() << "AVX2 is not enabled for this target";
+}
+
 #endif
 
 } // namespace

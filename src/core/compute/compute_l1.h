@@ -2,12 +2,13 @@
 
 #pragma once
 #include "core/compute/compute.h"
+#include "core/utils/singleton.h"
 #include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
 
-#if defined(__AVX2__)
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
 #include "compute_l1_avx2.h"
 #elif defined(__aarch64__)
 #include "compute_l1_neon.h"
@@ -24,6 +25,11 @@ public:
     using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);
 
     double dist(const uint8_t *a, const uint8_t *b, DataType type, size_t dim) override;
+    // Runtime backend selection intentionally stays here with the typed
+    // entrypoints so scanner/template code can resolve a concrete kernel once
+    // and then stay on that path. This is not a "free" helper: it reads the
+    // process-wide ComputeUnit from the singleton, so callers should treat it
+    // as setup-time dispatch and cache the result if they plan to reuse it.
     static DistFn resolve_dist(DataType type);
 
     // Typed entrypoints used by scanner template dispatch and scalar fallback.
@@ -39,23 +45,39 @@ inline double ComputeL1::dist(const uint8_t *a, const uint8_t *b, DataType type,
 
 inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
     validate_type(type);
-    switch (type) {
-#if defined(__AVX2__)
-    case DataType::f32: return &ComputeL1_AVX2::dist_f32;
-    case DataType::f16: return &ComputeL1_AVX2::dist_f16;
-    case DataType::i16: return &ComputeL1_AVX2::dist_i16;
-#elif defined(__aarch64__)
-    case DataType::f32: return &ComputeL1_Neon::dist_f32;
-    case DataType::f16: return &ComputeL1_Neon::dist_f16;
-    case DataType::i16: return &ComputeL1_Neon::dist_i16;
-#else
-    case DataType::f32: return &dist_f32;
-    case DataType::f16: return &dist_f16;
-    case DataType::i16: return &dist_i16;
+    switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx2:
+            switch (type) {
+                case DataType::f32: return &ComputeL1_AVX2::dist_f32;
+                case DataType::f16: return &ComputeL1_AVX2::dist_f16;
+                case DataType::i16: return &ComputeL1_AVX2::dist_i16;
+                default: break;
+            }
+            break;
 #endif
-    default:
-        assert(false);
-        throw std::runtime_error("ComputeL1::resolve_dist: unsupported data type");
+#if defined(__aarch64__)
+        case ComputeBackendKind::neon:
+            switch (type) {
+                case DataType::f32: return &ComputeL1_Neon::dist_f32;
+                case DataType::f16: return &ComputeL1_Neon::dist_f16;
+                case DataType::i16: return &ComputeL1_Neon::dist_i16;
+                default: break;
+            }
+            break;
+#endif
+        case ComputeBackendKind::scalar:
+        default:
+            break;
+    }
+
+    switch (type) {
+        case DataType::f32: return &dist_f32;
+        case DataType::f16: return &dist_f16;
+        case DataType::i16: return &dist_i16;
+        default:
+            assert(false);
+            throw std::runtime_error("ComputeL1::resolve_dist: unsupported data type");
     }
 }
 

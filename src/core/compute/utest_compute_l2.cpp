@@ -15,6 +15,10 @@ using namespace sketch2;
 
 namespace {
 
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+#define SKETCH2_COMPUTE_AVX2_TESTS 1
+#endif
+
 template <typename T>
 struct TestBuffer {
     std::vector<uint8_t> storage;
@@ -32,7 +36,7 @@ TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
     return out;
 }
 
-double reference_l2_f16(const float16 *a, const float16 *b, size_t dim) {
+[[maybe_unused]] double reference_l2_f16(const float16 *a, const float16 *b, size_t dim) {
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
         const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
@@ -41,7 +45,7 @@ double reference_l2_f16(const float16 *a, const float16 *b, size_t dim) {
     return sum;
 }
 
-#if defined(__AVX2__)
+#if defined(SKETCH2_COMPUTE_AVX2_TESTS)
 double reference_l2_f32(const float *a, const float *b, size_t dim) {
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
@@ -480,8 +484,32 @@ TEST(ComputeL2Neon, NotBuiltForThisTarget) {
 }
 #endif
 
-#if defined(__AVX2__) && defined(__FLT16_MANT_DIG__)
-TEST(ComputeL2AVX2, DistF16ZeroDimIsZero) {
+#if defined(SKETCH2_COMPUTE_AVX2_TESTS)
+
+class ComputeL2AVX2 : public ::testing::Test {
+protected:
+    void SetUp() override {
+        if (!ComputeUnit::is_supported(ComputeBackendKind::avx2)) {
+            GTEST_SKIP() << "AVX2 is not supported on this CPU";
+        }
+        original_ = get_singleton().compute_unit().kind();
+        ASSERT_TRUE(Singleton::force_compute_unit_for_testing(ComputeBackendKind::avx2));
+        overridden_ = true;
+    }
+
+    void TearDown() override {
+        if (overridden_) {
+            EXPECT_TRUE(Singleton::force_compute_unit_for_testing(original_));
+        }
+    }
+
+private:
+    ComputeBackendKind original_ = ComputeBackendKind::scalar;
+    bool overridden_ = false;
+};
+
+#if defined(__FLT16_MANT_DIG__)
+TEST_F(ComputeL2AVX2, DistF16ZeroDimIsZero) {
     auto a = make_buffer<float16>(1, 0);
     auto b = make_buffer<float16>(1, 0);
     const double got = ComputeL2_AVX2::dist_f16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -498,7 +526,7 @@ void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
     }
 }
 
-TEST(ComputeL2AVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeL2AVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -518,12 +546,11 @@ TEST(ComputeL2AVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeL2AVX2, ResolveDistUsesAVX2F16Path) {
+TEST_F(ComputeL2AVX2, ResolveDistUsesAVX2F16Path) {
     EXPECT_EQ(&ComputeL2_AVX2::dist_f16, ComputeL2::resolve_dist(DataType::f16));
 }
 #endif
 
-#if defined(__AVX2__)
 void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {
         const int32_t ai = static_cast<int32_t>((i * 37 + seed * 11) % 2001) - 1000;
@@ -533,7 +560,7 @@ void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
     }
 }
 
-TEST(ComputeL2AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeL2AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(4)}) {
@@ -553,7 +580,7 @@ TEST(ComputeL2AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeL2AVX2, ResolveDistUsesAVX2F32Path) {
+TEST_F(ComputeL2AVX2, ResolveDistUsesAVX2F32Path) {
     EXPECT_EQ(&ComputeL2_AVX2::dist_f32, ComputeL2::resolve_dist(DataType::f32));
 }
 
@@ -566,7 +593,7 @@ void fill_i16(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
     }
 }
 
-TEST(ComputeL2AVX2, DistI16ZeroDimIsZero) {
+TEST_F(ComputeL2AVX2, DistI16ZeroDimIsZero) {
     auto a = make_buffer<int16_t>(1, 0);
     auto b = make_buffer<int16_t>(1, 0);
     const double got = ComputeL2_AVX2::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -574,7 +601,7 @@ TEST(ComputeL2AVX2, DistI16ZeroDimIsZero) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-TEST(ComputeL2AVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeL2AVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 47, 48, 49, 96, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -593,7 +620,7 @@ TEST(ComputeL2AVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeL2AVX2, DistI16HandlesExtremes) {
+TEST_F(ComputeL2AVX2, DistI16HandlesExtremes) {
     const size_t dim = 64;
     auto a = make_buffer<int16_t>(dim, 0);
     auto b = make_buffer<int16_t>(dim, 0);
@@ -607,6 +634,13 @@ TEST(ComputeL2AVX2, DistI16HandlesExtremes) {
                                                 reinterpret_cast<uint8_t *>(b.ptr), dim);
     EXPECT_DOUBLE_EQ(ref, got);
 }
+
+#else
+
+TEST(ComputeL2AVX2, NotBuiltForThisTarget) {
+    GTEST_SKIP() << "AVX2 is not enabled for this target";
+}
+
 #endif
 
 } // namespace

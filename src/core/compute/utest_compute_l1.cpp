@@ -16,6 +16,10 @@ using namespace sketch2;
 
 namespace {
 
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+#define SKETCH2_COMPUTE_AVX2_TESTS 1
+#endif
+
 TEST(ComputeL1Test, DistF32ComputesDistance) {
     const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
     const std::vector<float> b = {1.5f, 0.0f, 1.0f, 10.0f};
@@ -48,8 +52,10 @@ TEST(ComputeL1Test, ResolveDistReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeL1::resolve_dist(DataType::i16));
 }
 
-#if !defined(__AVX2__) && !defined(__aarch64__)
 TEST(ComputeL1Scalar, DistI16UsesScalarFallback) {
+    if (get_singleton().compute_unit().kind() != ComputeBackendKind::scalar) {
+        GTEST_SKIP() << "scalar fallback is not the active runtime implementation";
+    }
     const std::vector<int16_t> a = {10, -2, 7, -8};
     const std::vector<int16_t> b = {4, -5, 10, -8};
     ComputeL1 l1;
@@ -58,11 +64,6 @@ TEST(ComputeL1Scalar, DistI16UsesScalarFallback) {
                                DataType::i16, a.size());
     EXPECT_DOUBLE_EQ(12.0, got);
 }
-#else
-TEST(ComputeL1Scalar, NotBuiltForThisTarget) {
-    GTEST_SKIP() << "scalar fallback is not the active implementation on this target";
-}
-#endif
 
 #if defined(__aarch64__)
 TEST(ComputeL1Neon, DistF32MatchesReference) {
@@ -455,7 +456,29 @@ TEST(ComputeL1Neon, ResolveDistUsesNeonF16Path) {
 
 #endif // __aarch64__ (second block)
 
-#if defined(__AVX2__)
+#if defined(SKETCH2_COMPUTE_AVX2_TESTS)
+
+class ComputeL1AVX2 : public ::testing::Test {
+protected:
+    void SetUp() override {
+        if (!ComputeUnit::is_supported(ComputeBackendKind::avx2)) {
+            GTEST_SKIP() << "AVX2 is not supported on this CPU";
+        }
+        original_ = get_singleton().compute_unit().kind();
+        ASSERT_TRUE(Singleton::force_compute_unit_for_testing(ComputeBackendKind::avx2));
+        overridden_ = true;
+    }
+
+    void TearDown() override {
+        if (overridden_) {
+            EXPECT_TRUE(Singleton::force_compute_unit_for_testing(original_));
+        }
+    }
+
+private:
+    ComputeBackendKind original_ = ComputeBackendKind::scalar;
+    bool overridden_ = false;
+};
 
 double reference_l1_f32(const float *a, const float *b, size_t dim) {
     double sum = 0.0;
@@ -511,7 +534,7 @@ void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
 }
 #endif
 
-TEST(ComputeL1AVX2, DistF32ZeroDimIsZero) {
+TEST_F(ComputeL1AVX2, DistF32ZeroDimIsZero) {
     auto a = make_buffer<float>(1, 0);
     auto b = make_buffer<float>(1, 0);
     const double got = ComputeL1_AVX2::dist_f32(reinterpret_cast<uint8_t *>(a.ptr),
@@ -519,7 +542,7 @@ TEST(ComputeL1AVX2, DistF32ZeroDimIsZero) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-TEST(ComputeL1AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeL1AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 31, 32, 33, 63, 64, 65, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(4)}) {
@@ -539,7 +562,7 @@ TEST(ComputeL1AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeL1AVX2, DistF32LargeMultipleOf8MatchesReference) {
+TEST_F(ComputeL1AVX2, DistF32LargeMultipleOf8MatchesReference) {
     const size_t dim = 1024;
     auto a = make_buffer<float>(dim, 0);
     auto b = make_buffer<float>(dim, 0);
@@ -552,7 +575,7 @@ TEST(ComputeL1AVX2, DistF32LargeMultipleOf8MatchesReference) {
 }
 
 #if defined(__FLT16_MANT_DIG__)
-TEST(ComputeL1AVX2, DistF16ZeroDimIsZero) {
+TEST_F(ComputeL1AVX2, DistF16ZeroDimIsZero) {
     auto a = make_buffer<float16>(1, 0);
     auto b = make_buffer<float16>(1, 0);
     const double got = ComputeL1_AVX2::dist_f16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -560,7 +583,7 @@ TEST(ComputeL1AVX2, DistF16ZeroDimIsZero) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-TEST(ComputeL1AVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeL1AVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -580,12 +603,12 @@ TEST(ComputeL1AVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeL1AVX2, ResolveDistUsesAVX2F16Path) {
+TEST_F(ComputeL1AVX2, ResolveDistUsesAVX2F16Path) {
     EXPECT_EQ(&ComputeL1_AVX2::dist_f16, ComputeL1::resolve_dist(DataType::f16));
 }
 #endif
 
-TEST(ComputeL1AVX2, DistI16ZeroDimIsZero) {
+TEST_F(ComputeL1AVX2, DistI16ZeroDimIsZero) {
     auto a = make_buffer<int16_t>(1, 0);
     auto b = make_buffer<int16_t>(1, 0);
     const double got = ComputeL1_AVX2::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -593,7 +616,7 @@ TEST(ComputeL1AVX2, DistI16ZeroDimIsZero) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-TEST(ComputeL1AVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
+TEST_F(ComputeL1AVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 47, 48, 49, 96, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -612,7 +635,7 @@ TEST(ComputeL1AVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-TEST(ComputeL1AVX2, DistI16HandlesExtremes) {
+TEST_F(ComputeL1AVX2, DistI16HandlesExtremes) {
     const size_t dim = 64;
     auto a = make_buffer<int16_t>(dim, 0);
     auto b = make_buffer<int16_t>(dim, 0);

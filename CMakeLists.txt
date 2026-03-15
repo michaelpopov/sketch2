@@ -11,7 +11,17 @@ project(sketch2 LANGUAGES C CXX)
 # Support for f16
 #----------------------------
 add_library(sketch_compile_options INTERFACE)
-option(SKETCH_ENABLE_AVX2 "Enable AVX2 optimizations on x86_64" ON)
+option(SKETCH_ENABLE_AVX2 "Enable AVX2 runtime-dispatched x86_64 compute backends" ON)
+target_compile_definitions(sketch_compile_options INTERFACE
+  SKETCH_ENABLE_AVX2=$<IF:$<BOOL:${SKETCH_ENABLE_AVX2}>,1,0>)
+
+if(SKETCH_ENABLE_AVX2 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR
+      "SKETCH_ENABLE_AVX2 requires GCC or Clang on x86 because the AVX2 kernels "
+      "use per-function target attributes for runtime dispatch.")
+  endif()
+endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   target_compile_options(sketch_compile_options INTERFACE -march=armv8.2-a+fp16)
@@ -20,10 +30,6 @@ endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(sketch_compile_options INTERFACE -msse2)
-  endif()
-
-  if(SKETCH_ENABLE_AVX2)
-    target_compile_options(sketch_compile_options INTERFACE -mavx2 -mf16c -mfma)
   endif()
 endif()
 

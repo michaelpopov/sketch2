@@ -18,20 +18,6 @@ namespace {
 
 using DistHeap = std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare>;
 
-#if defined(__AVX2__)
-using ComputeL1Target = ComputeL1_AVX2;
-using ComputeL2Target = ComputeL2_AVX2;
-using ComputeCosTarget = ComputeCos_AVX2;
-#elif defined(__aarch64__)
-using ComputeL1Target = ComputeL1_Neon;
-using ComputeL2Target = ComputeL2_Neon;
-using ComputeCosTarget = ComputeCos_Neon;
-#else
-using ComputeL1Target = ComputeL1;
-using ComputeL2Target = ComputeL2;
-using ComputeCosTarget = ComputeCos;
-#endif
-
 void push_result(DistHeap* heap, size_t count, uint64_t id, double dist) {
     const DistItem item{id, dist};
     DistItem::Compare is_better;
@@ -59,11 +45,30 @@ void extract_ids(DistHeap* heap, std::vector<uint64_t>* result) {
     }
 }
 
+// Zero-norm queries use an inverse norm of zero rather than infinity so the
+// cosine finalizer can preserve the public zero-vector distance contract.
 inline double query_inverse_norm(double query_norm_sq) {
     if (query_norm_sq == 0.0) {
         return 0.0;
     }
     return 1.0 / std::sqrt(query_norm_sq);
+}
+
+// Resolve the type-specific norm helper once per query so the per-row cosine
+// scan can stay on a fully specialized backend/type path.
+template <typename ComputeTarget>
+double query_squared_norm(DataType type, const uint8_t* vec, size_t dim) {
+    switch (type) {
+        case DataType::f32:
+            return ComputeTarget::squared_norm_f32(vec, dim);
+        case DataType::f16:
+            return ComputeTarget::squared_norm_f16(vec, dim);
+        case DataType::i16:
+            return ComputeTarget::squared_norm_i16(vec, dim);
+        default:
+            assert(false);
+            throw std::runtime_error("Scanner::find: unsupported data type.");
+    }
 }
 
 template <auto DistanceFn>
@@ -177,6 +182,8 @@ Ret scan_reader_heap_custom(const DataReader& reader, size_t count, DistHeap* he
     return Ret(0);
 }
 
+// These helpers keep the "build heap then materialize sorted output" pattern in
+// one place so dataset and reader scan variants do not duplicate heap plumbing.
 template <typename HeapBuildFn>
 Ret collect_items(const HeapBuildFn& build, std::vector<DistItem>& result) {
     DistHeap heap;
@@ -193,6 +200,9 @@ Ret collect_ids(const HeapBuildFn& build, std::vector<uint64_t>& result) {
     return Ret(0);
 }
 
+// Dataset score adapters bind a fixed scorer into the shared dataset heap
+// builder, keeping accumulator shadowing and top-k behavior identical across
+// metrics and output shapes.
 template <typename ScoreFn>
 Ret scan_dataset_items_with_score(const Dataset& dataset, size_t count, const ScoreFn& score,
         std::vector<DistItem>& result) {
@@ -223,6 +233,8 @@ Ret scan_dataset_ids_with_score(const Dataset& dataset, size_t count, const Scor
     }, result);
 }
 
+// Cosine dataset scans choose per reader whether to use stored inverse norms or
+// the full query-norm path, but otherwise reuse the same heap-building logic.
 template <typename InvScoreFn, typename QueryScoreFn>
 Ret scan_dataset_items_with_cos_scores(const Dataset& dataset, size_t count,
         const InvScoreFn& inv_score, const QueryScoreFn& query_score,
@@ -265,6 +277,8 @@ Ret scan_dataset_ids_with_cos_scores(const Dataset& dataset, size_t count,
     }, result);
 }
 
+// Reader adapters mirror the dataset helpers without the accumulator layer, so
+// reader-only scans still share the same scorer and heap semantics.
 template <typename ScoreFn>
 Ret scan_reader_items_with_score(const DataReader& reader, size_t count, const ScoreFn& score,
         std::vector<DistItem>& result) {
@@ -331,6 +345,8 @@ Ret scan_reader_ids_with_cos_scores(const DataReader& reader, size_t count,
     }, result);
 }
 
+// Type dispatch happens once per query. That produces a scorer with a fixed
+// element width so the inner scan loop never branches on DataType.
 template <typename ComputeTarget>
 Ret dispatch_reader_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
@@ -410,7 +426,7 @@ template <typename ComputeTarget>
 Ret dispatch_dataset_cos_ids(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
     const size_t dim = dataset.dim();
-    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dim);
+    const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
     const double query_inv = query_inverse_norm(query_norm_sq);
     switch (type) {
         case DataType::f32: {
@@ -438,7 +454,7 @@ template <typename ComputeTarget>
 Ret dispatch_dataset_cos_items(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
     const size_t dim = dataset.dim();
-    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dim);
+    const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
     const double query_inv = query_inverse_norm(query_norm_sq);
     switch (type) {
         case DataType::f32: {
@@ -466,7 +482,7 @@ template <typename ComputeTarget>
 Ret dispatch_reader_cos_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) {
     const size_t dim = reader.dim();
-    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dim);
+    const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
     const double query_inv = query_inverse_norm(query_norm_sq);
     switch (type) {
         case DataType::f32: {
@@ -493,7 +509,7 @@ template <typename ComputeTarget>
 Ret dispatch_reader_cos_items(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) {
     const size_t dim = reader.dim();
-    const double query_norm_sq = ComputeCos::resolve_squared_norm(type)(vec, dim);
+    const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
     const double query_inv = query_inverse_norm(query_norm_sq);
     switch (type) {
         case DataType::f32: {
@@ -512,6 +528,68 @@ Ret dispatch_reader_cos_items(DataType type, const DataReader& reader, size_t co
             return scan_reader_items_with_cos_scores(reader, count, inv_score, query_score, result);
         }
         default: return Ret("Scanner::find: unsupported data type.");
+    }
+}
+
+// Backend dispatch stays at this outer layer so scanner hot loops execute
+// entirely within one concrete L1/L2/cosine implementation family.
+template <typename L1Target, typename L2Target, typename CosTarget>
+Ret dispatch_dataset_ids_with_backend(DataType type, DistFunc func, const Dataset& dataset, size_t count,
+        const uint8_t* vec, std::vector<uint64_t>& result) {
+    switch (func) {
+        case DistFunc::L1:
+            return dispatch_dataset_ids<L1Target>(type, dataset, count, vec, result);
+        case DistFunc::L2:
+            return dispatch_dataset_ids<L2Target>(type, dataset, count, vec, result);
+        case DistFunc::COS:
+            return dispatch_dataset_cos_ids<CosTarget>(type, dataset, count, vec, result);
+        default:
+            return Ret("Scanner::find: unsupported distance function.");
+    }
+}
+
+template <typename L1Target, typename L2Target, typename CosTarget>
+Ret dispatch_dataset_items_with_backend(DataType type, DistFunc func, const Dataset& dataset, size_t count,
+        const uint8_t* vec, std::vector<DistItem>& result) {
+    switch (func) {
+        case DistFunc::L1:
+            return dispatch_dataset_items<L1Target>(type, dataset, count, vec, result);
+        case DistFunc::L2:
+            return dispatch_dataset_items<L2Target>(type, dataset, count, vec, result);
+        case DistFunc::COS:
+            return dispatch_dataset_cos_items<CosTarget>(type, dataset, count, vec, result);
+        default:
+            return Ret("Scanner::find: unsupported distance function.");
+    }
+}
+
+template <typename L1Target, typename L2Target, typename CosTarget>
+Ret dispatch_reader_ids_with_backend(DataType type, DistFunc func, const DataReader& reader, size_t count,
+        const uint8_t* vec, std::vector<uint64_t>& result) {
+    switch (func) {
+        case DistFunc::L1:
+            return dispatch_reader_ids<L1Target>(type, reader, count, vec, result);
+        case DistFunc::L2:
+            return dispatch_reader_ids<L2Target>(type, reader, count, vec, result);
+        case DistFunc::COS:
+            return dispatch_reader_cos_ids<CosTarget>(type, reader, count, vec, result);
+        default:
+            return Ret("Scanner::find: not implemented");
+    }
+}
+
+template <typename L1Target, typename L2Target, typename CosTarget>
+Ret dispatch_reader_items_with_backend(DataType type, DistFunc func, const DataReader& reader, size_t count,
+        const uint8_t* vec, std::vector<DistItem>& result) {
+    switch (func) {
+        case DistFunc::L1:
+            return dispatch_reader_items<L1Target>(type, reader, count, vec, result);
+        case DistFunc::L2:
+            return dispatch_reader_items<L2Target>(type, reader, count, vec, result);
+        case DistFunc::COS:
+            return dispatch_reader_cos_items<CosTarget>(type, reader, count, vec, result);
+        default:
+            return Ret("Scanner::find: not implemented");
     }
 }
 
@@ -553,6 +631,9 @@ Ret Scanner::find_items(const Dataset& dataset, size_t count, const uint8_t* vec
     }
 }
 
+// Dataset id lookup validates once, clears output, then commits to one backend
+// for the full query. That keeps the template-specialized scan path stable from
+// the outer entrypoint down to the per-row distance kernel.
 Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     if (vec == nullptr || count == 0) {
@@ -562,14 +643,26 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
     result.clear();
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
-    switch (func) {
-        case DistFunc::L1: return dispatch_dataset_ids<ComputeL1Target>(type, dataset, count, vec, result);
-        case DistFunc::L2: return dispatch_dataset_ids<ComputeL2Target>(type, dataset, count, vec, result);
-        case DistFunc::COS: return dispatch_dataset_cos_ids<ComputeCosTarget>(type, dataset, count, vec, result);
-        default: return Ret("Scanner::find: unsupported distance function.");
+    switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx2:
+            return dispatch_dataset_ids_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
+                type, func, dataset, count, vec, result);
+#endif
+#if defined(__aarch64__)
+        case ComputeBackendKind::neon:
+            return dispatch_dataset_ids_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
+                type, func, dataset, count, vec, result);
+#endif
+        case ComputeBackendKind::scalar:
+        default:
+            return dispatch_dataset_ids_with_backend<ComputeL1, ComputeL2, ComputeCos>(
+                type, func, dataset, count, vec, result);
     }
 }
 
+// The item-returning dataset path mirrors the id-only version but materializes
+// full `DistItem` rows from the same backend-specific heap build.
 Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) const {
     if (vec == nullptr || count == 0) {
@@ -579,14 +672,27 @@ Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* ve
     result.clear();
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
-    switch (func) {
-        case DistFunc::L1: return dispatch_dataset_items<ComputeL1Target>(type, dataset, count, vec, result);
-        case DistFunc::L2: return dispatch_dataset_items<ComputeL2Target>(type, dataset, count, vec, result);
-        case DistFunc::COS: return dispatch_dataset_cos_items<ComputeCosTarget>(type, dataset, count, vec, result);
-        default: return Ret("Scanner::find: unsupported distance function.");
+    switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx2:
+            return dispatch_dataset_items_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
+                type, func, dataset, count, vec, result);
+#endif
+#if defined(__aarch64__)
+        case ComputeBackendKind::neon:
+            return dispatch_dataset_items_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
+                type, func, dataset, count, vec, result);
+#endif
+        case ComputeBackendKind::scalar:
+        default:
+            return dispatch_dataset_items_with_backend<ComputeL1, ComputeL2, ComputeCos>(
+                type, func, dataset, count, vec, result);
     }
 }
 
+// Reader scans use the same one-backend-per-query rule as dataset scans, but
+// skip the accumulator shadowing layer because a `DataReader` is already a
+// concrete persisted view.
 Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
     std::vector<uint64_t>& result) const {
     if (vec == nullptr || count == 0) {
@@ -595,14 +701,26 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
 
     result.clear();
     const DataType type = reader.type();
-    switch (func) {
-        case DistFunc::L1: return dispatch_reader_ids<ComputeL1Target>(type, reader, count, vec, result);
-        case DistFunc::L2: return dispatch_reader_ids<ComputeL2Target>(type, reader, count, vec, result);
-        case DistFunc::COS: return dispatch_reader_cos_ids<ComputeCosTarget>(type, reader, count, vec, result);
-        default: return Ret("Scanner::find: not implemented");
+    switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx2:
+            return dispatch_reader_ids_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
+                type, func, reader, count, vec, result);
+#endif
+#if defined(__aarch64__)
+        case ComputeBackendKind::neon:
+            return dispatch_reader_ids_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
+                type, func, reader, count, vec, result);
+#endif
+        case ComputeBackendKind::scalar:
+        default:
+            return dispatch_reader_ids_with_backend<ComputeL1, ComputeL2, ComputeCos>(
+                type, func, reader, count, vec, result);
     }
 }
 
+// Reader item lookup is the final public variant: same backend selection and
+// scoring rules as `find_`, but returning ids together with computed distances.
 Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
     std::vector<DistItem>& result) const {
     if (vec == nullptr || count == 0) {
@@ -611,11 +729,21 @@ Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, 
 
     result.clear();
     const DataType type = reader.type();
-    switch (func) {
-        case DistFunc::L1: return dispatch_reader_items<ComputeL1Target>(type, reader, count, vec, result);
-        case DistFunc::L2: return dispatch_reader_items<ComputeL2Target>(type, reader, count, vec, result);
-        case DistFunc::COS: return dispatch_reader_cos_items<ComputeCosTarget>(type, reader, count, vec, result);
-        default: return Ret("Scanner::find: not implemented");
+    switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx2:
+            return dispatch_reader_items_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
+                type, func, reader, count, vec, result);
+#endif
+#if defined(__aarch64__)
+        case ComputeBackendKind::neon:
+            return dispatch_reader_items_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
+                type, func, reader, count, vec, result);
+#endif
+        case ComputeBackendKind::scalar:
+        default:
+            return dispatch_reader_items_with_backend<ComputeL1, ComputeL2, ComputeCos>(
+                type, func, reader, count, vec, result);
     }
 }
 

@@ -1,4 +1,4 @@
-add_library(utils SHARED utils.cpp ini_reader.cpp string_utils.cpp dynamic_bitset.cpp singleton.cpp log.cpp)
+add_library(utils SHARED utils.cpp ini_reader.cpp string_utils.cpp dynamic_bitset.cpp compute_unit.cpp singleton.cpp log.cpp)
 
 target_include_directories(utils PUBLIC ${CMAKE_SOURCE_DIR}/src/core)
 

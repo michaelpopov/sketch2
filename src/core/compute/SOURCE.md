@@ -1,24 +1,24 @@
 # Source Index
 
 - `CMakeLists.txt`: Build rules for the compute library and its tests.
-- `README.md`: Notes about the compute module and distance kernels.
+- `README.md`: Notes about the compute module, distance kernels, and scanner responsibilities.
 - `compute.cpp`: Minimal translation unit for the shared compute abstractions.
 - `compute.h`: Common distance-item types and the base compute interface.
-- `compute_avx2_utils.h`: Shared AVX2 helper utilities for vectorized kernels.
-- `compute_cos.h`: Portable cosine-distance implementation and helper routines.
+- `compute_avx2_utils.h`: Shared AVX2 target-attribute and SIMD helper utilities.
+- `compute_cos.h`: Portable cosine-distance implementation and runtime resolver entry points.
 - `compute_cos_avx2.h`: AVX2-specialized cosine-distance kernels.
 - `compute_cos_neon.h`: NEON-specialized cosine-distance kernels.
-- `compute_l1.h`: Portable L1-distance implementation.
+- `compute_l1.h`: Portable L1-distance implementation and runtime resolver entry points.
 - `compute_l1_avx2.h`: AVX2-specialized L1-distance kernels.
 - `compute_l1_neon.h`: NEON-specialized L1-distance kernels.
-- `compute_l2.h`: Portable L2-distance implementation.
+- `compute_l2.h`: Portable L2-distance implementation and runtime resolver entry points.
 - `compute_l2_avx2.h`: AVX2-specialized L2-distance kernels.
 - `compute_l2_neon.h`: NEON-specialized L2-distance kernels.
-- `scanner.cpp`: Nearest-neighbor scanning logic over readers and datasets.
+- `scanner.cpp`: Nearest-neighbor scanning logic over readers and datasets with runtime backend dispatch.
 - `scanner.h`: Public scanner API for top-k search.
 - `utest_compute_cos.cpp`: Unit tests for cosine-distance compute paths.
 - `utest_compute_l1.cpp`: Unit tests for L1-distance compute paths.
 - `utest_compute_l2.cpp`: Unit tests for L2-distance compute paths.
+- `utest_compute_runtime.cpp`: Unit tests for runtime compute-unit selection and resolver dispatch.
 - `utest_main.cpp`: GoogleTest entry point for the compute test binary.
 - `utest_scanner.cpp`: Unit tests for scanner behavior across data sources.
-
