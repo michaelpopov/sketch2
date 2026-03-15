@@ -57,7 +57,8 @@ TEST_F(FileLockGuardTest, LockIsExclusiveAcrossProcesses) {
             FileLockGuard child_guard;
             const Ret child_ret = child_guard.lock(lock_path_);
             const char status = (child_ret.code() == 0) ? '1' : '0';
-            (void)write(pipe_fds[1], &status, 1);
+            const auto sz = write(pipe_fds[1], &status, 1);
+            (void)sz;
             close(pipe_fds[1]);
             _exit(child_ret.code() == 0 ? 0 : 1);
         }

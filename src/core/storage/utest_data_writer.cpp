@@ -63,7 +63,8 @@ protected:
         DataFileHeader hdr{};
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
-            fread(&hdr, sizeof(hdr), 1, f);
+            const auto sz = fread(&hdr, sizeof(hdr), 1, f);
+            (void)sz;
             fclose(f);
         }
         return hdr;
@@ -80,9 +81,11 @@ protected:
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
             DataFileHeader hdr{};
-            fread(&hdr, sizeof(hdr), 1, f);
+            auto sz = fread(&hdr, sizeof(hdr), 1, f);
+            (void)sz;
             fseek(f, static_cast<long>(ids_offset(count, vec_size, hdr)), SEEK_SET);
-            fread(ids.data(), sizeof(uint64_t), count, f);
+            sz = fread(ids.data(), sizeof(uint64_t), count, f);
+            (void)sz;
             fclose(f);
         }
         return ids;
@@ -93,10 +96,12 @@ protected:
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
             DataFileHeader hdr{};
-            fread(&hdr, sizeof(hdr), 1, f);
+            auto sz = fread(&hdr, sizeof(hdr), 1, f);
+            (void)sz;
             const size_t offset = ids_offset(count, vec_size, hdr) + count * sizeof(uint64_t);
             fseek(f, static_cast<long>(offset), SEEK_SET);
-            fread(ids.data(), sizeof(uint64_t), deleted_count, f);
+            sz = fread(ids.data(), sizeof(uint64_t), deleted_count, f);
+            (void)sz;
             fclose(f);
         }
         return ids;
@@ -107,10 +112,12 @@ protected:
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
             DataFileHeader hdr{};
-            fread(&hdr, sizeof(hdr), 1, f);
+            auto sz = fread(&hdr, sizeof(hdr), 1, f);
+            (void)sz;
             for (size_t i = 0; i < count; ++i) {
                 fseek(f, static_cast<long>(hdr.data_offset + i * static_cast<size_t>(hdr.vector_stride)), SEEK_SET);
-                fread(data.data() + i * dim, sizeof(float), dim, f);
+                sz = fread(data.data() + i * dim, sizeof(float), dim, f);
+                (void)sz;
             }
             fclose(f);
         }
@@ -122,10 +129,12 @@ protected:
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
             DataFileHeader hdr{};
-            fread(&hdr, sizeof(hdr), 1, f);
+            auto sz = fread(&hdr, sizeof(hdr), 1, f);
+            (void)sz;
             const IdsLayout layout = compute_ids_layout(hdr, count);
             fseek(f, static_cast<long>(layout.cosine_inv_norms_offset), SEEK_SET);
-            fread(values.data(), sizeof(float), count, f);
+            sz = fread(values.data(), sizeof(float), count, f);
+            (void)sz;
             fclose(f);
         }
         return values;
