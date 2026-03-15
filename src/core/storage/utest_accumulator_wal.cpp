@@ -160,8 +160,7 @@ TEST_F(AccumulatorWalTest, EmptyAccumulatorIteratorIsAtEof) {
     EXPECT_TRUE(it.eof());
 }
 
-TEST_F(AccumulatorWalTest, ReplayHandlesTruncatedHeader) {
-    // A file with fewer bytes than a valid WAL header should not crash.
+TEST_F(AccumulatorWalTest, AttachWalFailsOnTruncatedHeader) {
     {
         std::ofstream f(wal_path_, std::ios::binary);
         const std::array<uint8_t, 3> partial {0x01, 0x02, 0x03};
@@ -170,10 +169,11 @@ TEST_F(AccumulatorWalTest, ReplayHandlesTruncatedHeader) {
 
     Accumulator accumulator;
     ASSERT_EQ(0, accumulator.init(256, DataType::f32, 4).code());
-    // Should either succeed (treating the file as a fresh WAL) or fail with an error.
-    // It must not crash or invoke undefined behavior.
     const Ret ret = accumulator.attach_wal(wal_path_);
-    (void)ret; // result is implementation-defined; just verify no crash
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("AccumulatorWal: wal file is too small", ret.message());
+    EXPECT_TRUE(accumulator.begin().eof());
+    EXPECT_EQ(3u, fs::file_size(wal_path_));
 }
 
 } // namespace sketch2

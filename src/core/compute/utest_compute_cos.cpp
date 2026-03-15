@@ -208,6 +208,14 @@ TEST(ComputeCosTest, ResolveDotReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeCos::resolve_dot(DataType::i16));
 }
 
+TEST(ComputeCosTest, ResolveSquaredNormReturnsFunctionForAllTypes) {
+    EXPECT_NE(nullptr, ComputeCos::resolve_squared_norm(DataType::f32));
+    if (supports_f16()) {
+        EXPECT_NE(nullptr, ComputeCos::resolve_squared_norm(DataType::f16));
+    }
+    EXPECT_NE(nullptr, ComputeCos::resolve_squared_norm(DataType::i16));
+}
+
 TEST(ComputeCosTest, ResolveDotComputesKnownValues) {
     const std::vector<float> a_f32 = {1.0f, 2.0f, 3.0f, 4.0f};
     const std::vector<float> b_f32 = {5.0f, 6.0f, 7.0f, 8.0f};
@@ -234,6 +242,27 @@ TEST(ComputeCosTest, ResolveDotComputesKnownValues) {
             reinterpret_cast<const uint8_t*>(b_f16.data()),
             a_f16.size());
         EXPECT_DOUBLE_EQ(70.0, got_f16);
+    }
+#endif
+}
+
+TEST(ComputeCosTest, ResolveSquaredNormComputesKnownValues) {
+    const std::vector<float> a_f32 = {1.0f, 2.0f, 3.0f, 4.0f};
+    const double got_f32 = ComputeCos::resolve_squared_norm(DataType::f32)(
+        reinterpret_cast<const uint8_t*>(a_f32.data()), a_f32.size());
+    EXPECT_DOUBLE_EQ(30.0, got_f32);
+
+    const std::vector<int16_t> a_i16 = {1, -2, 3, -4};
+    const double got_i16 = ComputeCos::resolve_squared_norm(DataType::i16)(
+        reinterpret_cast<const uint8_t*>(a_i16.data()), a_i16.size());
+    EXPECT_DOUBLE_EQ(30.0, got_i16);
+
+#if defined(__FLT16_MANT_DIG__)
+    if (supports_f16()) {
+        const std::vector<float16> a_f16 = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
+        const double got_f16 = ComputeCos::resolve_squared_norm(DataType::f16)(
+            reinterpret_cast<const uint8_t*>(a_f16.data()), a_f16.size());
+        EXPECT_DOUBLE_EQ(30.0, got_f16);
     }
 #endif
 }
@@ -1019,10 +1048,22 @@ TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonI16Path) {
               ComputeCos::resolve_dist_with_query_norm(DataType::i16));
 }
 
+TEST(ComputeCosNeon, ResolveSquaredNormUsesNeonF32Path) {
+    EXPECT_EQ(&ComputeCos_Neon::squared_norm_f32, ComputeCos::resolve_squared_norm(DataType::f32));
+}
+
+TEST(ComputeCosNeon, ResolveSquaredNormUsesNeonI16Path) {
+    EXPECT_EQ(&ComputeCos_Neon::squared_norm_i16, ComputeCos::resolve_squared_norm(DataType::i16));
+}
+
 #if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonF16Path) {
     EXPECT_EQ(&ComputeCos_Neon::dist_f16_with_query_norm,
               ComputeCos::resolve_dist_with_query_norm(DataType::f16));
+}
+
+TEST(ComputeCosNeon, ResolveSquaredNormUsesNeonF16Path) {
+    EXPECT_EQ(&ComputeCos_Neon::squared_norm_f16, ComputeCos::resolve_squared_norm(DataType::f16));
 }
 #endif
 
@@ -1129,6 +1170,10 @@ TEST(ComputeCosAVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
 TEST(ComputeCosAVX2, ResolveDistUsesAVX2F16Path) {
     EXPECT_EQ(&ComputeCos_AVX2::dist_f16, ComputeCos::resolve_dist(DataType::f16));
 }
+
+TEST(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F16Path) {
+    EXPECT_EQ(&ComputeCos_AVX2::squared_norm_f16, ComputeCos::resolve_squared_norm(DataType::f16));
+}
 #endif
 
 TEST(ComputeCosAVX2, DistI16ZeroDimIsZero) {
@@ -1175,6 +1220,14 @@ TEST(ComputeCosAVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
             }
         }
     }
+}
+
+TEST(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F32Path) {
+    EXPECT_EQ(&ComputeCos_AVX2::squared_norm_f32, ComputeCos::resolve_squared_norm(DataType::f32));
+}
+
+TEST(ComputeCosAVX2, ResolveSquaredNormUsesAVX2I16Path) {
+    EXPECT_EQ(&ComputeCos_AVX2::squared_norm_i16, ComputeCos::resolve_squared_norm(DataType::i16));
 }
 #endif
 

@@ -121,9 +121,19 @@ inline ComputeCos::DistWithQueryNormFn ComputeCos::resolve_dist_with_query_norm(
 inline ComputeCos::SquaredNormFn ComputeCos::resolve_squared_norm(DataType type) {
     validate_type(type);
     switch (type) {
+#if defined(__AVX2__)
+    case DataType::f32: return &ComputeCos_AVX2::squared_norm_f32;
+    case DataType::f16: return &ComputeCos_AVX2::squared_norm_f16;
+    case DataType::i16: return &ComputeCos_AVX2::squared_norm_i16;
+#elif defined(__aarch64__)
+    case DataType::f32: return &ComputeCos_Neon::squared_norm_f32;
+    case DataType::f16: return &ComputeCos_Neon::squared_norm_f16;
+    case DataType::i16: return &ComputeCos_Neon::squared_norm_i16;
+#else
     case DataType::f32: return &squared_norm_f32;
     case DataType::f16: return &squared_norm_f16;
     case DataType::i16: return &squared_norm_i16;
+#endif
     default:
         assert(false);
         throw std::runtime_error("ComputeCos::resolve_squared_norm: unsupported data type");
