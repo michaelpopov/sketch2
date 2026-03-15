@@ -8,9 +8,17 @@
 #include <cstdint>
 #include <stdexcept>
 
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+#if defined(__x86_64__) || defined(__i386__)
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2
 #include "compute_l1_avx2.h"
-#elif defined(__aarch64__)
+#endif
+#if (defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F) || \
+    (defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI)
+#include "compute_l1_avx512.h"
+#endif
+#endif
+
+#if defined(__aarch64__)
 #include "compute_l1_neon.h"
 #endif
 
@@ -46,6 +54,26 @@ inline double ComputeL1::dist(const uint8_t *a, const uint8_t *b, DataType type,
 inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
     validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            switch (type) {
+                case DataType::f32: return &ComputeL1_AVX512_VNNI::dist_f32;
+                case DataType::f16: return &ComputeL1_AVX512_VNNI::dist_f16;
+                case DataType::i16: return &ComputeL1_AVX512_VNNI::dist_i16;
+                default: break;
+            }
+            break;
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            switch (type) {
+                case DataType::f32: return &ComputeL1_AVX512::dist_f32;
+                case DataType::f16: return &ComputeL1_AVX512::dist_f16;
+                case DataType::i16: return &ComputeL1_AVX512::dist_i16;
+                default: break;
+            }
+            break;
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             switch (type) {

@@ -29,6 +29,7 @@ The new design fixes that by separating:
 This gives us one binary that can:
 
 - run on a scalar-only host
+- use AVX-512F on supported x86 CPUs
 - use AVX2 on supported x86 CPUs
 - use NEON on AArch64
 - keep the hot path specialized instead of routing every vector pair through a
@@ -46,8 +47,21 @@ The process-wide backend is represented by `ComputeUnit` in
 Today it supports:
 
 - `scalar`
+- `avx512_vnni`
+- `avx512f`
 - `avx2`
 - `neon`
+
+The tree also now contains x86 AVX-512 build scaffolding:
+
+- `SKETCH_ENABLE_AVX512F`
+- `SKETCH_ENABLE_AVX512VNNI`
+- `compute_avx512_utils.h`
+
+`avx512f` is a selectable runtime backend for `f32`, `f16`, and full-range-
+correct `i16` kernels.
+`avx512_vnni` is a selectable runtime backend that reuses the same AVX-512
+kernels behind a distinct runtime/backend name on CPUs that advertise VNNI.
 
 `ComputeUnit::detect_best()` selects the best supported backend for the current
 process, optionally honoring `SKETCH2_COMPUTE_BACKEND`.
@@ -88,6 +102,7 @@ Each one follows the same pattern:
 Architecture-specific kernels live in:
 
 - `compute_l1_avx2.h`, `compute_l2_avx2.h`, `compute_cos_avx2.h`
+- `compute_l1_avx512.h`, `compute_l2_avx512.h`, `compute_cos_avx512.h`
 - `compute_l1_neon.h`, `compute_l2_neon.h`, `compute_cos_neon.h`
 
 ### 3. Scanner-Oriented Dispatch
@@ -136,6 +151,8 @@ Current environment values are:
 
 - `auto`
 - `scalar`
+- `avx512_vnni`
+- `avx512f`
 - `avx2`
 - `neon`
 
@@ -156,27 +173,41 @@ every metric or every scan loop to probe the CPU again.
 
 ## Build Model
 
-The build intentionally does not compile the whole project with AVX2 enabled.
+The build intentionally does not compile the whole project with a high x86 ISA
+enabled globally.
 
 ### x86
 
-On x86, the baseline build only assumes `-msse2` at the project level. AVX2 is
-made available through:
+On x86, the baseline build only assumes `-msse2` at the project level. Higher
+ISAs are made available through build options and per-function target
+attributes, not through global project-wide compiler flags.
+
+Currently:
 
 - `SKETCH_ENABLE_AVX2`
+- `SKETCH_ENABLE_AVX512F`
+- `SKETCH_ENABLE_AVX512VNNI`
 - GCC/Clang per-function target attributes in `compute_avx2_utils.h`
+- GCC/Clang per-function target attributes in `compute_avx512_utils.h`
 
-That lets scalar code and AVX2 code live in the same binary.
+Today AVX2, AVX-512F, and AVX-512 VNNI are all wired through runtime dispatch.
+
+That lets scalar, AVX2, AVX-512F, and AVX-512 VNNI code live in the same
+binary.
 
 This is the critical difference from the old model. We are no longer building
-the whole compute library as “an AVX2 binary”. We are building:
+the whole compute library as “a high-ISA x86 binary”. We are building:
 
 - baseline code that runs everywhere
 - AVX2 code that exists in the binary but is only entered when the CPU supports
   it
+- AVX-512F code that exists in the binary but is only entered when the CPU
+  supports it
+- AVX-512 VNNI code that exists in the binary but is only entered when the CPU
+  supports it
 
-Because this relies on `__attribute__((target("avx2,f16c,fma")))`, x86 AVX2
-runtime dispatch is currently supported only with GCC or Clang.
+Because this design relies on per-function `target(...)` attributes, the x86
+runtime-dispatch model is currently supported only with GCC or Clang.
 
 ### AArch64
 
@@ -408,11 +439,11 @@ than a preprocessor-only choice.
 The current design was created specifically to make future backends practical,
 even if not fully plug-and-play.
 
-For example, adding `avx512f` or `avx512_vnni` would typically require:
+For example, extending the AVX-512 line further would typically require:
 
 1. Add a new `ComputeBackendKind` entry in `compute_unit.h`
 2. Extend parsing, support checks, and auto-detection in `compute_unit.cpp`
-3. Add build support and ISA-targeting helpers
+3. Reuse or extend the existing AVX-512 build support and ISA-targeting helpers
 4. Implement new metric kernels
 5. Extend resolver switches in:
    - `compute_l1.h`
@@ -462,8 +493,13 @@ are not intended as the inner-loop abstraction boundary.
   Scalar implementations and runtime resolver layer.
 - `compute_*_avx2.h`, `compute_*_neon.h`
   SIMD-specialized kernels.
+- `compute_*_avx512.h`
+  AVX-512-specialized kernels: `avx512f` for `f32`/`f16`, plus `avx512_vnni`
+  i16 entrypoints that keep exact 64-bit accumulation.
 - `compute_avx2_utils.h`
   AVX2 target attributes and small SIMD helpers shared by AVX2 kernels.
+- `compute_avx512_utils.h`
+  AVX-512 target attributes and small SIMD helpers shared by AVX-512 kernels.
 - `scanner.h`, `scanner.cpp`
   Query-time dispatch and top-k scanning.
 - `utest_compute_*.cpp`
@@ -481,6 +517,9 @@ The new compute design is a runtime-selected, process-wide backend model that:
 - preserves specialized hot loops
 - isolates backend choice to query setup time
 - keeps scalar behavior as the semantic baseline
-- gives a clean path for future backends such as AVX-512
+- already supports AVX-512F for `f32`/`f16`
+- already supports AVX-512F for full-range-correct `i16`
+- still exposes an `avx512_vnni` runtime backend for VNNI-capable CPUs
+- keeps a clean path for future backends and future AVX-512 variants
 
 That is the core architectural shift in this directory.

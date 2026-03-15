@@ -9,6 +9,8 @@ namespace sketch2 {
 enum class ComputeBackendKind : uint8_t {
     scalar,
     avx2,
+    avx512f,
+    avx512_vnni,
     neon,
 };
 

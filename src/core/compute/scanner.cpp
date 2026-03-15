@@ -644,6 +644,16 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            return dispatch_dataset_ids_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
+                type, func, dataset, count, vec, result);
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            return dispatch_dataset_ids_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
+                type, func, dataset, count, vec, result);
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             return dispatch_dataset_ids_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
@@ -673,6 +683,16 @@ Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* ve
     const DistFunc func = dataset.dist_func();
     const DataType type = dataset.type();
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            return dispatch_dataset_items_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
+                type, func, dataset, count, vec, result);
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            return dispatch_dataset_items_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
+                type, func, dataset, count, vec, result);
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             return dispatch_dataset_items_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
@@ -702,6 +722,16 @@ Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const 
     result.clear();
     const DataType type = reader.type();
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            return dispatch_reader_ids_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
+                type, func, reader, count, vec, result);
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            return dispatch_reader_ids_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
+                type, func, reader, count, vec, result);
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             return dispatch_reader_ids_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
@@ -730,6 +760,16 @@ Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, 
     result.clear();
     const DataType type = reader.type();
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            return dispatch_reader_items_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
+                type, func, reader, count, vec, result);
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            return dispatch_reader_items_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
+                type, func, reader, count, vec, result);
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             return dispatch_reader_items_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(

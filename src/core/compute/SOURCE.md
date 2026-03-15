@@ -1,18 +1,23 @@
 # Source Index
 
 - `CMakeLists.txt`: Build rules for the compute library and its tests.
+- `OPERATIONS.md`: Operator-facing notes about backend selection, overrides, and verification.
 - `README.md`: Notes about the compute module, distance kernels, and scanner responsibilities.
 - `compute.cpp`: Minimal translation unit for the shared compute abstractions.
 - `compute.h`: Common distance-item types and the base compute interface.
 - `compute_avx2_utils.h`: Shared AVX2 target-attribute and SIMD helper utilities.
+- `compute_avx512_utils.h`: Shared AVX-512 target-attribute and SIMD helper utilities.
 - `compute_cos.h`: Portable cosine-distance implementation and runtime resolver entry points.
 - `compute_cos_avx2.h`: AVX2-specialized cosine-distance kernels.
+- `compute_cos_avx512.h`: AVX-512 cosine-distance kernels for `avx512f` and `avx512_vnni`.
 - `compute_cos_neon.h`: NEON-specialized cosine-distance kernels.
 - `compute_l1.h`: Portable L1-distance implementation and runtime resolver entry points.
 - `compute_l1_avx2.h`: AVX2-specialized L1-distance kernels.
+- `compute_l1_avx512.h`: AVX-512 L1-distance kernels for `avx512f` and `avx512_vnni`.
 - `compute_l1_neon.h`: NEON-specialized L1-distance kernels.
 - `compute_l2.h`: Portable L2-distance implementation and runtime resolver entry points.
 - `compute_l2_avx2.h`: AVX2-specialized L2-distance kernels.
+- `compute_l2_avx512.h`: AVX-512 L2-distance kernels for `avx512f` and `avx512_vnni`.
 - `compute_l2_neon.h`: NEON-specialized L2-distance kernels.
 - `scanner.cpp`: Nearest-neighbor scanning logic over readers and datasets with runtime backend dispatch.
 - `scanner.h`: Public scanner API for top-k search.

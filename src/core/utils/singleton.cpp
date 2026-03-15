@@ -126,6 +126,8 @@ bool Singleton::force_compute_unit_for_testing_(ComputeBackendKind kind) {
         return false;
     }
     compute_unit_ = ComputeUnit(kind);
+    LOG_INFO << "Compute backend set to '" << compute_unit_.name()
+             << "' because tests explicitly forced this runtime override.";
     return true;
 }
 

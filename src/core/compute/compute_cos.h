@@ -9,9 +9,17 @@
 #include <cstdint>
 #include <stdexcept>
 
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+#if defined(__x86_64__) || defined(__i386__)
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2
 #include "compute_cos_avx2.h"
-#elif defined(__aarch64__)
+#endif
+#if (defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F) || \
+    (defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI)
+#include "compute_cos_avx512.h"
+#endif
+#endif
+
+#if defined(__aarch64__)
 #include "compute_cos_neon.h"
 #endif
 
@@ -88,6 +96,26 @@ inline double ComputeCos::dist(const uint8_t *a, const uint8_t *b, DataType type
 inline ComputeCos::DistFn ComputeCos::resolve_dist(DataType type) {
     validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            switch (type) {
+                case DataType::f32: return &ComputeCos_AVX512_VNNI::dist_f32;
+                case DataType::f16: return &ComputeCos_AVX512_VNNI::dist_f16;
+                case DataType::i16: return &ComputeCos_AVX512_VNNI::dist_i16;
+                default: break;
+            }
+            break;
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            switch (type) {
+                case DataType::f32: return &ComputeCos_AVX512::dist_f32;
+                case DataType::f16: return &ComputeCos_AVX512::dist_f16;
+                case DataType::i16: return &ComputeCos_AVX512::dist_i16;
+                default: break;
+            }
+            break;
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             switch (type) {
@@ -126,6 +154,26 @@ inline ComputeCos::DistFn ComputeCos::resolve_dist(DataType type) {
 inline ComputeCos::DistWithQueryNormFn ComputeCos::resolve_dist_with_query_norm(DataType type) {
     validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            switch (type) {
+                case DataType::f32: return &ComputeCos_AVX512_VNNI::dist_f32_with_query_norm;
+                case DataType::f16: return &ComputeCos_AVX512_VNNI::dist_f16_with_query_norm;
+                case DataType::i16: return &ComputeCos_AVX512_VNNI::dist_i16_with_query_norm;
+                default: break;
+            }
+            break;
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            switch (type) {
+                case DataType::f32: return &ComputeCos_AVX512::dist_f32_with_query_norm;
+                case DataType::f16: return &ComputeCos_AVX512::dist_f16_with_query_norm;
+                case DataType::i16: return &ComputeCos_AVX512::dist_i16_with_query_norm;
+                default: break;
+            }
+            break;
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             switch (type) {
@@ -164,6 +212,26 @@ inline ComputeCos::DistWithQueryNormFn ComputeCos::resolve_dist_with_query_norm(
 inline ComputeCos::SquaredNormFn ComputeCos::resolve_squared_norm(DataType type) {
     validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            switch (type) {
+                case DataType::f32: return &ComputeCos_AVX512_VNNI::squared_norm_f32;
+                case DataType::f16: return &ComputeCos_AVX512_VNNI::squared_norm_f16;
+                case DataType::i16: return &ComputeCos_AVX512_VNNI::squared_norm_i16;
+                default: break;
+            }
+            break;
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            switch (type) {
+                case DataType::f32: return &ComputeCos_AVX512::squared_norm_f32;
+                case DataType::f16: return &ComputeCos_AVX512::squared_norm_f16;
+                case DataType::i16: return &ComputeCos_AVX512::squared_norm_i16;
+                default: break;
+            }
+            break;
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             switch (type) {
@@ -202,6 +270,26 @@ inline ComputeCos::SquaredNormFn ComputeCos::resolve_squared_norm(DataType type)
 inline ComputeCos::DotFn ComputeCos::resolve_dot(DataType type) {
     validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            switch (type) {
+                case DataType::f32: return &ComputeCos_AVX512_VNNI::dot_f32;
+                case DataType::f16: return &ComputeCos_AVX512_VNNI::dot_f16;
+                case DataType::i16: return &ComputeCos_AVX512_VNNI::dot_i16;
+                default: break;
+            }
+            break;
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            switch (type) {
+                case DataType::f32: return &ComputeCos_AVX512::dot_f32;
+                case DataType::f16: return &ComputeCos_AVX512::dot_f16;
+                case DataType::i16: return &ComputeCos_AVX512::dot_i16;
+                default: break;
+            }
+            break;
+#endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
             switch (type) {

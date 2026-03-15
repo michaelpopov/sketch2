@@ -9,6 +9,7 @@
 
 #include "core/compute/compute_l2.h"
 #include "core/compute/compute_l2_avx2.h"
+#include "core/compute/compute_l2_avx512.h"
 #include "core/compute/compute_l2_neon.h"
 
 using namespace sketch2;
@@ -17,6 +18,14 @@ namespace {
 
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
 #define SKETCH2_COMPUTE_AVX2_TESTS 1
+#endif
+
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+#define SKETCH2_COMPUTE_AVX512F_TESTS 1
+#endif
+
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+#define SKETCH2_COMPUTE_AVX512VNNI_TESTS 1
 #endif
 
 template <typename T>
@@ -644,3 +653,176 @@ TEST(ComputeL2AVX2, NotBuiltForThisTarget) {
 #endif
 
 } // namespace
+
+#if defined(SKETCH2_COMPUTE_AVX512F_TESTS)
+
+namespace {
+
+class ComputeL2AVX512F : public ::testing::Test {
+protected:
+    void SetUp() override {
+        if (!ComputeUnit::is_supported(ComputeBackendKind::avx512f)) {
+            GTEST_SKIP() << "AVX-512F is not supported on this CPU";
+        }
+    }
+};
+
+void fill_f32_avx512(float *a, float *b, size_t dim, uint32_t seed) {
+    for (size_t i = 0; i < dim; ++i) {
+        const int32_t ai = static_cast<int32_t>((i * 37 + seed * 11) % 2001) - 1000;
+        const int32_t bi = static_cast<int32_t>((i * 23 + seed * 19) % 2001) - 1000;
+        a[i] = static_cast<float>(ai) * 0.0625f + static_cast<float>(i % 7) * 0.0078125f;
+        b[i] = static_cast<float>(bi) * 0.0625f - static_cast<float>(i % 5) * 0.015625f;
+    }
+}
+
+void fill_i16_avx512(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
+    for (size_t i = 0; i < dim; ++i) {
+        const int32_t ai = static_cast<int32_t>((i * 977 + seed * 131) % 65536) - 32768;
+        const int32_t bi = static_cast<int32_t>((i * 733 + seed * 191) % 65536) - 32768;
+        a[i] = static_cast<int16_t>(ai);
+        b[i] = static_cast<int16_t>(bi);
+    }
+}
+
+#if defined(__FLT16_MANT_DIG__)
+void fill_f16_avx512(float16 *a, float16 *b, size_t dim, uint32_t seed) {
+    for (size_t i = 0; i < dim; ++i) {
+        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
+        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
+        a[i] = static_cast<float16>(static_cast<float>(ai) * 0.125f + static_cast<float>(i % 5) * 0.03125f);
+        b[i] = static_cast<float16>(static_cast<float>(bi) * 0.125f - static_cast<float>(i % 3) * 0.0625f);
+    }
+}
+#endif
+
+TEST_F(ComputeL2AVX512F, DistF32MatchesReferenceAlignedAndUnaligned) {
+    const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(4)}) {
+            for (size_t misalign_b : {size_t(0), size_t(12)}) {
+                auto a = make_buffer<float>(dim, misalign_a);
+                auto b = make_buffer<float>(dim, misalign_b);
+                fill_f32_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 71));
+
+                const double ref = reference_l2_f32(a.ptr, b.ptr, dim);
+                const double got = ComputeL2_AVX512::dist_f32(reinterpret_cast<uint8_t *>(a.ptr),
+                                                              reinterpret_cast<uint8_t *>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, std::max(1e-5, ref * 1e-5)) << "dim=" << dim
+                                                                   << " misalign_a=" << misalign_a
+                                                                   << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+#if defined(__FLT16_MANT_DIG__)
+TEST_F(ComputeL2AVX512F, DistF16MatchesReferenceAlignedAndUnaligned) {
+    const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<float16>(dim, misalign_a);
+                auto b = make_buffer<float16>(dim, misalign_b);
+                fill_f16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 73));
+
+                const double ref = reference_l2_f16(a.ptr, b.ptr, dim);
+                const double got = ComputeL2_AVX512::dist_f16(reinterpret_cast<uint8_t *>(a.ptr),
+                                                              reinterpret_cast<uint8_t *>(b.ptr), dim);
+                EXPECT_NEAR(ref, got, std::max(1e-2, ref * 2e-3)) << "dim=" << dim
+                                                                   << " misalign_a=" << misalign_a
+                                                                   << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+#endif
+
+TEST_F(ComputeL2AVX512F, DistI16MatchesReferenceAlignedAndUnaligned) {
+    const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 47, 48, 49, 96, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<int16_t>(dim, misalign_a);
+                auto b = make_buffer<int16_t>(dim, misalign_b);
+                fill_i16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 79));
+
+                const double ref = reference_l2_i16(a.ptr, b.ptr, dim);
+                const double got = ComputeL2_AVX512::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
+                                                              reinterpret_cast<uint8_t *>(b.ptr), dim);
+                EXPECT_DOUBLE_EQ(ref, got) << "dim=" << dim << " misalign_a=" << misalign_a
+                                           << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+TEST_F(ComputeL2AVX512F, DistI16HandlesExtremes) {
+    const size_t dim = 64;
+    auto a = make_buffer<int16_t>(dim, 0);
+    auto b = make_buffer<int16_t>(dim, 0);
+    for (size_t i = 0; i < dim; ++i) {
+        a.ptr[i] = (i % 2 == 0) ? INT16_MIN : INT16_MAX;
+        b.ptr[i] = (i % 2 == 0) ? INT16_MAX : INT16_MIN;
+    }
+
+    const double ref = reference_l2_i16(a.ptr, b.ptr, dim);
+    const double got = ComputeL2_AVX512::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
+                                                  reinterpret_cast<uint8_t *>(b.ptr), dim);
+    EXPECT_DOUBLE_EQ(ref, got);
+}
+
+} // namespace
+
+#endif
+
+#if defined(SKETCH2_COMPUTE_AVX512VNNI_TESTS)
+
+namespace {
+
+class ComputeL2AVX512VNNI : public ::testing::Test {
+protected:
+    void SetUp() override {
+        if (!ComputeUnit::is_supported(ComputeBackendKind::avx512_vnni)) {
+            GTEST_SKIP() << "AVX-512 VNNI is not supported on this CPU";
+        }
+    }
+};
+
+TEST_F(ComputeL2AVX512VNNI, DistI16MatchesReferenceAlignedAndUnaligned) {
+    const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 47, 48, 49, 96, 127};
+    for (size_t dim : dims) {
+        for (size_t misalign_a : {size_t(0), size_t(2)}) {
+            for (size_t misalign_b : {size_t(0), size_t(6)}) {
+                auto a = make_buffer<int16_t>(dim, misalign_a);
+                auto b = make_buffer<int16_t>(dim, misalign_b);
+                fill_i16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 83));
+
+                const double ref = reference_l2_i16(a.ptr, b.ptr, dim);
+                const double got = ComputeL2_AVX512_VNNI::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
+                                                                   reinterpret_cast<uint8_t *>(b.ptr), dim);
+                EXPECT_DOUBLE_EQ(ref, got) << "dim=" << dim << " misalign_a=" << misalign_a
+                                           << " misalign_b=" << misalign_b;
+            }
+        }
+    }
+}
+
+TEST_F(ComputeL2AVX512VNNI, DistI16HandlesExtremes) {
+    const size_t dim = 64;
+    auto a = make_buffer<int16_t>(dim, 0);
+    auto b = make_buffer<int16_t>(dim, 0);
+    for (size_t i = 0; i < dim; ++i) {
+        a.ptr[i] = (i % 2 == 0) ? INT16_MIN : INT16_MAX;
+        b.ptr[i] = (i % 2 == 0) ? INT16_MAX : INT16_MIN;
+    }
+
+    const double ref = reference_l2_i16(a.ptr, b.ptr, dim);
+    const double got = ComputeL2_AVX512_VNNI::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
+                                                       reinterpret_cast<uint8_t *>(b.ptr), dim);
+    EXPECT_DOUBLE_EQ(ref, got);
+}
+
+} // namespace
+
+#endif
