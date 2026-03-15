@@ -27,20 +27,22 @@ public:
 inline double ComputeL1_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
     const float *va = reinterpret_cast<const float *>(a);
     const float *vb = reinterpret_cast<const float *>(b);
-    float32x4_t acc = vdupq_n_f32(0.0f);
+    float32x4_t acc0 = vdupq_n_f32(0.0f);
+    float32x4_t acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
+    for (; i + 8 <= dim; i += 8) {
+        acc0 = vaddq_f32(acc0, vabsq_f32(vsubq_f32(vld1q_f32(va + i),     vld1q_f32(vb + i))));
+        acc1 = vaddq_f32(acc1, vabsq_f32(vsubq_f32(vld1q_f32(va + i + 4), vld1q_f32(vb + i + 4))));
+    }
     for (; i + 4 <= dim; i += 4) {
-        float32x4_t a4 = vld1q_f32(va + i);
-        float32x4_t b4 = vld1q_f32(vb + i);
-        float32x4_t diff = vsubq_f32(a4, b4);
-        acc = vaddq_f32(acc, vabsq_f32(diff));
+        acc0 = vaddq_f32(acc0, vabsq_f32(vsubq_f32(vld1q_f32(va + i), vld1q_f32(vb + i))));
     }
 
-    double sum = static_cast<double>(vaddvq_f32(acc));
-
+    double sum = static_cast<double>(vaddvq_f32(vaddq_f32(acc0, acc1)));
     for (; i < dim; ++i) {
-        sum += std::abs(va[i] - vb[i]);
+        const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
+        sum += std::abs(d);
     }
     return sum;
 }
@@ -52,17 +54,16 @@ inline double ComputeL1_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size_
     size_t i = 0;
 
 #if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
-    float16x8_t acc = vdupq_n_f16(0.0f);
+    float32x4_t acc0 = vdupq_n_f32(0.0f);
+    float32x4_t acc1 = vdupq_n_f32(0.0f);
     for (; i + 8 <= dim; i += 8) {
-        float16x8_t a8 = vld1q_f16(reinterpret_cast<const float16_t *>(va + i));
-        float16x8_t b8 = vld1q_f16(reinterpret_cast<const float16_t *>(vb + i));
-        float16x8_t diff = vsubq_f16(a8, b8);
-        acc = vaddq_f16(acc, vabsq_f16(diff));
+        const float16x8_t diff8 = vabsq_f16(vsubq_f16(
+            vld1q_f16(reinterpret_cast<const float16_t *>(va + i)),
+            vld1q_f16(reinterpret_cast<const float16_t *>(vb + i))));
+        acc0 = vaddq_f32(acc0, vcvt_f32_f16(vget_low_f16(diff8)));
+        acc1 = vaddq_f32(acc1, vcvt_f32_f16(vget_high_f16(diff8)));
     }
-    // Manual horizontal sum as vaddvq_f16 might be missing in some environments
-    float32x4_t acc_lo = vcvt_f32_f16(vget_low_f16(acc));
-    float32x4_t acc_hi = vcvt_f32_f16(vget_high_f16(acc));
-    sum = static_cast<double>(vaddvq_f32(vaddq_f32(acc_lo, acc_hi)));
+    sum = static_cast<double>(vaddvq_f32(vaddq_f32(acc0, acc1)));
 #else
     float32x4_t acc = vdupq_n_f32(0.0f);
     for (; i + 4 <= dim; i += 4) {

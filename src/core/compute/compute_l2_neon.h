@@ -35,15 +35,22 @@ inline void accumulate_squared_i32_as_i64_l2(int32x4_t diff, int64x2_t* acc0, in
 inline double ComputeL2_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
     const float *va = reinterpret_cast<const float *>(a);
     const float *vb = reinterpret_cast<const float *>(b);
-    float32x4_t acc = vdupq_n_f32(0.0f);
+    float32x4_t acc0 = vdupq_n_f32(0.0f);
+    float32x4_t acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
+    for (; i + 8 <= dim; i += 8) {
+        const float32x4_t d0 = vsubq_f32(vld1q_f32(va + i),     vld1q_f32(vb + i));
+        const float32x4_t d1 = vsubq_f32(vld1q_f32(va + i + 4), vld1q_f32(vb + i + 4));
+        acc0 = vmlaq_f32(acc0, d0, d0);
+        acc1 = vmlaq_f32(acc1, d1, d1);
+    }
     for (; i + 4 <= dim; i += 4) {
         const float32x4_t d = vsubq_f32(vld1q_f32(va + i), vld1q_f32(vb + i));
-        acc = vmlaq_f32(acc, d, d);
+        acc0 = vmlaq_f32(acc0, d, d);
     }
 
-    double sum = static_cast<double>(vaddvq_f32(acc));
+    double sum = static_cast<double>(vaddvq_f32(vaddq_f32(acc0, acc1)));
     for (; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
         sum += d * d;
@@ -91,6 +98,8 @@ inline double ComputeL2_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size_
     const int16_t *vb = reinterpret_cast<const int16_t *>(b);
     int64x2_t acc0 = vdupq_n_s64(0);
     int64x2_t acc1 = vdupq_n_s64(0);
+    int64x2_t acc2 = vdupq_n_s64(0);
+    int64x2_t acc3 = vdupq_n_s64(0);
 
     size_t i = 0;
     for (; i + 8 <= dim; i += 8) {
@@ -99,10 +108,11 @@ inline double ComputeL2_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size_
         const int32x4_t d_lo = vsubq_s32(vmovl_s16(vget_low_s16(a8)), vmovl_s16(vget_low_s16(b8)));
         const int32x4_t d_hi = vsubq_s32(vmovl_s16(vget_high_s16(a8)), vmovl_s16(vget_high_s16(b8)));
         accumulate_squared_i32_as_i64_l2(d_lo, &acc0, &acc1);
-        accumulate_squared_i32_as_i64_l2(d_hi, &acc0, &acc1);
+        accumulate_squared_i32_as_i64_l2(d_hi, &acc2, &acc3);
     }
 
-    double sum = static_cast<double>(hsum_s64x2_l2(acc0) + hsum_s64x2_l2(acc1));
+    double sum = static_cast<double>(hsum_s64x2_l2(acc0) + hsum_s64x2_l2(acc1) +
+                                     hsum_s64x2_l2(acc2) + hsum_s64x2_l2(acc3));
     for (; i < dim; ++i) {
         const int64_t d = static_cast<int64_t>(va[i]) - static_cast<int64_t>(vb[i]);
         sum += static_cast<double>(d * d);
