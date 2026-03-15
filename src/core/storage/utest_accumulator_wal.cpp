@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <gtest/gtest.h>
+#include "utest_tmp_dir.h"
 
 namespace sketch2 {
 
@@ -30,7 +31,7 @@ protected:
     std::string wal_path_;
 
     void SetUp() override {
-        dir_ = "/tmp/sketch2_utest_acc_wal_" + std::to_string(getpid());
+        dir_ = tmp_dir() + "/sketch2_utest_acc_wal_" + std::to_string(getpid());
         wal_path_ = dir_ + "/accumulator.wal";
         fs::create_directories(dir_);
     }
@@ -133,6 +134,46 @@ TEST_F(AccumulatorWalTest, ReplayFailsOnTypeMismatch) {
     const Ret ret = restored.attach_wal(wal_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("AccumulatorWal: wal type mismatch", ret.message());
+}
+
+TEST_F(AccumulatorWalTest, ReplayFailsOnDimMismatch) {
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+
+    {
+        Accumulator accumulator;
+        ASSERT_EQ(0, accumulator.init(256, DataType::f32, 4).code());
+        ASSERT_EQ(0, accumulator.attach_wal(wal_path_).code());
+        ASSERT_EQ(0, accumulator.add_vector(1, as_bytes(vec)).code());
+    }
+
+    // Attempt to replay the WAL with a different dimension.
+    Accumulator restored;
+    ASSERT_EQ(0, restored.init(256, DataType::f32, 8).code());
+    const Ret ret = restored.attach_wal(wal_path_);
+    EXPECT_NE(0, ret.code());
+}
+
+TEST_F(AccumulatorWalTest, EmptyAccumulatorIteratorIsAtEof) {
+    Accumulator accumulator;
+    ASSERT_EQ(0, accumulator.init(128, DataType::f32, 4).code());
+    auto it = accumulator.begin();
+    EXPECT_TRUE(it.eof());
+}
+
+TEST_F(AccumulatorWalTest, ReplayHandlesTruncatedHeader) {
+    // A file with fewer bytes than a valid WAL header should not crash.
+    {
+        std::ofstream f(wal_path_, std::ios::binary);
+        const std::array<uint8_t, 3> partial {0x01, 0x02, 0x03};
+        f.write(reinterpret_cast<const char*>(partial.data()), partial.size());
+    }
+
+    Accumulator accumulator;
+    ASSERT_EQ(0, accumulator.init(256, DataType::f32, 4).code());
+    // Should either succeed (treating the file as a fresh WAL) or fail with an error.
+    // It must not crash or invoke undefined behavior.
+    const Ret ret = accumulator.attach_wal(wal_path_);
+    (void)ret; // result is implementation-defined; just verify no crash
 }
 
 } // namespace sketch2

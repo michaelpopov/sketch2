@@ -11,6 +11,7 @@
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_writer.h"
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 
@@ -20,7 +21,7 @@ protected:
     std::string output_path_;
 
     void SetUp() override {
-        std::string base = "/tmp/sketch2_utest_dw_" + std::to_string(getpid());
+        std::string base = tmp_dir() + "/sketch2_utest_dw_" + std::to_string(getpid());
         input_path_  = base + ".txt";
         output_path_ = base + ".bin";
     }

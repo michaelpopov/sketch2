@@ -9,6 +9,7 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/dataset.h"
 #include "core/storage/data_reader.h"
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 namespace fs = std::filesystem;
@@ -19,7 +20,7 @@ protected:
     std::string input_path_;
 
     void SetUp() override {
-        base_dir_ = "/tmp/sketch2_utest_full_cycle_" + std::to_string(getpid());
+        base_dir_ = tmp_dir() + "/sketch2_utest_full_cycle_" + std::to_string(getpid());
         input_path_ = base_dir_ + "/input.txt";
         fs::create_directories(base_dir_);
     }

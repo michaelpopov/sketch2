@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/storage/data_file_layout.h"
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 
@@ -17,7 +18,7 @@ protected:
     std::string path_;
 
     void SetUp() override {
-        path_ = "/tmp/sketch2_utest_dfl_" + std::to_string(getpid()) + ".bin";
+        path_ = tmp_dir() + "/sketch2_utest_dfl_" + std::to_string(getpid()) + ".bin";
     }
 
     void TearDown() override {

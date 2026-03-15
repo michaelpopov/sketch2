@@ -12,6 +12,7 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_merger.h"
 #include "core/storage/data_reader.h"
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 namespace fs = std::filesystem;
@@ -22,7 +23,7 @@ protected:
     std::string base_dir_;
 
     void SetUp() override {
-        base_dir_ = "/tmp/sketch2_utest_dm_" + std::to_string(getpid());
+        base_dir_ = tmp_dir() + "/sketch2_utest_dm_" + std::to_string(getpid());
         fs::create_directories(base_dir_);
     }
 

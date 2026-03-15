@@ -135,6 +135,32 @@ TEST(LogTest, DisabledLogPathCompilesAndSkipsWork) {
     set_log_level(original);
 }
 
+TEST(LogTest, FilteredMessagesProduceNoOutput) {
+    LogLevel original = get_log_level();
+    set_log_level(LogLevel::Error);
+
+    const std::string output = capture_stderr_output([]() {
+        LOG_DEBUG << "this should not appear";
+        LOG_INFO << "this should not appear either";
+    });
+
+    EXPECT_TRUE(output.empty());
+    set_log_level(original);
+}
+
+TEST(LogTest, EnabledMessagesProduceOutput) {
+    LogLevel original = get_log_level();
+    set_log_level(LogLevel::Info);
+
+    const std::string output = capture_stderr_output([]() {
+        LOG_INFO << "hello from test";
+    });
+
+    EXPECT_FALSE(output.empty());
+    EXPECT_NE(output.find("hello from test"), std::string::npos);
+    set_log_level(original);
+}
+
 TEST(LogTest, LongMessagesAreTruncatedSafely) {
     LogLevel original = get_log_level();
     set_log_level(LogLevel::Info);

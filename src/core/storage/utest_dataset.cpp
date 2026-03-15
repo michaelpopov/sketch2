@@ -13,6 +13,7 @@
 #include "core/storage/data_reader.h"
 #include "core/utils/singleton.h"
 #include "utils/ini_reader.h"
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 namespace fs = std::filesystem;
@@ -24,7 +25,7 @@ protected:
     std::string config_path_;
 
     void SetUp() override {
-        base_dir_   = "/tmp/sketch2_utest_sc_" + std::to_string(getpid());
+        base_dir_   = tmp_dir() + "/sketch2_utest_sc_" + std::to_string(getpid());
         input_path_ = base_dir_ + "/input.txt";
         config_path_ = base_dir_ + "/config.ini";
         fs::create_directories(base_dir_);

@@ -70,4 +70,21 @@ TEST(dynamic_bitset, out_of_range_access_throws) {
     EXPECT_THROW(bitset.set(5), std::out_of_range);
 }
 
+TEST(dynamic_bitset, word_boundary_bits_do_not_bleed) {
+    DynamicBitset bitset;
+    bitset.resize(130);
+
+    bitset.set(63);  // last bit of word 0
+    bitset.set(64);  // first bit of word 1
+
+    EXPECT_TRUE(bitset.get(63));
+    EXPECT_TRUE(bitset.get(64));
+    EXPECT_FALSE(bitset.get(62));
+    EXPECT_FALSE(bitset.get(65));
+
+    bitset.set(63, false);
+    EXPECT_FALSE(bitset.get(63));
+    EXPECT_TRUE(bitset.get(64));  // clearing 63 must not affect 64
+}
+
 } // namespace sketch2

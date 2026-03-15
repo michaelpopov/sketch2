@@ -15,6 +15,7 @@
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset.h"
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 namespace fs = std::filesystem;
@@ -27,7 +28,7 @@ protected:
     std::string delta_path_;
 
     void SetUp() override {
-        std::string base = "/tmp/sketch2_utest_sc_" + std::to_string(getpid());
+        std::string base = tmp_dir() + "/sketch2_utest_sc_" + std::to_string(getpid());
         input_path_ = base + ".txt";
         data_path_  = base + ".bin";
         delta_input_path_ = base + ".delta.txt";
@@ -419,8 +420,8 @@ TEST_F(ScannerTest, DeltaUsesUpdatedVectors) {
 }
 
 TEST_F(ScannerTest, FindDatasetWorks) {
-    std::string d0 = "/tmp/sketch2_utest_sc_ds0_" + std::to_string(getpid());
-    std::string d1 = "/tmp/sketch2_utest_sc_ds1_" + std::to_string(getpid());
+    std::string d0 = tmp_dir() + "/sketch2_utest_sc_ds0_" + std::to_string(getpid());
+    std::string d1 = tmp_dir() + "/sketch2_utest_sc_ds1_" + std::to_string(getpid());
     fs::create_directories(d0);
     fs::create_directories(d1);
     std::experimental::scope_exit cleanup([&]() {
@@ -448,7 +449,7 @@ TEST_F(ScannerTest, FindDatasetWorks) {
 }
 
 TEST_F(ScannerTest, FindDatasetItemsReturnsIdsAndDistancesInOrder) {
-    std::string d = "/tmp/sketch2_utest_sc_dsitems_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsitems_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -471,8 +472,8 @@ TEST_F(ScannerTest, FindDatasetItemsReturnsIdsAndDistancesInOrder) {
 }
 
 TEST_F(ScannerTest, FindDatasetL2Works) {
-    std::string d0 = "/tmp/sketch2_utest_sc_l2ds0_" + std::to_string(getpid());
-    std::string d1 = "/tmp/sketch2_utest_sc_l2ds1_" + std::to_string(getpid());
+    std::string d0 = tmp_dir() + "/sketch2_utest_sc_l2ds0_" + std::to_string(getpid());
+    std::string d1 = tmp_dir() + "/sketch2_utest_sc_l2ds1_" + std::to_string(getpid());
     fs::create_directories(d0);
     fs::create_directories(d1);
     std::experimental::scope_exit cleanup([&]() {
@@ -497,7 +498,7 @@ TEST_F(ScannerTest, FindDatasetL2Works) {
 }
 
 TEST_F(ScannerTest, FindDatasetCosWorks) {
-    std::string d = "/tmp/sketch2_utest_sc_cosds_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_cosds_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -523,7 +524,7 @@ TEST_F(ScannerTest, FindDatasetCosWorks) {
 }
 
 TEST_F(ScannerTest, FindDatasetCosStoredDeltaHandlesZeroVectors) {
-    std::string d = "/tmp/sketch2_utest_sc_cosdelta_zero_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_cosdelta_zero_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -555,7 +556,7 @@ TEST_F(ScannerTest, FindDatasetCosStoredDeltaHandlesZeroVectors) {
 }
 
 TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
-    std::string d = "/tmp/sketch2_utest_sc_cosds_legacy_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_cosds_legacy_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -582,7 +583,7 @@ TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
 }
 
 TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {
-    std::string d = "/tmp/sketch2_utest_sc_dsnull_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsnull_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -597,7 +598,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {
 }
 
 TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
-    std::string d = "/tmp/sketch2_utest_sc_dszero_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dszero_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -613,7 +614,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
 }
 
 TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {
-    std::string d = "/tmp/sketch2_utest_sc_dsdel_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsdel_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -646,7 +647,7 @@ TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {
 }
 
 TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
-    std::string d = "/tmp/sketch2_utest_sc_dsupd_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsupd_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -678,7 +679,7 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
 }
 
 TEST_F(ScannerTest, FindDatasetSkipsIdsDeletedInAccumulator) {
-    std::string d = "/tmp/sketch2_utest_sc_dsaccdel_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccdel_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -703,7 +704,7 @@ TEST_F(ScannerTest, FindDatasetSkipsIdsDeletedInAccumulator) {
 }
 
 TEST_F(ScannerTest, FindDatasetDeleteFlushedFromAccumulatorStaysHidden) {
-    std::string d = "/tmp/sketch2_utest_sc_dsaccflushdel_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccflushdel_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -729,7 +730,7 @@ TEST_F(ScannerTest, FindDatasetDeleteFlushedFromAccumulatorStaysHidden) {
 }
 
 TEST_F(ScannerTest, FindDatasetIncludesVectorsFromAccumulator) {
-    std::string d = "/tmp/sketch2_utest_sc_dsaccadd_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccadd_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -750,7 +751,7 @@ TEST_F(ScannerTest, FindDatasetIncludesVectorsFromAccumulator) {
 }
 
 TEST_F(ScannerTest, FindDatasetReAddedDeletedVectorUsesAccumulatorValue) {
-    std::string d = "/tmp/sketch2_utest_sc_dsreadd_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsreadd_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -773,7 +774,7 @@ TEST_F(ScannerTest, FindDatasetReAddedDeletedVectorUsesAccumulatorValue) {
 }
 
 TEST_F(ScannerTest, FindDatasetAccumulatorUsesIdTieBreakForEqualDistance) {
-    std::string d = "/tmp/sketch2_utest_sc_dstie_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dstie_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -792,7 +793,7 @@ TEST_F(ScannerTest, FindDatasetAccumulatorUsesIdTieBreakForEqualDistance) {
 }
 
 TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromAccumulator) {
-    std::string d = "/tmp/sketch2_utest_sc_dsaccupd_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccupd_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -813,7 +814,7 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromAccumulator) {
 }
 
 TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
-    std::string d = "/tmp/sketch2_utest_sc_dsaccdup_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccdup_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
@@ -837,7 +838,7 @@ TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
 }
 
 TEST_F(ScannerTest, FindDatasetSkipsPersistedDeltaVersionWhenAccumulatorUpdatesSameId) {
-    std::string d = "/tmp/sketch2_utest_sc_dsaccdeltadup_" + std::to_string(getpid());
+    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccdeltadup_" + std::to_string(getpid());
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 

@@ -154,4 +154,52 @@ TEST(string_utils, data_type_from_int_invalid_values_throw) {
     EXPECT_THROW(data_type_from_int(99), std::runtime_error);
 }
 
+TEST(string_utils, parse_vector_f32_scientific_notation) {
+    // strtof accepts scientific notation; verify the parser does too.
+    std::array<float, 3> out {};
+    const Ret ret = parse_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::f32, out.size(),
+        "1.5e2, -2.5e-1, 3.0e0");
+    ASSERT_EQ(ret.code(), 0) << ret.message();
+    EXPECT_FLOAT_EQ(out[0], 150.0f);
+    EXPECT_FLOAT_EQ(out[1], -0.25f);
+    EXPECT_FLOAT_EQ(out[2], 3.0f);
+}
+
+TEST(string_utils, parse_vector_i16_min_value_succeeds) {
+    // INT16_MIN (-32768) is the lower boundary and must be accepted.
+    std::array<int16_t, 2> out {};
+    const Ret ret = parse_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::i16, out.size(),
+        "-32768, 32767");
+    ASSERT_EQ(ret.code(), 0) << ret.message();
+    EXPECT_EQ(out[0], -32768);
+    EXPECT_EQ(out[1], 32767);
+}
+
+TEST(string_utils, parse_vector_f32_leading_whitespace_succeeds) {
+    // The parser skips separators (space/comma) between tokens; leading
+    // whitespace is implicitly handled by strtof which skips leading spaces.
+    std::array<float, 2> out {};
+    const Ret ret = parse_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::f32, out.size(),
+        " 1.0,  2.0");
+    ASSERT_EQ(ret.code(), 0) << ret.message();
+    EXPECT_FLOAT_EQ(out[0], 1.0f);
+    EXPECT_FLOAT_EQ(out[1], 2.0f);
+}
+
+TEST(string_utils, parse_vector_dist_func_invalid_string_throws) {
+    EXPECT_THROW(dist_func_from_string("bad"), std::runtime_error);
+    EXPECT_THROW(dist_func_from_string(""), std::runtime_error);
+}
+
+TEST(string_utils, parse_vector_data_type_roundtrip) {
+    EXPECT_EQ(DataType::f32, data_type_from_string("f32"));
+    EXPECT_EQ(DataType::i16, data_type_from_string("i16"));
+    EXPECT_THROW(data_type_from_string("bad"), std::runtime_error);
+    EXPECT_STREQ("f32", data_type_to_string(DataType::f32));
+    EXPECT_STREQ("i16", data_type_to_string(DataType::i16));
+}
+
 } // namespace sketch2

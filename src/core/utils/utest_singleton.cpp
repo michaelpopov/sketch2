@@ -11,23 +11,24 @@
 #include <iterator>
 #include <string>
 #include <unistd.h>
+#include "utest_tmp_dir.h"
 
 namespace sketch2 {
 
 class SingletonTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        char path1[] = "/tmp/sketch2-singleton-a-XXXXXX";
-        const int fd1 = mkstemp(path1);
+        std::string path1_buf = tmp_dir() + "/sketch2-singleton-a-XXXXXX";
+        const int fd1 = mkstemp(path1_buf.data());
         ASSERT_NE(fd1, -1);
         close(fd1);
-        path1_ = path1;
+        path1_ = path1_buf;
 
-        char path2[] = "/tmp/sketch2-singleton-b-XXXXXX";
-        const int fd2 = mkstemp(path2);
+        std::string path2_buf = tmp_dir() + "/sketch2-singleton-b-XXXXXX";
+        const int fd2 = mkstemp(path2_buf.data());
         ASSERT_NE(fd2, -1);
         close(fd2);
-        path2_ = path2;
+        path2_ = path2_buf;
     }
 
     void TearDown() override {
@@ -51,7 +52,7 @@ TEST_F(SingletonTest, EnvOverridesApplyWithOrWithoutConfigBeforeSingletonSeals) 
     unsetenv("SKETCH2_THREAD_POOL_SIZE");
     EXPECT_FALSE(Singleton::apply_config_from_env());
 
-    ASSERT_EQ(0, setenv("SKETCH2_CONFIG", "/tmp/sketch2-missing-config.ini", 1));
+    ASSERT_EQ(0, setenv("SKETCH2_CONFIG", (tmp_dir() + "/sketch2-missing-config.ini").c_str(), 1));
     ASSERT_EQ(0, setenv("SKETCH2_LOG_LEVEL", "debug", 1));
     ASSERT_EQ(0, setenv("SKETCH2_THREAD_POOL_SIZE", "3", 1));
     ASSERT_EQ(0, setenv("SKETCH2_LOG_FILE", path2_.c_str(), 1));

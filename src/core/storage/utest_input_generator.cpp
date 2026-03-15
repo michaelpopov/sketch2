@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <unistd.h>
 #include "core/storage/input_generator.h"
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 
@@ -16,7 +17,7 @@ protected:
     std::string path_;
 
     void SetUp() override {
-        path_ = "/tmp/sketch2_utest_ig_" + std::to_string(getpid()) + ".txt";
+        path_ = tmp_dir() + "/sketch2_utest_ig_" + std::to_string(getpid()) + ".txt";
     }
 
     void TearDown() override {

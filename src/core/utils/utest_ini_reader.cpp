@@ -6,6 +6,7 @@
 #include <string>
 #include <unistd.h>
 #include "utils/ini_reader.h"
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 namespace fs = std::filesystem;
@@ -16,7 +17,7 @@ protected:
     std::string ini_path_;
 
     void SetUp() override {
-        base_dir_ = "/tmp/sketch2_utest_ini_reader_" + std::to_string(getpid());
+        base_dir_ = tmp_dir() + "/sketch2_utest_ini_reader_" + std::to_string(getpid());
         ini_path_ = base_dir_ + "/test.ini";
         fs::create_directories(base_dir_);
     }
@@ -99,4 +100,18 @@ TEST_F(IniReaderTest, InvalidIntValueThrows) {
     IniReader reader;
     ASSERT_EQ(0, reader.init(ini_path_).code());
     EXPECT_THROW(reader.get_int("main.count", 11), std::runtime_error);
+}
+
+TEST_F(IniReaderTest, DuplicateKeyLastValueWins) {
+    write_ini("[s]\nkey = 1\nkey = 2\n");
+    IniReader reader;
+    ASSERT_EQ(0, reader.init(ini_path_).code());
+    EXPECT_EQ(2, reader.get_int("s.key", -1));
+}
+
+TEST_F(IniReaderTest, EmptyValueReturnsEmptyString) {
+    write_ini("[s]\nkey =\n");
+    IniReader reader;
+    ASSERT_EQ(0, reader.init(ini_path_).code());
+    EXPECT_EQ("", reader.get_str("s.key", "fallback"));
 }

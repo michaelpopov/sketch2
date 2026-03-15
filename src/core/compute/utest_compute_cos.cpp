@@ -146,6 +146,37 @@ TEST(ComputeCosTest, DistF16ComputesDistance) {
     EXPECT_NEAR(reference_cosine_distance(a.data(), b.data(), a.size()), got, 1e-3);
 }
 
+TEST(ComputeCosTest, IdenticalVectorsYieldZeroDistance) {
+    const std::vector<float> a = {1.0f, 2.0f, -3.0f, 4.0f};
+    ComputeCos cos;
+    const double got = cos.dist(reinterpret_cast<const uint8_t*>(a.data()),
+                                reinterpret_cast<const uint8_t*>(a.data()),
+                                DataType::f32, a.size());
+    EXPECT_NEAR(0.0, got, 1e-12);
+}
+
+TEST(ComputeCosTest, OrthogonalVectorsYieldUnitDistance) {
+    // Axis-aligned unit vectors are orthogonal: cos(90°) = 0, distance = 1 - 0 = 1.
+    const std::vector<float> a = {1.0f, 0.0f, 0.0f, 0.0f};
+    const std::vector<float> b = {0.0f, 1.0f, 0.0f, 0.0f};
+    ComputeCos cos;
+    const double got = cos.dist(reinterpret_cast<const uint8_t*>(a.data()),
+                                reinterpret_cast<const uint8_t*>(b.data()),
+                                DataType::f32, a.size());
+    EXPECT_NEAR(1.0, got, 1e-12);
+}
+
+TEST(ComputeCosTest, AntiparallelVectorsYieldTwoDistance) {
+    // b = -a: cos(180°) = -1, distance = 1 - (-1) = 2.
+    const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::vector<float> b = {-1.0f, -2.0f, -3.0f, -4.0f};
+    ComputeCos cos;
+    const double got = cos.dist(reinterpret_cast<const uint8_t*>(a.data()),
+                                reinterpret_cast<const uint8_t*>(b.data()),
+                                DataType::f32, a.size());
+    EXPECT_NEAR(2.0, got, 1e-12);
+}
+
 TEST(ComputeCosTest, ZeroNormHandlingMatchesContract) {
     const std::vector<float> zero = {0.0f, 0.0f, 0.0f, 0.0f};
     const std::vector<float> nonzero = {1.0f, 2.0f, 0.0f, 0.0f};
@@ -344,6 +375,75 @@ TEST(ComputeCosNeon, DistI16MatchesReference) {
         EXPECT_NEAR(ref, got2, 2e-4) << "dim=" << dim;
     }
 }
+
+// Semantic contract tests: identical, orthogonal, and anti-parallel vectors.
+TEST(ComputeCosNeon, DistF32IdenticalVectorsYieldZero) {
+    const std::vector<float> a = {1.0f, 2.0f, -3.0f, 4.0f, -5.0f};
+    const double got = ComputeCos_Neon::dist_f32(reinterpret_cast<const uint8_t*>(a.data()),
+                                                 reinterpret_cast<const uint8_t*>(a.data()),
+                                                 a.size());
+    EXPECT_NEAR(0.0, got, 1e-6);
+}
+
+TEST(ComputeCosNeon, DistF32OrthogonalVectorsYieldOne) {
+    const std::vector<float> a = {1.0f, 0.0f, 0.0f, 0.0f};
+    const std::vector<float> b = {0.0f, 1.0f, 0.0f, 0.0f};
+    const double got = ComputeCos_Neon::dist_f32(reinterpret_cast<const uint8_t*>(a.data()),
+                                                 reinterpret_cast<const uint8_t*>(b.data()),
+                                                 a.size());
+    EXPECT_NEAR(1.0, got, 1e-6);
+}
+
+TEST(ComputeCosNeon, DistF32AntiparallelVectorsYieldTwo) {
+    const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::vector<float> b = {-1.0f, -2.0f, -3.0f, -4.0f};
+    const double got = ComputeCos_Neon::dist_f32(reinterpret_cast<const uint8_t*>(a.data()),
+                                                 reinterpret_cast<const uint8_t*>(b.data()),
+                                                 a.size());
+    EXPECT_NEAR(2.0, got, 1e-6);
+}
+
+TEST(ComputeCosNeon, DistI16IdenticalVectorsYieldZero) {
+    const std::vector<int16_t> a = {10, -2, 7, -8, 20};
+    const double got = ComputeCos_Neon::dist_i16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                 reinterpret_cast<const uint8_t*>(a.data()),
+                                                 a.size());
+    EXPECT_NEAR(0.0, got, 1e-6);
+}
+
+TEST(ComputeCosNeon, DistI16OrthogonalVectorsYieldOne) {
+    const std::vector<int16_t> a = {1, 0, 0, 0, 0, 0, 0, 0};
+    const std::vector<int16_t> b = {0, 1, 0, 0, 0, 0, 0, 0};
+    const double got = ComputeCos_Neon::dist_i16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                 reinterpret_cast<const uint8_t*>(b.data()),
+                                                 a.size());
+    EXPECT_NEAR(1.0, got, 1e-6);
+}
+
+#if defined(__FLT16_MANT_DIG__)
+TEST(ComputeCosNeon, DistF16IdenticalVectorsYieldZero) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    const std::vector<float16> a = {float16(1.0f), float16(2.0f), float16(-3.0f), float16(4.0f)};
+    const double got = ComputeCos_Neon::dist_f16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                 reinterpret_cast<const uint8_t*>(a.data()),
+                                                 a.size());
+    EXPECT_NEAR(0.0, got, 1e-3);
+}
+
+TEST(ComputeCosNeon, DistF16OrthogonalVectorsYieldOne) {
+    if (!supports_f16()) {
+        GTEST_SKIP() << "f16 is not supported on this build";
+    }
+    const std::vector<float16> a = {float16(1.0f), float16(0.0f), float16(0.0f), float16(0.0f)};
+    const std::vector<float16> b = {float16(0.0f), float16(1.0f), float16(0.0f), float16(0.0f)};
+    const double got = ComputeCos_Neon::dist_f16(reinterpret_cast<const uint8_t*>(a.data()),
+                                                 reinterpret_cast<const uint8_t*>(b.data()),
+                                                 a.size());
+    EXPECT_NEAR(1.0, got, 1e-3);
+}
+#endif
 
 static void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {

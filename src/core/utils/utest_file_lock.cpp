@@ -12,6 +12,7 @@
 #include <string>
 
 #include <gtest/gtest.h>
+#include "utest_tmp_dir.h"
 
 using namespace sketch2;
 
@@ -22,7 +23,7 @@ protected:
     std::string lock_path_;
 
     void SetUp() override {
-        lock_path_ = "/tmp/sketch2_utest_lock_" + std::to_string(getpid()) + ".lock";
+        lock_path_ = tmp_dir() + "/sketch2_utest_lock_" + std::to_string(getpid()) + ".lock";
         std::remove(lock_path_.c_str());
     }
 
@@ -88,4 +89,22 @@ TEST_F(FileLockGuardTest, LockIsExclusiveAcrossProcesses) {
     ASSERT_EQ(child_pid, waitpid(child_pid, &child_status, 0));
     EXPECT_TRUE(WIFEXITED(child_status));
     EXPECT_EQ(0, WEXITSTATUS(child_status));
+}
+
+TEST_F(FileLockGuardTest, LockFailsWhenParentDirectoryDoesNotExist) {
+    const std::string nonexistent_path = tmp_dir() + "/sketch2_no_such_dir_" + std::to_string(getpid()) + "/lock.lock";
+    FileLockGuard guard;
+    const Ret ret = guard.lock(nonexistent_path);
+    EXPECT_NE(0, ret.code());
+}
+
+TEST_F(FileLockGuardTest, DestructorReleasesLockAllowingReacquisition) {
+    {
+        FileLockGuard guard;
+        ASSERT_EQ(0, guard.lock(lock_path_).code());
+    }  // guard destroyed here; lock must be released
+
+    FileLockGuard guard2;
+    const Ret ret = guard2.lock(lock_path_);
+    EXPECT_EQ(0, ret.code()) << ret.message();
 }
