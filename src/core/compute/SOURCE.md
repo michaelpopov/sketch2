@@ -1,6 +1,7 @@
 # Source Index
 
 - `CMakeLists.txt`: Build rules for the compute library and its tests.
+- `BENCHMARKS.md`: Detailed guide to the compute benchmark executables, metrics, and interpretation.
 - `OPERATIONS.md`: Operator-facing notes about backend selection, overrides, and verification.
 - `README.md`: Notes about the compute module, distance kernels, and scanner responsibilities.
 - `compute.cpp`: Minimal translation unit for the shared compute abstractions.
@@ -19,6 +20,7 @@
 - `compute_l2_avx2.h`: AVX2-specialized L2-distance kernels.
 - `compute_l2_avx512.h`: AVX-512 L2-distance kernels for `avx512f` and `avx512_vnni`.
 - `compute_l2_neon.h`: NEON-specialized L2-distance kernels.
+- `gbench_compute.cpp`: Google Benchmark suite covering compute kernels and scanner query paths.
 - `scanner.cpp`: Nearest-neighbor scanning logic over readers and datasets with runtime backend dispatch.
 - `scanner.h`: Public scanner API for top-k search.
 - `utest_compute_cos.cpp`: Unit tests for cosine-distance compute paths.

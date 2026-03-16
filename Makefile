@@ -3,6 +3,9 @@ BUILD_DBG := build-dbg
 BUILD_REL := build
 BUILD_SAN := build-san
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+GBENCH_ESSENTIAL_MIN_TIME ?= 0.005s
+GBENCH_EXTENDED_MIN_TIME ?= 0.05s
+BENCH_TMPDIR ?= /tmp
 
 # --- Targets ---
 
@@ -69,6 +72,59 @@ demo: rel
 		--dist-func L2 \
 		--parasol-lib $(BUILD_REL)/lib/libparasol.so \
 		--vlite-lib $(BUILD_REL)/lib/libvlite.so
+
+# Configures the release benchmark build with Google Benchmark enabled.
+.PHONY: benchcfg
+benchcfg:
+	cmake -S . -B $(BUILD_REL) -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_BENCHMARKS=ON -DSKETCH_USE_SYSTEM_BENCHMARK=OFF
+
+# Configures the debug benchmark build with Google Benchmark enabled.
+.PHONY: benchcfgdbg
+benchcfgdbg:
+	cmake -S . -B $(BUILD_DBG) -DCMAKE_BUILD_TYPE=Debug -DSKETCH_ENABLE_BENCHMARKS=ON -DSKETCH_USE_SYSTEM_BENCHMARK=OFF
+
+# Builds the release benchmark binaries.
+.PHONY: benchbuild
+benchbuild: benchcfg
+	cmake --build $(BUILD_REL) --parallel $(JOBS) --target bench_comp gbench_comp
+
+# Builds the debug benchmark binaries.
+.PHONY: benchbuilddbg
+benchbuilddbg: benchcfgdbg
+	cmake --build $(BUILD_DBG) --parallel $(JOBS) --target bench_comp gbench_comp
+
+# Runs the Google Benchmark-based compute/scanner benchmark suite in release mode.
+.PHONY: bench
+bench: benchrel
+
+.PHONY: benchrel
+benchrel: benchbuild
+	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
+
+# Runs the Google Benchmark-based compute/scanner benchmark suite in debug mode.
+.PHONY: benchdbg
+benchdbg: benchbuilddbg
+	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
+
+# Runs the extended Google Benchmark suite in release mode.
+.PHONY: benchext
+benchext: benchbuild
+	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=extended bin/gbench_comp --benchmark_min_time=$(GBENCH_EXTENDED_MIN_TIME)
+
+# Runs the extended Google Benchmark suite in debug mode.
+.PHONY: benchdbgext
+benchdbgext: benchbuilddbg
+	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=extended bin-dbg/gbench_comp --benchmark_min_time=$(GBENCH_EXTENDED_MIN_TIME)
+
+# Runs the lightweight compute benchmark in release mode.
+.PHONY: benchcomp
+benchcomp: benchbuild
+	bin/bench_comp
+
+# Runs the lightweight compute benchmark in debug mode.
+.PHONY: benchcompdbg
+benchcompdbg: benchbuilddbg
+	bin-dbg/bench_comp
 
 # Runs Python shell with Sketch2 objects ready
 .PHONY: pyshell

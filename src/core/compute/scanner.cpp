@@ -34,7 +34,7 @@ const char* query_result_name(bool items) {
 
 void log_query_dispatch(const char* source, DistFunc func, DataType type, size_t dim,
         size_t count, bool items) {
-    LOG_INFO << "Scanner query dispatch: backend='"
+    LOG_INFO << "Scanner query dispatch: runtime_backend='"
              << get_singleton().compute_unit().name()
              << "' source=" << source
              << " metric=" << dist_func_name(func)
