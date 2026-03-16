@@ -8,7 +8,6 @@ endif()
 project(sketch2 LANGUAGES C CXX)
 
 option(SKETCH_ENABLE_BENCHMARKS "Build Google Benchmark-based benchmark executables" OFF)
-option(SKETCH_USE_SYSTEM_BENCHMARK "Use an installed Google Benchmark package when available" OFF)
 
 #----------------------------
 # Support for f16
@@ -122,19 +121,14 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 if(SKETCH_ENABLE_BENCHMARKS)
-  if(SKETCH_USE_SYSTEM_BENCHMARK)
-    find_package(benchmark CONFIG QUIET)
-  endif()
-  if(NOT TARGET benchmark::benchmark)
-    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-    set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
-    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(
-      googlebenchmark
-      URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.zip
-    )
-    FetchContent_MakeAvailable(googlebenchmark)
-  endif()
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    googlebenchmark
+    URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.zip
+  )
+  FetchContent_MakeAvailable(googlebenchmark)
 endif()
 
 enable_testing()

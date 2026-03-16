@@ -22,56 +22,34 @@ If you just want to run benchmarks from the top-level Makefile:
 
 ```bash
 make bench
-make benchdbg
 make benchext
-make benchdbgext
 make benchcomp
-make benchcompdbg
 ```
 
 What those do:
 
 - `make bench`: configure `build/` as a release benchmark build and run the
   essential Google Benchmark suite
-- `make benchdbg`: configure `build-dbg/` as a debug benchmark build and run
-  the essential Google Benchmark suite
 - `make benchext`: configure `build/` as a release benchmark build and run the
   extended Google Benchmark suite
-- `make benchdbgext`: configure `build-dbg/` as a debug benchmark build and run
-  the extended Google Benchmark suite
 - `make benchcomp`: configure `build/` as a release benchmark build and run the
   lightweight compute benchmark
-- `make benchcompdbg`: configure `build-dbg/` as a debug benchmark build and
-  run the lightweight compute benchmark
 
 The intended split is:
 
 - `make bench` for normal interactive use and quick regression checks
 - `make benchext` for broader, slower runs that may take much longer
 
-These targets intentionally reuse the main build trees:
-
-- `build/`
-- `build-dbg/`
-
-That means running a benchmark Makefile target may reconfigure one of those
-directories with `SKETCH_ENABLE_BENCHMARKS=ON` and the corresponding
-`CMAKE_BUILD_TYPE`.
+These targets reuse the main `build/` tree. That means running a benchmark
+Makefile target may reconfigure that directory with
+`SKETCH_ENABLE_BENCHMARKS=ON`.
 
 ## Benchmark Enablement
 
-Google Benchmark support is optional and controlled by:
-
-- `SKETCH_ENABLE_BENCHMARKS`
-- `SKETCH_USE_SYSTEM_BENCHMARK`
-
-Default:
-
-- `OFF`
-- `OFF`
-
-That means a plain CMake configure does not create `gbench_comp` unless
-benchmark support is explicitly enabled.
+Google Benchmark support is optional and controlled by `SKETCH_ENABLE_BENCHMARKS`
+(default: `OFF`). A plain CMake configure does not create `gbench_comp` unless
+benchmark support is explicitly enabled. Google Benchmark is always fetched and
+built locally from source.
 
 If you are configuring CMake directly, use:
 
@@ -80,20 +58,8 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_BENCHMARKS=ON
 cmake --build build --target gbench_comp bench_comp
 ```
 
-If you explicitly want to use a system-installed Google Benchmark package
-instead of the vendored copy, add:
-
-```bash
--DSKETCH_USE_SYSTEM_BENCHMARK=ON
-```
-
 If you use the top-level Makefile, the benchmark targets automatically
-reconfigure the selected build directory with benchmark support enabled before
-building. That reconfiguration happens in the normal `build/` and `build-dbg/`
-trees rather than in a separate benchmark-only build directory. The Makefile
-benchmark targets also force `SKETCH_USE_SYSTEM_BENCHMARK=OFF`, so `make bench`
-and `make benchdbg` use a locally built Google Benchmark library that matches
-the selected build type.
+reconfigure `build/` with benchmark support enabled before building.
 
 `gbench_comp` also supports benchmark profiles through
 `SKETCH2_GBENCH_PROFILE`:
@@ -103,8 +69,22 @@ the selected build type.
 
 The Makefile sets this automatically:
 
-- `make bench` / `make benchdbg`: `SKETCH2_GBENCH_PROFILE=essential`
-- `make benchext` / `make benchdbgext`: `SKETCH2_GBENCH_PROFILE=extended`
+- `make bench`: `SKETCH2_GBENCH_PROFILE=essential`
+- `make benchext`: `SKETCH2_GBENCH_PROFILE=extended`
+
+To restrict scanner benchmarks to a specific mode, set
+`SKETCH2_GBENCH_SCANNER_MODE`:
+
+- `reader`: only reader-backed scanner cases
+- `dataset_persisted`: only fully-persisted dataset cases
+- `dataset_mixed`: only mixed-state dataset cases (persisted + accumulator
+  additions/deletions)
+
+When unset, all applicable modes are registered. Example:
+
+```bash
+SKETCH2_GBENCH_SCANNER_MODE=dataset_mixed bin/gbench_comp --benchmark_min_time=0.005s
+```
 
 The Makefile benchmark targets also set `TMPDIR=/tmp` by default so benchmark
 temporary files stay on the local Linux temp filesystem instead of inheriting a
@@ -357,62 +337,53 @@ How to read it:
 Available targets:
 
 - `make benchcfg`
-- `make benchcfgdbg`
 - `make benchbuild`
-- `make benchbuilddbg`
 - `make bench`
 - `make benchrel`
-- `make benchdbg`
 - `make benchext`
-- `make benchdbgext`
 - `make benchcomp`
-- `make benchcompdbg`
 
 Meaning:
 
 - `benchcfg`: configure `build/` as a release benchmark build with
   `SKETCH_ENABLE_BENCHMARKS=ON`
-- `benchcfgdbg`: configure `build-dbg/` as a debug benchmark build with
-  `SKETCH_ENABLE_BENCHMARKS=ON`
 - `benchbuild`: build release benchmark binaries in `build/`
-- `benchbuilddbg`: build debug benchmark binaries in `build-dbg/`
-- `bench` / `benchrel`: run release `gbench_comp` with the essential profile
-- `benchdbg`: run debug `gbench_comp` with the essential profile
-- `benchext`: run release `gbench_comp` with the extended profile
-- `benchdbgext`: run debug `gbench_comp` with the extended profile
-- `benchcomp`: run release `bench_comp`
-- `benchcompdbg`: run debug `bench_comp`
+- `bench` / `benchrel`: run `gbench_comp` with the essential profile
+- `benchext`: run `gbench_comp` with the extended profile
+- `benchcomp`: run `bench_comp`
 
 For most day-to-day use, you usually only need:
 
 - `make bench`
-- `make benchdbg`
 - `make benchext`
 - `make benchcomp`
-- `make benchcompdbg`
 
 ### Direct executable runs
 
 Typical commands:
 
 ```bash
-SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_min_time=0.005s
-SKETCH2_GBENCH_PROFILE=extended bin-dbg/gbench_comp --benchmark_min_time=0.05s
-SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_filter='BM_ComputeDistance' --benchmark_min_time=0.005s
-SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_filter='BM_ScannerFindIds' --benchmark_min_time=0.005s
-bin-dbg/bench_comp
+SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_min_time=0.005s
+SKETCH2_GBENCH_PROFILE=extended bin/gbench_comp --benchmark_min_time=0.05s
+SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_filter='BM_ComputeDistance' --benchmark_min_time=0.005s
+SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_filter='BM_ScannerFindIds' --benchmark_min_time=0.005s
+bin/bench_comp
 ```
-
-These examples use the debug output directory. For release builds, use `bin/`
-instead of `bin-dbg/`.
 
 You can also force a runtime backend:
 
 ```bash
-SKETCH2_COMPUTE_BACKEND=scalar SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_filter='BM_ComputeDistance' --benchmark_min_time=0.005s
-SKETCH2_COMPUTE_BACKEND=avx2 bin-dbg/bench_comp
-SKETCH2_COMPUTE_BACKEND=avx512f bin-dbg/bench_comp
-SKETCH2_COMPUTE_BACKEND=avx512_vnni bin-dbg/bench_comp
+SKETCH2_COMPUTE_BACKEND=scalar SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_filter='BM_ComputeDistance' --benchmark_min_time=0.005s
+SKETCH2_COMPUTE_BACKEND=avx2 bin/bench_comp
+SKETCH2_COMPUTE_BACKEND=avx512f bin/bench_comp
+SKETCH2_COMPUTE_BACKEND=avx512_vnni bin/bench_comp
+```
+
+Or restrict to a specific scanner mode:
+
+```bash
+SKETCH2_GBENCH_SCANNER_MODE=reader SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_filter='BM_ScannerFindIds' --benchmark_min_time=0.005s
+SKETCH2_GBENCH_SCANNER_MODE=dataset_mixed SKETCH2_GBENCH_PROFILE=extended bin/gbench_comp --benchmark_min_time=0.05s
 ```
 
 Important behavior:
@@ -426,11 +397,11 @@ Important behavior:
 Useful examples:
 
 ```bash
-SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_filter='BM_ComputeDistance' --benchmark_min_time=0.005s
-SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_filter='BM_ScannerFindIds' --benchmark_min_time=0.005s
-SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_filter='BM_ScannerFindItems' --benchmark_min_time=0.005s
-SKETCH2_GBENCH_PROFILE=essential bin-dbg/gbench_comp --benchmark_filter='BM_ComputeDistance/0/1/0/256$' --benchmark_min_time=0.005s
-SKETCH2_GBENCH_PROFILE=extended bin-dbg/gbench_comp --benchmark_min_time=0.05s
+SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_filter='BM_ComputeDistance' --benchmark_min_time=0.005s
+SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_filter='BM_ScannerFindIds' --benchmark_min_time=0.005s
+SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_filter='BM_ScannerFindItems' --benchmark_min_time=0.005s
+SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_filter='BM_ComputeDistance/0/1/0/256$' --benchmark_min_time=0.005s
+SKETCH2_GBENCH_PROFILE=extended bin/gbench_comp --benchmark_min_time=0.05s
 ```
 
 Recommended workflow:
@@ -456,17 +427,11 @@ Always compare runs with the same:
 
 Changing any of those changes the meaning of the result.
 
-### 2. Prefer release builds for real numbers
+### 2. Use release builds
 
-Debug builds are useful for validation, but timing is often distorted.
-
-If Google Benchmark prints:
-
-```text
-***WARNING*** Library was built as DEBUG. Timings may be affected.
-```
-
-take the results as functional verification, not final performance data.
+Benchmarks are only meaningful in release mode. Debug builds disable
+optimizations, distorting SIMD codegen, inlining, and loop unrolling, which
+makes timing results misleading.
 
 ### 3. Backend labels matter
 
@@ -553,11 +518,8 @@ This is especially important when testing `avx512f` vs `avx512_vnni`.
 - `make bench` intentionally runs the smaller essential profile rather than the
   full matrix so default benchmark runs stay interactive.
 - unsupported backends are skipped based on the current build and CPU.
-- Makefile benchmark targets intentionally reuse the main `build/` and
-  `build-dbg/` trees, so running them may reconfigure those directories for
-  benchmark use.
-- benchmark executables are emitted to the runtime output directory configured
-  by CMake, so `bin/` vs `bin-dbg/` depends on `CMAKE_BUILD_TYPE`.
+- Makefile benchmark targets reuse the main `build/` tree, so running them may
+  reconfigure that directory for benchmark use.
 
 ## Summary
 

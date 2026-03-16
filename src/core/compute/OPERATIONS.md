@@ -193,7 +193,7 @@ export SKETCH2_LOG_FILE=/path/to/sketch2.log
 Example:
 
 ```bash
-SKETCH2_COMPUTE_BACKEND=avx2 bin-dbg/bench_comp
+SKETCH2_COMPUTE_BACKEND=avx2 bin/bench_comp
 ```
 
 If a non-`auto` backend was requested but not actually honored, the benchmark

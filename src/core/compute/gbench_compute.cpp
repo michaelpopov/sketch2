@@ -139,6 +139,33 @@ size_t scanner_accumulator_deletions() {
         kScannerAccumulatorDeletionsEssential : kScannerAccumulatorDeletionsExtended;
 }
 
+const std::vector<int>& scanner_modes() {
+    static const std::vector<int> modes = [] {
+        std::vector<int> values;
+        const char* env = std::getenv("SKETCH2_GBENCH_SCANNER_MODE");
+        if (env && *env) {
+            const std::string mode = env;
+            if (mode == "reader") {
+                values.push_back(0);
+            } else if (mode == "dataset_persisted") {
+                values.push_back(1);
+            } else if (mode == "dataset_mixed") {
+                values.push_back(2);
+            } else {
+                throw std::runtime_error(
+                    "invalid SKETCH2_GBENCH_SCANNER_MODE: " + mode +
+                    " (expected reader, dataset_persisted, or dataset_mixed)");
+            }
+        } else {
+            values.push_back(0);
+            values.push_back(1);
+            values.push_back(2);
+        }
+        return values;
+    }();
+    return modes;
+}
+
 const std::vector<int>& benchmark_backends() {
     static const std::vector<int> backends = [] {
         std::vector<int> values;
@@ -407,15 +434,25 @@ void ApplyComputeArgs(benchmark::internal::Benchmark* benchmark) {
 
 void ApplyScannerArgs(benchmark::internal::Benchmark* benchmark) {
     const BenchmarkProfile profile = benchmark_profile();
+    const std::vector<int>& modes = scanner_modes();
+    // In the essential profile, only reader cases run by default to keep
+    // `make bench` fast. When a specific mode is explicitly requested via
+    // SKETCH2_GBENCH_SCANNER_MODE (modes.size() == 1), cases are generated
+    // for that mode using the same representative args.
+    const bool single_mode = (modes.size() == 1);
     for (int backend : benchmark_backends()) {
         if (profile == BenchmarkProfile::essential) {
-            benchmark->Args({backend, 1, 0, 256, 10, 0});
-            benchmark->Args({backend, 1, 2, 256, 10, 0});
-            benchmark->Args({backend, 2, 2, 256, 10, 0});
+            for (int mode : modes) {
+                if (mode == 0 || single_mode) {
+                    benchmark->Args({backend, 1, 0, 256, 10, mode});
+                    benchmark->Args({backend, 1, 2, 256, 10, mode});
+                    benchmark->Args({backend, 2, 2, 256, 10, mode});
+                }
+            }
         } else {
             for (int metric = 0; metric <= 2; ++metric) {
                 for (int type = 0; type <= 2; ++type) {
-                    for (int mode = 0; mode <= 2; ++mode) {
+                    for (int mode : modes) {
                         benchmark->Args({backend, metric, type, 128, 10, mode});
                         benchmark->Args({backend, metric, type, 256, 10, mode});
                         benchmark->Args({backend, metric, type, 256, 100, mode});
@@ -431,10 +468,12 @@ void ApplyDatasetScannerArgs(benchmark::internal::Benchmark* benchmark) {
     if (profile == BenchmarkProfile::essential) {
         return;
     }
+    const std::vector<int>& modes = scanner_modes();
     for (int backend : benchmark_backends()) {
         for (int metric = 0; metric <= 2; ++metric) {
             for (int type = 0; type <= 2; ++type) {
-                for (int mode = 1; mode <= 2; ++mode) {
+                for (int mode : modes) {
+                    if (mode == 0) continue;
                     benchmark->Args({backend, metric, type, 128, 10, mode});
                     benchmark->Args({backend, metric, type, 256, 10, mode});
                     benchmark->Args({backend, metric, type, 256, 100, mode});
