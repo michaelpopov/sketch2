@@ -13,19 +13,41 @@ BENCH_TMPDIR ?= /tmp
 .PHONY: all
 all: build
 
-# Compiles the project using the specified build directory
+# --- Build directory initialization ---
+# These are real-file targets keyed on CMakeCache.txt so cmake only runs once.
+# Use 'make initdbg / initrel / initsan' to re-run configuration explicitly.
+
+$(BUILD_DBG)/CMakeCache.txt:
+	cmake -S . -B $(BUILD_DBG) -DCMAKE_BUILD_TYPE=Debug
+
+$(BUILD_REL)/CMakeCache.txt:
+	cmake -S . -B $(BUILD_REL) -DCMAKE_BUILD_TYPE=Release
+
+$(BUILD_SAN)/CMakeCache.txt:
+	cmake -S . -B $(BUILD_SAN) -DCMAKE_BUILD_TYPE=Sanitizer
+
+.PHONY: initdbg
+initdbg: $(BUILD_DBG)/CMakeCache.txt
+
+.PHONY: initrel
+initrel: $(BUILD_REL)/CMakeCache.txt
+
+.PHONY: initsan
+initsan: $(BUILD_SAN)/CMakeCache.txt
+
+# Compiles the project in debug build (initializes build-dbg if needed)
 .PHONY: build
-build:
+build: $(BUILD_DBG)/CMakeCache.txt
 	cmake --build $(BUILD_DBG) --parallel $(JOBS)
 
-# Compiles the project in release build
+# Compiles the project in release build (initializes build if needed)
 .PHONY: rel
-rel:
+rel: $(BUILD_REL)/CMakeCache.txt
 	cmake --build $(BUILD_REL) --parallel $(JOBS)
 
-# Compiles the project in sanitizer build
+# Compiles the project in sanitizer build (initializes build-san if needed)
 .PHONY: san
-san:
+san: $(BUILD_SAN)/CMakeCache.txt
 	cmake --build $(BUILD_SAN) --parallel $(JOBS)
 
 # Runs the test suite with failure output enabled
@@ -40,12 +62,12 @@ tpooltest:
 
 # Runs the test suite in release build
 .PHONY: rtest
-rtest:
+rtest: rel
 	ctest --test-dir $(BUILD_REL) --output-on-failure
 
 # Runs the test suite in sanitizer build
-.PHONY: san
-santest:
+.PHONY: santest
+santest: san
 	ctest --test-dir $(BUILD_SAN) --output-on-failure
 
 # Runs Python API tests
