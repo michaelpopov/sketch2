@@ -60,6 +60,13 @@ public:
     static bool apply_config_from_env();
     static bool apply_config_file(const std::string& path);
     static bool force_compute_unit_for_testing(ComputeBackendKind kind);
+    // Install (threads > 1) or remove (threads <= 1) the process-wide thread pool.
+    // Bypasses the initialized flag so tests can install and tear down a pool
+    // around individual test cases regardless of singleton initialization order.
+    static void force_thread_pool_for_testing(size_t threads);
+    // Directly install (or clear, if null) a previously saved pool. Used to
+    // restore whatever was in place before a test overrode it.
+    static void force_thread_pool_for_testing(std::shared_ptr<ThreadPool> pool);
 
     const ComputeUnit& compute_unit() const;
     const std::shared_ptr<ThreadPool>& thread_pool() const;

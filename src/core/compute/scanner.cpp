@@ -258,239 +258,82 @@ Ret scan_reader_heap_custom(const DataReader& reader, size_t count, DistHeap* he
     return Ret(0);
 }
 
-// These helpers keep the "build heap then materialize sorted output" pattern in
-// one place so dataset and reader scan variants do not duplicate heap plumbing.
-template <typename HeapBuildFn>
-Ret collect_items(const HeapBuildFn& build, std::vector<DistItem>& result) {
-    DistHeap heap;
-    CHECK(build(&heap));
-    extract_items(&heap, &result);
-    return Ret(0);
-}
-
-template <typename HeapBuildFn>
-Ret collect_ids(const HeapBuildFn& build, std::vector<uint64_t>& result) {
-    DistHeap heap;
-    CHECK(build(&heap));
-    extract_ids(&heap, &result);
-    return Ret(0);
-}
-
 // Dataset score adapters bind a fixed scorer into the shared dataset heap
 // builder, keeping accumulator shadowing and top-k behavior identical across
 // metrics and output shapes.
 template <typename ScoreFn>
-Ret scan_dataset_items_with_score(const Dataset& dataset, size_t count, const ScoreFn& score,
-        std::vector<DistItem>& result) {
-    return collect_items([&](DistHeap* heap) {
-        return scan_dataset_heap_custom(
-            dataset,
-            count,
-            heap,
-            [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
-                scan_data_reader_scored(reader, skip_ids, local_count, local_heap, score);
-            },
-            score);
-    }, result);
-}
-
-template <typename ScoreFn>
-Ret scan_dataset_ids_with_score(const Dataset& dataset, size_t count, const ScoreFn& score,
-        std::vector<uint64_t>& result) {
-    return collect_ids([&](DistHeap* heap) {
-        return scan_dataset_heap_custom(
-            dataset,
-            count,
-            heap,
-            [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
-                scan_data_reader_scored(reader, skip_ids, local_count, local_heap, score);
-            },
-            score);
-    }, result);
+Ret build_dataset_heap_with_score(const Dataset& dataset, size_t count, const ScoreFn& score,
+        DistHeap* heap) {
+    return scan_dataset_heap_custom(
+        dataset, count, heap,
+        [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids,
+                size_t local_count, DistHeap* local_heap) {
+            scan_data_reader_scored(reader, skip_ids, local_count, local_heap, score);
+        },
+        score);
 }
 
 // Cosine dataset scans choose per reader whether to use stored inverse norms or
 // the full query-norm path, but otherwise reuse the same heap-building logic.
 template <typename InvScoreFn, typename QueryScoreFn>
-Ret scan_dataset_items_with_cos_scores(const Dataset& dataset, size_t count,
-        const InvScoreFn& inv_score, const QueryScoreFn& query_score,
-        std::vector<DistItem>& result) {
-    return collect_items([&](DistHeap* heap) {
-        return scan_dataset_heap_custom(
-            dataset,
-            count,
-            heap,
-            [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
-                if (reader.has_cosine_inv_norms()) {
-                    scan_data_reader_scored(reader, skip_ids, local_count, local_heap, inv_score);
-                } else {
-                    scan_data_reader_scored(reader, skip_ids, local_count, local_heap, query_score);
-                }
-            },
-            inv_score,
-            true);
-    }, result);
+Ret build_dataset_heap_with_cos_scores(const Dataset& dataset, size_t count,
+        const InvScoreFn& inv_score, const QueryScoreFn& query_score, DistHeap* heap) {
+    return scan_dataset_heap_custom(
+        dataset, count, heap,
+        [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids,
+                size_t local_count, DistHeap* local_heap) {
+            if (reader.has_cosine_inv_norms()) {
+                scan_data_reader_scored(reader, skip_ids, local_count, local_heap, inv_score);
+            } else {
+                scan_data_reader_scored(reader, skip_ids, local_count, local_heap, query_score);
+            }
+        },
+        inv_score, true);
 }
 
-template <typename InvScoreFn, typename QueryScoreFn>
-Ret scan_dataset_ids_with_cos_scores(const Dataset& dataset, size_t count,
-        const InvScoreFn& inv_score, const QueryScoreFn& query_score,
-        std::vector<uint64_t>& result) {
-    return collect_ids([&](DistHeap* heap) {
-        return scan_dataset_heap_custom(
-            dataset,
-            count,
-            heap,
-            [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
-                if (reader.has_cosine_inv_norms()) {
-                    scan_data_reader_scored(reader, skip_ids, local_count, local_heap, inv_score);
-                } else {
-                    scan_data_reader_scored(reader, skip_ids, local_count, local_heap, query_score);
-                }
-            },
-            inv_score,
-            true);
-    }, result);
-}
-
-// Reader adapters mirror the dataset helpers without the accumulator layer, so
-// reader-only scans still share the same scorer and heap semantics.
+// Reader adapters mirror the dataset helpers without the accumulator layer.
 template <typename ScoreFn>
-Ret scan_reader_items_with_score(const DataReader& reader, size_t count, const ScoreFn& score,
-        std::vector<DistItem>& result) {
-    return collect_items([&](DistHeap* heap) {
-        return scan_reader_heap_custom(
-            reader,
-            count,
-            heap,
-            [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
-                scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, score);
-            });
-    }, result);
-}
-
-template <typename ScoreFn>
-Ret scan_reader_ids_with_score(const DataReader& reader, size_t count, const ScoreFn& score,
-        std::vector<uint64_t>& result) {
-    return collect_ids([&](DistHeap* heap) {
-        return scan_reader_heap_custom(
-            reader,
-            count,
-            heap,
-            [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
-                scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, score);
-            });
-    }, result);
+Ret build_reader_heap_with_score(const DataReader& reader, size_t count, const ScoreFn& score,
+        DistHeap* heap) {
+    return scan_reader_heap_custom(
+        reader, count, heap,
+        [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids,
+                size_t local_count, DistHeap* local_heap) {
+            scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, score);
+        });
 }
 
 template <typename InvScoreFn, typename QueryScoreFn>
-Ret scan_reader_items_with_cos_scores(const DataReader& reader, size_t count,
-        const InvScoreFn& inv_score, const QueryScoreFn& query_score,
-        std::vector<DistItem>& result) {
-    return collect_items([&](DistHeap* heap) {
-        return scan_reader_heap_custom(
-            reader,
-            count,
-            heap,
-            [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
-                if (local_reader.has_cosine_inv_norms()) {
-                    scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, inv_score);
-                } else {
-                    scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, query_score);
-                }
-            });
-    }, result);
-}
-
-template <typename InvScoreFn, typename QueryScoreFn>
-Ret scan_reader_ids_with_cos_scores(const DataReader& reader, size_t count,
-        const InvScoreFn& inv_score, const QueryScoreFn& query_score,
-        std::vector<uint64_t>& result) {
-    return collect_ids([&](DistHeap* heap) {
-        return scan_reader_heap_custom(
-            reader,
-            count,
-            heap,
-            [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids, size_t local_count, DistHeap* local_heap) {
-                if (local_reader.has_cosine_inv_norms()) {
-                    scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, inv_score);
-                } else {
-                    scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, query_score);
-                }
-            });
-    }, result);
+Ret build_reader_heap_with_cos_scores(const DataReader& reader, size_t count,
+        const InvScoreFn& inv_score, const QueryScoreFn& query_score, DistHeap* heap) {
+    return scan_reader_heap_custom(
+        reader, count, heap,
+        [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids,
+                size_t local_count, DistHeap* local_heap) {
+            if (local_reader.has_cosine_inv_norms()) {
+                scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, inv_score);
+            } else {
+                scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, query_score);
+            }
+        });
 }
 
 // Type dispatch happens once per query. That produces a scorer with a fixed
 // element width so the inner scan loop never branches on DataType.
 template <typename ComputeTarget>
-Ret dispatch_reader_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) {
-    const size_t dim = reader.dim();
-    switch (type) {
-        case DataType::f32:
-            return scan_reader_ids_with_score(
-                reader, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, result);
-        case DataType::f16:
-            return scan_reader_ids_with_score(
-                reader, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, result);
-        case DataType::i16:
-            return scan_reader_ids_with_score(
-                reader, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, result);
-        default: return Ret("Scanner::find: unsupported data type.");
-    }
-}
-
-template <typename ComputeTarget>
-Ret dispatch_dataset_ids(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) {
+Ret dispatch_dataset(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
+        DistHeap* heap) {
     const size_t dim = dataset.dim();
     switch (type) {
         case DataType::f32:
-            return scan_dataset_ids_with_score(
-                dataset, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, result);
+            return build_dataset_heap_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, heap);
         case DataType::f16:
-            return scan_dataset_ids_with_score(
-                dataset, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, result);
+            return build_dataset_heap_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, heap);
         case DataType::i16:
-            return scan_dataset_ids_with_score(
-                dataset, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, result);
-        default: return Ret("Scanner::find: unsupported data type.");
-    }
-}
-
-template <typename ComputeTarget>
-Ret dispatch_dataset_items(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result) {
-    const size_t dim = dataset.dim();
-    switch (type) {
-        case DataType::f32:
-            return scan_dataset_items_with_score(
-                dataset, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, result);
-        case DataType::f16:
-            return scan_dataset_items_with_score(
-                dataset, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, result);
-        case DataType::i16:
-            return scan_dataset_items_with_score(
-                dataset, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, result);
-        default: return Ret("Scanner::find: unsupported data type.");
-    }
-}
-
-template <typename ComputeTarget>
-Ret dispatch_reader_items(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result) {
-    const size_t dim = reader.dim();
-    switch (type) {
-        case DataType::f32:
-            return scan_reader_items_with_score(
-                reader, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, result);
-        case DataType::f16:
-            return scan_reader_items_with_score(
-                reader, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, result);
-        case DataType::i16:
-            return scan_reader_items_with_score(
-                reader, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, result);
+            return build_dataset_heap_with_score(
+                dataset, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, heap);
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -499,8 +342,8 @@ Ret dispatch_reader_items(DataType type, const DataReader& reader, size_t count,
 // then uses either precomputed inverse norms or a full query-norm distance path
 // depending on what each backing reader stores.
 template <typename ComputeTarget>
-Ret dispatch_dataset_cos_ids(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) {
+Ret dispatch_dataset_cos(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
+        DistHeap* heap) {
     const size_t dim = dataset.dim();
     const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
     const double query_inv = query_inverse_norm(query_norm_sq);
@@ -508,46 +351,36 @@ Ret dispatch_dataset_cos_ids(DataType type, const Dataset& dataset, size_t count
         case DataType::f32: {
             const InvNormScore<&ComputeTarget::dot_f32> inv_score{vec, dim, query_inv};
             const QueryNormScore<&ComputeTarget::dist_f32_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_dataset_ids_with_cos_scores(dataset, count, inv_score, query_score, result);
+            return build_dataset_heap_with_cos_scores(dataset, count, inv_score, query_score, heap);
         }
         case DataType::f16: {
             const InvNormScore<&ComputeTarget::dot_f16> inv_score{vec, dim, query_inv};
             const QueryNormScore<&ComputeTarget::dist_f16_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_dataset_ids_with_cos_scores(dataset, count, inv_score, query_score, result);
+            return build_dataset_heap_with_cos_scores(dataset, count, inv_score, query_score, heap);
         }
         case DataType::i16: {
             const InvNormScore<&ComputeTarget::dot_i16> inv_score{vec, dim, query_inv};
             const QueryNormScore<&ComputeTarget::dist_i16_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_dataset_ids_with_cos_scores(dataset, count, inv_score, query_score, result);
+            return build_dataset_heap_with_cos_scores(dataset, count, inv_score, query_score, heap);
         }
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
 
-// Dataset cosine item scan variant that returns both ids and distances while
-// reusing the same inverse-norm-aware dispatch logic as the id-only path.
 template <typename ComputeTarget>
-Ret dispatch_dataset_cos_items(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result) {
-    const size_t dim = dataset.dim();
-    const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
-    const double query_inv = query_inverse_norm(query_norm_sq);
+Ret dispatch_reader(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
+        DistHeap* heap) {
+    const size_t dim = reader.dim();
     switch (type) {
-        case DataType::f32: {
-            const InvNormScore<&ComputeTarget::dot_f32> inv_score{vec, dim, query_inv};
-            const QueryNormScore<&ComputeTarget::dist_f32_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_dataset_items_with_cos_scores(dataset, count, inv_score, query_score, result);
-        }
-        case DataType::f16: {
-            const InvNormScore<&ComputeTarget::dot_f16> inv_score{vec, dim, query_inv};
-            const QueryNormScore<&ComputeTarget::dist_f16_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_dataset_items_with_cos_scores(dataset, count, inv_score, query_score, result);
-        }
-        case DataType::i16: {
-            const InvNormScore<&ComputeTarget::dot_i16> inv_score{vec, dim, query_inv};
-            const QueryNormScore<&ComputeTarget::dist_i16_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_dataset_items_with_cos_scores(dataset, count, inv_score, query_score, result);
-        }
+        case DataType::f32:
+            return build_reader_heap_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_f32>{vec, dim}, heap);
+        case DataType::f16:
+            return build_reader_heap_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_f16>{vec, dim}, heap);
+        case DataType::i16:
+            return build_reader_heap_with_score(
+                reader, count, DistanceScore<&ComputeTarget::dist_i16>{vec, dim}, heap);
         default: return Ret("Scanner::find: unsupported data type.");
     }
 }
@@ -555,8 +388,8 @@ Ret dispatch_dataset_cos_items(DataType type, const Dataset& dataset, size_t cou
 // Reader cosine KNN variant that computes query normalization once and then
 // dispatches to the type-specific scorer.
 template <typename ComputeTarget>
-Ret dispatch_reader_cos_ids(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) {
+Ret dispatch_reader_cos(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
+        DistHeap* heap) {
     const size_t dim = reader.dim();
     const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
     const double query_inv = query_inverse_norm(query_norm_sq);
@@ -564,44 +397,17 @@ Ret dispatch_reader_cos_ids(DataType type, const DataReader& reader, size_t coun
         case DataType::f32: {
             const InvNormScore<&ComputeTarget::dot_f32> inv_score{vec, dim, query_inv};
             const QueryNormScore<&ComputeTarget::dist_f32_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_reader_ids_with_cos_scores(reader, count, inv_score, query_score, result);
+            return build_reader_heap_with_cos_scores(reader, count, inv_score, query_score, heap);
         }
         case DataType::f16: {
             const InvNormScore<&ComputeTarget::dot_f16> inv_score{vec, dim, query_inv};
             const QueryNormScore<&ComputeTarget::dist_f16_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_reader_ids_with_cos_scores(reader, count, inv_score, query_score, result);
+            return build_reader_heap_with_cos_scores(reader, count, inv_score, query_score, heap);
         }
         case DataType::i16: {
             const InvNormScore<&ComputeTarget::dot_i16> inv_score{vec, dim, query_inv};
             const QueryNormScore<&ComputeTarget::dist_i16_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_reader_ids_with_cos_scores(reader, count, inv_score, query_score, result);
-        }
-        default: return Ret("Scanner::find: unsupported data type.");
-    }
-}
-
-// Reader cosine item scan variant that returns full distance rows rather than ids only.
-template <typename ComputeTarget>
-Ret dispatch_reader_cos_items(DataType type, const DataReader& reader, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result) {
-    const size_t dim = reader.dim();
-    const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
-    const double query_inv = query_inverse_norm(query_norm_sq);
-    switch (type) {
-        case DataType::f32: {
-            const InvNormScore<&ComputeTarget::dot_f32> inv_score{vec, dim, query_inv};
-            const QueryNormScore<&ComputeTarget::dist_f32_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_reader_items_with_cos_scores(reader, count, inv_score, query_score, result);
-        }
-        case DataType::f16: {
-            const InvNormScore<&ComputeTarget::dot_f16> inv_score{vec, dim, query_inv};
-            const QueryNormScore<&ComputeTarget::dist_f16_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_reader_items_with_cos_scores(reader, count, inv_score, query_score, result);
-        }
-        case DataType::i16: {
-            const InvNormScore<&ComputeTarget::dot_i16> inv_score{vec, dim, query_inv};
-            const QueryNormScore<&ComputeTarget::dist_i16_with_query_norm> query_score{vec, dim, query_norm_sq};
-            return scan_reader_items_with_cos_scores(reader, count, inv_score, query_score, result);
+            return build_reader_heap_with_cos_scores(reader, count, inv_score, query_score, heap);
         }
         default: return Ret("Scanner::find: unsupported data type.");
     }
@@ -609,63 +415,70 @@ Ret dispatch_reader_cos_items(DataType type, const DataReader& reader, size_t co
 
 // Backend dispatch stays at this outer layer so scanner hot loops execute
 // entirely within one concrete L1/L2/cosine implementation family.
+// Overloads on Dataset vs DataReader select the right metric dispatch path
+// (dataset path handles accumulator shadowing; reader path scans files directly).
 template <typename L1Target, typename L2Target, typename CosTarget>
-Ret dispatch_dataset_ids_with_backend(DataType type, DistFunc func, const Dataset& dataset, size_t count,
-        const uint8_t* vec, std::vector<uint64_t>& result) {
+Ret dispatch_with_backend(DataType type, DistFunc func, const Dataset& dataset, size_t count,
+        const uint8_t* vec, DistHeap* heap) {
     switch (func) {
         case DistFunc::L1:
-            return dispatch_dataset_ids<L1Target>(type, dataset, count, vec, result);
+            return dispatch_dataset<L1Target>(type, dataset, count, vec, heap);
         case DistFunc::L2:
-            return dispatch_dataset_ids<L2Target>(type, dataset, count, vec, result);
+            return dispatch_dataset<L2Target>(type, dataset, count, vec, heap);
         case DistFunc::COS:
-            return dispatch_dataset_cos_ids<CosTarget>(type, dataset, count, vec, result);
+            return dispatch_dataset_cos<CosTarget>(type, dataset, count, vec, heap);
         default:
             return Ret("Scanner::find: unsupported distance function.");
     }
 }
 
 template <typename L1Target, typename L2Target, typename CosTarget>
-Ret dispatch_dataset_items_with_backend(DataType type, DistFunc func, const Dataset& dataset, size_t count,
-        const uint8_t* vec, std::vector<DistItem>& result) {
+Ret dispatch_with_backend(DataType type, DistFunc func, const DataReader& reader, size_t count,
+        const uint8_t* vec, DistHeap* heap) {
     switch (func) {
         case DistFunc::L1:
-            return dispatch_dataset_items<L1Target>(type, dataset, count, vec, result);
+            return dispatch_reader<L1Target>(type, reader, count, vec, heap);
         case DistFunc::L2:
-            return dispatch_dataset_items<L2Target>(type, dataset, count, vec, result);
+            return dispatch_reader<L2Target>(type, reader, count, vec, heap);
         case DistFunc::COS:
-            return dispatch_dataset_cos_items<CosTarget>(type, dataset, count, vec, result);
-        default:
-            return Ret("Scanner::find: unsupported distance function.");
-    }
-}
-
-template <typename L1Target, typename L2Target, typename CosTarget>
-Ret dispatch_reader_ids_with_backend(DataType type, DistFunc func, const DataReader& reader, size_t count,
-        const uint8_t* vec, std::vector<uint64_t>& result) {
-    switch (func) {
-        case DistFunc::L1:
-            return dispatch_reader_ids<L1Target>(type, reader, count, vec, result);
-        case DistFunc::L2:
-            return dispatch_reader_ids<L2Target>(type, reader, count, vec, result);
-        case DistFunc::COS:
-            return dispatch_reader_cos_ids<CosTarget>(type, reader, count, vec, result);
+            return dispatch_reader_cos<CosTarget>(type, reader, count, vec, heap);
         default:
             return Ret("Scanner::find: not implemented");
     }
 }
 
-template <typename L1Target, typename L2Target, typename CosTarget>
-Ret dispatch_reader_items_with_backend(DataType type, DistFunc func, const DataReader& reader, size_t count,
-        const uint8_t* vec, std::vector<DistItem>& result) {
-    switch (func) {
-        case DistFunc::L1:
-            return dispatch_reader_items<L1Target>(type, reader, count, vec, result);
-        case DistFunc::L2:
-            return dispatch_reader_items<L2Target>(type, reader, count, vec, result);
-        case DistFunc::COS:
-            return dispatch_reader_cos_items<CosTarget>(type, reader, count, vec, result);
+// Build the top-k heap by selecting the right SIMD backend at runtime.
+// Works for both Dataset and DataReader via the dispatch_with_backend overloads.
+// find_() and find_items_() share this path and diverge only at the extract step.
+template <typename Source>
+Ret build_heap(const Source& source, DistFunc func, size_t count,
+        const uint8_t* vec, DistHeap* heap) {
+    const DataType type = source.type();
+    switch (get_singleton().compute_unit().kind()) {
+#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512_vnni:
+            return dispatch_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
+                type, func, source, count, vec, heap);
+#endif
+#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx512f:
+            return dispatch_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
+                type, func, source, count, vec, heap);
+#endif
+#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+        case ComputeBackendKind::avx2:
+            return dispatch_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
+                type, func, source, count, vec, heap);
+#endif
+#if defined(__aarch64__)
+        case ComputeBackendKind::neon:
+            return dispatch_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
+                type, func, source, count, vec, heap);
+#endif
+        case ComputeBackendKind::scalar:
         default:
-            return Ret("Scanner::find: not implemented");
+            return dispatch_with_backend<ComputeL1, ComputeL2, ComputeCos>(
+                type, func, source, count, vec, heap);
     }
 }
 
@@ -707,164 +520,58 @@ Ret Scanner::find_items(const Dataset& dataset, size_t count, const uint8_t* vec
     }
 }
 
-// Dataset id lookup validates once, clears output, then commits to one backend
-// for the full query. That keeps the template-specialized scan path stable from
-// the outer entrypoint down to the per-row distance kernel.
 Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
     }
-
     result.clear();
     const DistFunc func = dataset.dist_func();
-    const DataType type = dataset.type();
-    log_query_dispatch("dataset", func, type, dataset.dim(), count, false);
-    switch (get_singleton().compute_unit().kind()) {
-#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx512_vnni:
-            return dispatch_dataset_ids_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
-                type, func, dataset, count, vec, result);
-#endif
-#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx512f:
-            return dispatch_dataset_ids_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
-                type, func, dataset, count, vec, result);
-#endif
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx2:
-            return dispatch_dataset_ids_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
-                type, func, dataset, count, vec, result);
-#endif
-#if defined(__aarch64__)
-        case ComputeBackendKind::neon:
-            return dispatch_dataset_ids_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
-                type, func, dataset, count, vec, result);
-#endif
-        case ComputeBackendKind::scalar:
-        default:
-            return dispatch_dataset_ids_with_backend<ComputeL1, ComputeL2, ComputeCos>(
-                type, func, dataset, count, vec, result);
-    }
+    log_query_dispatch("dataset", func, dataset.type(), dataset.dim(), count, false);
+    DistHeap heap;
+    CHECK(build_heap(dataset, func, count, vec, &heap));
+    extract_ids(&heap, &result);
+    return Ret(0);
 }
 
-// The item-returning dataset path mirrors the id-only version but materializes
-// full `DistItem` rows from the same backend-specific heap build.
 Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
     }
-
     result.clear();
     const DistFunc func = dataset.dist_func();
-    const DataType type = dataset.type();
-    log_query_dispatch("dataset", func, type, dataset.dim(), count, true);
-    switch (get_singleton().compute_unit().kind()) {
-#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx512_vnni:
-            return dispatch_dataset_items_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
-                type, func, dataset, count, vec, result);
-#endif
-#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx512f:
-            return dispatch_dataset_items_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
-                type, func, dataset, count, vec, result);
-#endif
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx2:
-            return dispatch_dataset_items_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
-                type, func, dataset, count, vec, result);
-#endif
-#if defined(__aarch64__)
-        case ComputeBackendKind::neon:
-            return dispatch_dataset_items_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
-                type, func, dataset, count, vec, result);
-#endif
-        case ComputeBackendKind::scalar:
-        default:
-            return dispatch_dataset_items_with_backend<ComputeL1, ComputeL2, ComputeCos>(
-                type, func, dataset, count, vec, result);
-    }
+    log_query_dispatch("dataset", func, dataset.type(), dataset.dim(), count, true);
+    DistHeap heap;
+    CHECK(build_heap(dataset, func, count, vec, &heap));
+    extract_items(&heap, &result);
+    return Ret(0);
 }
 
-// Reader scans use the same one-backend-per-query rule as dataset scans, but
-// skip the accumulator shadowing layer because a `DataReader` is already a
-// concrete persisted view.
 Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
-    std::vector<uint64_t>& result) const {
+        std::vector<uint64_t>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
     }
-
     result.clear();
-    const DataType type = reader.type();
-    log_query_dispatch("reader", func, type, reader.dim(), count, false);
-    switch (get_singleton().compute_unit().kind()) {
-#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx512_vnni:
-            return dispatch_reader_ids_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
-                type, func, reader, count, vec, result);
-#endif
-#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx512f:
-            return dispatch_reader_ids_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
-                type, func, reader, count, vec, result);
-#endif
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx2:
-            return dispatch_reader_ids_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
-                type, func, reader, count, vec, result);
-#endif
-#if defined(__aarch64__)
-        case ComputeBackendKind::neon:
-            return dispatch_reader_ids_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
-                type, func, reader, count, vec, result);
-#endif
-        case ComputeBackendKind::scalar:
-        default:
-            return dispatch_reader_ids_with_backend<ComputeL1, ComputeL2, ComputeCos>(
-                type, func, reader, count, vec, result);
-    }
+    log_query_dispatch("reader", func, reader.type(), reader.dim(), count, false);
+    DistHeap heap;
+    CHECK(build_heap(reader, func, count, vec, &heap));
+    extract_ids(&heap, &result);
+    return Ret(0);
 }
 
-// Reader item lookup is the final public variant: same backend selection and
-// scoring rules as `find_`, but returning ids together with computed distances.
 Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
-    std::vector<DistItem>& result) const {
+        std::vector<DistItem>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
     }
-
     result.clear();
-    const DataType type = reader.type();
-    log_query_dispatch("reader", func, type, reader.dim(), count, true);
-    switch (get_singleton().compute_unit().kind()) {
-#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx512_vnni:
-            return dispatch_reader_items_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
-                type, func, reader, count, vec, result);
-#endif
-#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx512f:
-            return dispatch_reader_items_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
-                type, func, reader, count, vec, result);
-#endif
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
-        case ComputeBackendKind::avx2:
-            return dispatch_reader_items_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
-                type, func, reader, count, vec, result);
-#endif
-#if defined(__aarch64__)
-        case ComputeBackendKind::neon:
-            return dispatch_reader_items_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
-                type, func, reader, count, vec, result);
-#endif
-        case ComputeBackendKind::scalar:
-        default:
-            return dispatch_reader_items_with_backend<ComputeL1, ComputeL2, ComputeCos>(
-                type, func, reader, count, vec, result);
-    }
+    log_query_dispatch("reader", func, reader.type(), reader.dim(), count, true);
+    DistHeap heap;
+    CHECK(build_heap(reader, func, count, vec, &heap));
+    extract_items(&heap, &result);
+    return Ret(0);
 }
 
 } // namespace sketch2

@@ -11,6 +11,8 @@
 #include <filesystem>
 #include <experimental/scope>
 #include "core/compute/scanner.h"
+#include "core/utils/singleton.h"
+#include "core/utils/thread_pool.h"
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
@@ -866,4 +868,213 @@ TEST_F(ScannerTest, FindDatasetSkipsPersistedDeltaVersionWhenAccumulatorUpdatesS
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(ds, 5, updated.data(), result).code());
     ASSERT_EQ((std::vector<uint64_t> {12u, 13u, 11u, 10u}), result);
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent scan tests
+//
+// These install a live thread pool so the parallel reader path in
+// scan_dataset_heap_custom is exercised. The parallel path activates when
+// pool != nullptr && readers.size() >= 2. All tests use range_size=10 with
+// enough vectors to produce at least three reader files.
+// ---------------------------------------------------------------------------
+
+// Installs a thread pool for the duration of each test, then restores whatever
+// pool (including null) was in place before. This prevents cross-test
+// interference when test order changes or when the process was started with a
+// pre-configured pool (e.g. SKETCH2_THREAD_POOL_SIZE).
+class ScannerConcurrentTest : public ScannerTest {
+protected:
+    void SetUp() override {
+        ScannerTest::SetUp();
+        prior_pool_ = get_singleton().thread_pool();
+        Singleton::force_thread_pool_for_testing(4);
+    }
+
+    void TearDown() override {
+        Singleton::force_thread_pool_for_testing(prior_pool_);
+        ScannerTest::TearDown();
+    }
+
+    // Create a two-directory dataset with range_size=10. Storing 30 sequential
+    // vectors (ids 0..29) produces three files across two dirs: 0.data in d0,
+    // 1.data in d1, 2.data in d0. That guarantees readers.size() >= 2 so the
+    // parallel code path is taken.
+    void make_multi_reader_dataset(const std::string& d0, const std::string& d1,
+            Dataset& ds, DataType type = DataType::f32, DistFunc func = DistFunc::L1) {
+        fs::create_directories(d0);
+        fs::create_directories(d1);
+        ASSERT_EQ(0, ds.init({d0, d1}, 10, type, 4, kAccumulatorBufferSize, func).code());
+        generate_input_file(input_path_,
+            GeneratorConfig{PatternType::Sequential, 30, 0, type, 4, 1000});
+        ASSERT_EQ(0, ds.store(input_path_).code());
+    }
+
+    std::string dir(const std::string& tag) {
+        return tmp_dir() + "/sketch2_utest_sc_par_" + tag + "_" + std::to_string(getpid());
+    }
+
+private:
+    std::shared_ptr<ThreadPool> prior_pool_;
+};
+
+// Query near the boundary between reader files (id 9 in file 0, id 10 in file 1)
+// so the top-k merge step must combine results from two different workers.
+TEST_F(ScannerConcurrentTest, L1TopKSpansMultipleReaders) {
+    auto d0 = dir("l1_0"), d1 = dir("l1_1");
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
+
+    Dataset ds;
+    make_multi_reader_dataset(d0, d1, ds);
+    Scanner s;
+    auto q = f32_vec(9.5f, 4); // equidistant from id=9 and id=10
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    // id=9 (dist=0.1*4*|9-9.5|=2) and id=10 (same dist) — tie broken by lower id first.
+    EXPECT_EQ(9u,  result[0]);
+    EXPECT_EQ(10u, result[1]);
+    // id=8 or id=11 both at distance 6; tie broken by lower id.
+    EXPECT_EQ(8u,  result[2]);
+}
+
+TEST_F(ScannerConcurrentTest, L2TopKSpansMultipleReaders) {
+    auto d0 = dir("l2_0"), d1 = dir("l2_1");
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
+
+    Dataset ds;
+    make_multi_reader_dataset(d0, d1, ds, DataType::f32, DistFunc::L2);
+    Scanner s;
+    auto q = f32_vec(9.5f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(9u,  result[0]);
+    EXPECT_EQ(10u, result[1]);
+    EXPECT_EQ(8u,  result[2]);
+}
+
+// find_items parallel path returns correct ids and distances.
+TEST_F(ScannerConcurrentTest, FindItemsSpansMultipleReaders) {
+    auto d0 = dir("items_0"), d1 = dir("items_1");
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
+
+    Dataset ds;
+    make_multi_reader_dataset(d0, d1, ds);
+    Scanner s;
+    auto q = f32_vec(15.2f, 4);
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(ds, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(15u, result[0].id);
+    EXPECT_EQ(16u, result[1].id);
+    EXPECT_EQ(14u, result[2].id);
+    EXPECT_NEAR(0.4, result[0].dist, 1e-5);
+    EXPECT_NEAR(3.6, result[1].dist, 1e-5);
+    EXPECT_NEAR(4.4, result[2].dist, 1e-5);
+}
+
+// Accumulator shadowing must hold even while reader workers run concurrently.
+// The modified_ids list is shared across workers and an updated vector must
+// not appear from a persisted reader while its accumulator version wins.
+TEST_F(ScannerConcurrentTest, AccumulatorShadowingCorrectWithPool) {
+    auto d0 = dir("accshad_0"), d1 = dir("accshad_1");
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
+
+    Dataset ds;
+    make_multi_reader_dataset(d0, d1, ds);
+
+    // Move id=5 (persisted value [5.1,...]) far away via the accumulator.
+    const auto far = f32_vec(1000.0f, 4);
+    ASSERT_EQ(0, ds.add_vector(5, far.data()).code());
+
+    Scanner s;
+    // Query at 1000: the accumulator version of id=5 should win; the persisted
+    // version at [5.1,...] must not appear as a candidate.
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 1, far.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(5u, result[0]);
+
+    // Confirm the persisted id=5 value ([5.1,...]) is not scored twice.
+    ASSERT_EQ(0, s.find(ds, 3, far.data(), result).code());
+    for (size_t i = 0; i < result.size(); ++i) {
+        for (size_t j = i + 1; j < result.size(); ++j) {
+            EXPECT_NE(result[i], result[j]) << "id=" << result[i] << " appeared twice";
+        }
+    }
+}
+
+// Accumulator vectors are scanned on the calling thread while workers scan
+// files. Verify that newly added vectors appear in results.
+TEST_F(ScannerConcurrentTest, AccumulatorVectorsIncludedWithPool) {
+    auto d0 = dir("accadd_0"), d1 = dir("accadd_1");
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
+
+    Dataset ds;
+    make_multi_reader_dataset(d0, d1, ds);
+
+    const auto pending = f32_vec(5000.0f, 4);
+    ASSERT_EQ(0, ds.add_vector(999, pending.data()).code());
+
+    Scanner s;
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 1, pending.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(999u, result[0]);
+}
+
+// With a pool installed but only one reader, scan_dataset_heap_custom must
+// fall back to sequential and still return correct results.
+TEST_F(ScannerConcurrentTest, SingleReaderWithPoolFallsBackToSequential) {
+    auto d = dir("single");
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    // range_size=1000 keeps all 5 vectors in a single file.
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d}, 1000, DataType::f32, 4).code());
+    generate_input_file(input_path_,
+        GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    auto q = f32_vec(2.2f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(2u, result[0]);
+    EXPECT_EQ(3u, result[1]);
+    EXPECT_EQ(1u, result[2]);
+}
+
+// Cosine scan across multiple readers with the pool active. Each reader file
+// may or may not have stored inverse norms; this tests the inv_score /
+// query_score branch selection under the parallel path.
+TEST_F(ScannerConcurrentTest, CosineTopKSpansMultipleReaders) {
+    auto d0 = dir("cos_0"), d1 = dir("cos_1");
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
+
+    fs::create_directories(d0);
+    fs::create_directories(d1);
+    Dataset ds;
+    ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4,
+        kAccumulatorBufferSize, DistFunc::COS).code());
+
+    // Three vectors in different id ranges (different reader files).
+    write_input_raw(input_path_,
+        "f32,4\n"
+        "5  : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "15 : [ 1.0,   1.0, 0.0, 0.0 ]\n"
+        "25 : [ -1.0,  0.0, 0.0, 0.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    Scanner s;
+    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(ds, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(5u,  result[0]);
+    EXPECT_EQ(15u, result[1]);
+    EXPECT_EQ(25u, result[2]);
 }

@@ -62,6 +62,20 @@ bool Singleton::force_compute_unit_for_testing(ComputeBackendKind kind) {
     return instance().force_compute_unit_for_testing_(kind);
 }
 
+void Singleton::force_thread_pool_for_testing(size_t threads) {
+    std::lock_guard<std::mutex> lock(instance().mutex_);
+    if (threads > 1) {
+        instance().thread_pool_ = std::make_shared<ThreadPool>(threads);
+    } else {
+        instance().thread_pool_.reset();
+    }
+}
+
+void Singleton::force_thread_pool_for_testing(std::shared_ptr<ThreadPool> pool) {
+    std::lock_guard<std::mutex> lock(instance().mutex_);
+    instance().thread_pool_ = std::move(pool);
+}
+
 const ComputeUnit& Singleton::compute_unit() const {
     return compute_unit_;
 }
