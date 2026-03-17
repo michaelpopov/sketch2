@@ -468,17 +468,60 @@ Ret Dataset::store_accumulator_() {
     std::sort(affected_file_ids.begin(), affected_file_ids.end());
     affected_file_ids.erase(std::unique(affected_file_ids.begin(), affected_file_ids.end()), affected_file_ids.end());
 
-    for (uint64_t file_id : affected_file_ids) {
+    const auto build_range_slice = [&](uint64_t file_id,
+            std::vector<uint64_t>& out_ids, std::vector<uint64_t>& out_deleted) {
         const uint64_t range_start = file_id * metadata_.range_size;
         const uint64_t range_end = range_start + metadata_.range_size;
-        const auto vectors_begin = std::lower_bound(vector_ids.begin(), vector_ids.end(), range_start);
-        const auto vectors_end = std::lower_bound(vector_ids.begin(), vector_ids.end(), range_end);
-        const auto deleted_begin = std::lower_bound(deleted_ids.begin(), deleted_ids.end(), range_start);
-        const auto deleted_end = std::lower_bound(deleted_ids.begin(), deleted_ids.end(), range_end);
+        out_ids.assign(
+            std::lower_bound(vector_ids.begin(), vector_ids.end(), range_start),
+            std::lower_bound(vector_ids.begin(), vector_ids.end(), range_end));
+        out_deleted.assign(
+            std::lower_bound(deleted_ids.begin(), deleted_ids.end(), range_start),
+            std::lower_bound(deleted_ids.begin(), deleted_ids.end(), range_end));
+    };
 
-        const std::vector<uint64_t> range_ids(vectors_begin, vectors_end);
-        const std::vector<uint64_t> range_deleted_ids(deleted_begin, deleted_end);
-        CHECK(store_and_merge_accumulator(file_id, range_ids, range_deleted_ids));
+    const auto& thread_pool = get_singleton().thread_pool();
+    if (!thread_pool || affected_file_ids.size() <= 1) {
+        for (uint64_t file_id : affected_file_ids) {
+            std::vector<uint64_t> range_ids, range_deleted_ids;
+            build_range_slice(file_id, range_ids, range_deleted_ids);
+            CHECK(store_and_merge_accumulator(file_id, range_ids, range_deleted_ids));
+        }
+    } else {
+        // vector_ids and deleted_ids are const locals that outlive all futures.
+        // store_and_merge_accumulator reads from *this (metadata_, accumulator_)
+        // and operates under per-file locks, so tasks are safe to run concurrently.
+        std::vector<std::future<Ret>> futures;
+        futures.reserve(affected_file_ids.size());
+        for (uint64_t file_id : affected_file_ids) {
+            futures.push_back(thread_pool->submit([this, &vector_ids, &deleted_ids, file_id]() -> Ret {
+                std::vector<uint64_t> range_ids, range_deleted_ids;
+                const uint64_t range_start = file_id * metadata_.range_size;
+                const uint64_t range_end = range_start + metadata_.range_size;
+                range_ids.assign(
+                    std::lower_bound(vector_ids.begin(), vector_ids.end(), range_start),
+                    std::lower_bound(vector_ids.begin(), vector_ids.end(), range_end));
+                range_deleted_ids.assign(
+                    std::lower_bound(deleted_ids.begin(), deleted_ids.end(), range_start),
+                    std::lower_bound(deleted_ids.begin(), deleted_ids.end(), range_end));
+                return store_and_merge_accumulator(file_id, range_ids, range_deleted_ids);
+            }));
+        }
+
+        Ret first_error(0);
+        for (size_t i = 0; i < futures.size(); ++i) {
+            const Ret ret = futures[i].get();
+            if (ret.code() != 0) {
+                LOG_ERROR << "Dataset::store_accumulator_: range task failed for file_id="
+                          << affected_file_ids[i] << ": " << ret.message();
+                if (first_error.code() == 0) {
+                    first_error = ret;
+                }
+            }
+        }
+        if (first_error.code() != 0) {
+            return first_error;
+        }
     }
 
     CHECK(accumulator_->reset_wal());
@@ -493,28 +536,60 @@ Ret Dataset::merge_() {
         return Ret("Dataset: not initialized.");
     }
 
-    std::vector<DatasetItem> items;
-    CHECK(collect_dataset_items(metadata_, &items));
+    std::vector<DatasetItem> all_items;
+    CHECK(collect_dataset_items(metadata_, &all_items));
 
-    for (const DatasetItem& item : items) {
-        if (item.delta_file_path.empty()) {
-            continue;
+    std::vector<DatasetItem> to_merge;
+    for (DatasetItem& item : all_items) {
+        if (!item.delta_file_path.empty()) {
+            to_merge.push_back(std::move(item));
         }
-
-        const std::string output_path_base = item_path_base(item.id);
-        FileLockGuard file_lock;
-        CHECK(file_lock.lock(output_path_base + kLockExt));
-
-        DataReader data_reader;
-        CHECK(data_reader.init(item.data_file_path));
-
-        DataReader delta_reader;
-        CHECK(delta_reader.init(item.delta_file_path));
-
-        CHECK(merge_data_file(data_reader, delta_reader, output_path_base, kDeltaExt));
     }
 
-    return Ret(0);
+    const auto& thread_pool = get_singleton().thread_pool();
+    if (!thread_pool || to_merge.size() <= 1) {
+        for (const DatasetItem& item : to_merge) {
+            const std::string output_path_base = item_path_base(item.id);
+            FileLockGuard file_lock;
+            CHECK(file_lock.lock(output_path_base + kLockExt));
+            DataReader data_reader;
+            CHECK(data_reader.init(item.data_file_path));
+            DataReader delta_reader;
+            CHECK(delta_reader.init(item.delta_file_path));
+            CHECK(merge_data_file(data_reader, delta_reader, output_path_base, kDeltaExt));
+        }
+        return Ret(0);
+    }
+
+    // Items are captured by value. merge_data_file is const and only reads metadata_.
+    // Each item maps to a unique path so per-file locks prevent concurrent collisions.
+    std::vector<std::future<Ret>> futures;
+    futures.reserve(to_merge.size());
+    for (const DatasetItem& item : to_merge) {
+        futures.push_back(thread_pool->submit([this, item]() -> Ret {
+            const std::string output_path_base = item_path_base(item.id);
+            FileLockGuard file_lock;
+            CHECK(file_lock.lock(output_path_base + kLockExt));
+            DataReader data_reader;
+            CHECK(data_reader.init(item.data_file_path));
+            DataReader delta_reader;
+            CHECK(delta_reader.init(item.delta_file_path));
+            return merge_data_file(data_reader, delta_reader, output_path_base, kDeltaExt);
+        }));
+    }
+
+    Ret first_error(0);
+    for (size_t i = 0; i < futures.size(); ++i) {
+        const Ret ret = futures[i].get();
+        if (ret.code() != 0) {
+            LOG_ERROR << "Dataset::merge_: task failed for item id=" << to_merge[i].id
+                      << ": " << ret.message();
+            if (first_error.code() == 0) {
+                first_error = ret;
+            }
+        }
+    }
+    return first_error;
 }
 
 // Writes one range slice from the text input into a temporary data file and
