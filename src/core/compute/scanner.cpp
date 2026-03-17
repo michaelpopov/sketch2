@@ -7,9 +7,12 @@
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset.h"
 #include "core/utils/log.h"
+#include "core/utils/thread_pool.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <future>
+#include <memory>
 #include <queue>
 #include <stdexcept>
 
@@ -178,6 +181,11 @@ void scan_data_reader_scored(const DataReader& reader, const std::vector<uint64_
 // Builds a top-k heap across the persisted dataset and the pending accumulator.
 // Persisted readers skip ids modified in the accumulator so the heap only sees
 // each logical id once, with the freshest version winning.
+//
+// When the singleton thread pool is available and there are at least two
+// readers, each reader is scanned on a worker thread using a private heap.
+// The accumulator scan runs on the calling thread concurrently. Private heaps
+// are merged into the shared heap once all futures complete.
 template <typename ReaderScanFn, typename AccumScoreFn>
 Ret scan_dataset_heap_custom(const Dataset& dataset, size_t count, DistHeap* heap,
         const ReaderScanFn& scan_reader, const AccumScoreFn& accum_score,
@@ -187,17 +195,59 @@ Ret scan_dataset_heap_custom(const Dataset& dataset, size_t count, DistHeap* hea
         !dataset.has_accumulator() || dataset.accumulator_has_cosine_inv_norms());
     const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();
 
+    // Collect all readers up front so the iterator is not shared across threads.
     auto drs = dataset.reader();
+    std::vector<DataReaderPtr> readers;
     while (true) {
         auto [reader, ret] = drs->next();
         CHECK(ret);
         if (!reader) {
             break;
         }
-        scan_reader(*reader, modified_ids, count, heap);
+        readers.push_back(std::move(reader));
     }
 
+    const auto& pool = get_singleton().thread_pool();
+
+    // Sequential fallback: pool unavailable or too few readers to parallelize.
+    if (!pool || readers.size() < 2) {
+        for (const auto& reader : readers) {
+            scan_reader(*reader, modified_ids, count, heap);
+        }
+        scan_iterator_scored(dataset.accumulator_begin(), count, heap, accum_score);
+        return Ret(0);
+    }
+
+    // Submit one task per reader. Each task builds a private heap so no
+    // synchronization is needed during scanning.
+    //
+    // Keep scan_reader and modified_ids on shared ownership so worker tasks do
+    // not reference stack state if submit/get throws and this function exits
+    // before every queued task has finished.
+    const auto scan_reader_shared = std::make_shared<ReaderScanFn>(scan_reader);
+    const auto modified_ids_shared = std::make_shared<const std::vector<uint64_t>>(modified_ids);
+    std::vector<std::future<DistHeap>> futures;
+    futures.reserve(readers.size());
+    for (const auto& reader : readers) {
+        futures.push_back(pool->submit([scan_reader_shared, modified_ids_shared, count, reader]() {
+            DistHeap local_heap;
+            (*scan_reader_shared)(*reader, *modified_ids_shared, count, &local_heap);
+            return local_heap;
+        }));
+    }
+
+    // Accumulator scan runs on the calling thread while workers scan files.
     scan_iterator_scored(dataset.accumulator_begin(), count, heap, accum_score);
+
+    // Collect per-reader heaps and merge into the shared heap.
+    for (auto& fut : futures) {
+        DistHeap local_heap = fut.get();
+        while (!local_heap.empty()) {
+            push_result(heap, count, local_heap.top().id, local_heap.top().dist);
+            local_heap.pop();
+        }
+    }
+
     return Ret(0);
 }
 
