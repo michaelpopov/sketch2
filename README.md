@@ -1,33 +1,44 @@
-# sketch2 (dummy skeleton)
+### Project Sketch2
 
-Generated C++20 **CMake + Ninja** project skeleton for Sketch2.
+## Goal
 
-## Quick start
+Design a system where vector data is stored and processed in a way that matches the underlying hardware—rather than adapting it to general-purpose abstractions.
 
-See `commands.txt` for copy/paste shell commands.
+In short: apply **mechanical sympathy** to vector storage and computation, end to end.
 
-After a Release build, you should have:
+---
 
-- `bin/libparasol.so` (or platform equivalent)
-- `bin/libvlite.so` (or platform equivalent)
-- `bin/sqlite3`
+The phrase *“mechanical sympathy”*— applied to software by Martin Thompson — describes systems built with a deep understanding of how machines actually work.
 
-After a Debug build, you should have:
+In software, that means aligning with hardware realities: memory layout, CPU caches, vectorized execution, and I/O behavior. The goal is simple: **minimize friction, minimize wasted work, maximize flow**.
 
-- `bin-dbg/libparasol.so` (or platform equivalent)
-- `bin-dbg/libvlite.so` (or platform equivalent)
-- `bin-dbg/sqlite3`
+---
 
-After a Sanitizer build, you should have:
+Sketch2 is a **vector storage engine with a built-in compute layer**, designed specifically for vector workloads.
 
-- `bin-san/libparasol.so` (or platform equivalent)
-- `bin-san/libvlite.so` (or platform equivalent)
-- `bin-san/sqlite3`
+- Data layout minimizes storage overhead and maximizes I/O throughput  
+- Memory is organized for cache locality and efficient data movement  
+- Vectors are aligned for SIMD execution  
+- Compute units use platform-specific instructions (Intel, AMD, ARM)
 
-Unit tests are also built and can be run via `ctest`.
+Storage and computation are tightly integrated so that vector processing operates directly on data in its optimal form.
 
-## Notes
+---
 
-- Uses **g++** when configured with `-DCMAKE_CXX_COMPILER=g++`
-- Uses **-Wall -Wextra -Wpedantic -Werror** on GCC/Clang
-- Downloads GoogleTest automatically via `FetchContent`
+## Current State
+
+- Core storage and compute mechanisms are in place  
+- Processing is currently brute-force (no indexing yet)  
+- Initial integrations:
+  - Python  
+  - SQLite  
+
+---
+
+## Roadmap
+
+- Add indexing structures (IVF, PQ)  
+- Expand integrations (Postgres, MySQL)  
+- Explore interoperability with FAISS  
+
+---

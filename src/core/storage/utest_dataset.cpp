@@ -461,6 +461,45 @@ TEST_F(DatasetTest, StoreAccumulatorCreatesOutputFilesFromAccumulator) {
     EXPECT_NEAR(11.0f, v1[0], 1e-5f);
 }
 
+TEST_F(DatasetTest, StoreAccumulatorLeavesNoTempWhenCreatingData) {
+    auto dir = make_dir("d_acc_staging_data");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
+
+    const std::array<float, 4> vec {2.0f, 2.0f, 2.0f, 2.0f};
+    ASSERT_EQ(0, sc.add_vector(0, reinterpret_cast<const uint8_t*>(vec.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".temp")));
+}
+
+TEST_F(DatasetTest, StoreAccumulatorLeavesNoTempWhenCreatingDelta) {
+    auto dir = make_dir("d_acc_staging_delta");
+    Dataset sc;
+    DatasetMetadata metadata;
+    metadata.dirs = {dir};
+    metadata.range_size = 100;
+    metadata.type = DataType::f32;
+    metadata.dim = 4;
+    metadata.data_merge_ratio = 2;
+    ASSERT_EQ(0, sc.init(metadata).code());
+
+    const std::array<float, 4> base_vec {3.0f, 3.0f, 3.0f, 3.0f};
+    ASSERT_EQ(0, sc.add_vector(0, reinterpret_cast<const uint8_t*>(base_vec.data())).code());
+    ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(base_vec.data())).code());
+    ASSERT_EQ(0, sc.add_vector(2, reinterpret_cast<const uint8_t*>(base_vec.data())).code());
+    ASSERT_EQ(0, sc.add_vector(3, reinterpret_cast<const uint8_t*>(base_vec.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    const std::array<float, 4> delta_vec {5.0f, 5.0f, 5.0f, 5.0f};
+    ASSERT_EQ(0, sc.add_vector(4, reinterpret_cast<const uint8_t*>(delta_vec.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".temp")));
+}
+
 TEST_F(DatasetTest, StoreAccumulatorIgnoresDeleteForMissingRange) {
     auto dir = make_dir("d_acc_missing_delete");
     Dataset sc;

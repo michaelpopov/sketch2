@@ -538,9 +538,8 @@ Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64
 
     // Clear temporary file on exit
     std::experimental::scope_exit file_guard([output_path]() {
-        if (std::filesystem::exists(output_path)) {
-            std::filesystem::remove(output_path);
-        }
+        std::error_code ec;
+        std::filesystem::remove(output_path, ec);
     });
 
     {
@@ -695,12 +694,24 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
         return Ret(0);
     };
 
+    const auto write_from_accumulator_staged = [&write_from_accumulator, &output_path_base](const std::string& final_path) -> Ret {
+        const std::string staging_path = output_path_base + kTempExt;
+        std::experimental::scope_exit staging_guard([staging_path]() {
+            std::error_code ec;
+            std::filesystem::remove(staging_path, ec);
+        });
+
+        CHECK(write_from_accumulator(staging_path));
+        std::filesystem::rename(staging_path, final_path);
+        return Ret(0);
+    };
+
     const std::string data_path = output_path_base + kDataExt;
     if (!std::filesystem::exists(data_path)) {
         if (ids.empty()) {
             return Ret(0);
         }
-        CHECK(write_from_accumulator(data_path));
+        CHECK(write_from_accumulator_staged(data_path));
         return Ret(0);
     }
 
@@ -719,7 +730,7 @@ Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uin
             return Ret(0);
         }
 
-        CHECK(write_from_accumulator(delta_path));
+        CHECK(write_from_accumulator_staged(delta_path));
         return Ret(0);
     }
 
@@ -778,9 +789,8 @@ Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& ou
 
     const std::string source_path = output_path_base + ext;
     std::experimental::scope_exit file_guard([source_path]() {
-        if (std::filesystem::exists(source_path)) {
-            std::filesystem::remove(source_path);
-        }
+        std::error_code ec;
+        std::filesystem::remove(source_path, ec);
     });
 
     DataMerger processor;
@@ -796,9 +806,8 @@ Ret Dataset::merge_data_file(const DataReader& data_reader, const DataReader& ou
 Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader, const std::string& output_path_base) const {
     const std::string source_path = output_path_base + kTempExt;
     std::experimental::scope_exit file_guard([source_path]() {
-        if (std::filesystem::exists(source_path)) {
-            std::filesystem::remove(source_path);
-        }
+        std::error_code ec;
+        std::filesystem::remove(source_path, ec);
     });
 
     DataMerger processor;
