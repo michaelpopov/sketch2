@@ -459,17 +459,12 @@ Ret Dataset::store_accumulator_() {
 
     std::vector<uint64_t> affected_file_ids;
     affected_file_ids.reserve(vector_ids.size() + deleted_ids.size());
-    const auto append_file_ids = [this, &affected_file_ids](const std::vector<uint64_t>& ids) {
-        for (uint64_t id : ids) {
-            const uint64_t file_id = id / metadata_.range_size;
-            if (affected_file_ids.empty() || affected_file_ids.back() != file_id) {
-                affected_file_ids.push_back(file_id);
-            }
-        }
-    };
-
-    append_file_ids(vector_ids);
-    append_file_ids(deleted_ids);
+    for (uint64_t id : vector_ids) {
+        affected_file_ids.push_back(id / metadata_.range_size);
+    }
+    for (uint64_t id : deleted_ids) {
+        affected_file_ids.push_back(id / metadata_.range_size);
+    }
     std::sort(affected_file_ids.begin(), affected_file_ids.end());
     affected_file_ids.erase(std::unique(affected_file_ids.begin(), affected_file_ids.end()), affected_file_ids.end());
 
@@ -506,9 +501,7 @@ Ret Dataset::merge_() {
             continue;
         }
 
-        const size_t dir_id = item.id % metadata_.dirs.size();
-        const std::string& dir = metadata_.dirs[dir_id];
-        const std::string output_path_base = dir + "/" + std::to_string(item.id);
+        const std::string output_path_base = item_path_base(item.id);
         FileLockGuard file_lock;
         CHECK(file_lock.lock(output_path_base + kLockExt));
 
@@ -528,9 +521,7 @@ Ret Dataset::merge_() {
 // then promotes or merges it depending on which base/delta files already exist
 // and how large the new slice is relative to the current persisted data.
 Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) const {
-    const size_t dir_id = file_id % metadata_.dirs.size();
-    const std::string& dir = metadata_.dirs[dir_id];
-    const std::string output_path_base = dir + "/" + std::to_string(file_id);
+    const std::string output_path_base = item_path_base(file_id);
     FileLockGuard file_lock;
     CHECK(file_lock.lock(output_path_base + kLockExt));
 
@@ -612,96 +603,21 @@ Ret Dataset::store_and_merge(const InputReader& reader, uint64_t file_id, uint64
 // serializes just that slice, then chooses between creating a new data file,
 // creating/updating a delta, or performing a full data merge when the delta grows large enough.
 Ret Dataset::store_and_merge_accumulator(uint64_t file_id, const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids) {
-    const size_t dir_id = file_id % metadata_.dirs.size();
-    const std::string& dir = metadata_.dirs[dir_id];
-    const std::string output_path_base = dir + "/" + std::to_string(file_id);
+    const std::string output_path_base = item_path_base(file_id);
     FileLockGuard file_lock;
     CHECK(file_lock.lock(output_path_base + kLockExt));
     if (ids.empty() && deleted_ids.empty()) {
         return Ret(0);
     }
 
-    const auto write_from_accumulator = [this, &ids, &deleted_ids](const std::string& path) -> Ret {
-        uint64_t min_id = ids.empty() ? 0 : ids.front();
-        uint64_t max_id = ids.empty() ? 0 : ids.back();
-#ifndef NDEBUG
-        assert(std::is_sorted(ids.begin(), ids.end()));
-        assert(std::adjacent_find(ids.begin(), ids.end()) == ids.end());
-        assert(std::is_sorted(deleted_ids.begin(), deleted_ids.end()));
-        assert(std::adjacent_find(deleted_ids.begin(), deleted_ids.end()) == deleted_ids.end());
-        assert(!accumulator_ || accumulator_->has_cosine_inv_norms() == (metadata_.dist_func == DistFunc::COS));
-#endif
-
-        DataFileHeader hdr = make_data_header(
-            min_id,
-            max_id,
-            static_cast<uint32_t>(ids.size()),
-            static_cast<uint32_t>(deleted_ids.size()),
-            metadata_.type,
-            static_cast<uint16_t>(metadata_.dim),
-            metadata_.dist_func == DistFunc::COS);
-
-        FILE* f = fopen(path.c_str(), "wb");
-        if (!f) {
-            return Ret("Dataset::store_and_merge_accumulator: failed to open output file: " + path);
-        }
-
-        std::vector<char> file_buffer(kFileBufferSize);
-        (void)setvbuf(f, file_buffer.data(), _IOFBF, file_buffer.size());
-
-        std::experimental::scope_exit file_guard([&f]() {
-            if (f) fclose(f);
-        });
-
-        CHECK(write_header_and_data_padding(f, hdr, "Dataset::store_and_merge_accumulator"));
-
-        const size_t vec_size = static_cast<size_t>(metadata_.dim) * data_type_size(metadata_.type);
-        const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size());
-        std::vector<float> cosine_inv_norms;
-        if (metadata_.dist_func == DistFunc::COS) {
-            cosine_inv_norms.reserve(ids.size());
-        }
-        for (uint64_t id : ids) {
-            const uint8_t* data = accumulator_->get_vector(id);
-            if (!data) {
-                return Ret("Dataset::store_and_merge_accumulator: missing vector for id " + std::to_string(id));
-            }
-            CHECK(write_vector_record(f, data, vec_size, hdr.vector_stride,
-                "Dataset::store_and_merge_accumulator: failed to write vector data for id " + std::to_string(id)));
-            if (metadata_.dist_func == DistFunc::COS) {
-                cosine_inv_norms.push_back(accumulator_->get_vector_cosine_inv_norm(id));
-            }
-        }
-
-#ifndef NDEBUG
-        assert(metadata_.dist_func != DistFunc::COS || cosine_inv_norms.size() == ids.size());
-#endif
-        CHECK(write_f32_array(f, cosine_inv_norms,
-            "Dataset::store_and_merge_accumulator: failed to write cosine inverse norms"));
-        CHECK(write_zero_padding(f, ids_layout.ids_padding,
-            "Dataset::store_and_merge_accumulator: failed to write id alignment padding"));
-        CHECK(write_u64_array(f, ids, "Dataset::store_and_merge_accumulator: failed to write ids"));
-        CHECK(write_u64_array(f, deleted_ids, "Dataset::store_and_merge_accumulator: failed to write deleted_ids"));
-
-        const int n1 = fflush(f);
-        const int n2 = fsync(fileno(f));
-        const int n3 = fclose(f);
-        f = nullptr;
-        if (n1 != 0 || n2 != 0 || n3 != 0) {
-            return Ret("Dataset::store_and_merge_accumulator: failed to flush and close file");
-        }
-
-        return Ret(0);
-    };
-
-    const auto write_from_accumulator_staged = [&write_from_accumulator, &output_path_base](const std::string& final_path) -> Ret {
+    const auto write_from_accumulator_staged = [this, &ids, &deleted_ids, &output_path_base](const std::string& final_path) -> Ret {
         const std::string staging_path = output_path_base + kTempExt;
         std::experimental::scope_exit staging_guard([staging_path]() {
             std::error_code ec;
             std::filesystem::remove(staging_path, ec);
         });
 
-        CHECK(write_from_accumulator(staging_path));
+        CHECK(write_accumulator_range_(staging_path, ids, deleted_ids));
         std::filesystem::rename(staging_path, final_path);
         return Ret(0);
     };
@@ -1005,6 +921,83 @@ void Dataset::invalidate_data_caches_() {
     items_cache_valid_ = false;
     items_cache_.clear();
     reader_cache_.clear();
+}
+
+std::string Dataset::item_path_base(uint64_t file_id) const {
+    return metadata_.dirs[file_id % metadata_.dirs.size()] + "/" + std::to_string(file_id);
+}
+
+Ret Dataset::write_accumulator_range_(const std::string& path, const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids) const {
+    uint64_t min_id = ids.empty() ? 0 : ids.front();
+    uint64_t max_id = ids.empty() ? 0 : ids.back();
+#ifndef NDEBUG
+    assert(std::is_sorted(ids.begin(), ids.end()));
+    assert(std::adjacent_find(ids.begin(), ids.end()) == ids.end());
+    assert(std::is_sorted(deleted_ids.begin(), deleted_ids.end()));
+    assert(std::adjacent_find(deleted_ids.begin(), deleted_ids.end()) == deleted_ids.end());
+    assert(!accumulator_ || accumulator_->has_cosine_inv_norms() == (metadata_.dist_func == DistFunc::COS));
+#endif
+
+    DataFileHeader hdr = make_data_header(
+        min_id,
+        max_id,
+        static_cast<uint32_t>(ids.size()),
+        static_cast<uint32_t>(deleted_ids.size()),
+        metadata_.type,
+        static_cast<uint16_t>(metadata_.dim),
+        metadata_.dist_func == DistFunc::COS);
+
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) {
+        return Ret("Dataset::store_and_merge_accumulator: failed to open output file: " + path);
+    }
+
+    std::vector<char> file_buffer(kFileBufferSize);
+    (void)setvbuf(f, file_buffer.data(), _IOFBF, file_buffer.size());
+
+    std::experimental::scope_exit file_guard([&f]() {
+        if (f) fclose(f);
+    });
+
+    CHECK(write_header_and_data_padding(f, hdr, "Dataset::store_and_merge_accumulator"));
+
+    const size_t vec_size = static_cast<size_t>(metadata_.dim) * data_type_size(metadata_.type);
+    const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size());
+    std::vector<float> cosine_inv_norms;
+    if (metadata_.dist_func == DistFunc::COS) {
+        cosine_inv_norms.reserve(ids.size());
+    }
+    for (uint64_t id : ids) {
+        const uint8_t* data = accumulator_->get_vector(id);
+        if (!data) {
+            return Ret("Dataset::store_and_merge_accumulator: missing vector for id " + std::to_string(id));
+        }
+        CHECK(write_vector_record(f, data, vec_size, hdr.vector_stride,
+            "Dataset::store_and_merge_accumulator: failed to write vector data for id " + std::to_string(id)));
+        if (metadata_.dist_func == DistFunc::COS) {
+            cosine_inv_norms.push_back(accumulator_->get_vector_cosine_inv_norm(id));
+        }
+    }
+
+#ifndef NDEBUG
+    assert(metadata_.dist_func != DistFunc::COS || cosine_inv_norms.size() == ids.size());
+#endif
+    CHECK(write_f32_array(f, cosine_inv_norms,
+        "Dataset::store_and_merge_accumulator: failed to write cosine inverse norms"));
+    CHECK(write_zero_padding(f, ids_layout.ids_padding,
+        "Dataset::store_and_merge_accumulator: failed to write id alignment padding"));
+    CHECK(write_u64_array(f, ids, "Dataset::store_and_merge_accumulator: failed to write ids"));
+    CHECK(write_u64_array(f, deleted_ids, "Dataset::store_and_merge_accumulator: failed to write deleted_ids"));
+
+    const int n1 = fflush(f);
+    const int n2 = fsync(fileno(f));
+    const int n3 = fclose(f);
+    f = nullptr;
+    if (n1 != 0 || n2 != 0 || n3 != 0) {
+        return Ret("Dataset::store_and_merge_accumulator: failed to flush and close file");
+    }
+
+    return Ret(0);
 }
 
 } // namespace sketch2

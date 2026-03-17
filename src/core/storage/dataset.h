@@ -128,6 +128,7 @@ private:
     Ret merge_();
     Ret store_and_merge(const InputReader& reader, uint64_t file_id, uint64_t range_start, uint64_t range_end) const;
     Ret store_and_merge_accumulator(uint64_t file_id, const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids);
+    Ret write_accumulator_range_(const std::string& path, const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids) const;
     Ret init_accumulator_();
 
     bool check_data_file_merge(const DataReader& data_reader, const DataReader& output_reader) const;
@@ -143,6 +144,7 @@ private:
     const DatasetItem* find_item_(uint64_t file_id) const;
     std::pair<DataReaderPtr, Ret> get_cached_reader_(const DatasetItem& item) const;
     void invalidate_data_caches_();
+    std::string item_path_base(uint64_t file_id) const;
 
     friend class DatasetReader;
 };
