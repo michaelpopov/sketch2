@@ -82,13 +82,13 @@ int run_errmsg_callback(char** err_msg, Func func) {
     try {
         return func();
     } catch (const std::bad_alloc&) {
-        set_err_msg(err_msg, "vlite: out of memory");
+        set_err_msg(err_msg, "sketch2: out of memory");
         return SQLITE_NOMEM;
     } catch (const std::exception& ex) {
         set_err_msg(err_msg, ex.what());
         return SQLITE_ERROR;
     } catch (...) {
-        set_err_msg(err_msg, "vlite: unexpected error");
+        set_err_msg(err_msg, "sketch2: unexpected error");
         return SQLITE_ERROR;
     }
 }
@@ -98,13 +98,13 @@ int run_vtab_callback(sqlite3_vtab* tab, Func func) {
     try {
         return func();
     } catch (const std::bad_alloc&) {
-        set_vtab_error(tab, "vlite: out of memory");
+        set_vtab_error(tab, "sketch2: out of memory");
         return SQLITE_NOMEM;
     } catch (const std::exception& ex) {
         set_vtab_error(tab, ex.what());
         return SQLITE_ERROR;
     } catch (...) {
-        set_vtab_error(tab, "vlite: unexpected error");
+        set_vtab_error(tab, "sketch2: unexpected error");
         return SQLITE_ERROR;
     }
 }
@@ -124,7 +124,7 @@ int run_column_callback(sqlite3_vtab_cursor* cursor, sqlite3_context* context, F
         if (context != nullptr) {
             sqlite3_result_error_nomem(context);
         }
-        set_vtab_error(cursor != nullptr ? cursor->pVtab : nullptr, "vlite: out of memory");
+        set_vtab_error(cursor != nullptr ? cursor->pVtab : nullptr, "sketch2: out of memory");
         return SQLITE_NOMEM;
     } catch (const std::exception& ex) {
         if (context != nullptr) {
@@ -133,7 +133,7 @@ int run_column_callback(sqlite3_vtab_cursor* cursor, sqlite3_context* context, F
         set_vtab_error(cursor != nullptr ? cursor->pVtab : nullptr, ex.what());
         return SQLITE_ERROR;
     } catch (...) {
-        constexpr const char* kUnexpectedError = "vlite: unexpected error";
+        constexpr const char* kUnexpectedError = "sketch2: unexpected error";
         if (context != nullptr) {
             sqlite3_result_error(context, kUnexpectedError, -1);
         }
@@ -647,7 +647,7 @@ sqlite3_module kVliteModule = {
 
 } // namespace
 
-extern "C" int sqlite3_vlite_init(sqlite3* db, char** pz_err_msg, const sqlite3_api_routines* api) {
+extern "C" int sqlite3_sketch2_init(sqlite3* db, char** pz_err_msg, const sqlite3_api_routines* api) {
     return run_errmsg_callback(pz_err_msg, [&]() -> int {
         if (db == nullptr) {
             return SQLITE_ERROR;
@@ -660,5 +660,5 @@ extern "C" int sqlite3_vlite_init(sqlite3* db, char** pz_err_msg, const sqlite3_
 }
 
 extern "C" int sqlite3_extension_init(sqlite3* db, char** pz_err_msg, const sqlite3_api_routines* api) {
-    return sqlite3_vlite_init(db, pz_err_msg, api);
+    return sqlite3_sketch2_init(db, pz_err_msg, api);
 }

@@ -1,37 +1,23 @@
 # parasol
 
-`parasol` is the shared C API layer for Sketch2 dataset creation, loading,
+`parasol` is the C API layer for Sketch2 dataset creation, loading,
 mutation, and query operations.
 
-## Runtime Library Dependency
+## Build Artifact Layout
 
-`libparasol.so` now depends on `libutils.so`.
+`parasol` is now built as a static library and linked into the shared
+`libsketch2.so` artifact.
 
-This is required because process-wide runtime state is centralized in the shared
- utilities library:
-
-- global log level
-- configured log file sink
-- singleton-owned thread pool
-- one-time runtime configuration state
-
-Without linking `libutils.so` dynamically, each shared library would get its own
- copy of that state. In practice that caused duplicated singleton startup,
- duplicated `Started thread pool...` logs, separate log-level state, and more
- than one thread pool inside the same Python process.
-
-So when you load or deploy `libparasol.so`, make sure `libutils.so` is
- available too, typically in the same runtime library directory.
+For host applications, the runtime library to load/deploy is `libsketch2.so`.
+`parasol` is not produced as a standalone shared library in the default build.
 
 Typical release artifacts:
 
-- `build/lib/libparasol.so`
-- `build/lib/libutils.so`
+- `build/lib/libsketch2.so`
 
 Typical debug artifacts:
 
-- `build-dbg/lib/libparasol.so`
-- `build-dbg/lib/libutils.so`
+- `build-dbg/lib/libsketch2.so`
 
 ## Startup Initialization
 
@@ -68,7 +54,7 @@ This prevents process-wide behavior from mutating halfway through execution.
 
 ## Python Wrapper Behavior
 
-The Python wrapper in `src/pytest/parasol_wrapper.py` already calls
+The Python wrapper in `src/pytest/sketch2_wrapper.py` already calls
  `sk_runtime_init()` before `sk_connect()`, so normal demo/test usage gets the
  explicit initialization automatically.
 
@@ -88,8 +74,9 @@ sk_handle_t* handle = sk_connect("/tmp/my_db");
 ## Thread Pool Notes
 
 If `SKETCH2_THREAD_POOL_SIZE` or `thread_pool.size` is greater than `1`,
- `parasol` creates one shared thread pool for the process through `libutils.so`.
+ `parasol` creates one shared thread pool for the process inside the Sketch2
+ runtime.
 
 That shared pool is used by storage code such as range-level dataset loading.
- The point of the shared `libutils.so` dependency is that `parasol` and `vlite`
- see the same singleton and therefore the same thread pool.
+ `parasol` and `vlite` now run through the same `libsketch2.so`, so they see
+ the same singleton and therefore the same thread pool.

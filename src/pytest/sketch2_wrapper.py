@@ -1,4 +1,4 @@
-"""ctypes wrapper for libparasol.so."""
+"""ctypes wrapper for libsketch2.so."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from ctypes import POINTER, c_char_p, c_double, c_int, c_int64, c_uint, c_uint64
 from pathlib import Path
 
 
-class ParasolError(RuntimeError):
-    """Raised when a libparasol call reports an error code and message."""
+class Sketch2Error(RuntimeError):
+    """Raised when a libsketch2 call reports an error code and message."""
     def __init__(self, operation: str, message: str, code: int = -1):
         super().__init__(f"{operation} failed (code={code}): {message}")
         self.operation = operation
@@ -16,8 +16,8 @@ class ParasolError(RuntimeError):
         self.message = message
 
 
-class Parasol:
-    """Python-facing wrapper around the parasol C API.
+class Sketch2:
+    """Python-facing wrapper around the sketch2 C API.
 
     The class exists to hide the raw ctypes configuration and expose the
     dataset lifecycle, mutation, query, and diagnostic operations as Python methods.
@@ -25,7 +25,7 @@ class Parasol:
     def __init__(self, db_path: str | Path, lib_path: str | Path | None = None):
         self.lib_path = Path(lib_path) if lib_path else self._default_lib_path()
         if not self.lib_path.exists():
-            raise FileNotFoundError(f"libparasol.so not found at: {self.lib_path}")
+            raise FileNotFoundError(f"libsketch2.so not found at: {self.lib_path}")
 
         self.db_path = Path(db_path)
         self.lib = ctypes.CDLL(str(self.lib_path))
@@ -42,12 +42,12 @@ class Parasol:
     def _default_lib_path() -> Path:
         repo_root = Path(__file__).resolve().parents[2]
         candidates = [
-            repo_root / "build" / "lib" / "libparasol.so",
-            repo_root / "bin" / "libparasol.so",
-            repo_root / "build-dbg" / "lib" / "libparasol.so",
-            repo_root / "bin-dbg" / "libparasol.so",
-            repo_root / "build-san" / "lib" / "libparasol.so",
-            repo_root / "bin-san" / "libparasol.so",
+            repo_root / "build" / "lib" / "libsketch2.so",
+            repo_root / "bin" / "libsketch2.so",
+            repo_root / "build-dbg" / "lib" / "libsketch2.so",
+            repo_root / "bin-dbg" / "libsketch2.so",
+            repo_root / "build-san" / "lib" / "libsketch2.so",
+            repo_root / "bin-san" / "libsketch2.so",
         ]
         for candidate in candidates:
             if candidate.exists():
@@ -135,7 +135,7 @@ class Parasol:
             self.lib.sk_disconnect(self.handle)
             self.handle = None
 
-    def __enter__(self) -> "Parasol":
+    def __enter__(self) -> "Sketch2":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -144,7 +144,7 @@ class Parasol:
     def _check(self, operation: str, rc: int) -> None:
         if rc == 0:
             return
-        raise ParasolError(operation, self.error_message(), self.error())
+        raise Sketch2Error(operation, self.error_message(), self.error())
 
     def error(self) -> int:
         return int(self.lib.sk_error(self.handle))

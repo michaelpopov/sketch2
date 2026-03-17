@@ -80,7 +80,7 @@ pytest:
 pydemo:
 	python3 src/pytest/demo.py
 
-# Runs the Python demo against the release libparasol/libvlite artifacts
+# Runs the Python demo against the release libsketch2 artifact
 .PHONY: demo
 demo: rel
 	SKETCH2_LOG_LEVEL=DEBUG \
@@ -92,8 +92,8 @@ demo: rel
 		--range-size 100K \
 		--binary \
 		--dist-func L2 \
-		--parasol-lib $(BUILD_REL)/lib/libparasol.so \
-		--vlite-lib $(BUILD_REL)/lib/libvlite.so
+		--sketch2-lib $(BUILD_REL)/lib/libsketch2.so \
+		--extension-lib $(BUILD_REL)/lib/libsketch2.so
 
 # Configures the release benchmark build with Google Benchmark enabled.
 .PHONY: benchcfg

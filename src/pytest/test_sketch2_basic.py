@@ -5,12 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from parasol_wrapper import Parasol
+from sketch2_wrapper import Sketch2
 
 
-class ParasolBasicTest(unittest.TestCase):
+class Sketch2BasicTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="sketch2_pyparasol_"))
+        self.root = Path(tempfile.mkdtemp(prefix="sketch2_py_basic_"))
         self.dataset_name = "dataset"
         self.dataset_dir = self.root / self.dataset_name
 
@@ -18,7 +18,7 @@ class ParasolBasicTest(unittest.TestCase):
         shutil.rmtree(self.root, ignore_errors=True)
 
     def test_create_open_upsert_merge_accumulator_and_knn(self) -> None:
-        with Parasol(self.root) as ps:
+        with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l1")
 
             ps.upsert(1, "0.0, 0.0, 0.0, 0.0")
@@ -37,7 +37,7 @@ class ParasolBasicTest(unittest.TestCase):
         self.assertFalse(self.dataset_dir.exists())
 
     def test_load_accepts_unsorted_ids(self) -> None:
-        with Parasol(self.root) as ps:
+        with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l1")
 
             ps.upsert(10, "1.0, 2.0, 3.0, 4.0")
@@ -49,7 +49,7 @@ class ParasolBasicTest(unittest.TestCase):
             ps.drop(self.dataset_name)
 
     def test_get_returns_vector_text(self) -> None:
-        with Parasol(self.root) as ps:
+        with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l1")
 
             ps.upsert(42, "1.0, 2.0, 3.0, 4.0")
@@ -62,7 +62,7 @@ class ParasolBasicTest(unittest.TestCase):
             ps.drop(self.dataset_name)
 
     def test_generate_sequential(self) -> None:
-        with Parasol(self.root) as ps:
+        with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l1")
 
             ps.generate(count=5, start_id=10, pattern=0)
@@ -74,7 +74,7 @@ class ParasolBasicTest(unittest.TestCase):
             ps.drop(self.dataset_name)
 
     def test_generate_detailed(self) -> None:
-        with Parasol(self.root) as ps:
+        with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l1")
 
             ps.generate(count=3, start_id=20, pattern=1)
@@ -93,7 +93,7 @@ class ParasolBasicTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        with Parasol(self.root) as ps:
+        with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l1")
 
             ps.load_file(input_path)
@@ -106,7 +106,7 @@ class ParasolBasicTest(unittest.TestCase):
             ps.drop(self.dataset_name)
 
     def test_create_with_l2_writes_distance_function_to_ini(self) -> None:
-        with Parasol(self.root) as ps:
+        with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dist_func="l2")
 
             ini = (self.root / f"{self.dataset_name}.ini").read_text()
@@ -116,7 +116,7 @@ class ParasolBasicTest(unittest.TestCase):
             ps.drop(self.dataset_name)
 
     def test_create_with_cos_supports_knn(self) -> None:
-        with Parasol(self.root) as ps:
+        with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dist_func="cos")
 
             ps.upsert(10, "100.0, 1.0, 0.0, 0.0")

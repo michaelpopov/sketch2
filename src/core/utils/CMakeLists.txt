@@ -1,16 +1,10 @@
-add_library(utils SHARED utils.cpp ini_reader.cpp string_utils.cpp dynamic_bitset.cpp compute_unit.cpp singleton.cpp log.cpp)
+add_library(utils STATIC utils.cpp ini_reader.cpp string_utils.cpp dynamic_bitset.cpp compute_unit.cpp singleton.cpp log.cpp)
 
 target_include_directories(utils PUBLIC ${CMAKE_SOURCE_DIR}/src/core)
 
 set_target_properties(utils PROPERTIES OUTPUT_NAME "utils")
 
 target_link_libraries(utils PUBLIC sketch_compile_options Threads::Threads)
-
-add_custom_command(TARGET utils POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    $<TARGET_FILE:utils>
-    ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<TARGET_FILE_NAME:utils>
-)
 
 add_executable(utest_utils utest_main.cpp utest_ini_reader.cpp utest_string_utils.cpp utest_dynamic_bitset.cpp utest_file_lock.cpp utest_log.cpp utest_singleton.cpp)
 target_link_libraries(utest_utils PRIVATE utils GTest::gtest Threads::Threads)

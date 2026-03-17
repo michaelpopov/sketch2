@@ -7,7 +7,7 @@ import argparse
 import code
 from pathlib import Path
 
-from parasol_wrapper import Parasol
+from sketch2_wrapper import Sketch2
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,7 +27,7 @@ def main() -> None:
     args = parse_args()
 
     root = Path(args.db_root)
-    ps = Parasol(root)
+    ps = Sketch2(root)
     dataset_name = args.dataset
 
     try:
@@ -41,7 +41,7 @@ def main() -> None:
             "Sketch2 interactive shell",
             f"db_root={root}",
             "Available objects:",
-            "  ps           -> Parasol wrapper instance",
+            "  ps           -> Sketch2 wrapper instance",
             "  root         -> database root Path",
             "  dataset_name -> selected dataset name or None",
         ]

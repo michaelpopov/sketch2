@@ -14,7 +14,7 @@
 // In this codebase, explicit runtime init is triggered from:
 // - sk_runtime_init() in the Parasol C API
 // - the Python Parasol wrapper before sk_connect()
-// - sqlite3_vlite_init() when the SQLite extension is loaded directly
+// - sqlite3_sketch2_init() when the SQLite extension is loaded directly
 //
 // Compute backend selection is also process-wide. The singleton chooses the
 // best supported ComputeUnit when it is first created, optionally honoring the

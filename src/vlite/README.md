@@ -50,52 +50,45 @@ dist_func=l1
 In a debug build, the important artifacts are typically:
 
 - SQLite shell: `bin-dbg/sqlite3`
-- Extension library: `build-dbg/lib/libvlite.so`
-- Shared runtime library: `build-dbg/lib/libutils.so`
+- Extension library: `build-dbg/lib/libsketch2.so`
 
 Build them with:
 
 ```bash
 cmake -S . -B build-dbg -DCMAKE_BUILD_TYPE=Debug
-cmake --build build-dbg --target sqlite3_cli vlite
+cmake --build build-dbg --target sqlite3_cli sketch2
 ```
 
-## Runtime Library Dependency
+## Runtime Artifact
 
-`libvlite.so` now depends on `libutils.so`.
+The SQLite extension entry points are exported from `libsketch2.so`.
 
-This dependency is important. Sketch2 runtime state is centralized in the
- shared utilities library so the whole process sees one copy of:
+This keeps process-wide runtime state unified, with one copy of:
 
 - the global log level
 - the configured log file sink
 - the singleton-owned thread pool
 - the one-time runtime initialization state
 
-If `vlite` and `parasol` each carried their own private copy of that state,
- loading both into the same process would create duplicated startup behavior and
- separate thread pools. Keeping both linked to the same `libutils.so` avoids
- that.
+`parasol` and `vlite` are both linked into this shared artifact, so loading the
+extension does not create split singleton/runtime instances.
 
-When you deploy or load `libvlite.so`, make sure `libutils.so` is available in
- the same runtime library search path, typically alongside `libvlite.so`.
+When you deploy or load the extension, use `libsketch2.so`.
 
 Typical release artifacts:
 
-- `build/lib/libvlite.so`
-- `build/lib/libutils.so`
+- `build/lib/libsketch2.so`
 
 Typical debug artifacts:
 
-- `build-dbg/lib/libvlite.so`
-- `build-dbg/lib/libutils.so`
+- `build-dbg/lib/libsketch2.so`
 
 ## Startup Initialization
 
 Sketch2 runtime initialization is explicit now.
 
 For `vlite`, this happens inside the extension entry point
-`sqlite3_vlite_init()` when SQLite loads the module. That entry point calls the
+`sqlite3_sketch2_init()` when SQLite loads the module. That entry point calls the
  shared Sketch2 runtime initializer before the SQLite virtual table module is
  registered.
 
@@ -119,14 +112,14 @@ After the first successful initialization, the shared runtime is sealed:
 - thread-pool size does not change
 
 That matters when `vlite` and `parasol` are loaded into the same process: both
- use the same sealed process-wide runtime state through `libutils.so`.
+ use the same sealed process-wide runtime state through `libsketch2.so`.
 
 ## Loading In SQLite
 
 From the bundled SQLite shell:
 
 ```sql
-.load /absolute/path/to/build-dbg/lib/libvlite.so
+.load /absolute/path/to/build-dbg/lib/libsketch2.so
 ```
 
 Before loading, set any desired runtime config in the environment of the SQLite
@@ -270,7 +263,7 @@ LIMIT 10;
 ## End-To-End Example
 
 ```sql
-.load /home/user/sketch2/build-dbg/lib/libvlite.so
+.load /home/user/sketch2/build-dbg/lib/libsketch2.so
 
 CREATE VIRTUAL TABLE nn
 USING vlite('/home/user/data/example.ini');

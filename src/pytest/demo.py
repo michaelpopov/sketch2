@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Demo: write vectors through Parasol, then read KNN results through SQLite."""
+"""Demo: write vectors through Sketch2, then read KNN results through SQLite."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from concurrent.futures import ProcessPoolExecutor
 from math import isfinite
 from pathlib import Path
 
-from parasol_wrapper import Parasol
+from sketch2_wrapper import Sketch2
 
 F16_MAX = 65504.0
 I16_MIN = -32768
@@ -124,29 +124,29 @@ def l2_distance_sq(a: list[float | int], b: list[float | int]) -> float:
     return sum((float(x) - float(y)) ** 2 for x, y in zip(a, b))
 
 
-def default_vlite_path() -> Path:
+def default_extension_path() -> Path:
     repo_root = Path(__file__).resolve().parents[2]
     candidates = [
-        repo_root / "build" / "lib" / "libvlite.so",
-        repo_root / "bin" / "libvlite.so",
-        repo_root / "build-dbg" / "lib" / "libvlite.so",
-        repo_root / "bin-dbg" / "libvlite.so",
-        repo_root / "build-san" / "lib" / "libvlite.so",
-        repo_root / "bin-san" / "libvlite.so",
+        repo_root / "build" / "lib" / "libsketch2.so",
+        repo_root / "bin" / "libsketch2.so",
+        repo_root / "build-dbg" / "lib" / "libsketch2.so",
+        repo_root / "bin-dbg" / "libsketch2.so",
+        repo_root / "build-san" / "lib" / "libsketch2.so",
+        repo_root / "bin-san" / "libsketch2.so",
     ]
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    raise FileNotFoundError("libvlite.so not found in build or bin directories")
+    raise FileNotFoundError("libsketch2.so not found in build or bin directories")
 
 
 def dataset_ini_path(root: Path, dataset_name: str) -> Path:
     return root / f"{dataset_name}.ini"
 
 
-def load_dataset_with_binary_generator(ps: Parasol, from_id: int, count: int) -> tuple[float, float]:
+def load_dataset_with_binary_generator(ps: Sketch2, from_id: int, count: int) -> tuple[float, float]:
     log_step(
-        f"loading {count} generated binary vectors through libparasol "
+        f"loading {count} generated binary vectors through libsketch2 "
         f"(pattern=sequential, start_id={from_id})"
     )
     t0 = time.perf_counter()
@@ -236,7 +236,7 @@ def write_input_file(path: Path, from_id: int, count: int, dim: int, type_name: 
 
 
 def load_dataset_from_python_input_file(
-    ps: Parasol,
+    ps: Sketch2,
     input_path: Path,
     from_id: int,
     count: int,
@@ -247,7 +247,7 @@ def load_dataset_from_python_input_file(
     t0 = time.perf_counter()
     write_input_file(input_path, from_id=from_id, count=count, dim=dim, type_name=type_name)
     t1 = time.perf_counter()
-    log_step(f"bulk-loading vectors from input file through libparasol: {input_path}")
+    log_step(f"bulk-loading vectors from input file through libsketch2: {input_path}")
     t2 = time.perf_counter()
     ps.load_file(input_path)
     t3 = time.perf_counter()
@@ -255,7 +255,7 @@ def load_dataset_from_python_input_file(
 
 
 def fill_dataset(
-    ps: Parasol,
+    ps: Sketch2,
     input_path: Path,
     from_id: int,
     count: int,
@@ -264,7 +264,7 @@ def fill_dataset(
     binary: bool,
     dist_func: str,
 ) -> tuple[float, float]:
-    log_step(f"writing {count} vectors into the Parasol dataset using dist_func={dist_func}")
+    log_step(f"writing {count} vectors into the Sketch2 dataset using dist_func={dist_func}")
     if dist_func == "COS":
         log_step("cosine demo keeps the original Python-generated input path")
         return load_dataset_from_python_input_file(
@@ -272,7 +272,7 @@ def fill_dataset(
         )
 
     if binary:
-        log_step("binary demo uses libparasol binary generation instead of Python-side input file generation")
+        log_step("binary demo uses libsketch2 binary generation instead of Python-side input file generation")
         return load_dataset_with_binary_generator(ps, from_id=from_id, count=count)
 
     return load_dataset_from_python_input_file(
@@ -280,12 +280,12 @@ def fill_dataset(
     )
 
 
-def sqlite_knn(dataset_ini: Path, vlite_lib: Path, query_vec: str, k: int) -> tuple[list[int], float]:
-    log_step(f"opening in-memory SQLite and loading extension: {vlite_lib}")
+def sqlite_knn(dataset_ini: Path, extension_lib: Path, query_vec: str, k: int) -> tuple[list[int], float]:
+    log_step(f"opening in-memory SQLite and loading extension: {extension_lib}")
     con = sqlite3.connect(":memory:")
     try:
         con.enable_load_extension(True)
-        con.load_extension(str(vlite_lib))
+        con.load_extension(str(extension_lib))
         ini_sql = str(dataset_ini).replace("'", "''")
         create_sql = f"CREATE VIRTUAL TABLE nn USING vlite('{ini_sql}')"
         query_sql = "SELECT id FROM nn WHERE query = ? AND k = ? ORDER BY distance"
@@ -311,23 +311,23 @@ def run_demo(
     binary: bool,
     keep: bool,
     dist_func: str,
-    parasol_lib: Path | None,
-    vlite_lib: Path | None,
+    sketch2_lib: Path | None,
+    extension_lib: Path | None,
 ) -> None:
     root = Path(tempfile.mkdtemp(prefix="sketch2_py_demo_"))
     dataset_name = "dataset"
     from_id = 0
-    vlite_path = vlite_lib if vlite_lib is not None else default_vlite_path()
+    extension_path = extension_lib if extension_lib is not None else default_extension_path()
     dataset_ini = dataset_ini_path(root, dataset_name)
     input_path = root / "demo.input"
 
     try:
         log_step(f"created temporary workspace: {root}")
-        if parasol_lib is not None:
-            log_step(f"using Parasol library override: {parasol_lib}")
-        log_step(f"using vlite extension: {vlite_path}")
-        with Parasol(root, lib_path=parasol_lib) as ps:
-            log_step(f"connected to libparasol: {ps.lib_path}")
+        if sketch2_lib is not None:
+            log_step(f"using Sketch2 library override: {sketch2_lib}")
+        log_step(f"using SQLite extension: {extension_path}")
+        with Sketch2(root, lib_path=sketch2_lib) as ps:
+            log_step(f"connected to libsketch2: {ps.lib_path}")
             log_step(
                 f"creating dataset '{dataset_name}' "
                 f"(type={type_name}, dim={dim}, range_size={range_size}, dist_func={dist_func})"
@@ -352,12 +352,12 @@ def run_demo(
                 if dist_func == "COS"
                 else fmt_typed_vector([quantize_value(type_name, query_value)] * dim, type_name)
             )
-            log_step("computing the expected top-k result through Parasol for comparison")
+            log_step("computing the expected top-k result through Sketch2 for comparison")
             expected = ps.knn(query_vec, k)
 
-            log_step("closing the Parasol writer handle before opening the SQLite reader")
+            log_step("closing the Sketch2 writer handle before opening the SQLite reader")
             ps.close(dataset_name)
-            actual, query_time = sqlite_knn(dataset_ini, vlite_path, query_vec, k)
+            actual, query_time = sqlite_knn(dataset_ini, extension_path, query_vec, k)
 
             print(f"generate input time: {generate_time:.3f}s")
             print(f"load data time: {load_time:.3f}s")
@@ -385,7 +385,7 @@ def run_demo(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Parasol write + SQLite read demo")
+    parser = argparse.ArgumentParser(description="Sketch2 write + SQLite read demo")
     parser.add_argument(
         "--count",
         type=parse_size_arg,
@@ -407,12 +407,24 @@ def parse_args() -> argparse.Namespace:
         choices=("L1", "L2", "COS"),
         help="Distance function used when creating the dataset",
     )
-    parser.add_argument("--parasol-lib", type=Path, help="Path to libparasol.so")
-    parser.add_argument("--vlite-lib", type=Path, help="Path to libvlite.so")
+    parser.add_argument(
+        "--sketch2-lib",
+        "--parasol-lib",
+        dest="sketch2_lib",
+        type=Path,
+        help="Path to libsketch2.so (legacy alias: --parasol-lib)",
+    )
+    parser.add_argument(
+        "--extension-lib",
+        "--vlite-lib",
+        dest="extension_lib",
+        type=Path,
+        help="Path to SQLite extension library (libsketch2.so; legacy alias: --vlite-lib)",
+    )
     parser.add_argument(
         "--binary",
         action="store_true",
-        help="Use libparasol binary generation instead of the Python text input file path",
+        help="Use libsketch2 binary generation instead of the Python text input file path",
     )
     parser.add_argument("--keep", action="store_true", help="Keep generated dataset directory")
     return parser.parse_args()
@@ -440,8 +452,8 @@ def main() -> None:
         binary=args.binary,
         keep=args.keep,
         dist_func=args.dist_func,
-        parasol_lib=args.parasol_lib,
-        vlite_lib=args.vlite_lib,
+        sketch2_lib=args.sketch2_lib,
+        extension_lib=args.extension_lib,
     )
 
 
