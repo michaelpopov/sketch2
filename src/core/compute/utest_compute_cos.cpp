@@ -8,12 +8,14 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/compute/utest_compute_helpers.h"
 #include "core/compute/compute_cos.h"
 #include "core/compute/compute_cos_avx2.h"
 #include "core/compute/compute_cos_avx512.h"
 #include "core/compute/compute_cos_neon.h"
 
 using namespace sketch2;
+using namespace sketch2::test;
 
 namespace {
 
@@ -27,86 +29,6 @@ namespace {
 
 #if SKETCH_HAS_AVX512VNNI
 #define SKETCH2_COMPUTE_AVX512VNNI_TESTS 1
-#endif
-
-template <typename T>
-struct TestBuffer {
-    std::vector<uint8_t> storage;
-    T *ptr = nullptr;
-};
-
-template <typename T>
-TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
-    TestBuffer<T> out;
-    out.storage.resize(dim * sizeof(T) + 64 + misalign_bytes);
-    uintptr_t p = reinterpret_cast<uintptr_t>(out.storage.data());
-    p = (p + 31u) & ~uintptr_t(31u);
-    p += misalign_bytes;
-    out.ptr = reinterpret_cast<T *>(p);
-    return out;
-}
-
-template <typename T>
-double reference_dot(const T *a, const T *b, size_t dim) {
-    double dot = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        dot += static_cast<double>(a[i]) * static_cast<double>(b[i]);
-    }
-    return dot;
-}
-
-template <typename T>
-double reference_cosine_distance(const T *a, const T *b, size_t dim) {
-    const double dot = reference_dot(a, b, dim);
-    double norm_a = 0.0;
-    double norm_b = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        const double ai = static_cast<double>(a[i]);
-        const double bi = static_cast<double>(b[i]);
-        norm_a += ai * ai;
-        norm_b += bi * bi;
-    }
-
-    if (norm_a == 0.0 && norm_b == 0.0) {
-        return 0.0;
-    }
-    if (norm_a == 0.0 || norm_b == 0.0) {
-        return 1.0;
-    }
-
-    const double cosine = std::clamp(dot / std::sqrt(norm_a * norm_b), -1.0, 1.0);
-    return 1.0 - cosine;
-}
-
-#if defined(SKETCH2_COMPUTE_AVX2_TESTS)
-void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f;
-        b[i] = static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f;
-    }
-}
-
-void fill_i16(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 977 + seed * 131) % 65536) - 32768;
-        const int32_t bi = static_cast<int32_t>((i * 733 + seed * 191) % 65536) - 32768;
-        a[i] = static_cast<int16_t>(ai);
-        b[i] = static_cast<int16_t>(bi);
-    }
-}
-
-#if defined(__FLT16_MANT_DIG__)
-void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float16>(static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f);
-        b[i] = static_cast<float16>(static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f);
-    }
-}
-#endif
 #endif
 
 TEST(ComputeCosTest, DistF32ComputesDistance) {
@@ -484,37 +406,6 @@ TEST(ComputeCosNeon, DistF16OrthogonalVectorsYieldOne) {
 }
 #endif
 
-static void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f;
-        b[i] = static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f;
-    }
-}
-
-static void fill_i16(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 977 + seed * 131) % 65536) - 32768;
-        const int32_t bi = static_cast<int32_t>((i * 733 + seed * 191) % 65536) - 32768;
-        a[i] = static_cast<int16_t>(ai);
-        b[i] = static_cast<int16_t>(bi);
-    }
-}
-
-#if defined(__FLT16_MANT_DIG__)
-static void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float16>(static_cast<float>(ai) * 0.125f +
-                                    static_cast<float>((i + seed) % 5) * 0.03125f);
-        b[i] = static_cast<float16>(static_cast<float>(bi) * 0.125f -
-                                    static_cast<float>((i + seed) % 3) * 0.0625f);
-    }
-}
-#endif
-
 TEST(ComputeCosNeon, SquaredNormF32MatchesReference) {
     const std::vector<float> a = {1.0f, -2.0f, 3.0f, -4.0f, 5.0f};
     // 1 + 4 + 9 + 16 + 25 = 55
@@ -527,9 +418,7 @@ TEST(ComputeCosNeon, SquaredNormF32MatchesReference) {
         std::vector<float> a2(dim);
         for (size_t i = 0; i < dim; ++i)
             a2[i] = static_cast<float>(i % 7 + 1) * 0.5f - 2.0f;
-        double ref = 0.0;
-        for (size_t i = 0; i < dim; ++i)
-            ref += static_cast<double>(a2[i]) * static_cast<double>(a2[i]);
+        double ref = reference_squared_norm(a2.data(), dim);
         const double got2 = ComputeCos_Neon::squared_norm_f32(
             reinterpret_cast<const uint8_t*>(a2.data()), dim);
         EXPECT_NEAR(ref, got2, std::max(1e-5, ref * 1e-5)) << "dim=" << dim;
@@ -548,9 +437,7 @@ TEST(ComputeCosNeon, SquaredNormI16MatchesReference) {
         std::vector<int16_t> a2(dim);
         for (size_t i = 0; i < dim; ++i)
             a2[i] = static_cast<int16_t>(static_cast<int>((i * 13 + 7) % 200) - 100);
-        double ref = 0.0;
-        for (size_t i = 0; i < dim; ++i)
-            ref += static_cast<double>(a2[i]) * static_cast<double>(a2[i]);
+        double ref = reference_squared_norm(a2.data(), dim);
         const double got2 = ComputeCos_Neon::squared_norm_i16(
             reinterpret_cast<const uint8_t*>(a2.data()), dim);
         EXPECT_DOUBLE_EQ(ref, got2) << "dim=" << dim;
@@ -573,9 +460,7 @@ TEST(ComputeCosNeon, SquaredNormF16MatchesReference) {
         std::vector<float16> a2(dim);
         for (size_t i = 0; i < dim; ++i)
             a2[i] = static_cast<float16>(static_cast<float>(i % 7 + 1) * 0.5f - 2.0f);
-        double ref = 0.0;
-        for (size_t i = 0; i < dim; ++i)
-            ref += static_cast<double>(a2[i]) * static_cast<double>(a2[i]);
+        double ref = reference_squared_norm(a2.data(), dim);
         const double got2 = ComputeCos_Neon::squared_norm_f16(
             reinterpret_cast<const uint8_t*>(a2.data()), dim);
         EXPECT_NEAR(ref, got2, std::max(1e-2, ref * 1e-2)) << "dim=" << dim;
@@ -600,9 +485,7 @@ TEST(ComputeCosNeon, DistF32WithQueryNormMatchesReference) {
             a2[i] = static_cast<float>(i % 7 + 1) * 0.5f - 2.0f;
             b2[i] = static_cast<float>(i % 5) * 0.3f - 0.75f;
         }
-        double b_norm_sq = 0.0;
-        for (size_t i = 0; i < dim; ++i)
-            b_norm_sq += static_cast<double>(b2[i]) * static_cast<double>(b2[i]);
+        double b_norm_sq = reference_squared_norm(b2.data(), dim);
         const double ref = reference_cosine_distance(a2.data(), b2.data(), dim);
         const double got2 = ComputeCos_Neon::dist_f32_with_query_norm(
             reinterpret_cast<const uint8_t*>(a2.data()),
@@ -628,9 +511,7 @@ TEST(ComputeCosNeon, DistI16WithQueryNormMatchesReference) {
             a2[i] = static_cast<int16_t>(static_cast<int>((i * 13 + 7) % 200) - 100);
             b2[i] = static_cast<int16_t>(static_cast<int>((i * 17 + 3) % 200) - 100);
         }
-        double b_norm_sq = 0.0;
-        for (size_t i = 0; i < dim; ++i)
-            b_norm_sq += static_cast<double>(b2[i]) * static_cast<double>(b2[i]);
+        double b_norm_sq = reference_squared_norm(b2.data(), dim);
         const double ref = reference_cosine_distance(a2.data(), b2.data(), dim);
         const double got2 = ComputeCos_Neon::dist_i16_with_query_norm(
             reinterpret_cast<const uint8_t*>(a2.data()),
@@ -660,9 +541,7 @@ TEST(ComputeCosNeon, DistF16WithQueryNormMatchesReference) {
             a2[i] = static_cast<float16>(static_cast<float>(i % 7 + 1) * 0.5f - 2.0f);
             b2[i] = static_cast<float16>(static_cast<float>(i % 5) * 0.3f - 0.75f);
         }
-        double b_norm_sq = 0.0;
-        for (size_t i = 0; i < dim; ++i)
-            b_norm_sq += static_cast<double>(b2[i]) * static_cast<double>(b2[i]);
+        double b_norm_sq = reference_squared_norm(b2.data(), dim);
         const double ref = reference_cosine_distance(a2.data(), b2.data(), dim);
         const double got2 = ComputeCos_Neon::dist_f16_with_query_norm(
             reinterpret_cast<const uint8_t*>(a2.data()),
@@ -1286,35 +1165,6 @@ protected:
     }
 };
 
-void fill_f32_avx512(float *a, float *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f;
-        b[i] = static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f;
-    }
-}
-
-void fill_i16_avx512(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 977 + seed * 131) % 65536) - 32768;
-        const int32_t bi = static_cast<int32_t>((i * 733 + seed * 191) % 65536) - 32768;
-        a[i] = static_cast<int16_t>(ai);
-        b[i] = static_cast<int16_t>(bi);
-    }
-}
-
-#if defined(__FLT16_MANT_DIG__)
-void fill_f16_avx512(float16 *a, float16 *b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float16>(static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f);
-        b[i] = static_cast<float16>(static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f);
-    }
-}
-#endif
-
 TEST_F(ComputeCosAVX512F, DotF32MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 127};
     for (size_t dim : dims) {
@@ -1322,7 +1172,7 @@ TEST_F(ComputeCosAVX512F, DotF32MatchesReferenceAlignedAndUnaligned) {
             for (size_t misalign_b : {size_t(0), size_t(12)}) {
                 auto a = make_buffer<float>(dim, misalign_a);
                 auto b = make_buffer<float>(dim, misalign_b);
-                fill_f32_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 211));
+                fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 211));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
                 const double got = ComputeCos_AVX512::dot_f32(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1341,7 +1191,7 @@ TEST_F(ComputeCosAVX512F, DistF32MatchesReferenceAlignedAndUnaligned) {
             for (size_t misalign_b : {size_t(0), size_t(12)}) {
                 auto a = make_buffer<float>(dim, misalign_a);
                 auto b = make_buffer<float>(dim, misalign_b);
-                fill_f32_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 223));
+                fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 223));
 
                 const double ref = reference_cosine_distance(a.ptr, b.ptr, dim);
                 const double got = ComputeCos_AVX512::dist_f32(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1361,7 +1211,7 @@ TEST_F(ComputeCosAVX512F, DotF16MatchesReferenceAlignedAndUnaligned) {
             for (size_t misalign_b : {size_t(0), size_t(6)}) {
                 auto a = make_buffer<float16>(dim, misalign_a);
                 auto b = make_buffer<float16>(dim, misalign_b);
-                fill_f16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 227));
+                fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 227));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
                 const double got = ComputeCos_AVX512::dot_f16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1380,7 +1230,7 @@ TEST_F(ComputeCosAVX512F, DistF16MatchesReferenceAlignedAndUnaligned) {
             for (size_t misalign_b : {size_t(0), size_t(6)}) {
                 auto a = make_buffer<float16>(dim, misalign_a);
                 auto b = make_buffer<float16>(dim, misalign_b);
-                fill_f16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 229));
+                fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 229));
 
                 const double ref = reference_cosine_distance(a.ptr, b.ptr, dim);
                 const double got = ComputeCos_AVX512::dist_f16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1400,7 +1250,7 @@ TEST_F(ComputeCosAVX512F, DotI16MatchesReferenceAlignedAndUnaligned) {
             for (size_t misalign_b : {size_t(0), size_t(6)}) {
                 auto a = make_buffer<int16_t>(dim, misalign_a);
                 auto b = make_buffer<int16_t>(dim, misalign_b);
-                fill_i16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 233));
+                fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 233));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
                 const double got = ComputeCos_AVX512::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1419,7 +1269,7 @@ TEST_F(ComputeCosAVX512F, DistI16MatchesReferenceAlignedAndUnaligned) {
             for (size_t misalign_b : {size_t(0), size_t(6)}) {
                 auto a = make_buffer<int16_t>(dim, misalign_a);
                 auto b = make_buffer<int16_t>(dim, misalign_b);
-                fill_i16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 239));
+                fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 239));
 
                 const double ref = reference_cosine_distance(a.ptr, b.ptr, dim);
                 const double got = ComputeCos_AVX512::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1455,7 +1305,7 @@ TEST_F(ComputeCosAVX512VNNI, DotI16MatchesReferenceAlignedAndUnaligned) {
             for (size_t misalign_b : {size_t(0), size_t(6)}) {
                 auto a = make_buffer<int16_t>(dim, misalign_a);
                 auto b = make_buffer<int16_t>(dim, misalign_b);
-                fill_i16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 241));
+                fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 241));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
                 const double got = ComputeCos_AVX512_VNNI::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
@@ -1474,7 +1324,7 @@ TEST_F(ComputeCosAVX512VNNI, DistI16MatchesReferenceAlignedAndUnaligned) {
             for (size_t misalign_b : {size_t(0), size_t(6)}) {
                 auto a = make_buffer<int16_t>(dim, misalign_a);
                 auto b = make_buffer<int16_t>(dim, misalign_b);
-                fill_i16_avx512(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 251));
+                fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 251));
 
                 const double ref = reference_cosine_distance(a.ptr, b.ptr, dim);
                 const double got = ComputeCos_AVX512_VNNI::dist_i16(reinterpret_cast<uint8_t *>(a.ptr),
