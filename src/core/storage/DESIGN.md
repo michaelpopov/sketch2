@@ -284,3 +284,26 @@ replays activities registered in the wal and restores its state. After that the 
 Records to wal are written before corresponding changes are done in Accumulator in-memory data structures.
 
 After Accumulator data is merged, the records in wal are truncated.
+
+
+UpdateNotifier
+--------------------------
+There are two different parts of the system: one writes data periodically, another one processes queries.
+They might be executed in different processes.
+The writer can write data while readers continue reading because data/delta files are immutable.
+But the reader caches open files to reuse them on following queries.
+There is a need to flush this cache when data is updated.
+Class UpdateNotifier in utils library.
+It is running in two modes: (1) updater mode, (2) checker mode.
+The writer process call UpdateNotifier::update() function after it completes changes in the data/delta files.
+The reader process before processing query calls UpdateNotifier::check_updated() function. 
+This function returns true if data/delta files were changed and the reader flushes cache before processing a query.
+Implementation:
+(1) In updater mode, the writer calls UpdateNotifier::init_updater(). This function either creates a file if it doesn't
+exist or opens file in RW mode and reads 8-bytes uint64_t number from the file. It stores this number in its data member.
+In UpdateNotifier::update() it increments the number, writes it into the file and fdatasync() the file.
+(2) In checker mode, the reader calls UpdateNotifier::check_updated().
+If a file is not opened, the function opens the file, reads 8-byte number, stores it in data member and returns true.
+If a file is already opened, the function reads the 8-byte number again and compares it to the stored value. If values
+are equal, it returns false. Otherwise, it sets a data member to a new value and returns true.
+There is a lock file used for acquiring lock on a dataset. Use this file for storing data for this mechanism.
