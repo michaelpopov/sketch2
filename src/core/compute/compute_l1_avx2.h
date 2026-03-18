@@ -25,15 +25,6 @@ private:
 
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
 
-SKETCH_AVX2_TARGET inline double hsum_epi64_256(__m256i v) {
-    const __m128i lo = _mm256_castsi256_si128(v);
-    const __m128i hi = _mm256_extracti128_si256(v, 1);
-    const __m128i sum = _mm_add_epi64(lo, hi);
-    alignas(16) uint64_t lanes[2];
-    _mm_store_si128(reinterpret_cast<__m128i *>(lanes), sum);
-    return static_cast<double>(lanes[0] + lanes[1]);
-}
-
 SKETCH_AVX2_TARGET inline __m256i accumulate_abs_i16_as_i64(__m256i acc, __m256i a16, __m256i b16, __m256i zero) {
     const __m128i a_lo16 = _mm256_castsi256_si128(a16);
     const __m128i a_hi16 = _mm256_extracti128_si256(a16, 1);

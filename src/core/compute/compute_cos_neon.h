@@ -2,14 +2,11 @@
 
 #pragma once
 #include "core/compute/compute.h"
+#include "core/compute/compute_neon_utils.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
-
-#if defined(__aarch64__)
-#include <arm_neon.h>
-#endif
 
 namespace sketch2 {
 
@@ -44,10 +41,6 @@ inline double finalize_cosine_distance_neon(double dot, double norm_a, double no
     }
     const double cosine = std::clamp(dot / std::sqrt(norm_a * norm_b), -1.0, 1.0);
     return 1.0 - cosine;
-}
-
-inline int64_t hsum_s64x2_cos(int64x2_t v) {
-    return vgetq_lane_s64(v, 0) + vgetq_lane_s64(v, 1);
 }
 
 inline void accumulate_mul_i32_as_i64_cos(int32x4_t a, int32x4_t b, int64x2_t* acc0, int64x2_t* acc1) {
@@ -265,8 +258,8 @@ inline double ComputeCos_Neon::squared_norm_i16(const uint8_t *a, size_t dim) {
         accumulate_mul_i32_as_i64_cos(a_hi, a_hi, &norm_acc2, &norm_acc3);
     }
 
-    double norm = static_cast<double>(hsum_s64x2_cos(norm_acc0) + hsum_s64x2_cos(norm_acc1) +
-                                      hsum_s64x2_cos(norm_acc2) + hsum_s64x2_cos(norm_acc3));
+    double norm = static_cast<double>(hsum_s64x2(norm_acc0) + hsum_s64x2(norm_acc1) +
+                                      hsum_s64x2(norm_acc2) + hsum_s64x2(norm_acc3));
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         norm += ai * ai;
@@ -295,8 +288,8 @@ inline double ComputeCos_Neon::dot_i16(const uint8_t *a, const uint8_t *b, size_
         accumulate_mul_i32_as_i64_cos(a_hi, b_hi, &dot_acc2, &dot_acc3);
     }
 
-    double dot = static_cast<double>(hsum_s64x2_cos(dot_acc0) + hsum_s64x2_cos(dot_acc1) +
-                                     hsum_s64x2_cos(dot_acc2) + hsum_s64x2_cos(dot_acc3));
+    double dot = static_cast<double>(hsum_s64x2(dot_acc0) + hsum_s64x2(dot_acc1) +
+                                     hsum_s64x2(dot_acc2) + hsum_s64x2(dot_acc3));
     for (; i < dim; ++i) {
         dot += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
@@ -331,10 +324,10 @@ inline double ComputeCos_Neon::dist_i16_with_query_norm(const uint8_t *a, const 
         accumulate_mul_i32_as_i64_cos(a_hi, a_hi, &norm_a_acc2, &norm_a_acc3);
     }
 
-    double dot = static_cast<double>(hsum_s64x2_cos(dot_acc0) + hsum_s64x2_cos(dot_acc1) +
-                                     hsum_s64x2_cos(dot_acc2) + hsum_s64x2_cos(dot_acc3));
-    double norm_a = static_cast<double>(hsum_s64x2_cos(norm_a_acc0) + hsum_s64x2_cos(norm_a_acc1) +
-                                        hsum_s64x2_cos(norm_a_acc2) + hsum_s64x2_cos(norm_a_acc3));
+    double dot = static_cast<double>(hsum_s64x2(dot_acc0) + hsum_s64x2(dot_acc1) +
+                                     hsum_s64x2(dot_acc2) + hsum_s64x2(dot_acc3));
+    double norm_a = static_cast<double>(hsum_s64x2(norm_a_acc0) + hsum_s64x2(norm_a_acc1) +
+                                        hsum_s64x2(norm_a_acc2) + hsum_s64x2(norm_a_acc3));
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);

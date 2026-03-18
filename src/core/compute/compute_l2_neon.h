@@ -2,13 +2,10 @@
 
 #pragma once
 #include "core/compute/compute.h"
+#include "core/compute/compute_neon_utils.h"
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
-
-#if defined(__aarch64__)
-#include <arm_neon.h>
-#endif
 
 namespace sketch2 {
 
@@ -22,10 +19,6 @@ public:
 };
 
 #if defined(__aarch64__)
-
-inline int64_t hsum_s64x2_l2(int64x2_t v) {
-    return vgetq_lane_s64(v, 0) + vgetq_lane_s64(v, 1);
-}
 
 inline void accumulate_squared_i32_as_i64_l2(int32x4_t diff, int64x2_t* acc0, int64x2_t* acc1) {
     *acc0 = vaddq_s64(*acc0, vmull_s32(vget_low_s32(diff), vget_low_s32(diff)));
@@ -111,8 +104,8 @@ inline double ComputeL2_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size_
         accumulate_squared_i32_as_i64_l2(d_hi, &acc2, &acc3);
     }
 
-    double sum = static_cast<double>(hsum_s64x2_l2(acc0) + hsum_s64x2_l2(acc1) +
-                                     hsum_s64x2_l2(acc2) + hsum_s64x2_l2(acc3));
+    double sum = static_cast<double>(hsum_s64x2(acc0) + hsum_s64x2(acc1) +
+                                     hsum_s64x2(acc2) + hsum_s64x2(acc3));
     for (; i < dim; ++i) {
         const int64_t d = static_cast<int64_t>(va[i]) - static_cast<int64_t>(vb[i]);
         sum += static_cast<double>(d * d);

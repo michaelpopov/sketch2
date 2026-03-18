@@ -43,15 +43,6 @@ SKETCH_AVX2_TARGET inline double finalize_cosine_distance_avx2(double dot, doubl
     return 1.0 - cosine;
 }
 
-SKETCH_AVX2_TARGET inline double hsum_epi64_256_cos(__m256i v) {
-    const __m128i lo = _mm256_castsi256_si128(v);
-    const __m128i hi = _mm256_extracti128_si256(v, 1);
-    const __m128i sum = _mm_add_epi64(lo, hi);
-    alignas(16) int64_t lanes[2];
-    _mm_store_si128(reinterpret_cast<__m128i *>(lanes), sum);
-    return static_cast<double>(lanes[0]) + static_cast<double>(lanes[1]);
-}
-
 SKETCH_AVX2_TARGET inline __m256i accumulate_mul_i32_as_i64_cos(__m256i acc, __m256i a32, __m256i b32) {
     const __m256i a_odd = _mm256_shuffle_epi32(a32, _MM_SHUFFLE(3, 3, 1, 1));
     const __m256i b_odd = _mm256_shuffle_epi32(b32, _MM_SHUFFLE(3, 3, 1, 1));
@@ -345,7 +336,7 @@ SKETCH_AVX2_TARGET inline double ComputeCos_AVX2::dot_i16(const uint8_t *a, cons
         dot_acc = accumulate_mul_i32_as_i64_cos(dot_acc, _mm256_cvtepi16_epi32(a_hi16), _mm256_cvtepi16_epi32(b_hi16));
     }
 
-    double dot = hsum_epi64_256_cos(dot_acc);
+    double dot = hsum_epi64_256(dot_acc);
     for (; i < dim; ++i) {
         dot += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
@@ -366,8 +357,8 @@ SKETCH_AVX2_TARGET inline double ComputeCos_AVX2::dist_i16_with_query_norm(const
         accumulate_i16_dot_and_norm_a_as_i64_cos(a16, b16, &dot_acc, &norm_a_acc);
     }
 
-    double dot = hsum_epi64_256_cos(dot_acc);
-    double norm_a = hsum_epi64_256_cos(norm_a_acc);
+    double dot = hsum_epi64_256(dot_acc);
+    double norm_a = hsum_epi64_256(norm_a_acc);
 
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);

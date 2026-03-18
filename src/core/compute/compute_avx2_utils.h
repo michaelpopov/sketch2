@@ -19,6 +19,15 @@ SKETCH_AVX2_TARGET inline double hsum_ps_256(__m256 v) {
     return static_cast<double>(_mm_cvtss_f32(sum));
 }
 
+SKETCH_AVX2_TARGET inline double hsum_epi64_256(__m256i v) {
+    const __m128i lo = _mm256_castsi256_si128(v);
+    const __m128i hi = _mm256_extracti128_si256(v, 1);
+    const __m128i sum = _mm_add_epi64(lo, hi);
+    alignas(16) int64_t lanes[2];
+    _mm_store_si128(reinterpret_cast<__m128i *>(lanes), sum);
+    return static_cast<double>(lanes[0]) + static_cast<double>(lanes[1]);
+}
+
 // AVX2 kernels are targeted with FMA, so use fused multiply-add directly.
 SKETCH_AVX2_TARGET inline __m256 fmadd_ps(__m256 a, __m256 b, __m256 acc) {
     return _mm256_fmadd_ps(a, b, acc);

@@ -21,15 +21,6 @@ public:
 
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
 
-SKETCH_AVX2_TARGET inline double hsum_epi64_256_l2(__m256i v) {
-    const __m128i lo = _mm256_castsi256_si128(v);
-    const __m128i hi = _mm256_extracti128_si256(v, 1);
-    const __m128i sum = _mm_add_epi64(lo, hi);
-    alignas(16) uint64_t lanes[2];
-    _mm_store_si128(reinterpret_cast<__m128i *>(lanes), sum);
-    return static_cast<double>(lanes[0] + lanes[1]);
-}
-
 SKETCH_AVX2_TARGET inline __m256i accumulate_squared_i32_as_i64_l2(__m256i acc, __m256i diff32) {
     const __m256i odd32 = _mm256_shuffle_epi32(diff32, _MM_SHUFFLE(3, 3, 1, 1));
     const __m256i even_sq64 = _mm256_mul_epi32(diff32, diff32);
@@ -157,7 +148,7 @@ SKETCH_AVX2_TARGET inline double ComputeL2_AVX2::dist_i16(const uint8_t *a, cons
         acc0 = accumulate_squared_i16_as_i64_l2(acc0, a16, b16);
     }
 
-    double sum = hsum_epi64_256_l2(_mm256_add_epi64(acc0, acc1));
+    double sum = hsum_epi64_256(_mm256_add_epi64(acc0, acc1));
     for (; i < dim; ++i) {
         const int64_t d = static_cast<int64_t>(va[i]) - static_cast<int64_t>(vb[i]);
         sum += static_cast<double>(d * d);
