@@ -82,8 +82,6 @@ Ret InputReader::init(const std::string& path) {
 // stores sorted metadata so later reads can parse text vectors on demand or
 // memcpy binary payloads without rescanning the whole file.
 Ret InputReader::init_(const std::string& path) {
-    Timer timer("InputReader::init_", true);
-
     if (map_) {
         return Ret("Input reader is initialized already.");
     }

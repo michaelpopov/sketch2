@@ -4,6 +4,7 @@
 #include "accumulator.h"
 #include "core/compute/compute.h"
 #include "core/utils/file_lock.h"
+#include "core/utils/update_notifier.h"
 #include "utils/shared_consts.h"
 #include "utils/shared_types.h"
 #include <memory>
@@ -120,6 +121,7 @@ private:
     mutable bool items_cache_valid_ = false;
     mutable std::vector<DatasetItem> items_cache_;
     mutable std::unordered_map<uint64_t, DataReaderPtr> reader_cache_;
+    mutable std::unique_ptr<UpdateNotifier> update_notifier_;
 
     Ret init_(const std::string& path);
 
@@ -140,10 +142,12 @@ private:
         const std::string& output_path_base) const;
     Ret require_owner_() const;
     Ret ensure_owner_lock_();
+    Ret ensure_update_notifier_() const;
     Ret ensure_items_cache_() const;
     const DatasetItem* find_item_(uint64_t file_id) const;
     std::pair<DataReaderPtr, Ret> get_cached_reader_(const DatasetItem& item) const;
     void invalidate_data_caches_();
+    void notify_update_(const char* caller);
     std::string item_path_base(uint64_t file_id) const;
 
     friend class DatasetReader;

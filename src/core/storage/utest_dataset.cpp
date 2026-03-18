@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <array>
 #include <cstdint>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <unistd.h>
@@ -1370,4 +1371,138 @@ TEST_F(DatasetTest, SetGuestModeFailsWhenAccumulatorIsNotEmpty) {
     const Ret ret = sc.set_guest_mode();
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Dataset: cannot switch to guest mode with non-empty accumulator", ret.message());
+}
+
+// --- UpdateNotifier integration ---
+
+TEST_F(DatasetTest, StoreCreatesNotifierFile) {
+    auto dir = make_dir("d_notifier_store");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(dir + "/" + kOwnerLockFileName));
+}
+
+TEST_F(DatasetTest, StoreAccumulatorIncrementsNotifierCounter) {
+    auto dir = make_dir("d_notifier_acc");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
+    ASSERT_EQ(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    ASSERT_EQ(0, sc.add_vector(2, reinterpret_cast<const uint8_t*>(vec.data())).code());
+    ASSERT_EQ(0, sc.store_accumulator().code());
+
+    // Read the raw counter from the lock file — should be 2 after two store_accumulator() calls.
+    const std::string lock_path = dir + "/" + kOwnerLockFileName;
+    int fd = open(lock_path.c_str(), O_RDONLY);
+    ASSERT_GE(fd, 0);
+    uint64_t counter = 0;
+    ASSERT_EQ(static_cast<ssize_t>(sizeof(counter)), pread(fd, &counter, sizeof(counter), 0));
+    close(fd);
+    EXPECT_EQ(2u, counter);
+}
+
+TEST_F(DatasetTest, GuestDetectsOwnerStoreAndFlushesCache) {
+    auto dir = make_dir("d_notifier_guest");
+
+    // Owner stores initial data.
+    Dataset owner;
+    ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    // Guest reads data — populates its cache.
+    Dataset guest;
+    ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
+    ASSERT_EQ(0, guest.set_guest_mode().code());
+
+    auto [reader0, ret0] = guest.get(2);
+    ASSERT_EQ(0, ret0.code()) << ret0.message();
+    ASSERT_NE(nullptr, reader0);
+    const void* old_ptr = reader0.get();
+
+    // Owner writes new data — bumps the notifier counter.
+    write_input("f32,4\n2 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    // Guest's next read should see the update and return a fresh reader.
+    auto [reader1, ret1] = guest.get(2);
+    ASSERT_EQ(0, ret1.code()) << ret1.message();
+    ASSERT_NE(nullptr, reader1);
+    EXPECT_NE(old_ptr, reader1.get());
+
+    const float* v = reinterpret_cast<const float*>(reader1->get(2));
+    ASSERT_NE(nullptr, v);
+    EXPECT_NEAR(99.0f, v[0], 1e-5f);
+}
+
+TEST_F(DatasetTest, GuestCacheStaysValidWhenNoUpdate) {
+    auto dir = make_dir("d_notifier_no_update");
+
+    Dataset owner;
+    ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    Dataset guest;
+    ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
+    ASSERT_EQ(0, guest.set_guest_mode().code());
+
+    auto [reader0, ret0] = guest.get(2);
+    ASSERT_EQ(0, ret0.code()) << ret0.message();
+    ASSERT_NE(nullptr, reader0);
+    const void* ptr0 = reader0.get();
+
+    // No owner writes between reads — guest should reuse cached reader.
+    auto [reader1, ret1] = guest.get(2);
+    ASSERT_EQ(0, ret1.code()) << ret1.message();
+    ASSERT_NE(nullptr, reader1);
+    EXPECT_EQ(ptr0, reader1.get());
+}
+
+TEST_F(DatasetTest, MergeIncrementsNotifierCounter) {
+    auto dir = make_dir("d_notifier_merge");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    // Store base data, then a small update to create a delta file.
+    generate_input_file(input_path_, cfg(50, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+    write_input("f32,4\n0 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+    ASSERT_EQ(0, sc.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(file_path(dir, 0, ".delta")));
+
+    ASSERT_EQ(0, sc.merge().code());
+
+    // Counter should be 3: two store() calls + one merge().
+    const std::string lock_path = dir + "/" + kOwnerLockFileName;
+    int fd = open(lock_path.c_str(), O_RDONLY);
+    ASSERT_GE(fd, 0);
+    uint64_t counter = 0;
+    ASSERT_EQ(static_cast<ssize_t>(sizeof(counter)), pread(fd, &counter, sizeof(counter), 0));
+    close(fd);
+    EXPECT_EQ(3u, counter);
+}
+
+TEST_F(DatasetTest, SetGuestModeResetsNotifier) {
+    auto dir = make_dir("d_notifier_reset");
+    Dataset sc;
+    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    // Notifier was initialized as updater by store(). Switching to guest should
+    // reset it. The next read should succeed and re-initialize as checker.
+    ASSERT_EQ(0, sc.set_guest_mode().code());
+
+    auto [reader, ret] = sc.get(2);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_NE(nullptr, reader);
 }

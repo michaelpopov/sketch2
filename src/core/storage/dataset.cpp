@@ -255,6 +255,7 @@ Ret Dataset::set_guest_mode() {
 
     accumulator_.reset();
     owner_lock_.reset();
+    update_notifier_.reset();
     mode_ = DatasetMode::Guest;
     return Ret(0);
 }
@@ -265,7 +266,7 @@ Ret Dataset::store(const std::string& input_path) {
         CHECK(ensure_owner_lock_());
         const Ret ret = store_(input_path);
         if (ret.code() == 0) {
-            invalidate_data_caches_();
+            notify_update_("Dataset::store");
         }
         return ret;
     } catch (const std::exception& ex) {
@@ -279,7 +280,7 @@ Ret Dataset::store_accumulator() {
         CHECK(ensure_owner_lock_());
         const Ret ret = store_accumulator_();
         if (ret.code() == 0) {
-            invalidate_data_caches_();
+            notify_update_("Dataset::store_accumulator");
         }
         return ret;
     } catch (const std::exception& ex) {
@@ -293,7 +294,7 @@ Ret Dataset::merge() {
         CHECK(ensure_owner_lock_());
         const Ret ret = merge_();
         if (ret.code() == 0) {
-            invalidate_data_caches_();
+            notify_update_("Dataset::merge");
         }
         return ret;
     } catch (const std::exception& ex) {
@@ -937,7 +938,30 @@ std::pair<DataReaderPtr, Ret> DatasetReader::get(uint64_t id) {
     return dataset_->get_cached_reader_(*it);
 }
 
+Ret Dataset::ensure_update_notifier_() const {
+    if (update_notifier_) {
+        return Ret(0);
+    }
+    if (metadata_.dirs.empty()) {
+        return Ret(0);
+    }
+
+    update_notifier_ = std::make_unique<UpdateNotifier>();
+    const std::string path = dataset_owner_lock_path(metadata_);
+    if (mode_ == DatasetMode::Owner) {
+        return update_notifier_->init_updater(path);
+    }
+    return update_notifier_->init_checker(path);
+}
+
 Ret Dataset::ensure_items_cache_() const {
+    CHECK(ensure_update_notifier_());
+    if (update_notifier_ && update_notifier_->check_updated()) {
+        items_cache_valid_ = false;
+        items_cache_.clear();
+        reader_cache_.clear();
+    }
+
     if (items_cache_valid_) {
         return Ret(0);
     }
@@ -996,6 +1020,19 @@ void Dataset::invalidate_data_caches_() {
     items_cache_valid_ = false;
     items_cache_.clear();
     reader_cache_.clear();
+}
+
+void Dataset::notify_update_(const char* caller) {
+    invalidate_data_caches_();
+    const Ret nr = ensure_update_notifier_();
+    if (nr.code() != 0) {
+        LOG_ERROR << caller << ": " << nr.message();
+        return;
+    }
+    const Ret ur = update_notifier_->update();
+    if (ur.code() != 0) {
+        LOG_ERROR << caller << ": " << ur.message();
+    }
 }
 
 std::string Dataset::item_path_base(uint64_t file_id) const {

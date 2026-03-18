@@ -307,3 +307,10 @@ If a file is not opened, the function opens the file, reads 8-byte number, store
 If a file is already opened, the function reads the 8-byte number again and compares it to the stored value. If values
 are equal, it returns false. Otherwise, it sets a data member to a new value and returns true.
 There is a lock file used for acquiring lock on a dataset. Use this file for storing data for this mechanism.
+UpdateNotifier is a data member of Dataset. std::unique_ptr<UpdateNotifier>
+In Dataset functions store(), store_accumulator() and merge()
+  - if UpdateNotifier is not initialized, initialize it as updater
+  - Call UpdateNotifier::update()
+In Dataset function reader()
+  - if UpdateNotifier is not initialized, initialize it as checker
+  - Call UpdateNotifier::check_updated() and flush the cache if needed.

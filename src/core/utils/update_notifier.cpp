@@ -2,6 +2,7 @@
 // cache invalidation.
 
 #include "utils/update_notifier.h"
+#include "utils/log.h"
 
 #include <cerrno>
 #include <cstring>
@@ -74,11 +75,13 @@ bool UpdateNotifier::check_updated() {
     if (fd_ < 0) {
         fd_ = open(path_.c_str(), O_RDONLY);
         if (fd_ < 0) {
+            LOG_WARN << "UpdateNotifier: failed to open " << path_ << ": " << std::strerror(errno);
             return true; // file missing or error — conservative
         }
 
         uint64_t value = 0;
         if (pread(fd_, &value, sizeof(value), 0) != static_cast<ssize_t>(sizeof(value))) {
+            LOG_WARN << "UpdateNotifier: short read on " << path_ << ": " << std::strerror(errno);
             (void)close(fd_);
             fd_ = -1;
             return true; // short read — conservative
@@ -91,6 +94,7 @@ bool UpdateNotifier::check_updated() {
     // Subsequent calls: re-read and compare.
     uint64_t value = 0;
     if (pread(fd_, &value, sizeof(value), 0) != static_cast<ssize_t>(sizeof(value))) {
+        LOG_WARN << "UpdateNotifier: read error on " << path_ << ": " << std::strerror(errno);
         return true; // read error — conservative
     }
 
