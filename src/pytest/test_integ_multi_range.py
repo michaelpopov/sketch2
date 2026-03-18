@@ -29,6 +29,7 @@ class MultiRangeTest(IntegTestBase):
             # Should have 50 .data files (ids 0-99 -> file 0, 100-199 -> file 1, etc.)
             expected_files = VECTOR_COUNT // RANGE_SIZE
             self.assertEqual(expected_files, self.count_files(".data"))
+            self.progress(f"Generated {VECTOR_COUNT} vectors, verified {expected_files} data files")
 
             ps.close(self.dataset_name)
 
@@ -36,6 +37,7 @@ class MultiRangeTest(IntegTestBase):
         with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dim=4, range_size=RANGE_SIZE, dist_func="l1")
             ps.generate(count=VECTOR_COUNT, start_id=0, pattern=0)
+            self.progress(f"Seeded {VECTOR_COUNT} vectors across {VECTOR_COUNT // RANGE_SIZE} ranges")
 
             # Update vectors in only 3 specific ranges.
             touched_ranges = {0, 25, 49}  # file ids
@@ -50,6 +52,7 @@ class MultiRangeTest(IntegTestBase):
             for p in self.dataset_dir.glob("*.delta"):
                 delta_files.add(int(p.stem))
             self.assertEqual(touched_ranges, delta_files)
+            self.progress(f"Updated 3 vectors, verified exactly 3 delta files: {delta_files}")
 
             ps.close(self.dataset_name)
 
@@ -66,6 +69,7 @@ class MultiRangeTest(IntegTestBase):
             # Expected: 99 (dist=4*0.4=1.6) and 100 (dist=4*0.6=2.4) are closest.
             self.assertIn(99, ids[:2])
             self.assertIn(100, ids[:2])
+            self.progress(f"Cross-range KNN verified: results {ids} span multiple files")
 
             ps.close(self.dataset_name)
 
@@ -80,16 +84,19 @@ class MultiRangeTest(IntegTestBase):
                 ps.upsert(vid, "77.0, 77.0, 77.0, 77.0")
             ps.merge_accumulator()
             self.assertGreater(self.count_files(".delta"), 0)
+            self.progress(f"Created {self.count_files('.delta')} delta files")
 
             # Capture pre-merge KNN results.
             pre_merge = ps.knn("77.0, 77.0, 77.0, 77.0", 5)
 
             ps.merge_delta()
             self.assertEqual(0, self.count_files(".delta"))
+            self.progress("Compaction complete, 0 delta files remain")
 
             # Post-merge results must match.
             post_merge = ps.knn("77.0, 77.0, 77.0, 77.0", 5)
             self.assertEqual(pre_merge, post_merge)
+            self.progress("Post-compaction KNN matches pre-compaction")
 
             ps.close(self.dataset_name)
 
@@ -99,6 +106,7 @@ class MultiRangeTest(IntegTestBase):
             ps.create(self.dataset_name, dim=4, range_size=RANGE_SIZE, dist_func="l1")
             ps.generate(count=VECTOR_COUNT, start_id=0, pattern=0)
             ps.close(self.dataset_name)
+        self.progress(f"Dataset with {VECTOR_COUNT} vectors ready for SQLite")
 
         conn = sqlite3.connect(":memory:")
         conn.enable_load_extension(True)
@@ -119,6 +127,8 @@ class MultiRangeTest(IntegTestBase):
         self.assertEqual(4, len(ids))
         self.assertIn(99, ids[:2])
         self.assertIn(100, ids[:2])
+        self.progress(f"SQLite cross-range KNN verified: {ids}")
+
 
 
 if __name__ == "__main__":

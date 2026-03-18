@@ -66,6 +66,7 @@ with Sketch2({str(self.root)!r}) as ps:
             ps.create(self.dataset_name, dim=4, range_size=1000, dist_func="l1")
             ps.generate(count=500, start_id=0, pattern=0)
             ps.close(self.dataset_name)
+        self.progress(f"Initial load: 500 vectors")
 
         # Spawn readers concurrently.
         procs = [self._spawn_reader(QUERIES, k=5) for _ in range(NUM_READERS)]
@@ -75,18 +76,21 @@ with Sketch2({str(self.root)!r}) as ps:
         for i in range(1, NUM_READERS):
             self.assertEqual(results[0], results[i],
                 f"Reader 0 and reader {i} disagree")
+        self.progress(f"All {NUM_READERS} readers returned identical results for initial load")
 
     def test_all_readers_agree_after_update(self) -> None:
         with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dim=4, range_size=1000, dist_func="l1")
             ps.generate(count=500, start_id=0, pattern=0)
             ps.close(self.dataset_name)
+        self.progress("Initial load complete")
 
         # Get baseline results.
         procs = [self._spawn_reader(QUERIES, k=5) for _ in range(NUM_READERS)]
         baseline = self._collect_reader_results(procs)
         for i in range(1, NUM_READERS):
             self.assertEqual(baseline[0], baseline[i])
+        self.progress(f"Baseline: all {NUM_READERS} readers agree")
 
         # Writer updates some vectors.
         with Sketch2(self.root) as ps:
@@ -95,6 +99,7 @@ with Sketch2({str(self.root)!r}) as ps:
                 ps.upsert(i, f"{i + 0.5}, {i + 0.5}, {i + 0.5}, {i + 0.5}")
             ps.merge_accumulator()
             ps.close(self.dataset_name)
+        self.progress("Updated 100 vectors and merged accumulator")
 
         # All readers must see updated data and agree.
         procs = [self._spawn_reader(QUERIES, k=5) for _ in range(NUM_READERS)]
@@ -102,6 +107,7 @@ with Sketch2({str(self.root)!r}) as ps:
         for i in range(1, NUM_READERS):
             self.assertEqual(updated[0], updated[i],
                 f"Reader 0 and reader {i} disagree after update")
+        self.progress(f"Post-update: all {NUM_READERS} readers agree and see changes")
 
     def test_readers_run_concurrently_without_corruption(self) -> None:
         """Multiple readers and sequential writes over several rounds."""
@@ -122,6 +128,7 @@ with Sketch2({str(self.root)!r}) as ps:
             for i in range(1, NUM_READERS):
                 self.assertEqual(results[0], results[i],
                     f"Round {round_idx}: reader disagreement")
+            self.progress(f"Round {round_idx}: 100 more vectors, {NUM_READERS} readers agree")
 
 
     def test_concurrent_reader_writer(self) -> None:
@@ -131,6 +138,7 @@ with Sketch2({str(self.root)!r}) as ps:
             ps.create(self.dataset_name, dim=4, range_size=1000, dist_func="l1")
             ps.generate(count=200, start_id=0, pattern=0)
             ps.close(self.dataset_name)
+        self.progress("Seeded 200 vectors for concurrent test")
 
         ready_flag = self.root / "_writer_ready"
         done_flag = self.root / "_writer_done"
@@ -181,6 +189,7 @@ print(json.dumps({{"query_count": query_count, "errors": errors}}))
 """
 
         # Launch writer and readers at the same time.
+        self.progress(f"Launching 1 writer and {NUM_READERS} readers concurrently...")
         writer = subprocess.Popen(
             [sys.executable, "-c", writer_script],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -199,6 +208,7 @@ print(json.dumps({{"query_count": query_count, "errors": errors}}))
         w_out, w_err = writer.communicate(timeout=60)
         self.assertEqual(0, writer.returncode,
             format_process_error(writer.returncode, w_out, w_err, "writer"))
+        self.progress("Writer finished successfully")
 
         # Collect readers — each must have completed successfully and
         # executed at least one query while the writer was active.
@@ -211,6 +221,8 @@ print(json.dumps({{"query_count": query_count, "errors": errors}}))
                 f"Reader {idx} ran zero queries — no concurrency exercised")
             self.assertEqual([], data["errors"],
                 f"Reader {idx} errors: {data['errors']}")
+            self.progress(f"Reader {idx} finished: {data['query_count']} queries, 0 errors")
+
 
 
 if __name__ == "__main__":

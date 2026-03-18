@@ -39,9 +39,11 @@ class UpdateNotifierTest(IntegTestBase):
             # generate calls store() internally
             ps.generate(count=5, start_id=0, pattern=0)
             self.assertEqual(1, read_counter(self.dataset_dir))
+            self.progress("Generate (5 vectors) incremented counter to 1")
 
             ps.generate(count=5, start_id=100, pattern=0)
             self.assertEqual(2, read_counter(self.dataset_dir))
+            self.progress("Generate (5 more vectors) incremented counter to 2")
 
             ps.close(self.dataset_name)
 
@@ -53,10 +55,12 @@ class UpdateNotifierTest(IntegTestBase):
             ps.upsert(2, "5.0, 6.0, 7.0, 8.0")
             ps.merge_accumulator()
             self.assertEqual(1, read_counter(self.dataset_dir))
+            self.progress("Upsert + Merge Accumulator incremented counter to 1")
 
             ps.upsert(3, "9.0, 10.0, 11.0, 12.0")
             ps.merge_accumulator()
             self.assertEqual(2, read_counter(self.dataset_dir))
+            self.progress("Second Merge Accumulator incremented counter to 2")
 
             ps.close(self.dataset_name)
 
@@ -69,9 +73,11 @@ class UpdateNotifierTest(IntegTestBase):
             ps.upsert(0, "99.0, 99.0, 99.0, 99.0")
             ps.merge_accumulator()  # counter = 2, creates delta
             self.assertTrue((self.dataset_dir / "0.delta").exists())
+            self.progress("Seeded data and created delta, counter is 2")
 
             ps.merge_delta()  # counter = 3
             self.assertEqual(3, read_counter(self.dataset_dir))
+            self.progress("Merge Delta incremented counter to 3")
 
             ps.close(self.dataset_name)
 
@@ -80,6 +86,7 @@ class UpdateNotifierTest(IntegTestBase):
             ps.create(self.dataset_name)
             ps.generate(count=5, start_id=0, pattern=0)
             self.assertEqual(1, read_counter(self.dataset_dir))
+            self.progress("Initial write, counter is 1")
 
             ps.close(self.dataset_name)
 
@@ -87,6 +94,7 @@ class UpdateNotifierTest(IntegTestBase):
             ps.open(self.dataset_name)
             ps.generate(count=5, start_id=100, pattern=0)
             self.assertEqual(2, read_counter(self.dataset_dir))
+            self.progress("Post-reopen write, counter incremented to 2")
 
             ps.close(self.dataset_name)
 
@@ -98,6 +106,7 @@ class UpdateNotifierTest(IntegTestBase):
             ps.upsert(2, "10.0, 10.0, 10.0, 10.0")
             ps.merge_accumulator()
             ps.close(self.dataset_name)
+        self.progress("Writer seeded 2 vectors")
 
         # Reader opens, queries, closes.
         with Sketch2(self.root) as ps:
@@ -105,6 +114,7 @@ class UpdateNotifierTest(IntegTestBase):
             ids = ps.knn("0.0, 0.0, 0.0, 0.0", 2)
             self.assertEqual([1, 2], ids)
             ps.close(self.dataset_name)
+        self.progress("Reader verified initial data")
 
         # Writer reopens, adds a closer vector, closes.
         with Sketch2(self.root) as ps:
@@ -112,6 +122,7 @@ class UpdateNotifierTest(IntegTestBase):
             ps.upsert(3, "0.1, 0.1, 0.1, 0.1")
             ps.merge_accumulator()
             ps.close(self.dataset_name)
+        self.progress("Writer added closer vector (id=3)")
 
         # Reader reopens — should see the new vector as nearest.
         with Sketch2(self.root) as ps:
@@ -119,6 +130,7 @@ class UpdateNotifierTest(IntegTestBase):
             ids = ps.knn("0.0, 0.0, 0.0, 0.0", 2)
             self.assertEqual([3, 1], ids)
             ps.close(self.dataset_name)
+        self.progress("Reader verified updated KNN results: [3, 1]")
 
     def test_no_counter_file_before_first_write(self) -> None:
         with Sketch2(self.root) as ps:
@@ -127,6 +139,7 @@ class UpdateNotifierTest(IntegTestBase):
             # (the file exists as the owner lock but may be empty).
             counter = read_counter(self.dataset_dir)
             self.assertIn(counter, (-1, 0))
+            self.progress(f"Verified counter is {counter} before first write")
 
             ps.close(self.dataset_name)
 
@@ -142,6 +155,7 @@ class UpdateNotifierCrossProcessTest(IntegTestBase):
             ps.create(self.dataset_name)
             ps.generate(count=5, start_id=0, pattern=0)
             ps.close(self.dataset_name)
+        self.progress("Parent wrote 5 vectors, counter should be 1")
 
         # Child process reads the counter.
         script = f"""
@@ -153,6 +167,7 @@ assert counter == 1, f"expected 1, got {{counter}}"
 """
         result = run_subprocess(script)
         self.assert_subprocess_ok(result, "child counter check")
+        self.progress("Child process verified counter is 1")
 
     def test_child_process_reads_updated_data_after_parent_writes(self) -> None:
         # Parent: create dataset with initial data.
@@ -162,6 +177,7 @@ assert counter == 1, f"expected 1, got {{counter}}"
             ps.upsert(2, "10.0, 10.0, 10.0, 10.0")
             ps.merge_accumulator()
             ps.close(self.dataset_name)
+        self.progress("Parent seeded initial data [1, 2]")
 
         # Child: open dataset and run KNN.
         script = f"""
@@ -174,6 +190,7 @@ with Sketch2({str(self.root)!r}) as ps:
 """
         result = run_subprocess(script)
         self.assert_subprocess_ok(result, "child KNN query")
+        self.progress("Child process verified initial data")
 
         # Parent: add a vector closer to the query.
         with Sketch2(self.root) as ps:
@@ -181,6 +198,7 @@ with Sketch2({str(self.root)!r}) as ps:
             ps.upsert(3, "0.1, 0.1, 0.1, 0.1")
             ps.merge_accumulator()
             ps.close(self.dataset_name)
+        self.progress("Parent added closer vector [3]")
 
         # Child: reopen and verify updated results.
         script2 = f"""
@@ -193,12 +211,14 @@ with Sketch2({str(self.root)!r}) as ps:
 """
         result2 = run_subprocess(script2)
         self.assert_subprocess_ok(result2, "child KNN query after update")
+        self.progress("Child process verified updated data [3, 1]")
 
     def test_child_writer_counter_visible_to_parent(self) -> None:
         # Parent creates dataset.
         with Sketch2(self.root) as ps:
             ps.create(self.dataset_name)
             ps.close(self.dataset_name)
+        self.progress("Parent created empty dataset")
 
         # Child writes data.
         script = f"""
@@ -211,6 +231,7 @@ with Sketch2({str(self.root)!r}) as ps:
 """
         result = run_subprocess(script)
         self.assert_subprocess_ok(result, "child writer")
+        self.progress("Child wrote data, counter should be 1")
 
         # Parent reads counter — should be 1.
         self.assertEqual(1, read_counter(self.dataset_dir))
@@ -221,6 +242,8 @@ with Sketch2({str(self.root)!r}) as ps:
             vec = ps.get(1)
             self.assertEqual("[ 1, 2, 3, 4 ]", vec)
             ps.close(self.dataset_name)
+        self.progress("Parent verified counter and data written by child")
+
 
 
 if __name__ == "__main__":
