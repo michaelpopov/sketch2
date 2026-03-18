@@ -117,7 +117,6 @@ inline void fill_i16(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__) || (defined(SKETCH_ARCH_ARM64) && !defined(_MSC_VER))
 inline void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {
         const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
@@ -126,7 +125,6 @@ inline void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
         b[i] = static_cast<float16>(static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f);
     }
 }
-#endif
 
 } // namespace test
 } // namespace sketch2

@@ -83,17 +83,6 @@ TEST(string_utils, parse_vector_f32_nan_and_inf_fail) {
     EXPECT_EQ("InputReader::data: non-finite f32 token", ret.message());
 }
 
-TEST(string_utils, parse_vector_f16_unsupported_platform_fails) {
-    if (supports_f16()) {
-        GTEST_SKIP() << "f16 is supported on this platform";
-    }
-    std::array<float16, 2> out {};
-    const Ret ret = parse_vector(
-        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::f16, out.size(),
-        "1.0, 2.0");
-    EXPECT_NE(0, ret.code());
-    EXPECT_EQ("f16 is not supported.", ret.message());
-}
 
 TEST(string_utils, parse_vector_extra_tokens) {
     std::array<float, 2> out {};

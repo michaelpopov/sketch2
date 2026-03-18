@@ -348,9 +348,6 @@ TEST_F(ScannerTest, FindI16AllSortedByDistance) {
 }
 
 TEST_F(ScannerTest, FindF16Works) {
-    if (!supports_f16()) {
-        return;
-    }
     generate(3, 0, DataType::f16, 4);
     DataReader reader;
     ASSERT_EQ(0, reader.init(data_path_).code());

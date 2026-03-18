@@ -251,10 +251,6 @@ TEST_F(VliteTest, SupportsI16Datasets) {
 }
 
 TEST_F(VliteTest, SupportsF16Datasets) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this platform";
-    }
-
     write_input("f16,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "20 : [ 11.0, 11.0, 11.0, 11.0 ]\n");

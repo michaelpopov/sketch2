@@ -127,11 +127,6 @@ TEST_F(InputGeneratorTest, HeaderLineF32) {
 TEST_F(InputGeneratorTest, HeaderLineF16) {
     GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::f16, 64, 1000};
     const Ret ret = generate_input_file(path_, cfg);
-    if (!supports_f16()) {
-        EXPECT_NE(0, ret.code());
-        return;
-    }
-
     EXPECT_EQ(0, ret.code());
     auto lines = read_lines();
     ASSERT_FALSE(lines.empty());
@@ -139,9 +134,7 @@ TEST_F(InputGeneratorTest, HeaderLineF16) {
 }
 
 TEST_F(InputGeneratorTest, F16SequentialTextValueIsIdPlusPointOneWhenSupported) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
+
 
     GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f16, 4, 1000};
     ASSERT_EQ(0, generate_input_file(path_, cfg).code());
@@ -389,9 +382,7 @@ TEST_F(InputGeneratorTest, BinarySequentialLargeF32FilePreservesChunkBoundaryRec
 }
 
 TEST_F(InputGeneratorTest, BinarySequentialF16WritesIdAndVectorPayloadWhenSupported) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
+
 
     GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f16, 4, 1000, 0, true};
     ASSERT_EQ(0, generate_input_file(path_, cfg).code());
@@ -560,9 +551,7 @@ TEST_F(InputGeneratorTest, ManualF32WritesIdPlusPointOneRepeatedByDim) {
 }
 
 TEST_F(InputGeneratorTest, ManualF16HeaderAndFormatWhenSupported) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
+
 
     ManualInputGenerator gen;
     gen.type = DataType::f16;

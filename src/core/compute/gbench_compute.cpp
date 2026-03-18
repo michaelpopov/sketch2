@@ -239,11 +239,7 @@ void require_ok(const Ret& ret, const std::string& context) {
     }
 }
 
-bool skip_if_unsupported(benchmark::State& state, ComputeBackendKind backend, DataType type) {
-    if (type == DataType::f16 && !supports_f16()) {
-        state.SkipWithError("f16 is not supported on this build");
-        return true;
-    }
+bool skip_if_unsupported(benchmark::State& state, ComputeBackendKind backend) {
     if (!ComputeUnit::is_supported(backend)) {
         state.SkipWithError("requested backend is not supported on this build/CPU");
         return true;
@@ -292,9 +288,6 @@ std::vector<uint8_t> make_vector(DataType type, size_t dim, uint64_t seed) {
             return bytes;
         }
         case DataType::f16: {
-            if (!supports_f16()) {
-                throw std::runtime_error("f16 is not supported on this build");
-            }
             std::vector<uint8_t> bytes(dim * sizeof(float16));
             auto* out = reinterpret_cast<float16*>(bytes.data());
             for (size_t i = 0; i < dim; ++i) {
@@ -490,7 +483,7 @@ void BM_ComputeDistance(benchmark::State& state) {
     const size_t dim = static_cast<size_t>(state.range(3));
 
     state.SetLabel(make_label(backend, func, type, dim));
-    if (skip_if_unsupported(state, backend, type)) {
+    if (skip_if_unsupported(state, backend)) {
         return;
     }
 
@@ -523,7 +516,7 @@ void BM_ScannerFindIds(benchmark::State& state) {
     const ScannerMode mode = scanner_mode_from_arg(state.range(5));
 
     state.SetLabel(make_scanner_label(backend, func, type, dim, k, mode));
-    if (skip_if_unsupported(state, backend, type)) {
+    if (skip_if_unsupported(state, backend)) {
         return;
     }
 
@@ -593,7 +586,7 @@ void BM_ScannerFindItems(benchmark::State& state) {
     const ScannerMode mode = scanner_mode_from_arg(state.range(5));
 
     state.SetLabel(make_scanner_label(backend, func, type, dim, k, mode));
-    if (skip_if_unsupported(state, backend, type)) {
+    if (skip_if_unsupported(state, backend)) {
         return;
     }
 

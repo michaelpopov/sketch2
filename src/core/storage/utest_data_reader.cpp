@@ -217,9 +217,7 @@ TEST_F(DataReaderTest, TypeF32) {
 }
 
 TEST_F(DataReaderTest, TypeF16) {
-    if (!supports_f16()) {
-        return;
-    }
+
     generate(1, 0, DataType::f16, 4);
     DataReader r;
     EXPECT_EQ(0, r.init(data_path_).code());
@@ -292,9 +290,7 @@ TEST_F(DataReaderTest, SizeF32IsCorrect) {
 }
 
 TEST_F(DataReaderTest, SizeF16IsCorrect) {
-    if (!supports_f16()) {
-        return;
-    }
+
     generate(1, 0, DataType::f16, 16);
     DataReader r;
     EXPECT_EQ(0, r.init(data_path_).code());

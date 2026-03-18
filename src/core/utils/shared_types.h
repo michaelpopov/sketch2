@@ -12,11 +12,10 @@
 
 namespace sketch2 {
 
-#if defined(__FLT16_MANT_DIG__)
-using float16 = _Float16;
-#else
-using float16 = uint16_t;
+#if !defined(__FLT16_MANT_DIG__)
+#error "f16 is not supported on this platform: _Float16 type is unavailable"
 #endif
+using float16 = _Float16;
 
 enum class DataType {
     f16,
@@ -30,19 +29,7 @@ enum class DistFunc {
     COS,
 };
 
-constexpr bool supports_f16() {
-#if defined(__FLT16_MANT_DIG__)
-    return true;
-#else
-    return false;
-#endif
-}
-
-inline void validate_type(DataType t) {
-    if (t == DataType::f16 && !supports_f16()) {
-        throw std::runtime_error("f16 is not supported.");
-    }
-}
+inline void validate_type(DataType) {}
 
 inline const char* data_type_to_string(DataType type) {
     switch (type) {

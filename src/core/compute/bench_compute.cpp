@@ -137,29 +137,25 @@ int main() {
                         DataType::f32, a_f32.size());
     });
 
-    if (supports_f16()) {
-        std::vector<float16> a_f16;
-        std::vector<float16> b_f16;
-        fill_pair(&a_f16, &b_f16, 17);
+    std::vector<float16> a_f16;
+    std::vector<float16> b_f16;
+    fill_pair(&a_f16, &b_f16, 17);
 
-        run_case("l1-f16", [&] {
-            return l1.dist(reinterpret_cast<const uint8_t *>(a_f16.data()),
-                           reinterpret_cast<const uint8_t *>(b_f16.data()),
-                           DataType::f16, a_f16.size());
-        });
-        run_case("l2-f16", [&] {
-            return l2.dist(reinterpret_cast<const uint8_t *>(a_f16.data()),
-                           reinterpret_cast<const uint8_t *>(b_f16.data()),
-                           DataType::f16, a_f16.size());
-        });
-        run_case("cos-f16", [&] {
-            return cos.dist(reinterpret_cast<const uint8_t *>(a_f16.data()),
-                            reinterpret_cast<const uint8_t *>(b_f16.data()),
-                            DataType::f16, a_f16.size());
-        });
-    } else {
-        std::cout << "f16-unavailable\n";
-    }
+    run_case("l1-f16", [&] {
+        return l1.dist(reinterpret_cast<const uint8_t *>(a_f16.data()),
+                       reinterpret_cast<const uint8_t *>(b_f16.data()),
+                       DataType::f16, a_f16.size());
+    });
+    run_case("l2-f16", [&] {
+        return l2.dist(reinterpret_cast<const uint8_t *>(a_f16.data()),
+                       reinterpret_cast<const uint8_t *>(b_f16.data()),
+                       DataType::f16, a_f16.size());
+    });
+    run_case("cos-f16", [&] {
+        return cos.dist(reinterpret_cast<const uint8_t *>(a_f16.data()),
+                        reinterpret_cast<const uint8_t *>(b_f16.data()),
+                        DataType::f16, a_f16.size());
+    });
 
     std::vector<int16_t> a_i16;
     std::vector<int16_t> b_i16;

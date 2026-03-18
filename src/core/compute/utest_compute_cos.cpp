@@ -68,9 +68,6 @@ TEST(ComputeCosTest, DistI16NearParallelRetainsSmallPositiveDistance) {
 }
 
 TEST(ComputeCosTest, DistF16ComputesDistance) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
 
     const std::vector<float16> a = {float16(1.0f), float16(0.0f), float16(0.0f), float16(0.0f)};
     const std::vector<float16> b = {float16(1.0f), float16(1.0f), float16(0.0f), float16(0.0f)};
@@ -129,25 +126,19 @@ TEST(ComputeCosTest, ZeroNormHandlingMatchesContract) {
 
 TEST(ComputeCosTest, ResolveDistReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeCos::resolve_dist(DataType::f32));
-    if (supports_f16()) {
-        EXPECT_NE(nullptr, ComputeCos::resolve_dist(DataType::f16));
-    }
+    EXPECT_NE(nullptr, ComputeCos::resolve_dist(DataType::f16));
     EXPECT_NE(nullptr, ComputeCos::resolve_dist(DataType::i16));
 }
 
 TEST(ComputeCosTest, ResolveDotReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeCos::resolve_dot(DataType::f32));
-    if (supports_f16()) {
-        EXPECT_NE(nullptr, ComputeCos::resolve_dot(DataType::f16));
-    }
+    EXPECT_NE(nullptr, ComputeCos::resolve_dot(DataType::f16));
     EXPECT_NE(nullptr, ComputeCos::resolve_dot(DataType::i16));
 }
 
 TEST(ComputeCosTest, ResolveSquaredNormReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeCos::resolve_squared_norm(DataType::f32));
-    if (supports_f16()) {
-        EXPECT_NE(nullptr, ComputeCos::resolve_squared_norm(DataType::f16));
-    }
+    EXPECT_NE(nullptr, ComputeCos::resolve_squared_norm(DataType::f16));
     EXPECT_NE(nullptr, ComputeCos::resolve_squared_norm(DataType::i16));
 }
 
@@ -168,17 +159,13 @@ TEST(ComputeCosTest, ResolveDotComputesKnownValues) {
         a_i16.size());
     EXPECT_DOUBLE_EQ(4.0, got_i16);
 
-#if defined(__FLT16_MANT_DIG__)
-    if (supports_f16()) {
-        const std::vector<float16> a_f16 = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
-        const std::vector<float16> b_f16 = {float16(5.0f), float16(6.0f), float16(7.0f), float16(8.0f)};
-        const double got_f16 = ComputeCos::resolve_dot(DataType::f16)(
-            reinterpret_cast<const uint8_t*>(a_f16.data()),
-            reinterpret_cast<const uint8_t*>(b_f16.data()),
-            a_f16.size());
-        EXPECT_DOUBLE_EQ(70.0, got_f16);
-    }
-#endif
+    const std::vector<float16> a_f16 = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
+    const std::vector<float16> b_f16 = {float16(5.0f), float16(6.0f), float16(7.0f), float16(8.0f)};
+    const double got_f16 = ComputeCos::resolve_dot(DataType::f16)(
+        reinterpret_cast<const uint8_t*>(a_f16.data()),
+        reinterpret_cast<const uint8_t*>(b_f16.data()),
+        a_f16.size());
+    EXPECT_DOUBLE_EQ(70.0, got_f16);
 }
 
 TEST(ComputeCosTest, ResolveSquaredNormComputesKnownValues) {
@@ -192,14 +179,10 @@ TEST(ComputeCosTest, ResolveSquaredNormComputesKnownValues) {
         reinterpret_cast<const uint8_t*>(a_i16.data()), a_i16.size());
     EXPECT_DOUBLE_EQ(30.0, got_i16);
 
-#if defined(__FLT16_MANT_DIG__)
-    if (supports_f16()) {
-        const std::vector<float16> a_f16 = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
-        const double got_f16 = ComputeCos::resolve_squared_norm(DataType::f16)(
-            reinterpret_cast<const uint8_t*>(a_f16.data()), a_f16.size());
-        EXPECT_DOUBLE_EQ(30.0, got_f16);
-    }
-#endif
+    const std::vector<float16> a_f16 = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
+    const double got_f16 = ComputeCos::resolve_squared_norm(DataType::f16)(
+        reinterpret_cast<const uint8_t*>(a_f16.data()), a_f16.size());
+    EXPECT_DOUBLE_EQ(30.0, got_f16);
 }
 
 TEST(ComputeCosScalar, DistI16UsesScalarFallback) {
@@ -262,11 +245,7 @@ TEST(ComputeCosNeon, DistF32MatchesReference) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, DotF16MatchesReference) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
 
     const std::vector<float16> a = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
     const std::vector<float16> b = {float16(5.0f), float16(6.0f), float16(7.0f), float16(8.0f)};
@@ -289,7 +268,6 @@ TEST(ComputeCosNeon, DotF16MatchesReference) {
         EXPECT_NEAR(ref, got2, std::max(1e-2, std::abs(ref) * 1e-2)) << "dim=" << dim;
     }
 }
-#endif
 
 TEST(ComputeCosNeon, DotI16MatchesReference) {
     const std::vector<int16_t> a = {10, -2, 7, -8, 20};
@@ -381,11 +359,7 @@ TEST(ComputeCosNeon, DistI16OrthogonalVectorsYieldOne) {
     EXPECT_NEAR(1.0, got, 1e-6);
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, DistF16IdenticalVectorsYieldZero) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const std::vector<float16> a = {float16(1.0f), float16(2.0f), float16(-3.0f), float16(4.0f)};
     const double got = ComputeCos_Neon::dist_f16(reinterpret_cast<const uint8_t*>(a.data()),
                                                  reinterpret_cast<const uint8_t*>(a.data()),
@@ -394,9 +368,6 @@ TEST(ComputeCosNeon, DistF16IdenticalVectorsYieldZero) {
 }
 
 TEST(ComputeCosNeon, DistF16OrthogonalVectorsYieldOne) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const std::vector<float16> a = {float16(1.0f), float16(0.0f), float16(0.0f), float16(0.0f)};
     const std::vector<float16> b = {float16(0.0f), float16(1.0f), float16(0.0f), float16(0.0f)};
     const double got = ComputeCos_Neon::dist_f16(reinterpret_cast<const uint8_t*>(a.data()),
@@ -404,7 +375,6 @@ TEST(ComputeCosNeon, DistF16OrthogonalVectorsYieldOne) {
                                                  a.size());
     EXPECT_NEAR(1.0, got, 1e-3);
 }
-#endif
 
 TEST(ComputeCosNeon, SquaredNormF32MatchesReference) {
     const std::vector<float> a = {1.0f, -2.0f, 3.0f, -4.0f, 5.0f};
@@ -444,11 +414,7 @@ TEST(ComputeCosNeon, SquaredNormI16MatchesReference) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, SquaredNormF16MatchesReference) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const std::vector<float16> a = {float16(1.0f), float16(-2.0f), float16(3.0f), float16(-4.0f)};
     // 1 + 4 + 9 + 16 = 30
     const double got = ComputeCos_Neon::squared_norm_f16(
@@ -466,7 +432,6 @@ TEST(ComputeCosNeon, SquaredNormF16MatchesReference) {
         EXPECT_NEAR(ref, got2, std::max(1e-2, ref * 1e-2)) << "dim=" << dim;
     }
 }
-#endif
 
 TEST(ComputeCosNeon, DistF32WithQueryNormMatchesReference) {
     const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, -5.0f};
@@ -520,11 +485,7 @@ TEST(ComputeCosNeon, DistI16WithQueryNormMatchesReference) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, DistF16WithQueryNormMatchesReference) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const std::vector<float16> a = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
     const std::vector<float16> b = {float16(0.5f), float16(1.0f), float16(-1.5f), float16(2.0f)};
     // b_norm_sq = 0.25 + 1 + 2.25 + 4 = 7.5
@@ -549,7 +510,6 @@ TEST(ComputeCosNeon, DistF16WithQueryNormMatchesReference) {
         EXPECT_NEAR(ref, got2, 1e-2) << "dim=" << dim;
     }
 }
-#endif
 
 // Tail handling: exercise the scalar tail loop for dims not a multiple of the SIMD width.
 TEST(ComputeCosNeon, DotF32TailHandling) {
@@ -605,11 +565,7 @@ TEST(ComputeCosNeon, DistI16TailHandling) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, DotF16TailHandling) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     // dot_f16 SIMD width is 4 (or 8 with FP16_VECTOR_ARITHMETIC); test tail dims.
     const std::vector<size_t> dims = {1, 2, 3, 5, 6, 7, 9, 11, 13, 15, 17};
     for (size_t dim : dims) {
@@ -624,9 +580,6 @@ TEST(ComputeCosNeon, DotF16TailHandling) {
 }
 
 TEST(ComputeCosNeon, DistF16TailHandling) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const std::vector<size_t> dims = {1, 2, 3, 5, 6, 7, 9, 11, 13, 15, 17};
     for (size_t dim : dims) {
         auto a = make_buffer<float16>(dim, 0);
@@ -638,7 +591,6 @@ TEST(ComputeCosNeon, DistF16TailHandling) {
         EXPECT_NEAR(ref, got, 1e-2) << "dim=" << dim;
     }
 }
-#endif
 
 TEST(ComputeCosNeon, DistF32ZeroDim) {
     auto a = make_buffer<float>(1, 0);
@@ -656,18 +608,13 @@ TEST(ComputeCosNeon, DistI16ZeroDim) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, DistF16ZeroDim) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     auto a = make_buffer<float16>(1, 0);
     auto b = make_buffer<float16>(1, 0);
     const double got = ComputeCos_Neon::dist_f16(
         reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), 0);
     EXPECT_DOUBLE_EQ(0.0, got);
 }
-#endif
 
 TEST(ComputeCosNeon, DistI16HandlesExtremes) {
     const size_t dim = 16;
@@ -683,11 +630,7 @@ TEST(ComputeCosNeon, DistI16HandlesExtremes) {
     EXPECT_NEAR(ref, got, 2e-4);
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, DistF16HandlesExtremes) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     // b = -a: dot(a,b) = -||a||^2, cosine = -1, distance = 2.0.
     // All arithmetic in f32 after vcvt; 65504^2 is exactly representable in f32.
     const size_t dim = 8;
@@ -705,9 +648,6 @@ TEST(ComputeCosNeon, DistF16HandlesExtremes) {
 }
 
 TEST(ComputeCosNeon, DotF16HandlesExtremes) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     // dot(a, -a) = -||a||^2; all products computed in f32 after vcvt.
     const size_t dim = 8;
     std::vector<float16> a(dim), b(dim);
@@ -721,7 +661,6 @@ TEST(ComputeCosNeon, DotF16HandlesExtremes) {
                                                 dim);
     EXPECT_NEAR(ref, got, std::max(1.0, std::abs(ref) * 1e-5));
 }
-#endif
 
 TEST(ComputeCosNeon, DotF32LargeDim) {
     const size_t dim = 128;
@@ -756,11 +695,7 @@ TEST(ComputeCosNeon, DistI16LargeDim) {
     EXPECT_NEAR(ref, got, 2e-4);
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, DotF16LargeDim) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const size_t dim = 128;
     auto a = make_buffer<float16>(dim, 0);
     auto b = make_buffer<float16>(dim, 0);
@@ -772,9 +707,6 @@ TEST(ComputeCosNeon, DotF16LargeDim) {
 }
 
 TEST(ComputeCosNeon, DistF16LargeDim) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const size_t dim = 128;
     auto a = make_buffer<float16>(dim, 0);
     auto b = make_buffer<float16>(dim, 0);
@@ -784,7 +716,6 @@ TEST(ComputeCosNeon, DistF16LargeDim) {
         reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
     EXPECT_NEAR(ref, got, 1e-2);
 }
-#endif
 
 // Misalignment: vld1q handles unaligned loads, but test explicitly to guard against
 // compiler or linker changes that might introduce alignment assumptions.
@@ -860,11 +791,7 @@ TEST(ComputeCosNeon, DistI16MisalignedMatchesReference) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, DotF16MisalignedMatchesReference) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -883,9 +810,6 @@ TEST(ComputeCosNeon, DotF16MisalignedMatchesReference) {
 }
 
 TEST(ComputeCosNeon, DistF16MisalignedMatchesReference) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -902,7 +826,6 @@ TEST(ComputeCosNeon, DistF16MisalignedMatchesReference) {
         }
     }
 }
-#endif
 
 // Dispatch verification: on aarch64, resolve_* returns NEON function pointers.
 TEST(ComputeCosNeon, ResolveDistUsesNeonF32Path) {
@@ -913,11 +836,9 @@ TEST(ComputeCosNeon, ResolveDistUsesNeonI16Path) {
     EXPECT_EQ(&ComputeCos_Neon::dist_i16, ComputeCos::resolve_dist(DataType::i16));
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, ResolveDistUsesNeonF16Path) {
     EXPECT_EQ(&ComputeCos_Neon::dist_f16, ComputeCos::resolve_dist(DataType::f16));
 }
-#endif
 
 TEST(ComputeCosNeon, ResolveDotUsesNeonF32Path) {
     EXPECT_EQ(&ComputeCos_Neon::dot_f32, ComputeCos::resolve_dot(DataType::f32));
@@ -945,7 +866,6 @@ TEST(ComputeCosNeon, ResolveSquaredNormUsesNeonI16Path) {
     EXPECT_EQ(&ComputeCos_Neon::squared_norm_i16, ComputeCos::resolve_squared_norm(DataType::i16));
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonF16Path) {
     EXPECT_EQ(&ComputeCos_Neon::dist_f16_with_query_norm,
               ComputeCos::resolve_dist_with_query_norm(DataType::f16));
@@ -954,7 +874,6 @@ TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonF16Path) {
 TEST(ComputeCosNeon, ResolveSquaredNormUsesNeonF16Path) {
     EXPECT_EQ(&ComputeCos_Neon::squared_norm_f16, ComputeCos::resolve_squared_norm(DataType::f16));
 }
-#endif
 
 #else
 TEST(ComputeCosNeon, NotBuiltForThisTarget) {
@@ -1032,7 +951,6 @@ TEST_F(ComputeCosAVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST_F(ComputeCosAVX2, DotF16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 31, 32, 33, 127};
     for (size_t dim : dims) {
@@ -1086,7 +1004,6 @@ TEST_F(ComputeCosAVX2, ResolveDistUsesAVX2F16Path) {
 TEST_F(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F16Path) {
     EXPECT_EQ(&ComputeCos_AVX2::squared_norm_f16, ComputeCos::resolve_squared_norm(DataType::f16));
 }
-#endif
 
 TEST_F(ComputeCosAVX2, DistI16ZeroDimIsZero) {
     auto a = make_buffer<int16_t>(1, 0);
@@ -1203,7 +1120,6 @@ TEST_F(ComputeCosAVX512F, DistF32MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST_F(ComputeCosAVX512F, DotF16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 127};
     for (size_t dim : dims) {
@@ -1241,7 +1157,6 @@ TEST_F(ComputeCosAVX512F, DistF16MatchesReferenceAlignedAndUnaligned) {
         }
     }
 }
-#endif
 
 TEST_F(ComputeCosAVX512F, DotI16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 96, 127};

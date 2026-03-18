@@ -251,9 +251,6 @@ Ret fill_vector_with_scalar(std::vector<uint8_t>* buf, DataType type, uint64_t d
             return Ret(0);
         }
         case DataType::f16: {
-            if (!supports_f16()) {
-                return Ret("f16 is not supported.");
-            }
             auto* out = reinterpret_cast<float16*>(buf->data());
             for (uint64_t i = 0; i < dim; ++i) {
                 out[i] = static_cast<float16>(value);

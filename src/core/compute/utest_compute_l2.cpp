@@ -55,9 +55,6 @@ TEST(ComputeL2Test, DistI16ComputesSquaredDistance) {
 }
 
 TEST(ComputeL2Test, DistF16ComputesSquaredDistance) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
 
     const std::vector<float16> a = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
     const std::vector<float16> b = {float16(1.0f), float16(0.0f), float16(1.0f), float16(10.0f)};
@@ -71,9 +68,7 @@ TEST(ComputeL2Test, DistF16ComputesSquaredDistance) {
 
 TEST(ComputeL2Test, ResolveDistReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::f32));
-    if (supports_f16()) {
-        EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::f16));
-    }
+    EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::f16));
     EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::i16));
 }
 
@@ -102,9 +97,6 @@ TEST(ComputeL2Neon, DistF32MatchesReference) {
 }
 
 TEST(ComputeL2Neon, DistF16MatchesReference) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
 
     const std::vector<float16> a = {
         float16(1.0f), float16(2.5f), float16(-3.0f), float16(4.25f),
@@ -188,11 +180,7 @@ TEST(ComputeL2Neon, DistI16TailHandling) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeL2Neon, DistF16TailHandling) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     // dist_f16 SIMD width is 4 (or 8 with FP16_VECTOR_ARITHMETIC); test tail dims.
     const std::vector<size_t> dims = {1, 2, 3, 5, 6, 7, 9, 11, 13, 15, 17};
     for (size_t dim : dims) {
@@ -205,7 +193,6 @@ TEST(ComputeL2Neon, DistF16TailHandling) {
         EXPECT_NEAR(ref, got, std::max(1e-2, ref * 2e-3)) << "dim=" << dim;
     }
 }
-#endif
 
 TEST(ComputeL2Neon, DistF32ZeroDim) {
     auto a = make_buffer<float>(1, 0);
@@ -223,18 +210,13 @@ TEST(ComputeL2Neon, DistI16ZeroDim) {
     EXPECT_DOUBLE_EQ(0.0, got);
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeL2Neon, DistF16ZeroDim) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     auto a = make_buffer<float16>(1, 0);
     auto b = make_buffer<float16>(1, 0);
     const double got = ComputeL2_Neon::dist_f16(
         reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), 0);
     EXPECT_DOUBLE_EQ(0.0, got);
 }
-#endif
 
 TEST(ComputeL2Neon, DistI16HandlesExtremes) {
     const size_t dim = 16;
@@ -250,11 +232,7 @@ TEST(ComputeL2Neon, DistI16HandlesExtremes) {
     EXPECT_DOUBLE_EQ(ref, got);
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeL2Neon, DistF16HandlesExtremes) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     // Use a[i] = ±32752, b[i] = ∓32752 so the f16 difference is ±65504 (f16 max),
     // which stays in range for vsubq_f16 in the __ARM_FEATURE_FP16_VECTOR_ARITHMETIC path.
     // 32752 = 2^15 - 16 is exactly representable in f16 (spacing at 2^14 is 16).
@@ -270,13 +248,8 @@ TEST(ComputeL2Neon, DistF16HandlesExtremes) {
                                                 dim);
     EXPECT_NEAR(ref, got, std::max(1.0, ref * 1e-5));
 }
-#endif
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeL2Neon, DistF16LargeDim) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const size_t dim = 512;
     auto a = make_buffer<float16>(dim, 0);
     auto b = make_buffer<float16>(dim, 0);
@@ -286,7 +259,6 @@ TEST(ComputeL2Neon, DistF16LargeDim) {
         reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
     EXPECT_NEAR(ref, got, std::max(1e-2, ref * 2e-3));
 }
-#endif
 
 TEST(ComputeL2Neon, DistF32LargeDim) {
     const size_t dim = 512;
@@ -348,11 +320,7 @@ TEST(ComputeL2Neon, DistI16MisalignedMatchesReference) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeL2Neon, DistF16MisalignedMatchesReference) {
-    if (!supports_f16()) {
-        GTEST_SKIP() << "f16 is not supported on this build";
-    }
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
     for (size_t dim : dims) {
         for (size_t misalign_a : {size_t(0), size_t(2)}) {
@@ -369,7 +337,6 @@ TEST(ComputeL2Neon, DistF16MisalignedMatchesReference) {
         }
     }
 }
-#endif
 
 // Dispatch verification: on aarch64, resolve_dist returns NEON function pointers.
 TEST(ComputeL2Neon, ResolveDistUsesNeonF32Path) {
@@ -380,11 +347,9 @@ TEST(ComputeL2Neon, ResolveDistUsesNeonI16Path) {
     EXPECT_EQ(&ComputeL2_Neon::dist_i16, ComputeL2::resolve_dist(DataType::i16));
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST(ComputeL2Neon, ResolveDistUsesNeonF16Path) {
     EXPECT_EQ(&ComputeL2_Neon::dist_f16, ComputeL2::resolve_dist(DataType::f16));
 }
-#endif
 
 #else
 TEST(ComputeL2Neon, NotBuiltForThisTarget) {
@@ -416,7 +381,6 @@ private:
     bool overridden_ = false;
 };
 
-#if defined(__FLT16_MANT_DIG__)
 TEST_F(ComputeL2AVX2, DistF16ZeroDimIsZero) {
     auto a = make_buffer<float16>(1, 0);
     auto b = make_buffer<float16>(1, 0);
@@ -448,7 +412,6 @@ TEST_F(ComputeL2AVX2, DistF16MatchesReferenceAlignedAndUnaligned) {
 TEST_F(ComputeL2AVX2, ResolveDistUsesAVX2F16Path) {
     EXPECT_EQ(&ComputeL2_AVX2::dist_f16, ComputeL2::resolve_dist(DataType::f16));
 }
-#endif
 
 TEST_F(ComputeL2AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 7, 8, 9, 15, 16, 31, 32, 33, 63, 64, 65, 127};
@@ -559,7 +522,6 @@ TEST_F(ComputeL2AVX512F, DistF32MatchesReferenceAlignedAndUnaligned) {
     }
 }
 
-#if defined(__FLT16_MANT_DIG__)
 TEST_F(ComputeL2AVX512F, DistF16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127};
     for (size_t dim : dims) {
@@ -579,7 +541,6 @@ TEST_F(ComputeL2AVX512F, DistF16MatchesReferenceAlignedAndUnaligned) {
         }
     }
 }
-#endif
 
 TEST_F(ComputeL2AVX512F, DistI16MatchesReferenceAlignedAndUnaligned) {
     const std::vector<size_t> dims = {1, 15, 16, 17, 31, 32, 33, 47, 48, 49, 96, 127};

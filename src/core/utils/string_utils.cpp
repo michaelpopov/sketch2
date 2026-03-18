@@ -108,10 +108,6 @@ Ret print_vector(uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size
     if (vec_data == nullptr || buf == nullptr || buf_size == 0) {
         return Ret("print_vector: invalid arguments");
     }
-    if (type == DataType::f16 && !supports_f16()) {
-        return Ret("print_vector: f16 is not supported");
-    }
-
     int n = snprintf(buf, buf_size, "[ ");
     if (n < 0) {
         return Ret("print_vector: failed to format output");
