@@ -118,12 +118,6 @@ Ret Accumulator::init(size_t size, DataType type, uint64_t dim, bool has_cosine_
         return Ret("Accumulator: dim must be >= 4.");
     }
 
-    try {
-        validate_type(type);
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
-
     type_ = type;
     dim_ = dim;
     has_cosine_inv_norms_ = has_cosine_inv_norms;

@@ -50,7 +50,6 @@ inline double ComputeL1::dist(const uint8_t *a, const uint8_t *b, DataType type,
 }
 
 inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
-    validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
 #if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:

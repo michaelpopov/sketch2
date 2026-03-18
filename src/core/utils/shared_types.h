@@ -29,8 +29,6 @@ enum class DistFunc {
     COS,
 };
 
-inline void validate_type(DataType) {}
-
 inline const char* data_type_to_string(DataType type) {
     switch (type) {
         case DataType::f16: return "f16";

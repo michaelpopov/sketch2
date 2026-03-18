@@ -219,11 +219,6 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
         return Ret("dim must be in range [" + std::to_string(kMinDimension) +
             ", " + std::to_string(kMaxDimension) + "]");
     }
-    try {
-        validate_type(config.type);
-    } catch (const std::exception& e) {
-        return Ret(e.what());
-    }
     if (config.binary && config.every_n_deleted > 0) {
         return Ret("binary input format does not support deleted items");
     }
@@ -474,11 +469,6 @@ Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen
     if (gen.dim < kMinDimension || gen.dim > kMaxDimension) {
         return Ret("dim must be in range [" + std::to_string(kMinDimension) +
             ", " + std::to_string(kMaxDimension) + "]");
-    }
-    try {
-        validate_type(gen.type);
-    } catch (const std::exception& e) {
-        return Ret(e.what());
     }
 
     return write_file_atomically(path, [&gen](const std::string& temp_path) -> Ret {

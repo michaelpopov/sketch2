@@ -195,7 +195,6 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
             std::to_string(kMinDimension) + ", " + std::to_string(kMaxDimension) + "].");
     }
     try {
-        validate_type(metadata.type);
         validate_dist_func(metadata.dist_func);
     } catch (const std::exception& ex) {
         return Ret(ex.what());

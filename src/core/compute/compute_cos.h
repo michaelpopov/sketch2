@@ -92,7 +92,6 @@ inline double ComputeCos::dist(const uint8_t *a, const uint8_t *b, DataType type
 }
 
 inline ComputeCos::DistFn ComputeCos::resolve_dist(DataType type) {
-    validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
 #if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:
@@ -150,7 +149,6 @@ inline ComputeCos::DistFn ComputeCos::resolve_dist(DataType type) {
 }
 
 inline ComputeCos::DistWithQueryNormFn ComputeCos::resolve_dist_with_query_norm(DataType type) {
-    validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
 #if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:
@@ -208,7 +206,6 @@ inline ComputeCos::DistWithQueryNormFn ComputeCos::resolve_dist_with_query_norm(
 }
 
 inline ComputeCos::SquaredNormFn ComputeCos::resolve_squared_norm(DataType type) {
-    validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
 #if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:
@@ -266,7 +263,6 @@ inline ComputeCos::SquaredNormFn ComputeCos::resolve_squared_norm(DataType type)
 }
 
 inline ComputeCos::DotFn ComputeCos::resolve_dot(DataType type) {
-    validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
 #if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:

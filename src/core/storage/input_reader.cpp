@@ -31,7 +31,6 @@ Ret parse_input_header(const char* begin, const char* end, DataType* type, size_
 
     try {
         *type = data_type_from_string(header.substr(0, first_comma));
-        validate_type(*type);
     } catch (const std::exception& e) {
         return Ret(e.what());
     }

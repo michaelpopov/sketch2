@@ -199,7 +199,6 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
 
     try {
         type_ = data_type_from_int(hdr_->type);
-        validate_type(type_);
     } catch (const std::exception& ex) {
         return fail(ex.what());
     }

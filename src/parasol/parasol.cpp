@@ -128,7 +128,7 @@ Ret validate_dataset_type(const char* type) {
     }
 
     try {
-        validate_type(data_type_from_string(type));
+        (void)data_type_from_string(type);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }

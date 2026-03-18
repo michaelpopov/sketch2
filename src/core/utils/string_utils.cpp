@@ -15,11 +15,6 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
     if (buf == nullptr || line == nullptr) {
         return Ret("parse_vector: invalid arguments");
     }
-    try {
-        validate_type(type);
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
 
     if (end == nullptr) {
         end = line + strlen(line);
