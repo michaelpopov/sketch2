@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import sqlite3
 import unittest
+from typing import Callable
 
 from sketch2_wrapper import Sketch2
 
@@ -22,6 +23,32 @@ RANGE_SIZE = 10000
 NUM_QUERIES = 50
 
 
+def _l1_distance(index: float, query: float) -> float:
+    return abs(index - query) * DIM
+
+
+def _l2_distance(index: float, query: float) -> float:
+    return math.sqrt(DIM) * abs(index - query)
+
+
+def _populate_linear_dataset(ps: Sketch2, vector_count: int = VECTOR_COUNT) -> None:
+    for i in range(vector_count):
+        val = f"{float(i)}"
+        ps.upsert(i, f"{val}, {val}, {val}, {val}")
+    ps.merge_accumulator()
+
+
+def _assert_ordering(test_case: unittest.TestCase, ps: Sketch2, metric_fn: Callable[[float, float], float],
+        vector_count: int = VECTOR_COUNT) -> None:
+    for q_idx in range(NUM_QUERIES):
+        q = q_idx * (vector_count / NUM_QUERIES)
+        q_str = f"{q}, {q}, {q}, {q}"
+        ids = ps.knn(q_str, 5)
+        dists = [metric_fn(float(i), q) for i in ids]
+        test_case.assertEqual(dists, sorted(dists),
+            f"ordering violated for query {q}: ids={ids}")
+
+
 class DistanceFunctionL1Test(IntegTestBase):
     """L1 (Manhattan) distance: sum of |a_i - b_i|."""
 
@@ -30,21 +57,9 @@ class DistanceFunctionL1Test(IntegTestBase):
     def test_l1_ordering_at_scale(self) -> None:
         with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dim=DIM, range_size=RANGE_SIZE, dist_func="l1")
-
-            for i in range(VECTOR_COUNT):
-                val = f"{float(i)}"
-                ps.upsert(i, f"{val}, {val}, {val}, {val}")
-            ps.merge_accumulator()
+            _populate_linear_dataset(ps)
             self.progress(f"Loaded {VECTOR_COUNT} vectors, running {NUM_QUERIES} L1 queries...")
-
-            for q_idx in range(NUM_QUERIES):
-                q = q_idx * (VECTOR_COUNT / NUM_QUERIES)
-                q_str = f"{q}, {q}, {q}, {q}"
-                ids = ps.knn(q_str, 5)
-
-                dists = [abs(i - q) * DIM for i in ids]
-                self.assertEqual(dists, sorted(dists),
-                    f"L1 ordering violated for query {q}: ids={ids}")
+            _assert_ordering(self, ps, _l1_distance)
             self.progress(f"All {NUM_QUERIES} L1 ordering checks passed")
 
             ps.close(self.dataset_name)
@@ -81,21 +96,9 @@ class DistanceFunctionL2Test(IntegTestBase):
     def test_l2_ordering_at_scale(self) -> None:
         with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dim=DIM, range_size=RANGE_SIZE, dist_func="l2")
-
-            for i in range(VECTOR_COUNT):
-                val = f"{float(i)}"
-                ps.upsert(i, f"{val}, {val}, {val}, {val}")
-            ps.merge_accumulator()
+            _populate_linear_dataset(ps)
             self.progress(f"Loaded {VECTOR_COUNT} vectors, running {NUM_QUERIES} L2 queries...")
-
-            for q_idx in range(NUM_QUERIES):
-                q = q_idx * (VECTOR_COUNT / NUM_QUERIES)
-                q_str = f"{q}, {q}, {q}, {q}"
-                ids = ps.knn(q_str, 5)
-
-                dists = [math.sqrt(sum((i - q) ** 2 for _ in range(DIM))) for i in ids]
-                self.assertEqual(dists, sorted(dists),
-                    f"L2 ordering violated for query {q}: ids={ids}")
+            _assert_ordering(self, ps, _l2_distance)
             self.progress(f"All {NUM_QUERIES} L2 ordering checks passed")
 
             ps.close(self.dataset_name)
@@ -114,17 +117,16 @@ class DistanceFunctionL2Test(IntegTestBase):
             ps.close(self.dataset_name)
         self.progress(f"API KNN (L2): {api_ids}")
 
-        conn = sqlite3.connect(":memory:")
-        conn.enable_load_extension(True)
-        conn.load_extension(lib_path())
-        conn.execute(f"CREATE VIRTUAL TABLE nn USING vlite('{ini_path}')")
+        with sqlite3.connect(":memory:") as conn:
+            conn.enable_load_extension(True)
+            conn.load_extension(lib_path())
+            conn.execute(f"CREATE VIRTUAL TABLE nn USING vlite('{ini_path}')")
 
-        rows = conn.execute(
-            "SELECT id FROM nn "
-            "WHERE query = '50.0, 50.0, 50.0, 50.0' AND k = 10 "
-            "ORDER BY distance"
-        ).fetchall()
-        conn.close()
+            rows = conn.execute(
+                "SELECT id FROM nn "
+                "WHERE query = '50.0, 50.0, 50.0, 50.0' AND k = 10 "
+                "ORDER BY distance"
+            ).fetchall()
 
         sql_ids = [row[0] for row in rows]
         self.assertEqual(api_ids, sql_ids)
@@ -181,17 +183,16 @@ class DistanceFunctionCosTest(IntegTestBase):
             ps.merge_accumulator()
             ps.close(self.dataset_name)
 
-        conn = sqlite3.connect(":memory:")
-        conn.enable_load_extension(True)
-        conn.load_extension(lib_path())
-        conn.execute(f"CREATE VIRTUAL TABLE nn USING vlite('{ini_path}')")
+        with sqlite3.connect(":memory:") as conn:
+            conn.enable_load_extension(True)
+            conn.load_extension(lib_path())
+            conn.execute(f"CREATE VIRTUAL TABLE nn USING vlite('{ini_path}')")
 
-        rows = conn.execute(
-            "SELECT id, distance FROM nn "
-            "WHERE query = '1.0, 0.0, 0.0, 0.0' AND k = 3 "
-            "ORDER BY distance"
-        ).fetchall()
-        conn.close()
+            rows = conn.execute(
+                "SELECT id, distance FROM nn "
+                "WHERE query = '1.0, 0.0, 0.0, 0.0' AND k = 3 "
+                "ORDER BY distance"
+            ).fetchall()
 
         ids = [row[0] for row in rows]
         dists = [row[1] for row in rows]
