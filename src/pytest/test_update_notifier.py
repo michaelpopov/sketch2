@@ -7,16 +7,13 @@ and that a sequential close/reopen cycle sees updated data.
 
 from __future__ import annotations
 
-import os
-import shutil
 import struct
-import subprocess
-import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 from sketch2_wrapper import Sketch2
+
+from integ_helpers import IntegTestBase, run_subprocess
 
 OWNER_LOCK_FILE = "sketch2.owner.lock"
 COUNTER_FORMAT = "<Q"  # little-endian uint64
@@ -33,14 +30,8 @@ def read_counter(dataset_dir: Path) -> int:
     return struct.unpack(COUNTER_FORMAT, data[:8])[0]
 
 
-class UpdateNotifierTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="sketch2_py_notifier_"))
-        self.dataset_name = "ds"
-        self.dataset_dir = self.root / self.dataset_name
-
-    def tearDown(self) -> None:
-        shutil.rmtree(self.root, ignore_errors=True)
+class UpdateNotifierTest(IntegTestBase):
+    _tmpdir_prefix = "sketch2_py_notifier_"
 
     def test_generate_increments_counter(self) -> None:
         with Sketch2(self.root) as ps:
@@ -53,7 +44,6 @@ class UpdateNotifierTest(unittest.TestCase):
             self.assertEqual(2, read_counter(self.dataset_dir))
 
             ps.close(self.dataset_name)
-            ps.drop(self.dataset_name)
 
     def test_upsert_merge_accumulator_increments_counter(self) -> None:
         with Sketch2(self.root) as ps:
@@ -69,7 +59,6 @@ class UpdateNotifierTest(unittest.TestCase):
             self.assertEqual(2, read_counter(self.dataset_dir))
 
             ps.close(self.dataset_name)
-            ps.drop(self.dataset_name)
 
     def test_merge_delta_increments_counter(self) -> None:
         with Sketch2(self.root) as ps:
@@ -85,7 +74,6 @@ class UpdateNotifierTest(unittest.TestCase):
             self.assertEqual(3, read_counter(self.dataset_dir))
 
             ps.close(self.dataset_name)
-            ps.drop(self.dataset_name)
 
     def test_counter_persists_across_close_reopen(self) -> None:
         with Sketch2(self.root) as ps:
@@ -101,7 +89,6 @@ class UpdateNotifierTest(unittest.TestCase):
             self.assertEqual(2, read_counter(self.dataset_dir))
 
             ps.close(self.dataset_name)
-            ps.drop(self.dataset_name)
 
     def test_sequential_writer_reader_sees_updated_data(self) -> None:
         """Writer and reader alternate access (no concurrent handles)."""
@@ -142,32 +129,12 @@ class UpdateNotifierTest(unittest.TestCase):
             self.assertIn(counter, (-1, 0))
 
             ps.close(self.dataset_name)
-            ps.drop(self.dataset_name)
 
 
-class UpdateNotifierCrossProcessTest(unittest.TestCase):
+class UpdateNotifierCrossProcessTest(IntegTestBase):
     """Tests that the notifier counter is visible across OS processes."""
 
-    def setUp(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="sketch2_py_xproc_"))
-        self.dataset_name = "ds"
-        self.dataset_dir = self.root / self.dataset_name
-
-    def tearDown(self) -> None:
-        shutil.rmtree(self.root, ignore_errors=True)
-
-    def _run_helper(self, script: str) -> subprocess.CompletedProcess:
-        """Run a Python snippet in a child process with the pytest dir on sys.path."""
-        pytest_dir = str(Path(__file__).resolve().parent)
-        env = os.environ.copy()
-        env["PYTHONPATH"] = pytest_dir + os.pathsep + env.get("PYTHONPATH", "")
-        return subprocess.run(
-            [sys.executable, "-c", script],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=30,
-        )
+    _tmpdir_prefix = "sketch2_py_xproc_"
 
     def test_child_process_sees_counter_after_parent_writes(self) -> None:
         # Parent creates dataset and writes data.
@@ -184,8 +151,8 @@ data = Path({str(self.dataset_dir)!r}, {OWNER_LOCK_FILE!r}).read_bytes()
 counter = struct.unpack('<Q', data[:8])[0]
 assert counter == 1, f"expected 1, got {{counter}}"
 """
-        result = self._run_helper(script)
-        self.assertEqual(0, result.returncode, result.stderr)
+        result = run_subprocess(script)
+        self.assert_subprocess_ok(result, "child counter check")
 
     def test_child_process_reads_updated_data_after_parent_writes(self) -> None:
         # Parent: create dataset with initial data.
@@ -205,8 +172,8 @@ with Sketch2({str(self.root)!r}) as ps:
     assert ids == [1, 2], f"expected [1, 2], got {{ids}}"
     ps.close({self.dataset_name!r})
 """
-        result = self._run_helper(script)
-        self.assertEqual(0, result.returncode, result.stderr)
+        result = run_subprocess(script)
+        self.assert_subprocess_ok(result, "child KNN query")
 
         # Parent: add a vector closer to the query.
         with Sketch2(self.root) as ps:
@@ -224,8 +191,8 @@ with Sketch2({str(self.root)!r}) as ps:
     assert ids == [3, 1], f"expected [3, 1], got {{ids}}"
     ps.close({self.dataset_name!r})
 """
-        result2 = self._run_helper(script2)
-        self.assertEqual(0, result2.returncode, result2.stderr)
+        result2 = run_subprocess(script2)
+        self.assert_subprocess_ok(result2, "child KNN query after update")
 
     def test_child_writer_counter_visible_to_parent(self) -> None:
         # Parent creates dataset.
@@ -242,8 +209,8 @@ with Sketch2({str(self.root)!r}) as ps:
     ps.merge_accumulator()
     ps.close({self.dataset_name!r})
 """
-        result = self._run_helper(script)
-        self.assertEqual(0, result.returncode, result.stderr)
+        result = run_subprocess(script)
+        self.assert_subprocess_ok(result, "child writer")
 
         # Parent reads counter — should be 1.
         self.assertEqual(1, read_counter(self.dataset_dir))

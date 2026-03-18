@@ -38,6 +38,8 @@ class Sketch2:
         if not self.handle:
             raise RuntimeError("sk_connect() returned null handle")
 
+        self._open_datasets: list[str] = []
+
     @staticmethod
     def _default_lib_path() -> Path:
         repo_root = Path(__file__).resolve().parents[2]
@@ -132,6 +134,12 @@ class Sketch2:
 
     def close_handle(self) -> None:
         if self.handle:
+            for name in self._open_datasets:
+                try:
+                    self.lib.sk_close(self.handle, name.encode("utf-8"))
+                except Exception:
+                    pass
+            self._open_datasets.clear()
             self.lib.sk_disconnect(self.handle)
             self.handle = None
 
@@ -168,15 +176,21 @@ class Sketch2:
                 dist_func.encode("utf-8"),
             ),
         )
+        self._open_datasets.append(name)
 
     def drop(self, name: str) -> None:
         self._check("sk_drop", self.lib.sk_drop(self.handle, name.encode("utf-8")))
 
     def open(self, name: str) -> None:
         self._check("sk_open", self.lib.sk_open(self.handle, name.encode("utf-8")))
+        self._open_datasets.append(name)
 
     def close(self, name: str) -> None:
         self._check("sk_close", self.lib.sk_close(self.handle, name.encode("utf-8")))
+        try:
+            self._open_datasets.remove(name)
+        except ValueError:
+            pass
 
     def upsert(self, item_id: int, value: str) -> None:
         self._check("sk_upsert", self.lib.sk_upsert(self.handle, c_uint64(item_id), value.encode("utf-8")))
