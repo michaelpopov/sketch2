@@ -1,6 +1,8 @@
 # Source Index
 
+- `README.md`: Overview of the core utilities and architecture detection.
 - `CMakeLists.txt`: Build rules for the shared utilities library and tests.
+- `arch_detection.h`: Centralized architecture detection and SIMD feature flags.
 - `compute_unit.cpp`: Runtime compute-backend detection and environment override helpers.
 - `compute_unit.h`: Process-wide compute backend identifiers and selection API.
 - `dynamic_bitset.cpp`: Growable bitset implementation used by storage readers.

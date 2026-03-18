@@ -1,18 +1,10 @@
 // Provides AVX2 helper utilities shared by the vectorized compute implementations.
 
 #pragma once
+#include "core/utils/arch_detection.h"
 
-#ifndef SKETCH_AVX2_TARGET
-#define SKETCH_AVX2_TARGET
-#endif
-
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+#if SKETCH_HAS_AVX2
 #include <immintrin.h>
-
-#if defined(__GNUC__) || defined(__clang__)
-#undef SKETCH_AVX2_TARGET
-#define SKETCH_AVX2_TARGET __attribute__((target("avx2,f16c,fma")))
-#endif
 
 namespace sketch2 {
 

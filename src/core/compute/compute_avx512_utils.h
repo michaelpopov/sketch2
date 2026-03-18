@@ -1,26 +1,10 @@
 // Provides AVX-512 helper utilities shared by the vectorized compute implementations.
 
 #pragma once
+#include "core/utils/arch_detection.h"
 
-#ifndef SKETCH_AVX512F_TARGET
-#define SKETCH_AVX512F_TARGET
-#endif
-
-#ifndef SKETCH_AVX512VNNI_TARGET
-#define SKETCH_AVX512VNNI_TARGET
-#endif
-
-#if ((defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F) || \
-     (defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI)) && \
-    (defined(__x86_64__) || defined(__i386__))
+#if SKETCH_HAS_AVX512
 #include <immintrin.h>
-
-#if defined(__GNUC__) || defined(__clang__)
-#undef SKETCH_AVX512F_TARGET
-#undef SKETCH_AVX512VNNI_TARGET
-#define SKETCH_AVX512F_TARGET __attribute__((target("avx512f")))
-#define SKETCH_AVX512VNNI_TARGET __attribute__((target("avx512f,avx512bw,avx512vl,avx512vnni")))
-#endif
 
 namespace sketch2 {
 

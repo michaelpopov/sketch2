@@ -17,15 +17,15 @@ using namespace sketch2;
 
 namespace {
 
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+#if SKETCH_HAS_AVX2
 #define SKETCH2_COMPUTE_AVX2_TESTS 1
 #endif
 
-#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+#if SKETCH_HAS_AVX512F
 #define SKETCH2_COMPUTE_AVX512F_TESTS 1
 #endif
 
-#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+#if SKETCH_HAS_AVX512VNNI
 #define SKETCH2_COMPUTE_AVX512VNNI_TESTS 1
 #endif
 

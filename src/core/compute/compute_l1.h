@@ -3,22 +3,20 @@
 #pragma once
 #include "core/compute/compute.h"
 #include "core/utils/singleton.h"
+#include "core/utils/arch_detection.h"
 #include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
 
-#if defined(__x86_64__) || defined(__i386__)
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2
+#if SKETCH_HAS_AVX2
 #include "compute_l1_avx2.h"
 #endif
-#if (defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F) || \
-    (defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI)
+#if SKETCH_HAS_AVX512
 #include "compute_l1_avx512.h"
 #endif
-#endif
 
-#if defined(__aarch64__)
+#if SKETCH_HAS_NEON
 #include "compute_l1_neon.h"
 #endif
 
@@ -54,7 +52,7 @@ inline double ComputeL1::dist(const uint8_t *a, const uint8_t *b, DataType type,
 inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
     validate_type(type);
     switch (get_singleton().compute_unit().kind()) {
-#if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
+#if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:
             switch (type) {
                 case DataType::f32: return &ComputeL1_AVX512_VNNI::dist_f32;
@@ -64,7 +62,7 @@ inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
             }
             break;
 #endif
-#if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
+#if SKETCH_HAS_AVX512F
         case ComputeBackendKind::avx512f:
             switch (type) {
                 case DataType::f32: return &ComputeL1_AVX512::dist_f32;
@@ -74,7 +72,7 @@ inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
             }
             break;
 #endif
-#if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
+#if SKETCH_HAS_AVX2
         case ComputeBackendKind::avx2:
             switch (type) {
                 case DataType::f32: return &ComputeL1_AVX2::dist_f32;
@@ -84,7 +82,7 @@ inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
             }
             break;
 #endif
-#if defined(__aarch64__)
+#if SKETCH_HAS_NEON
         case ComputeBackendKind::neon:
             switch (type) {
                 case DataType::f32: return &ComputeL1_Neon::dist_f32;
