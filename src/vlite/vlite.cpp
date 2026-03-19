@@ -422,9 +422,26 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
 
         const size_t query_size = sketch2::data_type_size(dataset.type()) * dataset.dim();
         vlite_cursor->query_buf.resize(query_size);
-        sketch2::Ret ret = sketch2::parse_vector(vlite_cursor->query_buf.data(),
-            vlite_cursor->query_buf.size(), dataset.type(), query_dim,
-            vlite_cursor->query_text.c_str());
+
+        if (!vlite_cursor->query_text.empty() && vlite_cursor->query_text[0] == '@') {
+            const auto file_path = vlite_cursor->query_text;
+            sketch2::Ret ret = sketch2::load_vector(file_path.c_str()+1, vlite_cursor->query_text);
+            if (ret.code() != 0) {
+                set_vtab_error(vlite_vtab, ret.message());
+                return SQLITE_ERROR;
+            }
+        }
+
+        const char* query = vlite_cursor->query_text.c_str();
+        const char* query_end = query + vlite_cursor->query_text.size();
+        const bool is_coma_delimited = sketch2::check_comma_format(query, query_end);
+        sketch2::Ret ret = is_coma_delimited ?  sketch2::parse_vector(vlite_cursor->query_buf.data(),
+                                                    vlite_cursor->query_buf.size(), dataset.type(), query_dim,
+                                                    vlite_cursor->query_text.c_str())
+                                            : 
+                                                sketch2::parse_vector_spaces(vlite_cursor->query_buf.data(),
+                                                    vlite_cursor->query_buf.size(), dataset.type(), query_dim,
+                                                    vlite_cursor->query_text.c_str());
         if (ret.code() != 0) {
             set_vtab_error(vlite_vtab, ret.message());
             return SQLITE_ERROR;

@@ -154,6 +154,7 @@ Ret InputReader::init_(const std::string& path) {
         }
     } else {
         const char* line = record_begin;
+        bool once = true;
 
         // Parse each vector line: "{id} : [ {data...} ]\n"
         while (line < end) {
@@ -187,6 +188,13 @@ Ret InputReader::init_(const std::string& path) {
             uint64_t offset = static_cast<uint64_t>(bracket + 1 - p);
             uint64_t end_offset = static_cast<uint64_t>(close - p);
             lines_.push_back({id, offset, end_offset});
+
+            if (once && bracket[1] != ']') { // skip checking "delete" vectors
+                once = false;
+                const char* p = reinterpret_cast<const char*>(map_) + offset;
+                const char* vec_end = reinterpret_cast<const char*>(map_) + end_offset;
+                is_comma_delimited_ = check_comma_format(p, vec_end);
+            }
 
             line = next_nl ? next_nl + 1 : end;
         }
@@ -252,7 +260,8 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
     const char* vec_end = reinterpret_cast<const char*>(map_) + lines_[index].end;
 
-    return parse_vector(buf, size, type_, dim_, p, vec_end);
+    return is_comma_delimited_ ? parse_vector(buf, size, type_, dim_, p, vec_end) :
+        parse_vector_spaces(buf, size, type_, dim_, p, vec_end);
 }
 
 Ret InputReader::raw_data(size_t index, const uint8_t** data) const {

@@ -48,6 +48,7 @@ private:
     size_t                dim_     = 0;
     bool                  binary_  = false;
     std::vector<LineInfo> lines_;
+    bool                  is_comma_delimited_ = true;
 
     Ret init_(const std::string &path);
     std::pair<size_t, size_t> find_index_range(uint64_t start, uint64_t end) const;

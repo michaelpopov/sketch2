@@ -147,6 +147,12 @@ protected:
         return rows;
     }
 
+    void write_query_file(const std::string& filename, const std::string& content) {
+        std::ofstream out(root_ / filename);
+        ASSERT_TRUE(out.is_open());
+        out << content;
+    }
+
     void expect_query_error(sqlite3* db, const std::string& sql, const std::string& message_substr) {
         sqlite3_stmt* stmt = nullptr;
         ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr))
@@ -558,6 +564,247 @@ TEST_F(VliteTest, RejectsIdsOutsideSqliteIntegerRange) {
     EXPECT_EQ(SQLITE_ERROR, rc);
     EXPECT_NE(std::string(sqlite3_errmsg(db.get())).find("SQLite INTEGER range"), std::string::npos);
     sqlite3_finalize(stmt);
+}
+
+TEST_F(VliteTest, SpaceDelimitedQueryWorksForF32L2Dataset) {
+    write_input("f32,4\n"
+                "10 : [ 3.0, 0.0, 0.0, 0.0 ]\n"
+                "20 : [ 2.0, 2.0, 0.0, 0.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L2);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '0.0 0.0 0.0 0.0' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(8.0, rows[0].second, 1e-9);
+    EXPECT_NEAR(9.0, rows[1].second, 1e-9);
+}
+
+TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
+    write_input("i16,4\n"
+                "10 : [ 10, 10, 10, 10 ]\n"
+                "20 : [ 11, 11, 11, 11 ]\n");
+    create_dataset(DataType::i16, 4, 100, DistFunc::L1);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '10 10 10 10' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(10u, rows[0].first);
+    EXPECT_EQ(20u, rows[1].first);
+    EXPECT_NEAR(0.0, rows[0].second, 1e-9);
+    EXPECT_NEAR(4.0, rows[1].second, 1e-9);
+}
+
+TEST_F(VliteTest, SpaceDelimitedQueryWorksForF16Dataset) {
+    write_input("f16,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+                "20 : [ 11.0, 11.0, 11.0, 11.0 ]\n");
+    create_dataset(DataType::f16, 4, 100, DistFunc::L1);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '10.0 10.0 10.0 10.0' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(10u, rows[0].first);
+    EXPECT_EQ(20u, rows[1].first);
+    EXPECT_NEAR(0.0, rows[0].second, 1e-6);
+    EXPECT_NEAR(4.0, rows[1].second, 1e-6);
+}
+
+TEST_F(VliteTest, SpaceDelimitedQueryWorksWithMatchOperator) {
+    write_input("f32,4\n"
+                "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+                "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+                "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::COS);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query MATCH '1.0 0.0 0.0 0.0' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(10u, rows[0].first);
+    EXPECT_EQ(20u, rows[1].first);
+}
+
+TEST_F(VliteTest, AtPrefixLoadsVectorFromCommaDelimitedFile) {
+    write_input("f32,4\n"
+                "10 : [ 3.0, 0.0, 0.0, 0.0 ]\n"
+                "20 : [ 2.0, 2.0, 0.0, 0.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L2);
+    write_query_file("query.txt", "0.0, 0.0, 0.0, 0.0\n");
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string query_path = "@" + (root_ / "query.txt").string();
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '" + query_path + "' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(8.0, rows[0].second, 1e-9);
+    EXPECT_NEAR(9.0, rows[1].second, 1e-9);
+}
+
+TEST_F(VliteTest, AtPrefixLoadsVectorFromSpaceDelimitedFile) {
+    write_input("f32,4\n"
+                "10 : [ 3.0, 0.0, 0.0, 0.0 ]\n"
+                "20 : [ 2.0, 2.0, 0.0, 0.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L2);
+    write_query_file("query.txt", "0.0 0.0 0.0 0.0\n");
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string query_path = "@" + (root_ / "query.txt").string();
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '" + query_path + "' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(8.0, rows[0].second, 1e-9);
+    EXPECT_NEAR(9.0, rows[1].second, 1e-9);
+}
+
+TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
+    write_input("i16,4\n"
+                "10 : [ 10, 10, 10, 10 ]\n"
+                "20 : [ 11, 11, 11, 11 ]\n");
+    create_dataset(DataType::i16, 4, 100, DistFunc::L1);
+    write_query_file("query.txt", "10, 10, 10, 10\n");
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string query_path = "@" + (root_ / "query.txt").string();
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '" + query_path + "' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(10u, rows[0].first);
+    EXPECT_EQ(20u, rows[1].first);
+    EXPECT_NEAR(0.0, rows[0].second, 1e-9);
+    EXPECT_NEAR(4.0, rows[1].second, 1e-9);
+}
+
+TEST_F(VliteTest, AtPrefixWorksWithF16Dataset) {
+    write_input("f16,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+                "20 : [ 11.0, 11.0, 11.0, 11.0 ]\n");
+    create_dataset(DataType::f16, 4, 100, DistFunc::L1);
+    write_query_file("query.txt", "10.0, 10.0, 10.0, 10.0\n");
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string query_path = "@" + (root_ / "query.txt").string();
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '" + query_path + "' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(10u, rows[0].first);
+    EXPECT_EQ(20u, rows[1].first);
+    EXPECT_NEAR(0.0, rows[0].second, 1e-6);
+    EXPECT_NEAR(4.0, rows[1].second, 1e-6);
+}
+
+TEST_F(VliteTest, AtPrefixWorksWithMatchOperator) {
+    write_input("f32,4\n"
+                "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+                "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+                "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::COS);
+    write_query_file("query.txt", "1.0, 0.0, 0.0, 0.0\n");
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string query_path = "@" + (root_ / "query.txt").string();
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query MATCH '" + query_path + "' AND k = 2 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(2u, rows.size());
+    EXPECT_EQ(10u, rows[0].first);
+    EXPECT_EQ(20u, rows[1].first);
+}
+
+TEST_F(VliteTest, AtPrefixNonExistentFileReturnsError) {
+    write_input("f32,4\n"
+                "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string query_path = "@" + (root_ / "no_such_file.txt").string();
+    expect_query_error(db.get(),
+        "SELECT id FROM nn WHERE query = '" + query_path + "' AND k = 1",
+        "failed to open file");
+}
+
+TEST_F(VliteTest, AtPrefixWrongDimensionFileReturnsError) {
+    write_input("f32,4\n"
+                "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    write_query_file("query.txt", "1.0, 1.0, 1.0\n");
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string query_path = "@" + (root_ / "query.txt").string();
+    expect_query_error(db.get(),
+        "SELECT id FROM nn WHERE query = '" + query_path + "' AND k = 1",
+        "truncated vector payload");
+}
+
+TEST_F(VliteTest, AtPrefixMalformedVectorFileReturnsError) {
+    write_input("f32,4\n"
+                "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    write_query_file("query.txt", "1.0, nope, 1.0, 1.0\n");
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string query_path = "@" + (root_ / "query.txt").string();
+    expect_query_error(db.get(),
+        "SELECT id FROM nn WHERE query = '" + query_path + "' AND k = 1",
+        "invalid f32 token");
 }
 
 } // namespace
