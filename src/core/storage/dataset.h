@@ -4,10 +4,12 @@
 #include "accumulator.h"
 #include "core/compute/compute.h"
 #include "core/utils/file_lock.h"
+#include "core/utils/rw_lock.h"
 #include "core/utils/update_notifier.h"
 #include "utils/shared_consts.h"
 #include "utils/shared_types.h"
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -116,8 +118,17 @@ public:
 private:
     DatasetMetadata metadata_;
     DatasetMode mode_ = DatasetMode::Owner;
+    // Serializes owner-mode mutations (store, merge, add/delete_vector) so that
+    // concurrent calls from different threads do not corrupt shared state.
+    // Lock ordering: write_mutex_ is always acquired before cache_lock_.
+    std::mutex write_mutex_;
     mutable std::unique_ptr<FileLockGuard> owner_lock_;
     mutable std::unique_ptr<Accumulator> accumulator_;
+    // Protects items_cache_, reader_cache_, items_cache_valid_, and
+    // update_notifier_ for concurrent guest-mode readers.  Write lock is held
+    // briefly for cache refresh (ensure_items_cache_); read lock is sufficient
+    // for reader_cache_ lookups on cache hit.
+    mutable sketch::RWLock cache_lock_;
     mutable bool items_cache_valid_ = false;
     mutable std::vector<DatasetItem> items_cache_;
     mutable std::unordered_map<uint64_t, DataReaderPtr> reader_cache_;

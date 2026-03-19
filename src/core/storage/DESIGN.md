@@ -314,3 +314,15 @@ In Dataset functions store(), store_accumulator() and merge()
 In Dataset function reader()
   - if UpdateNotifier is not initialized, initialize it as checker
   - Call UpdateNotifier::check_updated() and flush the cache if needed.
+
+Multiprocess/Multithreaded Support
+---------------------------------------------
+The intention is to have the system running in two different processes:
+  - Writer periodically loads new batches of data into datasets
+  - Reader running multiple concurrent queries.
+
+There is an UpdateNotifer that allows Reader to learn about data updates by Writer and adjust Reader's caches.
+Writer is not supposed to be multithreaded but let's have "paranoid" protection that ensures it doesn't crash or corrupt
+data even if somebody initiates write operations from multiple threads on the same dataset.
+Reader is supposed to be multithreaded: multiple queries on the same dataset can run concurrently. It requires careful
+protection of mutable data used in queries.

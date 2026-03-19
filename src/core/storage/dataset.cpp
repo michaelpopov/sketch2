@@ -261,6 +261,7 @@ Ret Dataset::set_guest_mode() {
 
 Ret Dataset::store(const std::string& input_path) {
     try {
+        std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = store_(input_path);
@@ -275,6 +276,7 @@ Ret Dataset::store(const std::string& input_path) {
 
 Ret Dataset::store_accumulator() {
     try {
+        std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = store_accumulator_();
@@ -289,6 +291,7 @@ Ret Dataset::store_accumulator() {
 
 Ret Dataset::merge() {
     try {
+        std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = merge_();
@@ -302,6 +305,7 @@ Ret Dataset::merge() {
 }
 
 Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
+    std::lock_guard<std::mutex> lg(write_mutex_);
     CHECK(require_owner_());
     CHECK(ensure_owner_lock_());
     if (!data) {
@@ -315,6 +319,7 @@ Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
 }
 
 Ret Dataset::delete_vector(uint64_t id) {
+    std::lock_guard<std::mutex> lg(write_mutex_);
     CHECK(require_owner_());
     CHECK(ensure_owner_lock_());
     CHECK(init_accumulator_());
@@ -813,11 +818,16 @@ Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader&
 
 DatasetReaderPtr Dataset::reader() const {
     DatasetReaderPtr result = std::make_unique<DatasetReader>();
-    const Ret cache_ret = ensure_items_cache_();
-    if (cache_ret.code() != 0) {
-        throw std::runtime_error(cache_ret.message());
+    std::vector<DatasetItem> items_copy;
+    {
+        sketch::WriteGuard wg(cache_lock_);
+        const Ret cache_ret = ensure_items_cache_();
+        if (cache_ret.code() != 0) {
+            throw std::runtime_error(cache_ret.message());
+        }
+        items_copy = items_cache_;
     }
-    const auto ret = result->init(this, items_cache_);
+    const auto ret = result->init(this, std::move(items_copy));
     if (ret.code() != 0) {
         throw std::runtime_error(ret.message());
     }
@@ -825,15 +835,20 @@ DatasetReaderPtr Dataset::reader() const {
 }
 
 std::pair<DataReaderPtr, Ret> Dataset::get(uint64_t id) const {
-    const Ret ret = ensure_items_cache_();
-    if (ret.code() != 0) {
-        return {nullptr, ret};
+    DatasetItem item;
+    {
+        sketch::WriteGuard wg(cache_lock_);
+        const Ret ret = ensure_items_cache_();
+        if (ret.code() != 0) {
+            return {nullptr, ret};
+        }
+        const DatasetItem* found = find_item_(id / metadata_.range_size);
+        if (!found) {
+            return {nullptr, Ret(0)};
+        }
+        item = *found;
     }
-    const DatasetItem* item = find_item_(id / metadata_.range_size);
-    if (!item) {
-        return {nullptr, Ret(0)};
-    }
-    return get_cached_reader_(*item);
+    return get_cached_reader_(item);
 }
 
 Ret Dataset::prepare_read_state() const {
@@ -982,12 +997,21 @@ const DatasetItem* Dataset::find_item_(uint64_t file_id) const {
 
 // Lazily opens and caches the DataReader for a dataset file pair, attaching the
 // delta reader when present and verifying cosine metadata for cosine datasets.
+//
+// Thread-safe: read lock for cache hit (common path); on miss the reader is
+// opened outside any lock, then inserted under write lock.  If two threads
+// race on the same item, the first insertion wins and the duplicate is dropped.
 std::pair<DataReaderPtr, Ret> Dataset::get_cached_reader_(const DatasetItem& item) const {
-    const auto cache_it = reader_cache_.find(item.id);
-    if (cache_it != reader_cache_.end()) {
-        return {cache_it->second, Ret(0)};
+    {
+        sketch::ReadGuard rg(cache_lock_);
+        const auto cache_it = reader_cache_.find(item.id);
+        if (cache_it != reader_cache_.end()) {
+            return {cache_it->second, Ret(0)};
+        }
     }
 
+    // Cache miss — open the reader outside any lock so concurrent cache hits
+    // are not blocked by file I/O.
     DataReaderPtr reader = std::make_shared<DataReader>();
     Ret ret(0);
 
@@ -1011,11 +1035,13 @@ std::pair<DataReaderPtr, Ret> Dataset::get_cached_reader_(const DatasetItem& ite
             item.data_file_path)};
     }
 
-    reader_cache_[item.id] = reader;
-    return {reader, Ret(0)};
+    sketch::WriteGuard wg(cache_lock_);
+    auto [it, inserted] = reader_cache_.emplace(item.id, reader);
+    return {it->second, Ret(0)};
 }
 
 void Dataset::invalidate_data_caches_() {
+    sketch::WriteGuard wg(cache_lock_);
     items_cache_valid_ = false;
     items_cache_.clear();
     reader_cache_.clear();
