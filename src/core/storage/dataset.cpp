@@ -265,9 +265,10 @@ Ret Dataset::store(const std::string& input_path) {
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = store_(input_path);
-        if (ret.code() == 0) {
-            notify_update_("Dataset::store");
-        }
+        // Always notify: per-range work may have partially succeeded before an
+        // error, so on-disk files can already be mutated.  Skipping the
+        // notification would leave guest-mode readers in other processes stale.
+        notify_update_("Dataset::store");
         return ret;
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -280,9 +281,10 @@ Ret Dataset::store_accumulator() {
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = store_accumulator_();
-        if (ret.code() == 0) {
-            notify_update_("Dataset::store_accumulator");
-        }
+        // Always notify: per-range work may have partially succeeded before an
+        // error, so on-disk files can already be mutated.  Skipping the
+        // notification would leave guest-mode readers in other processes stale.
+        notify_update_("Dataset::store_accumulator");
         return ret;
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -295,9 +297,10 @@ Ret Dataset::merge() {
         CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = merge_();
-        if (ret.code() == 0) {
-            notify_update_("Dataset::merge");
-        }
+        // Always notify: per-range work may have partially succeeded before an
+        // error, so on-disk files can already be mutated.  Skipping the
+        // notification would leave guest-mode readers in other processes stale.
+        notify_update_("Dataset::merge");
         return ret;
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -842,10 +845,6 @@ std::pair<DataReaderPtr, Ret> Dataset::get(uint64_t id) const {
         item = *found;
     }
     return get_cached_reader_(item);
-}
-
-Ret Dataset::prepare_read_state() const {
-    return Ret(0);
 }
 
 // Reads a single vector by id.  Checks the accumulator first so that

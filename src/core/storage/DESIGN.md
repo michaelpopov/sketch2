@@ -326,3 +326,7 @@ Writer is not supposed to be multithreaded but let's have "paranoid" protection 
 data even if somebody initiates write operations from multiple threads on the same dataset.
 Reader is supposed to be multithreaded: multiple queries on the same dataset can run concurrently. It requires careful
 protection of mutable data used in queries.
+
+In this system it is ok to see slightly stale data. If query completes on data version that existed 10 millisecond ago, it's fine. 
+The crucial point of multithreading/multiprocess support is preventing system crashes. If the system completes query successfully
+without seeing data that was added after the query started, it is a correct behavior.

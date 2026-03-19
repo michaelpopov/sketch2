@@ -92,8 +92,6 @@ public:
 
     DatasetReaderPtr reader() const;
     std::pair<DataReaderPtr, Ret> get(uint64_t id) const;
-    // In owner mode, loads pending accumulator/WAL state so reads see unflushed updates.
-    Ret prepare_read_state() const;
     std::pair<const uint8_t*, Ret> get_vector(uint64_t id) const;
     std::vector<uint64_t> accumulator_modified_ids() const;
 
