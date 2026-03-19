@@ -22,10 +22,6 @@ class DatasetRangeReader;
 using DataReaderPtr = std::shared_ptr<DataReader>;
 using DatasetRangeReaderPtr = std::unique_ptr<DatasetRangeReader>;
 
-enum class DatasetMode {
-    Owner,
-    Guest,
-};
 
 struct DatasetMetadata {
     std::vector<std::string> dirs;
@@ -68,7 +64,7 @@ public:
     };
 
     Dataset() = default;
-    ~Dataset();
+    virtual ~Dataset();
 
     Ret init(const DatasetMetadata& metadata);
 
@@ -82,7 +78,6 @@ public:
 
     // Initialize with values from ini file.
     Ret init(const std::string& path);
-    Ret set_guest_mode();
 
     // Read input_path with InputReader, split by id range, and write one
     // data file per range using DataWriter.
@@ -113,9 +108,11 @@ public:
     size_t accumulator_vectors_count() const { return accumulator_ ? accumulator_->vectors_count() : 0; }
     size_t accumulator_deleted_count() const { return accumulator_ ? accumulator_->deleted_count() : 0; }
 
-private:
+protected:
     DatasetMetadata metadata_;
-    DatasetMode mode_ = DatasetMode::Owner;
+    Ret init_writer_();
+
+private:
     // Serializes owner-mode mutations (store, merge, add/delete_vector) so that
     // concurrent calls from different threads do not corrupt shared state.
     // Lock ordering: write_mutex_ is always acquired before cache_lock_.
@@ -149,7 +146,6 @@ private:
         const std::string& output_path_base, const std::string& ext) const;
     Ret  merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader,
         const std::string& output_path_base) const;
-    Ret require_owner_() const;
     Ret ensure_owner_lock_();
     Ret ensure_update_notifier_() const;
     Ret ensure_items_cache_() const;
@@ -158,9 +154,11 @@ private:
     std::pair<DataReaderPtr, Ret> get_cached_reader_(const DatasetItem& item) const;
     void invalidate_data_caches_();
     void notify_update_(const char* caller);
-    std::string item_path_base(uint64_t file_id) const;
 
     friend class DatasetRangeReader;
+
+protected:
+    std::string item_path_base(uint64_t file_id) const;
 };
 
 // DatasetRangeReader exists to iterate through the set of data-file ranges that

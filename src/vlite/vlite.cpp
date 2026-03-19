@@ -4,7 +4,7 @@
 
 #include "core/compute/compute_cos.h"
 #include "core/compute/scanner.h"
-#include "core/storage/dataset.h"
+#include "core/storage/dataset_reader.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
@@ -161,7 +161,7 @@ sqlite3_int64 saturating_add(sqlite3_int64 lhs, sqlite3_int64 rhs) {
 // needed by the extension. It stores the dataset path and the opened Dataset instance.
 struct VliteVTab : sqlite3_vtab {
     std::string dataset_path;
-    std::unique_ptr<sketch2::Dataset> dataset;
+    std::unique_ptr<sketch2::DatasetReader> dataset;
 };
 
 // VliteCursor exists to hold one materialized query result set for SQLite. It
@@ -206,16 +206,10 @@ int vlite_connect_common(sqlite3* db, int argc, const char* const* argv,
             return SQLITE_ERROR;
         }
 
-        vtab->dataset = std::make_unique<sketch2::Dataset>();
+        vtab->dataset = std::make_unique<sketch2::DatasetReader>();
         const sketch2::Ret ret = vtab->dataset->init(vtab->dataset_path);
         if (ret.code() != 0) {
             set_err_msg(err_msg, ret.message());
-            delete vtab;
-            return SQLITE_ERROR;
-        }
-        const sketch2::Ret guest_ret = vtab->dataset->set_guest_mode();
-        if (guest_ret.code() != 0) {
-            set_err_msg(err_msg, guest_ret.message());
             delete vtab;
             return SQLITE_ERROR;
         }
@@ -416,7 +410,7 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             set_vtab_error(vlite_vtab, "vlite dataset is not initialized");
             return SQLITE_ERROR;
         }
-        sketch2::Dataset& dataset = *vlite_vtab->dataset;
+        sketch2::DatasetReader& dataset = *vlite_vtab->dataset;
         assert(dataset.dim() >= sketch2::kMinDimension && dataset.dim() <= sketch2::kMaxDimension);
         const uint16_t query_dim = static_cast<uint16_t>(dataset.dim());
 

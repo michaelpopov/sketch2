@@ -10,7 +10,7 @@
 namespace sketch2 {
 
 class DataReader;
-class Dataset;
+class DatasetReader;
 
 // Scanner exists to turn raw distance kernels into high-level top-k search over
 // readers and datasets. It handles heap-based ranking, dispatches to the right
@@ -24,7 +24,7 @@ public:
         std::vector<uint64_t>& result) const;
 
     // Uses the distance function configured in dataset metadata.
-    Ret find(const Dataset& dataset, size_t count, const uint8_t* vec,
+    Ret find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
 
     // Returns up to count nearest items ordered by (distance, id).
@@ -32,17 +32,17 @@ public:
         std::vector<DistItem>& result) const;
 
     // Uses the distance function configured in dataset metadata.
-    Ret find_items(const Dataset& dataset, size_t count, const uint8_t* vec,
+    Ret find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) const;
 
 private:
     Ret find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
-    Ret find_(const Dataset& dataset, size_t count, const uint8_t* vec,
+    Ret find_(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
     Ret find_items_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) const;
-    Ret find_items_(const Dataset& dataset, size_t count, const uint8_t* vec,
+    Ret find_items_(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) const;
 };
 

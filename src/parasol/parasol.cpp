@@ -4,7 +4,8 @@
 
 #include "core/compute/scanner.h"
 #include "core/storage/data_reader.h"
-#include "core/storage/dataset.h"
+#include "core/storage/dataset_reader.h"
+#include "core/storage/dataset_writer.h"
 #include "core/utils/file_lock.h"
 #include "core/utils/ini_reader.h"
 #include "core/storage/input_generator.h"
@@ -36,7 +37,8 @@ struct sk_handle {
         delete ds;
     }
 
-    Dataset* ds = nullptr;
+    DatasetWriter* ds = nullptr;
+    DatasetReader* ds_reader = nullptr;
     std::string db_root;
     std::string dataset_name;
     std::string dataset_dir;
@@ -116,6 +118,7 @@ void clear_cached_results(sk_handle_t* handle) {
 void close_dataset(sk_handle_t* handle) {
     delete handle->ds;
     handle->ds = nullptr;
+    handle->ds_reader = nullptr;
     handle->dataset_name.clear();
     handle->dataset_dir.clear();
     handle->dataset_ini.clear();
@@ -479,13 +482,14 @@ static int sk_open_(sk_handle_t* handle, const char* name) {
         ERR("Dataset lock file is not present")
     }
 
-    auto ds = std::make_unique<Dataset>();
+    auto ds = std::make_unique<DatasetWriter>();
     Ret ret = ds->init(ini_path.string());
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
 
     handle->ds = ds.release();
+    handle->ds_reader = handle->ds;
     handle->dataset_name = name;
     handle->dataset_dir = dataset_dir_path(handle, name).string();
     handle->dataset_ini = ini_path.string();
@@ -636,7 +640,7 @@ static int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k) {
 
     std::vector<uint64_t> result;
     Scanner scanner;
-    ret = scanner.find(*handle->ds, k, buf.data(), result);
+    ret = scanner.find(*handle->ds_reader, k, buf.data(), result);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
@@ -799,7 +803,7 @@ static int sk_gid_(sk_handle_t* handle, const char* vec) {
         ERR(ret.message().c_str())
     }
 
-    for (auto it = handle->ds->accumulator_begin(); !it.eof(); it.next()) {
+    for (auto it = handle->ds_reader->accumulator_begin(); !it.eof(); it.next()) {
         if (std::memcmp(it.data(), target.data(), target.size()) == 0) {
             handle->has_id_result = true;
             handle->id_result = it.id();
@@ -807,7 +811,7 @@ static int sk_gid_(sk_handle_t* handle, const char* vec) {
         }
     }
 
-    auto reader = handle->ds->reader();
+    auto reader = handle->ds_reader->reader();
     for (;;) {
         auto [part, next_ret] = reader->next();
         if (next_ret.code() != 0) {
@@ -867,7 +871,7 @@ static int sk_print_(sk_handle_t* handle) {
         ERR("No dataset is open")
     }
 
-    auto reader = handle->ds->reader();
+    auto reader = handle->ds_reader->reader();
     for (;;) {
         auto [part, ret] = reader->next();
         if (ret.code() != 0) {

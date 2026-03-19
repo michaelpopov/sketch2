@@ -16,7 +16,7 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
-#include "core/storage/dataset.h"
+#include "core/storage/dataset_writer.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -428,7 +428,7 @@ TEST_F(ScannerTest, FindDatasetWorks) {
         fs::remove_all(d1);
     });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4).code());
 
     // Generate 30 items: 0..29.
@@ -452,7 +452,7 @@ TEST_F(ScannerTest, FindDatasetItemsReturnsIdsAndDistancesInOrder) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
     ASSERT_EQ(0, ds.store(input_path_).code());
@@ -480,7 +480,7 @@ TEST_F(ScannerTest, FindDatasetL2Works) {
         fs::remove_all(d1);
     });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::L2).code());
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
     ASSERT_EQ(0, ds.store(input_path_).code());
@@ -501,7 +501,7 @@ TEST_F(ScannerTest, FindDatasetCosWorks) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
     write_input_raw(
         input_path_,
@@ -527,7 +527,7 @@ TEST_F(ScannerTest, FindDatasetCosStoredDeltaHandlesZeroVectors) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
     write_input_raw(
         input_path_,
@@ -569,7 +569,7 @@ TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
     ASSERT_EQ(0, writer.init(input_path_, d + "/0.data").code());
     ASSERT_EQ(0, writer.exec().code());
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
 
     Scanner s;
@@ -586,7 +586,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000});
     ASSERT_EQ(0, ds.store(input_path_).code());
@@ -601,7 +601,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000});
     ASSERT_EQ(0, ds.store(input_path_).code());
@@ -617,7 +617,7 @@ TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
 
     // ids 0..4; values i+0.1 for each dimension
@@ -650,7 +650,7 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
 
     // ids 0..4; values i+0.1 for each dimension
@@ -682,7 +682,7 @@ TEST_F(ScannerTest, FindDatasetDeleteFlushedFromAccumulatorStaysHidden) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
@@ -708,7 +708,7 @@ TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
 
     write_input_raw(input_path_,
@@ -732,7 +732,7 @@ TEST_F(ScannerTest, FindDatasetSkipsPersistedDeltaVersionWhenAccumulatorUpdatesS
     fs::create_directories(d);
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
 
     write_input_raw(input_path_,
@@ -812,7 +812,7 @@ TEST_F(ScannerConcurrentTest, L1TopKSpansMultipleReaders) {
     auto d0 = dir("l1_0"), d1 = dir("l1_1");
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
 
-    Dataset ds;
+    DatasetWriter ds;
     make_multi_reader_dataset(d0, d1, ds);
     Scanner s;
     auto q = f32_vec(9.5f, 4); // equidistant from id=9 and id=10
@@ -830,7 +830,7 @@ TEST_F(ScannerConcurrentTest, L2TopKSpansMultipleReaders) {
     auto d0 = dir("l2_0"), d1 = dir("l2_1");
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
 
-    Dataset ds;
+    DatasetWriter ds;
     make_multi_reader_dataset(d0, d1, ds, DataType::f32, DistFunc::L2);
     Scanner s;
     auto q = f32_vec(9.5f, 4);
@@ -847,7 +847,7 @@ TEST_F(ScannerConcurrentTest, FindItemsSpansMultipleReaders) {
     auto d0 = dir("items_0"), d1 = dir("items_1");
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
 
-    Dataset ds;
+    DatasetWriter ds;
     make_multi_reader_dataset(d0, d1, ds);
     Scanner s;
     auto q = f32_vec(15.2f, 4);
@@ -870,7 +870,7 @@ TEST_F(ScannerConcurrentTest, SingleReaderWithPoolFallsBackToSequential) {
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
     // range_size=1000 keeps all 5 vectors in a single file.
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d}, 1000, DataType::f32, 4).code());
     generate_input_file(input_path_,
         GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
@@ -895,7 +895,7 @@ TEST_F(ScannerConcurrentTest, CosineTopKSpansMultipleReaders) {
 
     fs::create_directories(d0);
     fs::create_directories(d1);
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4,
         kAccumulatorBufferSize, DistFunc::COS).code());
 

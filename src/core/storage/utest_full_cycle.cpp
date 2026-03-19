@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <vector>
 #include "core/storage/input_generator.h"
-#include "core/storage/dataset.h"
+#include "core/storage/dataset_writer.h"
 #include "core/storage/data_reader.h"
 #include "utest_tmp_dir.h"
 
@@ -64,7 +64,7 @@ protected:
 
 TEST_F(DatasetFullCycleTest, SequentialSingleRangeRoundTripThroughDatasetRangeReader) {
     const std::string dir = make_dir("d");
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({dir}, 100, DataType::f32, 4).code());
 
     write_generated(seq_cfg(10, 100, DataType::f32, 4));
@@ -91,7 +91,7 @@ TEST_F(DatasetFullCycleTest, SequentialSingleRangeRoundTripThroughDatasetRangeRe
 TEST_F(DatasetFullCycleTest, MultiDirMultiRangeReaderOrderAndCoverage) {
     const std::string d0 = make_dir("d0");
     const std::string d1 = make_dir("d1");
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({d0, d1}, 10, DataType::f32, 4).code());
 
     write_generated(seq_cfg(30, 0, DataType::f32, 4));
@@ -121,7 +121,7 @@ TEST_F(DatasetFullCycleTest, MultiDirMultiRangeReaderOrderAndCoverage) {
 
 TEST_F(DatasetFullCycleTest, OverrideAndDeleteAreAppliedByDatasetRangeReaderWithDelta) {
     const std::string dir = make_dir("d");
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({dir}, 100, DataType::f32, 4).code());
 
     // Base data in 0.data: ids 0..19 with values id+0.1
@@ -168,7 +168,7 @@ TEST_F(DatasetFullCycleTest, OverrideAndDeleteAreAppliedByDatasetRangeReaderWith
 
 TEST_F(DatasetFullCycleTest, DeltaMergeBackToDataKeepsReaderConsistent) {
     const std::string dir = make_dir("d");
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({dir}, 100, DataType::f32, 4).code());
 
     write_generated(seq_cfg(10, 0, DataType::f32, 4));
@@ -193,7 +193,7 @@ TEST_F(DatasetFullCycleTest, DeltaMergeBackToDataKeepsReaderConsistent) {
 
 TEST_F(DatasetFullCycleTest, ReaderAppliesDeltaOnlyToTouchedRange) {
     const std::string dir = make_dir("d");
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({dir}, 10, DataType::f32, 4).code());
 
     write_generated(seq_cfg(20, 0, DataType::f32, 4)); // 0.data and 1.data
@@ -225,7 +225,7 @@ TEST_F(DatasetFullCycleTest, ReaderAppliesDeltaOnlyToTouchedRange) {
 
 TEST_F(DatasetFullCycleTest, FullCycleI16WithOverrideAndDelete) {
     const std::string dir = make_dir("d");
-    Dataset ds;
+    DatasetWriter ds;
     ASSERT_EQ(0, ds.init({dir}, 100, DataType::i16, 4).code());
 
     write_generated(seq_cfg(12, 0, DataType::i16, 4));

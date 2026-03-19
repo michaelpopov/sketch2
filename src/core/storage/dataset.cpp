@@ -161,7 +161,7 @@ std::string dataset_accumulator_wal_path(const DatasetMetadata& metadata) {
 } // namespace
 
 Dataset::~Dataset() {
-    if (!accumulator_ || mode_ != DatasetMode::Owner) {
+    if (!accumulator_ || !owner_lock_) {
         return;
     }
     if (accumulator_->vectors_count() == 0 && accumulator_->deleted_count() == 0) {
@@ -246,23 +246,10 @@ Ret Dataset::init_(const std::string& path) {
     return init(metadata);
 }
 
-Ret Dataset::set_guest_mode() {
-    if (accumulator_ &&
-            (accumulator_->vectors_count() != 0 || accumulator_->deleted_count() != 0)) {
-        return Ret("Dataset: cannot switch to guest mode with non-empty accumulator");
-    }
-
-    accumulator_.reset();
-    owner_lock_.reset();
-    update_notifier_.reset();
-    mode_ = DatasetMode::Guest;
-    return Ret(0);
-}
 
 Ret Dataset::store(const std::string& input_path) {
     try {
         std::lock_guard<std::mutex> lg(write_mutex_);
-        CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = store_(input_path);
         // Always notify: per-range work may have partially succeeded before an
@@ -278,7 +265,6 @@ Ret Dataset::store(const std::string& input_path) {
 Ret Dataset::store_accumulator() {
     try {
         std::lock_guard<std::mutex> lg(write_mutex_);
-        CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = store_accumulator_();
         // Always notify: per-range work may have partially succeeded before an
@@ -294,7 +280,6 @@ Ret Dataset::store_accumulator() {
 Ret Dataset::merge() {
     try {
         std::lock_guard<std::mutex> lg(write_mutex_);
-        CHECK(require_owner_());
         CHECK(ensure_owner_lock_());
         const Ret ret = merge_();
         // Always notify: per-range work may have partially succeeded before an
@@ -309,7 +294,6 @@ Ret Dataset::merge() {
 
 Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
     std::lock_guard<std::mutex> lg(write_mutex_);
-    CHECK(require_owner_());
     CHECK(ensure_owner_lock_());
     if (!data) {
         return Ret("Dataset: invalid data argument");
@@ -323,7 +307,6 @@ Ret Dataset::add_vector(uint64_t id, const uint8_t* data) {
 
 Ret Dataset::delete_vector(uint64_t id) {
     std::lock_guard<std::mutex> lg(write_mutex_);
-    CHECK(require_owner_());
     CHECK(ensure_owner_lock_());
     CHECK(init_accumulator_());
     if (!accumulator_->can_delete_vector(id)) {
@@ -760,16 +743,35 @@ bool Dataset::check_data_delta_merge(const DataReader& data_reader, const DataRe
     return (data_reader.count() < delta_count * metadata_.data_merge_ratio);
 }
 
-Ret Dataset::require_owner_() const {
-    if (mode_ == DatasetMode::Guest) {
-        return Ret("Dataset: guest mode is read-only");
-    }
+
+Ret Dataset::init_writer_() {
+    // Replay WAL only if no other process currently owns this dataset.
+    // Use a temporary lock that is released immediately after replay so that
+    // the owner_lock_ slot stays empty and is acquired lazily by the first
+    // write operation.  This avoids inheriting a held fd across fork() and
+    // blocking concurrent openers that will never write.
+    const std::string lock_path = dataset_owner_lock_path(metadata_);
+    {
+        FileLockGuard temp_lock;
+        if (!temp_lock.try_lock(lock_path)) {
+            return Ret(0);
+        }
+        CHECK(init_accumulator_());
+    }  // temp_lock released here
     return Ret(0);
 }
 
 Ret Dataset::ensure_owner_lock_() {
     if (owner_lock_ || metadata_.dirs.empty()) {
         return Ret(0);
+    }
+
+    // If the update notifier was already initialized as a checker (e.g. a read
+    // operation ran before the first write), reset it so it is re-initialized
+    // as an updater when notify_update_ is called.
+    {
+        sketch::WriteGuard wg(cache_lock_);
+        update_notifier_.reset();
     }
 
     owner_lock_ = std::make_unique<FileLockGuard>();
@@ -927,7 +929,7 @@ Ret Dataset::ensure_update_notifier_() const {
 
     update_notifier_ = std::make_unique<UpdateNotifier>();
     const std::string path = dataset_owner_lock_path(metadata_);
-    if (mode_ == DatasetMode::Owner) {
+    if (owner_lock_) {
         return update_notifier_->init_updater(path);
     }
     return update_notifier_->init_checker(path);

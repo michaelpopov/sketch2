@@ -5,7 +5,7 @@
 #include "core/compute/compute_l1.h"
 #include "core/compute/compute_l2.h"
 #include "core/storage/data_reader.h"
-#include "core/storage/dataset.h"
+#include "core/storage/dataset_reader.h"
 #include "core/utils/log.h"
 #include "core/utils/thread_pool.h"
 #include <algorithm>
@@ -187,7 +187,7 @@ void scan_data_reader_scored(const DataReader& reader, const std::vector<uint64_
 // The accumulator scan runs on the calling thread concurrently. Private heaps
 // are merged into the shared heap once all futures complete.
 template <typename ReaderScanFn, typename AccumScoreFn>
-Ret scan_dataset_heap_custom(const Dataset& dataset, size_t count, DistHeap* heap,
+Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHeap* heap,
         const ReaderScanFn& scan_reader, const AccumScoreFn& accum_score,
         [[maybe_unused]] bool require_accumulator_cosine_inv_norms = false) {
     assert(!require_accumulator_cosine_inv_norms ||
@@ -261,7 +261,7 @@ Ret scan_reader_heap_custom(const DataReader& reader, size_t count, DistHeap* he
 // builder, keeping accumulator shadowing and top-k behavior identical across
 // metrics and output shapes.
 template <typename ScoreFn>
-Ret build_dataset_heap_with_score(const Dataset& dataset, size_t count, const ScoreFn& score,
+Ret build_dataset_heap_with_score(const DatasetReader& dataset, size_t count, const ScoreFn& score,
         DistHeap* heap) {
     return scan_dataset_heap_custom(
         dataset, count, heap,
@@ -275,7 +275,7 @@ Ret build_dataset_heap_with_score(const Dataset& dataset, size_t count, const Sc
 // Cosine dataset scans choose per reader whether to use stored inverse norms or
 // the full query-norm path, but otherwise reuse the same heap-building logic.
 template <typename InvScoreFn, typename QueryScoreFn>
-Ret build_dataset_heap_with_cos_scores(const Dataset& dataset, size_t count,
+Ret build_dataset_heap_with_cos_scores(const DatasetReader& dataset, size_t count,
         const InvScoreFn& inv_score, const QueryScoreFn& query_score, DistHeap* heap) {
     return scan_dataset_heap_custom(
         dataset, count, heap,
@@ -320,7 +320,7 @@ Ret build_reader_heap_with_cos_scores(const DataReader& reader, size_t count,
 // Type dispatch happens once per query. That produces a scorer with a fixed
 // element width so the inner scan loop never branches on DataType.
 template <typename ComputeTarget>
-Ret dispatch_dataset(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
+Ret dispatch_dataset(DataType type, const DatasetReader& dataset, size_t count, const uint8_t* vec,
         DistHeap* heap) {
     const size_t dim = dataset.dim();
     switch (type) {
@@ -341,7 +341,7 @@ Ret dispatch_dataset(DataType type, const Dataset& dataset, size_t count, const 
 // then uses either precomputed inverse norms or a full query-norm distance path
 // depending on what each backing reader stores.
 template <typename ComputeTarget>
-Ret dispatch_dataset_cos(DataType type, const Dataset& dataset, size_t count, const uint8_t* vec,
+Ret dispatch_dataset_cos(DataType type, const DatasetReader& dataset, size_t count, const uint8_t* vec,
         DistHeap* heap) {
     const size_t dim = dataset.dim();
     const double query_norm_sq = query_squared_norm<ComputeTarget>(type, vec, dim);
@@ -417,7 +417,7 @@ Ret dispatch_reader_cos(DataType type, const DataReader& reader, size_t count, c
 // Overloads on Dataset vs DataReader select the right metric dispatch path
 // (dataset path handles accumulator shadowing; reader path scans files directly).
 template <typename L1Target, typename L2Target, typename CosTarget>
-Ret dispatch_with_backend(DataType type, DistFunc func, const Dataset& dataset, size_t count,
+Ret dispatch_with_backend(DataType type, DistFunc func, const DatasetReader& dataset, size_t count,
         const uint8_t* vec, DistHeap* heap) {
     switch (func) {
         case DistFunc::L1:
@@ -501,7 +501,7 @@ Ret Scanner::find_items(const DataReader& reader, DistFunc func, size_t count, c
     }
 }
 
-Ret Scanner::find(const Dataset& dataset, size_t count, const uint8_t* vec,
+Ret Scanner::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     try {
         return find_(dataset, count, vec, result);
@@ -510,7 +510,7 @@ Ret Scanner::find(const Dataset& dataset, size_t count, const uint8_t* vec,
     }
 }
 
-Ret Scanner::find_items(const Dataset& dataset, size_t count, const uint8_t* vec,
+Ret Scanner::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) const {
     try {
         return find_items_(dataset, count, vec, result);
@@ -519,7 +519,7 @@ Ret Scanner::find_items(const Dataset& dataset, size_t count, const uint8_t* vec
     }
 }
 
-Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
+Ret Scanner::find_(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");
@@ -533,7 +533,7 @@ Ret Scanner::find_(const Dataset& dataset, size_t count, const uint8_t* vec,
     return Ret(0);
 }
 
-Ret Scanner::find_items_(const Dataset& dataset, size_t count, const uint8_t* vec,
+Ret Scanner::find_items_(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) const {
     if (vec == nullptr || count == 0) {
         return Ret("Scanner::find: invalid arguments.");

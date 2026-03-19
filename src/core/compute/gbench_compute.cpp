@@ -8,7 +8,7 @@
 #include "core/compute/scanner.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/data_writer.h"
-#include "core/storage/dataset.h"
+#include "core/storage/dataset_writer.h"
 #include "core/storage/input_generator.h"
 #include "core/utils/log.h"
 #include "core/utils/singleton.h"
@@ -343,7 +343,7 @@ struct ReaderBenchmarkData {
 
 struct DatasetBenchmarkData {
     TempDir temp{"sketch2_bench_dataset"};
-    Dataset dataset;
+    DatasetWriter dataset;
     std::vector<uint8_t> query;
     size_t visible_count = 0;
 

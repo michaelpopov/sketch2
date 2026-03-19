@@ -49,6 +49,23 @@ public:
         return Ret(0);
     }
 
+    // Returns true and holds the lock if it was immediately available,
+    // false if another process already holds it (non-blocking).
+    bool try_lock(const std::string& path) {
+        fd_ = open(path.c_str(), O_RDWR | O_CREAT, 0666);
+        if (fd_ < 0) {
+            return false;
+        }
+
+        if (flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+            (void)close(fd_);
+            fd_ = -1;
+            return false;
+        }
+
+        return true;
+    }
+
 private:
     int fd_ = -1;
 };
