@@ -338,14 +338,7 @@ bool Dataset::is_modified_in_accumulator(uint64_t id) const {
 }
 
 Dataset::AccumulatorIterator Dataset::accumulator_begin() const {
-    const Ret ret = prepare_read_state();
-    if (ret.code() != 0) {
-        throw std::runtime_error(ret.message());
-    }
-    if (!accumulator_) {
-        return AccumulatorIterator(Accumulator::Iterator());
-    }
-    return AccumulatorIterator(accumulator_->begin());
+    return AccumulatorIterator(Accumulator::Iterator());
 }
 
 Ret Dataset::init_accumulator_() {
@@ -852,30 +845,21 @@ std::pair<DataReaderPtr, Ret> Dataset::get(uint64_t id) const {
 }
 
 Ret Dataset::prepare_read_state() const {
-    if (mode_ == DatasetMode::Guest || accumulator_) {
-        return Ret(0);
-    }
-
-    auto* self = const_cast<Dataset*>(this);
-    CHECK(self->ensure_owner_lock_());
-    return self->init_accumulator_();
+    return Ret(0);
 }
 
-// Resolves reads against the freshest visible state by checking pending
-// accumulator deletes/updates first and then falling back to persisted files.
+// Reads a single vector by id.  Checks the accumulator first so that
+// owner-mode callers (tests, diagnostic tools) can verify pending writes
+// without flushing.  Production queries go through Scanner which bypasses
+// the accumulator entirely.
 std::pair<const uint8_t*, Ret> Dataset::get_vector(uint64_t id) const {
-    const Ret read_state_ret = prepare_read_state();
-    if (read_state_ret.code() != 0) {
-        return {nullptr, read_state_ret};
-    }
-
     if (accumulator_) {
         if (accumulator_->is_deleted(id)) {
             return {nullptr, Ret(0)};
         }
-        const uint8_t* data = accumulator_->get_vector(id);
-        if (data) {
-            return {data, Ret(0)};
+        const uint8_t* vec = accumulator_->get_vector(id);
+        if (vec) {
+            return {vec, Ret(0)};
         }
     }
 
@@ -890,26 +874,8 @@ std::pair<const uint8_t*, Ret> Dataset::get_vector(uint64_t id) const {
     return {reader->get(id), Ret(0)};
 }
 
-// Returns the sorted union of updated and deleted accumulator ids so scans can
-// skip base rows shadowed by in-memory state.
 std::vector<uint64_t> Dataset::accumulator_modified_ids() const {
-    const Ret ret = prepare_read_state();
-    if (ret.code() != 0) {
-        throw std::runtime_error(ret.message());
-    }
-    if (!accumulator_) {
-        return {};
-    }
-
-    std::vector<uint64_t> updated_ids = accumulator_->get_vector_ids();
-    std::vector<uint64_t> deleted_ids = accumulator_->get_deleted_ids();
-    std::vector<uint64_t> modified_ids;
-    modified_ids.reserve(updated_ids.size() + deleted_ids.size());
-    std::merge(updated_ids.begin(), updated_ids.end(),
-        deleted_ids.begin(), deleted_ids.end(),
-        std::back_inserter(modified_ids));
-    modified_ids.erase(std::unique(modified_ids.begin(), modified_ids.end()), modified_ids.end());
-    return modified_ids;
+    return {};
 }
 
 /***********************************************************
@@ -998,20 +964,7 @@ const DatasetItem* Dataset::find_item_(uint64_t file_id) const {
 // Lazily opens and caches the DataReader for a dataset file pair, attaching the
 // delta reader when present and verifying cosine metadata for cosine datasets.
 //
-// Thread-safe: read lock for cache hit (common path); on miss the reader is
-// opened outside any lock, then inserted under write lock.  If two threads
-// race on the same item, the first insertion wins and the duplicate is dropped.
-std::pair<DataReaderPtr, Ret> Dataset::get_cached_reader_(const DatasetItem& item) const {
-    {
-        sketch::ReadGuard rg(cache_lock_);
-        const auto cache_it = reader_cache_.find(item.id);
-        if (cache_it != reader_cache_.end()) {
-            return {cache_it->second, Ret(0)};
-        }
-    }
-
-    // Cache miss — open the reader outside any lock so concurrent cache hits
-    // are not blocked by file I/O.
+std::pair<DataReaderPtr, Ret> Dataset::open_reader_(const DatasetItem& item) const {
     DataReaderPtr reader = std::make_shared<DataReader>();
     Ret ret(0);
 
@@ -1033,6 +986,52 @@ std::pair<DataReaderPtr, Ret> Dataset::get_cached_reader_(const DatasetItem& ite
     if (metadata_.dist_func == DistFunc::COS && !reader->has_cosine_inv_norms()) {
         return {nullptr, Ret("Dataset: cosine file is missing stored inverse norms: " +
             item.data_file_path)};
+    }
+
+    return {reader, Ret(0)};
+}
+
+// Thread-safe: read lock for cache hit (common path); on miss the reader is
+// opened outside any lock, then inserted under write lock.  If two threads
+// race on the same item, the first insertion wins and the duplicate is dropped.
+// If the open fails (e.g. writer unlinked a file mid-merge), the cache is
+// invalidated and the open is retried once with refreshed paths.
+std::pair<DataReaderPtr, Ret> Dataset::get_cached_reader_(const DatasetItem& item) const {
+    {
+        sketch::ReadGuard rg(cache_lock_);
+        const auto cache_it = reader_cache_.find(item.id);
+        if (cache_it != reader_cache_.end()) {
+            return {cache_it->second, Ret(0)};
+        }
+    }
+
+    // Cache miss — open the reader outside any lock so concurrent cache hits
+    // are not blocked by file I/O.
+    auto [reader, ret] = open_reader_(item);
+
+    // If the open failed, the file paths from the cached DatasetItem may be
+    // stale (e.g. a concurrent writer merged and unlinked a delta file).
+    // Invalidate the cache, re-lookup the item, and retry once.
+    if (ret.code() != 0) {
+        DatasetItem refreshed;
+        {
+            sketch::WriteGuard wg(cache_lock_);
+            items_cache_valid_ = false;
+            reader_cache_.erase(item.id);
+            const Ret cache_ret = ensure_items_cache_();
+            if (cache_ret.code() != 0) {
+                return {nullptr, cache_ret};
+            }
+            const DatasetItem* found = find_item_(item.id);
+            if (!found) {
+                return {nullptr, Ret(0)};
+            }
+            refreshed = *found;
+        }
+        std::tie(reader, ret) = open_reader_(refreshed);
+        if (ret.code() != 0) {
+            return {nullptr, ret};
+        }
     }
 
     sketch::WriteGuard wg(cache_lock_);

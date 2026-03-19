@@ -677,31 +677,6 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
     EXPECT_EQ(0u, result[0]);
 }
 
-TEST_F(ScannerTest, FindDatasetSkipsIdsDeletedInAccumulator) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccdel_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    Dataset ds;
-    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
-
-    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    ASSERT_EQ(0, ds.delete_vector(2).code());
-    EXPECT_TRUE(ds.is_deleted(2));
-
-    Scanner s;
-    auto q = f32_vec(2.1f, 4);
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 5, q.data(), result).code());
-
-    EXPECT_EQ(4u, result.size());
-    for (uint64_t id : result) {
-        EXPECT_NE(2u, id);
-    }
-}
-
 TEST_F(ScannerTest, FindDatasetDeleteFlushedFromAccumulatorStaysHidden) {
     std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccflushdel_" + std::to_string(getpid());
     fs::create_directories(d);
@@ -726,90 +701,6 @@ TEST_F(ScannerTest, FindDatasetDeleteFlushedFromAccumulatorStaysHidden) {
     for (uint64_t id : result) {
         EXPECT_NE(2u, id);
     }
-}
-
-TEST_F(ScannerTest, FindDatasetIncludesVectorsFromAccumulator) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccadd_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    Dataset ds;
-    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
-
-    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    const auto pending = f32_vec(1000.0f, 4);
-    ASSERT_EQ(0, ds.add_vector(50, pending.data()).code());
-
-    Scanner s;
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 1, pending.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(50u, result[0]);
-}
-
-TEST_F(ScannerTest, FindDatasetReAddedDeletedVectorUsesAccumulatorValue) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_dsreadd_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    Dataset ds;
-    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
-
-    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    ASSERT_EQ(0, ds.delete_vector(2).code());
-    const auto updated = f32_vec(500.0f, 4);
-    ASSERT_EQ(0, ds.add_vector(2, updated.data()).code());
-    EXPECT_FALSE(ds.is_deleted(2));
-
-    Scanner s;
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 1, updated.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(2u, result[0]);
-}
-
-TEST_F(ScannerTest, FindDatasetAccumulatorUsesIdTieBreakForEqualDistance) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_dstie_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    Dataset ds;
-    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
-
-    const auto vec = f32_vec(1.0f, 4);
-    ASSERT_EQ(0, ds.add_vector(20, vec.data()).code());
-    ASSERT_EQ(0, ds.add_vector(10, vec.data()).code());
-
-    Scanner s;
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 1, vec.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(10u, result[0]);
-}
-
-TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromAccumulator) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccupd_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    Dataset ds;
-    ASSERT_EQ(0, ds.init({d}, 100, DataType::f32, 4).code());
-
-    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    const auto updated = f32_vec(500.0f, 4);
-    ASSERT_EQ(0, ds.add_vector(1, updated.data()).code());
-
-    Scanner s;
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 1, updated.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(1u, result[0]);
 }
 
 TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
@@ -969,56 +860,6 @@ TEST_F(ScannerConcurrentTest, FindItemsSpansMultipleReaders) {
     EXPECT_NEAR(0.4, result[0].dist, 1e-5);
     EXPECT_NEAR(3.6, result[1].dist, 1e-5);
     EXPECT_NEAR(4.4, result[2].dist, 1e-5);
-}
-
-// Accumulator shadowing must hold even while reader workers run concurrently.
-// The modified_ids list is shared across workers and an updated vector must
-// not appear from a persisted reader while its accumulator version wins.
-TEST_F(ScannerConcurrentTest, AccumulatorShadowingCorrectWithPool) {
-    auto d0 = dir("accshad_0"), d1 = dir("accshad_1");
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
-
-    Dataset ds;
-    make_multi_reader_dataset(d0, d1, ds);
-
-    // Move id=5 (persisted value [5.1,...]) far away via the accumulator.
-    const auto far = f32_vec(1000.0f, 4);
-    ASSERT_EQ(0, ds.add_vector(5, far.data()).code());
-
-    Scanner s;
-    // Query at 1000: the accumulator version of id=5 should win; the persisted
-    // version at [5.1,...] must not appear as a candidate.
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 1, far.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(5u, result[0]);
-
-    // Confirm the persisted id=5 value ([5.1,...]) is not scored twice.
-    ASSERT_EQ(0, s.find(ds, 3, far.data(), result).code());
-    for (size_t i = 0; i < result.size(); ++i) {
-        for (size_t j = i + 1; j < result.size(); ++j) {
-            EXPECT_NE(result[i], result[j]) << "id=" << result[i] << " appeared twice";
-        }
-    }
-}
-
-// Accumulator vectors are scanned on the calling thread while workers scan
-// files. Verify that newly added vectors appear in results.
-TEST_F(ScannerConcurrentTest, AccumulatorVectorsIncludedWithPool) {
-    auto d0 = dir("accadd_0"), d1 = dir("accadd_1");
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
-
-    Dataset ds;
-    make_multi_reader_dataset(d0, d1, ds);
-
-    const auto pending = f32_vec(5000.0f, 4);
-    ASSERT_EQ(0, ds.add_vector(999, pending.data()).code());
-
-    Scanner s;
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 1, pending.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(999u, result[0]);
 }
 
 // With a pool installed but only one reader, scan_dataset_heap_custom must

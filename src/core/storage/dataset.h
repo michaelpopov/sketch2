@@ -156,6 +156,7 @@ private:
     Ret ensure_update_notifier_() const;
     Ret ensure_items_cache_() const;
     const DatasetItem* find_item_(uint64_t file_id) const;
+    std::pair<DataReaderPtr, Ret> open_reader_(const DatasetItem& item) const;
     std::pair<DataReaderPtr, Ret> get_cached_reader_(const DatasetItem& item) const;
     void invalidate_data_caches_();
     void notify_update_(const char* caller);
