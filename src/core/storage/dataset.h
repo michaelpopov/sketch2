@@ -18,9 +18,9 @@ namespace sketch2 {
 
 class DataReader;
 class InputReader;
-class DatasetReader;
+class DatasetRangeReader;
 using DataReaderPtr = std::shared_ptr<DataReader>;
-using DatasetReaderPtr = std::unique_ptr<DatasetReader>;
+using DatasetRangeReaderPtr = std::unique_ptr<DatasetRangeReader>;
 
 enum class DatasetMode {
     Owner,
@@ -90,7 +90,7 @@ public:
     Ret store_accumulator();
     Ret merge();
 
-    DatasetReaderPtr reader() const;
+    DatasetRangeReaderPtr reader() const;
     std::pair<DataReaderPtr, Ret> get(uint64_t id) const;
     std::pair<const uint8_t*, Ret> get_vector(uint64_t id) const;
     std::vector<uint64_t> accumulator_modified_ids() const;
@@ -160,12 +160,12 @@ private:
     void notify_update_(const char* caller);
     std::string item_path_base(uint64_t file_id) const;
 
-    friend class DatasetReader;
+    friend class DatasetRangeReader;
 };
 
-// DatasetReader exists to iterate through the set of data-file ranges that make
-// up a dataset and to fetch the reader for the range covering a specific id.
-class DatasetReader {
+// DatasetRangeReader exists to iterate through the set of data-file ranges that
+// make up a dataset and to fetch the reader for the range covering a specific id.
+class DatasetRangeReader {
 public:
     Ret init(const Dataset* dataset, std::vector<DatasetItem> items);
     std::pair<DataReaderPtr, Ret> next();

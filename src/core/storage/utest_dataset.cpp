@@ -1036,9 +1036,9 @@ TEST_F(DatasetTest, MergeProcessesAllRangesWithDeltaFiles) {
     EXPECT_NEAR(150.0f, v1[0], 1e-5f);
 }
 
-// --- DatasetReader::next() ---
+// --- DatasetRangeReader::next() ---
 
-TEST_F(DatasetTest, DatasetReaderNextReturnsNullWhenExhausted) {
+TEST_F(DatasetTest, DatasetRangeReaderNextReturnsNullWhenExhausted) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
     Dataset sc;
@@ -1063,7 +1063,7 @@ TEST_F(DatasetTest, DatasetReaderNextReturnsNullWhenExhausted) {
     EXPECT_EQ(nullptr, r3);
 }
 
-TEST_F(DatasetTest, DatasetReaderNextOnEmptyDatasetReturnsNull) {
+TEST_F(DatasetTest, DatasetRangeReaderNextOnEmptyDatasetReturnsNull) {
     auto dir = make_dir("empty");
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
@@ -1084,7 +1084,7 @@ TEST_F(DatasetTest, DatasetGetOnEmptyDatasetReturnsNull) {
     EXPECT_EQ(nullptr, reader);
 }
 
-TEST_F(DatasetTest, DatasetReaderNextIteratesAllFiles) {
+TEST_F(DatasetTest, DatasetRangeReaderNextIteratesAllFiles) {
     auto dir = make_dir("d");
     // ids 0..29 with range_size=10 → 3 data files: 0.data, 1.data, 2.data.
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4));
@@ -1103,7 +1103,7 @@ TEST_F(DatasetTest, DatasetReaderNextIteratesAllFiles) {
     EXPECT_EQ(3u, file_count);
 }
 
-TEST_F(DatasetTest, DatasetReaderNextReturnsDeltaFileAlongsideData) {
+TEST_F(DatasetTest, DatasetRangeReaderNextReturnsDeltaFileAlongsideData) {
     auto dir = make_dir("d");
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
@@ -1128,7 +1128,7 @@ TEST_F(DatasetTest, DatasetReaderNextReturnsDeltaFileAlongsideData) {
     EXPECT_NEAR(99.0f, v[0], 1e-5f);
 }
 
-TEST_F(DatasetTest, DatasetReaderGetReturnsReaderForContainingRange) {
+TEST_F(DatasetTest, DatasetRangeReaderGetReturnsReaderForContainingRange) {
     auto dir = make_dir("d_get");
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4)); // files 0,1,2 for range_size=10
     Dataset sc;
@@ -1143,7 +1143,7 @@ TEST_F(DatasetTest, DatasetReaderGetReturnsReaderForContainingRange) {
     ASSERT_EQ(nullptr, reader->get(29));
 }
 
-TEST_F(DatasetTest, DatasetReaderGetReturnsNullWhenRangeHasNoFile) {
+TEST_F(DatasetTest, DatasetRangeReaderGetReturnsNullWhenRangeHasNoFile) {
     auto dir = make_dir("d_get_sparse");
     write_input(
         "f32,4\n"
@@ -1246,7 +1246,7 @@ TEST_F(DatasetTest, DatasetGetCachesOpenedReaders) {
     EXPECT_EQ(reader0.get(), reader1.get());
 }
 
-TEST_F(DatasetTest, DatasetReaderSharesDatasetReaderCache) {
+TEST_F(DatasetTest, DatasetRangeReaderSharesDatasetRangeReaderCache) {
     auto dir = make_dir("d_ds_reader_cache");
     Dataset sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());

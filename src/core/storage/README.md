@@ -450,18 +450,6 @@ It rejects:
 `set_guest_mode()` also refuses to switch if there are pending accumulator
 updates, because that would discard mutable state.
 
-### Read Preparation
-
-`prepare_read_state()` is the point where owner-mode reads ensure that pending
-accumulator/WAL state is attached and visible before query code starts reading.
-
-That is why scanner code can combine:
-
-- persisted dataset readers
-- accumulator iteration
-
-and still see a logically fresh dataset view.
-
 ### Reader and Item Caches
 
 `Dataset` caches:

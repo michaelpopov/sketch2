@@ -812,8 +812,8 @@ Ret  Dataset::merge_delta_file(const DataReader& delta_reader, const DataReader&
     return Ret(0);
 }
 
-DatasetReaderPtr Dataset::reader() const {
-    DatasetReaderPtr result = std::make_unique<DatasetReader>();
+DatasetRangeReaderPtr Dataset::reader() const {
+    DatasetRangeReaderPtr result = std::make_unique<DatasetRangeReader>();
     std::vector<DatasetItem> items_copy;
     {
         sketch::WriteGuard wg(cache_lock_);
@@ -878,11 +878,11 @@ std::vector<uint64_t> Dataset::accumulator_modified_ids() const {
 }
 
 /***********************************************************
- *  DatasetReader 
+ *  DatasetRangeReader
  */
-Ret DatasetReader::init(const Dataset* dataset, std::vector<DatasetItem> items) {
+Ret DatasetRangeReader::init(const Dataset* dataset, std::vector<DatasetItem> items) {
     if (!dataset) {
-        return Ret("DatasetReader::init: dataset is null");
+        return Ret("DatasetRangeReader::init: dataset is null");
     }
     dataset_ = dataset;
     items_ = std::move(items);
@@ -890,7 +890,7 @@ Ret DatasetReader::init(const Dataset* dataset, std::vector<DatasetItem> items) 
     return Ret(0);
 }
 
-std::pair<DataReaderPtr, Ret> DatasetReader::next() {
+std::pair<DataReaderPtr, Ret> DatasetRangeReader::next() {
     ++current_;
     if (static_cast<size_t>(current_) >= items_.size()) {
         return {nullptr, Ret(0)};
@@ -899,9 +899,9 @@ std::pair<DataReaderPtr, Ret> DatasetReader::next() {
     return dataset_->get_cached_reader_(items_[current_]);
 }
     
-std::pair<DataReaderPtr, Ret> DatasetReader::get(uint64_t id) {
+std::pair<DataReaderPtr, Ret> DatasetRangeReader::get(uint64_t id) {
     if (!dataset_) {
-        return {nullptr, Ret("DatasetReader::get: reader is not initialized")};
+        return {nullptr, Ret("DatasetRangeReader::get: reader is not initialized")};
     }
 
     const uint64_t file_id = id / dataset_->metadata_.range_size;
@@ -1050,6 +1050,9 @@ void Dataset::notify_update_(const char* caller) {
     const Ret nr = ensure_update_notifier_();
     if (nr.code() != 0) {
         LOG_ERROR << caller << ": " << nr.message();
+        return;
+    }
+    if (!update_notifier_) {
         return;
     }
     const Ret ur = update_notifier_->update();

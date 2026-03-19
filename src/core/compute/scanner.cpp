@@ -190,7 +190,6 @@ template <typename ReaderScanFn, typename AccumScoreFn>
 Ret scan_dataset_heap_custom(const Dataset& dataset, size_t count, DistHeap* heap,
         const ReaderScanFn& scan_reader, const AccumScoreFn& accum_score,
         [[maybe_unused]] bool require_accumulator_cosine_inv_norms = false) {
-    CHECK(dataset.prepare_read_state());
     assert(!require_accumulator_cosine_inv_norms ||
         !dataset.has_accumulator() || dataset.accumulator_has_cosine_inv_norms());
     const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();

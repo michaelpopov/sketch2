@@ -62,7 +62,7 @@ protected:
     }
 };
 
-TEST_F(DatasetFullCycleTest, SequentialSingleRangeRoundTripThroughDatasetReader) {
+TEST_F(DatasetFullCycleTest, SequentialSingleRangeRoundTripThroughDatasetRangeReader) {
     const std::string dir = make_dir("d");
     Dataset ds;
     ASSERT_EQ(0, ds.init({dir}, 100, DataType::f32, 4).code());
@@ -70,7 +70,7 @@ TEST_F(DatasetFullCycleTest, SequentialSingleRangeRoundTripThroughDatasetReader)
     write_generated(seq_cfg(10, 100, DataType::f32, 4));
     ASSERT_EQ(0, ds.store(input_path_).code());
 
-    DatasetReaderPtr drs = ds.reader();
+    DatasetRangeReaderPtr drs = ds.reader();
     ASSERT_NE(nullptr, drs);
 
     auto [r, ret] = drs->next();
@@ -97,7 +97,7 @@ TEST_F(DatasetFullCycleTest, MultiDirMultiRangeReaderOrderAndCoverage) {
     write_generated(seq_cfg(30, 0, DataType::f32, 4));
     ASSERT_EQ(0, ds.store(input_path_).code());
 
-    DatasetReaderPtr drs = ds.reader();
+    DatasetRangeReaderPtr drs = ds.reader();
     ASSERT_NE(nullptr, drs);
 
     auto [r0, ret0] = drs->next();
@@ -119,7 +119,7 @@ TEST_F(DatasetFullCycleTest, MultiDirMultiRangeReaderOrderAndCoverage) {
     EXPECT_EQ(10u, r2->count());
 }
 
-TEST_F(DatasetFullCycleTest, OverrideAndDeleteAreAppliedByDatasetReaderWithDelta) {
+TEST_F(DatasetFullCycleTest, OverrideAndDeleteAreAppliedByDatasetRangeReaderWithDelta) {
     const std::string dir = make_dir("d");
     Dataset ds;
     ASSERT_EQ(0, ds.init({dir}, 100, DataType::f32, 4).code());
@@ -141,7 +141,7 @@ TEST_F(DatasetFullCycleTest, OverrideAndDeleteAreAppliedByDatasetReaderWithDelta
     write_manual(gen);
     ASSERT_EQ(0, ds.store(input_path_).code());
 
-    DatasetReaderPtr drs = ds.reader();
+    DatasetRangeReaderPtr drs = ds.reader();
     auto [r, ret] = drs->next();
     ASSERT_EQ(0, ret.code());
     ASSERT_NE(nullptr, r);
@@ -180,7 +180,7 @@ TEST_F(DatasetFullCycleTest, DeltaMergeBackToDataKeepsReaderConsistent) {
     write_generated(seq_cfg(5, 50, DataType::f32, 4)); // force data+delta merge
     ASSERT_EQ(0, ds.store(input_path_).code());
 
-    DatasetReaderPtr drs = ds.reader();
+    DatasetRangeReaderPtr drs = ds.reader();
     auto [r, ret] = drs->next();
     ASSERT_EQ(0, ret.code());
     ASSERT_NE(nullptr, r);
@@ -202,7 +202,7 @@ TEST_F(DatasetFullCycleTest, ReaderAppliesDeltaOnlyToTouchedRange) {
     write_generated(detailed_cfg(1, 2, DataType::f32, 4, 10)); // touches only file_id=0
     ASSERT_EQ(0, ds.store(input_path_).code());
 
-    DatasetReaderPtr drs = ds.reader();
+    DatasetRangeReaderPtr drs = ds.reader();
     auto [r0, ret0] = drs->next();
     auto [r1, ret1] = drs->next();
     ASSERT_EQ(0, ret0.code());
@@ -241,7 +241,7 @@ TEST_F(DatasetFullCycleTest, FullCycleI16WithOverrideAndDelete) {
     write_manual(gen);
     ASSERT_EQ(0, ds.store(input_path_).code());
 
-    DatasetReaderPtr drs = ds.reader();
+    DatasetRangeReaderPtr drs = ds.reader();
     auto [r, ret] = drs->next();
     ASSERT_EQ(0, ret.code());
     ASSERT_NE(nullptr, r);
