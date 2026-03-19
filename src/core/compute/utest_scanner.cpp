@@ -789,7 +789,7 @@ protected:
     // 1.data in d1, 2.data in d0. That guarantees readers.size() >= 2 so the
     // parallel code path is taken.
     void make_multi_reader_dataset(const std::string& d0, const std::string& d1,
-            Dataset& ds, DataType type = DataType::f32, DistFunc func = DistFunc::L1) {
+            DatasetWriter& ds, DataType type = DataType::f32, DistFunc func = DistFunc::L1) {
         fs::create_directories(d0);
         fs::create_directories(d1);
         ASSERT_EQ(0, ds.init({d0, d1}, 10, type, 4, kAccumulatorBufferSize, func).code());

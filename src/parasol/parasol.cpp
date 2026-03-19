@@ -803,7 +803,7 @@ static int sk_gid_(sk_handle_t* handle, const char* vec) {
         ERR(ret.message().c_str())
     }
 
-    for (auto it = handle->ds_reader->accumulator_begin(); !it.eof(); it.next()) {
+    for (auto it = handle->ds->accumulator_begin(); !it.eof(); it.next()) {
         if (std::memcmp(it.data(), target.data(), target.size()) == 0) {
             handle->has_id_result = true;
             handle->id_result = it.id();

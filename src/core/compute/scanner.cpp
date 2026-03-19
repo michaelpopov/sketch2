@@ -145,55 +145,23 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
     }
 }
 
-// Scans one ordered reader while skipping ids shadowed by newer state. The
-// skip list is walked in lockstep with the iterator so each id is compared once.
-template <typename Iterator, typename ScoreFn>
-void scan_ordered_reader_scored(Iterator it, const std::vector<uint64_t>& skip_ids,
-        size_t count, DistHeap* heap, const ScoreFn& score) {
-    if (skip_ids.empty()) {
-        scan_iterator_scored(it, count, heap, score);
-        return;
-    }
-
-    auto skip_it = skip_ids.end();
-    for (; !it.eof(); it.next()) {
-        const uint64_t id = it.id();
-        if (skip_it == skip_ids.end()) {
-            skip_it = std::lower_bound(skip_ids.begin(), skip_ids.end(), id);
-        }
-        while (skip_it != skip_ids.end() && *skip_it < id) {
-            ++skip_it;
-        }
-        if (skip_it != skip_ids.end() && *skip_it == id) {
-            continue;
-        }
-        push_result(heap, count, id, score(it));
-    }
-}
-
+// Scans both the base and delta iterators of a single DataReader file pair.
 template <typename ScoreFn>
-void scan_data_reader_scored(const DataReader& reader, const std::vector<uint64_t>& skip_ids,
+void scan_data_reader_scored(const DataReader& reader,
         size_t count, DistHeap* heap, const ScoreFn& score) {
-    scan_ordered_reader_scored(reader.base_begin(), skip_ids, count, heap, score);
-    scan_ordered_reader_scored(reader.delta_begin(), skip_ids, count, heap, score);
+    scan_iterator_scored(reader.base_begin(), count, heap, score);
+    scan_iterator_scored(reader.delta_begin(), count, heap, score);
 }
 
-// Builds a top-k heap across the persisted dataset and the pending accumulator.
-// Persisted readers skip ids modified in the accumulator so the heap only sees
-// each logical id once, with the freshest version winning.
+// Builds a top-k heap across all persisted dataset files. Each file is scanned
+// independently; the accumulator is not consulted (it is a write-side concern).
 //
 // When the singleton thread pool is available and there are at least two
 // readers, each reader is scanned on a worker thread using a private heap.
-// The accumulator scan runs on the calling thread concurrently. Private heaps
-// are merged into the shared heap once all futures complete.
-template <typename ReaderScanFn, typename AccumScoreFn>
+// Private heaps are merged into the shared heap once all futures complete.
+template <typename ReaderScanFn>
 Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHeap* heap,
-        const ReaderScanFn& scan_reader, const AccumScoreFn& accum_score,
-        [[maybe_unused]] bool require_accumulator_cosine_inv_norms = false) {
-    assert(!require_accumulator_cosine_inv_norms ||
-        !dataset.has_accumulator() || dataset.accumulator_has_cosine_inv_norms());
-    const std::vector<uint64_t> modified_ids = dataset.accumulator_modified_ids();
-
+        const ReaderScanFn& scan_reader) {
     // Collect all readers up front so the iterator is not shared across threads.
     auto drs = dataset.reader();
     std::vector<DataReaderPtr> readers;
@@ -211,32 +179,27 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
     // Sequential fallback: pool unavailable or too few readers to parallelize.
     if (!pool || readers.size() < 2) {
         for (const auto& reader : readers) {
-            scan_reader(*reader, modified_ids, count, heap);
+            scan_reader(*reader, count, heap);
         }
-        scan_iterator_scored(dataset.accumulator_begin(), count, heap, accum_score);
         return Ret(0);
     }
 
     // Submit one task per reader. Each task builds a private heap so no
     // synchronization is needed during scanning.
     //
-    // Keep scan_reader and modified_ids on shared ownership so worker tasks do
-    // not reference stack state if submit/get throws and this function exits
-    // before every queued task has finished.
+    // Keep scan_reader on shared ownership so worker tasks do not reference
+    // stack state if submit/get throws and this function exits before every
+    // queued task has finished.
     const auto scan_reader_shared = std::make_shared<ReaderScanFn>(scan_reader);
-    const auto modified_ids_shared = std::make_shared<const std::vector<uint64_t>>(modified_ids);
     std::vector<std::future<DistHeap>> futures;
     futures.reserve(readers.size());
     for (const auto& reader : readers) {
-        futures.push_back(pool->submit([scan_reader_shared, modified_ids_shared, count, reader]() {
+        futures.push_back(pool->submit([scan_reader_shared, count, reader]() {
             DistHeap local_heap;
-            (*scan_reader_shared)(*reader, *modified_ids_shared, count, &local_heap);
+            (*scan_reader_shared)(*reader, count, &local_heap);
             return local_heap;
         }));
     }
-
-    // Accumulator scan runs on the calling thread while workers scan files.
-    scan_iterator_scored(dataset.accumulator_begin(), count, heap, accum_score);
 
     // Collect per-reader heaps and merge into the shared heap.
     for (auto& fut : futures) {
@@ -250,26 +213,15 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
     return Ret(0);
 }
 
-template <typename ReaderScanFn>
-Ret scan_reader_heap_custom(const DataReader& reader, size_t count, DistHeap* heap,
-        const ReaderScanFn& scan_reader) {
-    scan_reader(reader, {}, count, heap);
-    return Ret(0);
-}
-
-// Dataset score adapters bind a fixed scorer into the shared dataset heap
-// builder, keeping accumulator shadowing and top-k behavior identical across
-// metrics and output shapes.
+// Dataset score adapters bind a fixed scorer into the shared dataset heap builder.
 template <typename ScoreFn>
 Ret build_dataset_heap_with_score(const DatasetReader& dataset, size_t count, const ScoreFn& score,
         DistHeap* heap) {
     return scan_dataset_heap_custom(
         dataset, count, heap,
-        [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids,
-                size_t local_count, DistHeap* local_heap) {
-            scan_data_reader_scored(reader, skip_ids, local_count, local_heap, score);
-        },
-        score);
+        [&](const DataReader& reader, size_t local_count, DistHeap* local_heap) {
+            scan_data_reader_scored(reader, local_count, local_heap, score);
+        });
 }
 
 // Cosine dataset scans choose per reader whether to use stored inverse norms or
@@ -279,42 +231,32 @@ Ret build_dataset_heap_with_cos_scores(const DatasetReader& dataset, size_t coun
         const InvScoreFn& inv_score, const QueryScoreFn& query_score, DistHeap* heap) {
     return scan_dataset_heap_custom(
         dataset, count, heap,
-        [&](const DataReader& reader, const std::vector<uint64_t>& skip_ids,
-                size_t local_count, DistHeap* local_heap) {
+        [&](const DataReader& reader, size_t local_count, DistHeap* local_heap) {
             if (reader.has_cosine_inv_norms()) {
-                scan_data_reader_scored(reader, skip_ids, local_count, local_heap, inv_score);
+                scan_data_reader_scored(reader, local_count, local_heap, inv_score);
             } else {
-                scan_data_reader_scored(reader, skip_ids, local_count, local_heap, query_score);
+                scan_data_reader_scored(reader, local_count, local_heap, query_score);
             }
-        },
-        inv_score, true);
+        });
 }
 
-// Reader adapters mirror the dataset helpers without the accumulator layer.
+// Reader adapters scan a single DataReader without the dataset layer.
 template <typename ScoreFn>
 Ret build_reader_heap_with_score(const DataReader& reader, size_t count, const ScoreFn& score,
         DistHeap* heap) {
-    return scan_reader_heap_custom(
-        reader, count, heap,
-        [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids,
-                size_t local_count, DistHeap* local_heap) {
-            scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, score);
-        });
+    scan_data_reader_scored(reader, count, heap, score);
+    return Ret(0);
 }
 
 template <typename InvScoreFn, typename QueryScoreFn>
 Ret build_reader_heap_with_cos_scores(const DataReader& reader, size_t count,
         const InvScoreFn& inv_score, const QueryScoreFn& query_score, DistHeap* heap) {
-    return scan_reader_heap_custom(
-        reader, count, heap,
-        [&](const DataReader& local_reader, const std::vector<uint64_t>& skip_ids,
-                size_t local_count, DistHeap* local_heap) {
-            if (local_reader.has_cosine_inv_norms()) {
-                scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, inv_score);
-            } else {
-                scan_data_reader_scored(local_reader, skip_ids, local_count, local_heap, query_score);
-            }
-        });
+    if (reader.has_cosine_inv_norms()) {
+        scan_data_reader_scored(reader, count, heap, inv_score);
+    } else {
+        scan_data_reader_scored(reader, count, heap, query_score);
+    }
+    return Ret(0);
 }
 
 // Type dispatch happens once per query. That produces a scorer with a fixed
