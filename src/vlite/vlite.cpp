@@ -173,6 +173,7 @@ sqlite3_int64 saturating_add(sqlite3_int64 lhs, sqlite3_int64 rhs) {
 struct BitsetAggState {
     uint8_t* data = nullptr;
     sqlite3_uint64 size = 0;
+    sqlite3_uint64 capacity = 0;
     bool has_error = false;
     bool has_nomem = false;
     const char* error_message = nullptr;
@@ -245,29 +246,44 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
         sqlite3_result_error(context, state->error_message, -1);
         return;
     }
-    if (needed_size > state->size) {
+    if (needed_size > state->capacity) {
+        sqlite3_uint64 new_capacity = state->capacity > 0 ? state->capacity : 1;
+        while (new_capacity < needed_size) {
+            if (new_capacity > kMaxBitsetBytes / 2u) {
+                new_capacity = kMaxBitsetBytes;
+                break;
+            }
+            new_capacity *= 2u;
+        }
+        if (new_capacity < needed_size || new_capacity > kMaxBitsetBytes) {
+            state->has_error = true;
+            state->error_message =
+                "bitset_agg: required bitset size exceeds supported limit";
+            sqlite3_result_error(context, state->error_message, -1);
+            return;
+        }
+
         uint8_t* new_data = nullptr;
         if (state->data == nullptr) {
-            new_data = static_cast<uint8_t*>(sqlite3_malloc64(needed_size));
-            if (new_data == nullptr) {
-                state->has_error = true;
-                state->has_nomem = true;
-                sqlite3_result_error_nomem(context);
-                return;
-            }
-            std::memset(new_data, 0, static_cast<size_t>(needed_size));
+            new_data = static_cast<uint8_t*>(sqlite3_malloc64(new_capacity));
         } else {
-            new_data = static_cast<uint8_t*>(sqlite3_realloc64(state->data, needed_size));
-            if (new_data == nullptr) {
-                state->has_error = true;
-                state->has_nomem = true;
-                sqlite3_result_error_nomem(context);
-                return;
-            }
-            std::memset(new_data + state->size, 0, static_cast<size_t>(needed_size - state->size));
+            new_data = static_cast<uint8_t*>(sqlite3_realloc64(state->data, new_capacity));
+        }
+        if (new_data == nullptr) {
+            state->has_error = true;
+            state->has_nomem = true;
+            sqlite3_result_error_nomem(context);
+            return;
+        }
+
+        if (new_capacity > state->capacity) {
+            std::memset(new_data + state->capacity, 0, static_cast<size_t>(new_capacity - state->capacity));
         }
 
         state->data = new_data;
+        state->capacity = new_capacity;
+    }
+    if (needed_size > state->size) {
         state->size = needed_size;
     }
 
@@ -296,6 +312,7 @@ void bitset_agg_final(sqlite3_context* context) {
     sqlite3_result_blob(context, state->data, static_cast<int>(state->size), sqlite3_free);
     state->data = nullptr;
     state->size = 0;
+    state->capacity = 0;
 }
 
 // VliteVTab exists to bind SQLite's virtual-table object to the dataset state
@@ -614,13 +631,15 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             return SQLITE_ERROR;
         }
 
+        const sketch2::BitsetFilter bitset_filter {
+            .data = static_cast<const uint8_t*>(allowed_ids_blob),
+            .size = static_cast<uint64_t>(allowed_ids_blob_size),
+        };
+        const sketch2::BitsetFilter* bitset_filter_ptr = !has_allowed_ids ? nullptr : &bitset_filter;
+
         sketch2::Scanner scanner;
-        /* Here you process the blob!!! */
-        (void)allowed_ids_blob;
-        (void)allowed_ids_blob_size;
-        (void)has_allowed_ids;
         ret = scanner.find_items(dataset, static_cast<size_t>(effective_k),
-            vlite_cursor->query_buf.data(), vlite_cursor->rows);
+            vlite_cursor->query_buf.data(), vlite_cursor->rows, bitset_filter_ptr);
         if (ret.code() != 0) {
             set_vtab_error(vlite_vtab, ret.message());
             return SQLITE_ERROR;

@@ -4,8 +4,8 @@ These tests validate extension-level SQL plumbing:
 - aggregate bitset_agg(id)
 - optional hidden-column constraint vlite.allowed_ids
 
-Filtering by allowed_ids is intentionally not implemented yet, so result sets
-are expected to remain unchanged when a blob is provided.
+Filtering by allowed_ids is implemented. Passing a blob constrains candidate
+ids; passing NULL keeps baseline behavior.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ class VliteInterfacesTest(IntegTestBase):
 
         self.progress("bitset_agg rejects negative and non-integer ids")
 
-    def test_vlite_allowed_ids_is_optional_and_currently_noop(self) -> None:
+    def test_vlite_allowed_ids_filters_when_blob_is_provided(self) -> None:
         with Sketch2(self.root) as ps:
             ps.create(self.dataset_name, dim=4, range_size=1000, dist_func="l1")
             ps.upsert(0, "0.0, 0.0, 0.0, 0.0")
@@ -99,9 +99,10 @@ class VliteInterfacesTest(IntegTestBase):
         finally:
             conn.close()
 
-        self.assertEqual(baseline_rows, blob_rows)
+        self.assertEqual(3, len(baseline_rows))
+        self.assertEqual([(0, baseline_rows[-1][1])], blob_rows)
         self.assertEqual(baseline_rows, null_rows)
-        self.progress("allowed_ids accepted (BLOB/NULL), current behavior remains unfiltered")
+        self.progress("allowed_ids accepted (BLOB/NULL), blob filtering is active")
 
     def test_vlite_allowed_ids_rejects_non_blob(self) -> None:
         with Sketch2(self.root) as ps:

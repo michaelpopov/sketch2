@@ -873,7 +873,7 @@ TEST_F(VliteTest, BitsetAggRejectsInvalidInputValues) {
         "must be an integer");
 }
 
-TEST_F(VliteTest, AllowedIdsBlobConstraintIsAcceptedWithoutFilteringYet) {
+TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
     write_input("f32,4\n"
                 "0 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
@@ -894,11 +894,9 @@ TEST_F(VliteTest, AllowedIdsBlobConstraintIsAcceptedWithoutFilteringYet) {
         "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 0 AS id)) "
         "ORDER BY distance");
 
-    ASSERT_EQ(baseline_rows.size(), filtered_rows.size());
-    for (size_t i = 0; i < baseline_rows.size(); ++i) {
-        EXPECT_EQ(baseline_rows[i].first, filtered_rows[i].first);
-        EXPECT_DOUBLE_EQ(baseline_rows[i].second, filtered_rows[i].second);
-    }
+    ASSERT_EQ(3u, baseline_rows.size());
+    ASSERT_EQ(1u, filtered_rows.size());
+    EXPECT_EQ(0, filtered_rows[0].first);
 }
 
 TEST_F(VliteTest, AllowedIdsNullIsTreatedAsNoFilter) {

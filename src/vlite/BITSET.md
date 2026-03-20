@@ -11,7 +11,8 @@ This document describes the bitset BLOB produced by `bitset_agg(id)` and how
 - `vlite` receives that bitset as a `BLOB` in `xFilter()`.
 - Search logic can later use it to skip disallowed IDs.
 
-Current status: plumbing exists, but filtering is intentionally not implemented yet.
+Current status: filtering is implemented in scanner and applied when
+`allowed_ids` is provided.
 
 ## SQL Interface
 
@@ -78,19 +79,15 @@ FROM (SELECT 0 AS id UNION ALL SELECT 1 UNION ALL SELECT 8);
 
 ## Access In `vlite`
 
-`xFilter()` in `src/vlite/vlite.cpp` already extracts:
+`xFilter()` in `src/vlite/vlite.cpp` extracts:
 
 - `const void* allowed_ids_blob`
 - `int allowed_ids_blob_size`
 - `bool has_allowed_ids`
 
-At the search call site there is a marker comment:
-
-```cpp
-/* Here you process the blob!!! */
-```
-
-That is the intended integration point for applying ID filtering.
+These are passed into `Scanner::find_items(...)` as `BitsetFilter`.
+Filtering is applied during scan loops, so disallowed ids are skipped before
+heap insertion.
 
 ## Safe Bit-Test Helpers (Recommended)
 
@@ -132,17 +129,11 @@ Behavior notes:
 
 ## Applying During Search
 
-When wiring filtering into search, the expected decision flow is:
+Current decision flow:
 
 1. `has_allowed_ids == false` -> run normal search.
-2. `has_allowed_ids == true` -> use blob membership to keep only allowed IDs.
-
-Implementation strategies:
-
-- post-filter scanner output (simple, minimal changes)
-- integrate filtering into scan loop (better performance, larger change)
-
-For initial correctness, post-filtering is acceptable.
+2. `has_allowed_ids == true` -> apply blob membership checks and keep only
+   allowed ids.
 
 ## Limits And Error Conditions
 
@@ -161,5 +152,5 @@ Covered by:
 - `src/vlite/utest_vlite.cpp` (unit tests)
 - `src/pytest/test_integ_vlite_interfaces.py` (integration tests)
 
-These tests validate format, validation errors, and `allowed_ids` plumbing under
-current no-filter semantics.
+These tests validate format, validation errors, and active `allowed_ids`
+filtering semantics.
