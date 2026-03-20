@@ -32,13 +32,15 @@ inline double ComputeL2_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_
     float32x4_t acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
-    for (; i + 8 <= dim; i += 8) {
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    for (; i < simd8_end; i += 8) {
         const float32x4_t d0 = vsubq_f32(vld1q_f32(va + i),     vld1q_f32(vb + i));
         const float32x4_t d1 = vsubq_f32(vld1q_f32(va + i + 4), vld1q_f32(vb + i + 4));
         acc0 = vmlaq_f32(acc0, d0, d0);
         acc1 = vmlaq_f32(acc1, d1, d1);
     }
-    for (; i + 4 <= dim; i += 4) {
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
+    for (; i < simd4_end; i += 4) {
         const float32x4_t d = vsubq_f32(vld1q_f32(va + i), vld1q_f32(vb + i));
         acc0 = vmlaq_f32(acc0, d, d);
     }
@@ -58,8 +60,10 @@ inline double ComputeL2_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size_
     float32x4_t acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
 #if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
-    for (; i + 8 <= dim; i += 8) {
+    for (; i < simd8_end; i += 8) {
         const float16x8_t a8 = vld1q_f16(reinterpret_cast<const float16_t *>(va + i));
         const float16x8_t b8 = vld1q_f16(reinterpret_cast<const float16_t *>(vb + i));
         const float16x8_t d8 = vsubq_f16(a8, b8);
@@ -69,7 +73,7 @@ inline double ComputeL2_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size_
         acc1 = vmlaq_f32(acc1, d_hi, d_hi);
     }
 #endif
-    for (; i + 4 <= dim; i += 4) {
+    for (; i < simd4_end; i += 4) {
         const float16x4_t a4 = vld1_f16(reinterpret_cast<const float16_t *>(va + i));
         const float16x4_t b4 = vld1_f16(reinterpret_cast<const float16_t *>(vb + i));
         const float32x4_t a4_f32 = vcvt_f32_f16(a4);
@@ -95,7 +99,8 @@ inline double ComputeL2_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size_
     int64x2_t acc3 = vdupq_n_s64(0);
 
     size_t i = 0;
-    for (; i + 8 <= dim; i += 8) {
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    for (; i < simd8_end; i += 8) {
         const int16x8_t a8 = vld1q_s16(va + i);
         const int16x8_t b8 = vld1q_s16(vb + i);
         const int32x4_t d_lo = vsubq_s32(vmovl_s16(vget_low_s16(a8)), vmovl_s16(vget_low_s16(b8)));
