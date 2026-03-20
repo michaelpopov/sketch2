@@ -163,6 +163,36 @@ protected:
         EXPECT_NE(std::string(sqlite3_errmsg(db)).find(message_substr), std::string::npos);
         sqlite3_finalize(stmt);
     }
+
+    std::vector<uint8_t> query_blob_result(sqlite3* db, const std::string& sql) {
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+            ADD_FAILURE() << sqlite3_errmsg(db);
+            return {};
+        }
+
+        const int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_ROW) {
+            ADD_FAILURE() << sqlite3_errmsg(db);
+            sqlite3_finalize(stmt);
+            return {};
+        }
+
+        const auto* blob = static_cast<const uint8_t*>(sqlite3_column_blob(stmt, 0));
+        const int blob_size = sqlite3_column_bytes(stmt, 0);
+        std::vector<uint8_t> out;
+        if (blob != nullptr && blob_size > 0) {
+            out.assign(blob, blob + blob_size);
+        }
+
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            ADD_FAILURE() << sqlite3_errmsg(db);
+        }
+        if (sqlite3_finalize(stmt) != SQLITE_OK) {
+            ADD_FAILURE() << sqlite3_errmsg(db);
+        }
+        return out;
+    }
 };
 
 TEST_F(VliteTest, ReturnsKnnIdsAndDistancesForL1Dataset) {
@@ -805,6 +835,112 @@ TEST_F(VliteTest, AtPrefixMalformedVectorFileReturnsError) {
     expect_query_error(db.get(),
         "SELECT id FROM nn WHERE query = '" + query_path + "' AND k = 1",
         "invalid f32 token");
+}
+
+TEST_F(VliteTest, BitsetAggBuildsDenseBitsetBlob) {
+    SqliteDbPtr db = open_db_with_extension();
+    ASSERT_NE(nullptr, db);
+
+    const std::vector<uint8_t> blob = query_blob_result(db.get(),
+        "SELECT bitset_agg(id) "
+        "FROM (SELECT 0 AS id UNION ALL SELECT 1 UNION ALL SELECT NULL "
+        "UNION ALL SELECT 8 UNION ALL SELECT 8)");
+
+    ASSERT_EQ(2u, blob.size());
+    EXPECT_EQ(0x03u, blob[0]);
+    EXPECT_EQ(0x01u, blob[1]);
+}
+
+TEST_F(VliteTest, BitsetAggReturnsEmptyBlobForEmptyInput) {
+    SqliteDbPtr db = open_db_with_extension();
+    ASSERT_NE(nullptr, db);
+
+    const std::vector<uint8_t> blob = query_blob_result(db.get(),
+        "SELECT bitset_agg(id) FROM (SELECT 1 AS id WHERE 0)");
+
+    EXPECT_TRUE(blob.empty());
+}
+
+TEST_F(VliteTest, BitsetAggRejectsInvalidInputValues) {
+    SqliteDbPtr db = open_db_with_extension();
+    ASSERT_NE(nullptr, db);
+
+    expect_query_error(db.get(),
+        "SELECT bitset_agg(id) FROM (SELECT -1 AS id)",
+        "non-negative");
+    expect_query_error(db.get(),
+        "SELECT bitset_agg(id) FROM (SELECT 'oops' AS id)",
+        "must be an integer");
+}
+
+TEST_F(VliteTest, AllowedIdsBlobConstraintIsAcceptedWithoutFilteringYet) {
+    write_input("f32,4\n"
+                "0 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+                "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+                "2 : [ 2.0, 2.0, 2.0, 2.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto baseline_rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1' AND k = 3 "
+        "ORDER BY distance");
+
+    const auto filtered_rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1' AND k = 3 "
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 0 AS id)) "
+        "ORDER BY distance");
+
+    ASSERT_EQ(baseline_rows.size(), filtered_rows.size());
+    for (size_t i = 0; i < baseline_rows.size(); ++i) {
+        EXPECT_EQ(baseline_rows[i].first, filtered_rows[i].first);
+        EXPECT_DOUBLE_EQ(baseline_rows[i].second, filtered_rows[i].second);
+    }
+}
+
+TEST_F(VliteTest, AllowedIdsNullIsTreatedAsNoFilter) {
+    write_input("f32,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+                "20 : [ 20.0, 20.0, 20.0, 20.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto baseline_rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
+        "ORDER BY distance");
+
+    const auto null_rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
+        "AND allowed_ids = (SELECT CAST(NULL AS BLOB)) "
+        "ORDER BY distance");
+
+    ASSERT_EQ(baseline_rows.size(), null_rows.size());
+    for (size_t i = 0; i < baseline_rows.size(); ++i) {
+        EXPECT_EQ(baseline_rows[i].first, null_rows[i].first);
+        EXPECT_DOUBLE_EQ(baseline_rows[i].second, null_rows[i].second);
+    }
+}
+
+TEST_F(VliteTest, AllowedIdsRejectsNonBlobValues) {
+    write_input("f32,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    expect_query_error(db.get(),
+        "SELECT id FROM nn "
+        "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 1 "
+        "AND allowed_ids = 'not_a_blob'",
+        "allowed_ids must be a BLOB or NULL");
 }
 
 } // namespace

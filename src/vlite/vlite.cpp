@@ -13,6 +13,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <limits>
 #include <memory>
@@ -26,9 +27,11 @@ namespace {
 
 enum VliteColumn {
     kColumnQuery = 0,
-    kColumnK = 1,
-    kColumnId = 2,
-    kColumnDistance = 3,
+    kColumnMatchExpr = 1,
+    kColumnK = 2,
+    kColumnAllowedIds = 3,
+    kColumnId = 4,
+    kColumnDistance = 5,
 };
 
 enum VliteConstraintBit {
@@ -36,7 +39,17 @@ enum VliteConstraintBit {
     kConstraintK = 1 << 1,
     kConstraintLimit = 1 << 2,
     kConstraintOffset = 1 << 3,
+    kConstraintAllowedIds = 1 << 4,
 };
+
+constexpr const char* kVliteSchemaWithAllowedIds =
+    "CREATE TABLE x("
+    "query TEXT HIDDEN, "
+    "match_expr TEXT HIDDEN, "
+    "k INTEGER HIDDEN, "
+    "allowed_ids BLOB HIDDEN, "
+    "id INTEGER, "
+    "distance REAL)";
 
 // Removes the outer quoting syntax SQLite may preserve in module arguments so
 // the dataset path can be passed to Dataset::init verbatim.
@@ -157,6 +170,134 @@ sqlite3_int64 saturating_add(sqlite3_int64 lhs, sqlite3_int64 rhs) {
     return lhs + rhs;
 }
 
+struct BitsetAggState {
+    uint8_t* data = nullptr;
+    sqlite3_uint64 size = 0;
+    bool has_error = false;
+    bool has_nomem = false;
+    const char* error_message = nullptr;
+};
+
+void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
+    if (context == nullptr) {
+        return;
+    }
+    if (argc != 1 || argv == nullptr) {
+        sqlite3_result_error(context, "bitset_agg: invalid arguments", -1);
+        return;
+    }
+
+    auto* state = static_cast<BitsetAggState*>(sqlite3_aggregate_context(context, sizeof(BitsetAggState)));
+    if (state == nullptr) {
+        sqlite3_result_error_nomem(context);
+        return;
+    }
+    if (state->has_error) {
+        return;
+    }
+
+    sqlite3_value* value = argv[0];
+    const int value_type = sqlite3_value_type(value);
+    if (value_type == SQLITE_NULL) {
+        return;
+    }
+    if (value_type != SQLITE_INTEGER) {
+        state->has_error = true;
+        state->error_message = "bitset_agg: id must be an integer";
+        sqlite3_result_error(context, state->error_message, -1);
+        return;
+    }
+
+    const sqlite3_int64 id = sqlite3_value_int64(value);
+    if (id < 0) {
+        state->has_error = true;
+        state->error_message = "bitset_agg: id must be non-negative";
+        sqlite3_result_error(context, state->error_message, -1);
+        return;
+    }
+
+    constexpr sqlite3_uint64 kMaxBitsetBytes =
+        static_cast<sqlite3_uint64>(std::numeric_limits<int>::max());
+    constexpr sqlite3_uint64 kMaxSupportedId = kMaxBitsetBytes * 8u - 1u;
+    const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
+    if (id_u64 > kMaxSupportedId) {
+        state->has_error = true;
+        state->error_message =
+            "bitset_agg: id exceeds supported bitset size on this build";
+        sqlite3_result_error(context, state->error_message, -1);
+        return;
+    }
+
+    const sqlite3_uint64 byte_index = id_u64 >> 3;
+    if (byte_index == std::numeric_limits<sqlite3_uint64>::max()) {
+        state->has_error = true;
+        state->error_message =
+            "bitset_agg: overflow while computing bitset size";
+        sqlite3_result_error(context, state->error_message, -1);
+        return;
+    }
+
+    const sqlite3_uint64 needed_size = byte_index + 1;
+    if (needed_size > kMaxBitsetBytes) {
+        state->has_error = true;
+        state->error_message =
+            "bitset_agg: required bitset size exceeds supported limit";
+        sqlite3_result_error(context, state->error_message, -1);
+        return;
+    }
+    if (needed_size > state->size) {
+        uint8_t* new_data = nullptr;
+        if (state->data == nullptr) {
+            new_data = static_cast<uint8_t*>(sqlite3_malloc64(needed_size));
+            if (new_data == nullptr) {
+                state->has_error = true;
+                state->has_nomem = true;
+                sqlite3_result_error_nomem(context);
+                return;
+            }
+            std::memset(new_data, 0, static_cast<size_t>(needed_size));
+        } else {
+            new_data = static_cast<uint8_t*>(sqlite3_realloc64(state->data, needed_size));
+            if (new_data == nullptr) {
+                state->has_error = true;
+                state->has_nomem = true;
+                sqlite3_result_error_nomem(context);
+                return;
+            }
+            std::memset(new_data + state->size, 0, static_cast<size_t>(needed_size - state->size));
+        }
+
+        state->data = new_data;
+        state->size = needed_size;
+    }
+
+    state->data[byte_index] |= static_cast<uint8_t>(1u << (id & 7));
+}
+
+void bitset_agg_final(sqlite3_context* context) {
+    auto* state = static_cast<BitsetAggState*>(sqlite3_aggregate_context(context, 0));
+    if (state != nullptr && state->has_error) {
+        sqlite3_free(state->data);
+        state->data = nullptr;
+        if (state->has_nomem) {
+            sqlite3_result_error_nomem(context);
+            return;
+        }
+        const char* message = state->error_message ? state->error_message : "bitset_agg: aggregation failed";
+        sqlite3_result_error(context, message, -1);
+        return;
+    }
+
+    if (state == nullptr || state->size == 0 || state->data == nullptr) {
+        sqlite3_result_blob(context, "", 0, SQLITE_STATIC);
+        return;
+    }
+
+    sqlite3_result_blob(context, state->data, static_cast<int>(state->size), sqlite3_free);
+    state->data = nullptr;
+    state->size = 0;
+}
+
 // VliteVTab exists to bind SQLite's virtual-table object to the dataset state
 // needed by the extension. It stores the dataset path and the opened Dataset instance.
 struct VliteVTab : sqlite3_vtab {
@@ -189,7 +330,7 @@ int vlite_connect_common(sqlite3* db, int argc, const char* const* argv,
             return SQLITE_ERROR;
         }
 
-        const int declare_rc = sqlite3_declare_vtab(db, sketch2::kVliteSchema);
+        const int declare_rc = sqlite3_declare_vtab(db, kVliteSchemaWithAllowedIds);
         if (declare_rc != SQLITE_OK) {
             return declare_rc;
         }
@@ -241,6 +382,7 @@ int vlite_best_index(sqlite3_vtab* tab, sqlite3_index_info* index_info) {
 
         int query_constraint = -1;
         int k_constraint = -1;
+        int allowed_ids_constraint = -1;
         int limit_constraint = -1;
         int offset_constraint = -1;
 
@@ -250,13 +392,17 @@ int vlite_best_index(sqlite3_vtab* tab, sqlite3_index_info* index_info) {
                 continue;
             }
             if (query_constraint < 0 &&
-                    constraint.iColumn == kColumnQuery &&
+                    (constraint.iColumn == kColumnQuery || constraint.iColumn == kColumnMatchExpr) &&
                     is_query_constraint(constraint.op)) {
                 query_constraint = i;
             } else if (k_constraint < 0 &&
                     constraint.iColumn == kColumnK &&
                     constraint.op == SQLITE_INDEX_CONSTRAINT_EQ) {
                 k_constraint = i;
+            } else if (allowed_ids_constraint < 0 &&
+                    constraint.iColumn == kColumnAllowedIds &&
+                    constraint.op == SQLITE_INDEX_CONSTRAINT_EQ) {
+                allowed_ids_constraint = i;
             } else if (limit_constraint < 0 && constraint.op == SQLITE_INDEX_CONSTRAINT_LIMIT) {
                 limit_constraint = i;
             } else if (offset_constraint < 0 && constraint.op == SQLITE_INDEX_CONSTRAINT_OFFSET) {
@@ -276,6 +422,11 @@ int vlite_best_index(sqlite3_vtab* tab, sqlite3_index_info* index_info) {
             index_info->aConstraintUsage[k_constraint].argvIndex = next_arg++;
             index_info->aConstraintUsage[k_constraint].omit = 1;
             idx_num |= kConstraintK;
+        }
+        if (allowed_ids_constraint >= 0) {
+            index_info->aConstraintUsage[allowed_ids_constraint].argvIndex = next_arg++;
+            index_info->aConstraintUsage[allowed_ids_constraint].omit = 1;
+            idx_num |= kConstraintAllowedIds;
         }
         if (limit_constraint >= 0) {
             index_info->aConstraintUsage[limit_constraint].argvIndex = next_arg++;
@@ -396,6 +547,28 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             offset = sqlite3_value_int64(argv[arg_index++]);
         }
 
+        const void* allowed_ids_blob = nullptr;
+        int allowed_ids_blob_size = 0;
+        bool has_allowed_ids = false;
+        if ((idx_num & kConstraintAllowedIds) != 0) {
+            if (arg_index >= argc) {
+                set_vtab_error(vlite_vtab, "vlite missing allowed_ids value");
+                return SQLITE_ERROR;
+            }
+
+            sqlite3_value* allowed_ids_value = argv[arg_index++];
+            const int allowed_ids_type = sqlite3_value_type(allowed_ids_value);
+            if (allowed_ids_type != SQLITE_NULL && allowed_ids_type != SQLITE_BLOB) {
+                set_vtab_error(vlite_vtab, "vlite allowed_ids must be a BLOB or NULL");
+                return SQLITE_ERROR;
+            }
+            if (allowed_ids_type == SQLITE_BLOB) {
+                allowed_ids_blob = sqlite3_value_blob(allowed_ids_value);
+                allowed_ids_blob_size = sqlite3_value_bytes(allowed_ids_value);
+                has_allowed_ids = true;
+            }
+        }
+
         const sqlite3_int64 window =
             (limit >= 0) ? saturating_add(limit, saturate_negative_to_zero(offset)) : -1;
         sqlite3_int64 effective_k = k;
@@ -442,6 +615,10 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
         }
 
         sketch2::Scanner scanner;
+        /* Here you process the blob!!! */
+        (void)allowed_ids_blob;
+        (void)allowed_ids_blob_size;
+        (void)has_allowed_ids;
         ret = scanner.find_items(dataset, static_cast<size_t>(effective_k),
             vlite_cursor->query_buf.data(), vlite_cursor->rows);
         if (ret.code() != 0) {
@@ -492,10 +669,14 @@ int vlite_column(sqlite3_vtab_cursor* cursor, sqlite3_context* context, int colu
         const sketch2::DistItem& row = vlite_cursor->rows[vlite_cursor->index];
         switch (column) {
             case kColumnQuery:
+            case kColumnMatchExpr:
                 sqlite3_result_text(context, vlite_cursor->query_text.c_str(), -1, SQLITE_TRANSIENT);
                 break;
             case kColumnK:
                 sqlite3_result_int64(context, vlite_cursor->k);
+                break;
+            case kColumnAllowedIds:
+                sqlite3_result_null(context);
                 break;
             case kColumnId: {
                 if (row.id > static_cast<uint64_t>(std::numeric_limits<sqlite3_int64>::max())) {
@@ -666,7 +847,26 @@ extern "C" int sqlite3_sketch2_init(sqlite3* db, char** pz_err_msg, const sqlite
 
         SQLITE_EXTENSION_INIT2(api);
         (void)sketch2::sketch2_runtime_init();
-        return sqlite3_create_module_v2(db, sketch2::kVliteModuleName, &kVliteModule, nullptr, nullptr);
+        int rc = sqlite3_create_module_v2(db, sketch2::kVliteModuleName, &kVliteModule, nullptr, nullptr);
+        if (rc != SQLITE_OK) {
+            return rc;
+        }
+
+        rc = sqlite3_create_function_v2(
+            db,
+            "bitset_agg",
+            1,
+            SQLITE_UTF8,
+            nullptr,
+            nullptr,
+            bitset_agg_step,
+            bitset_agg_final,
+            nullptr);
+        if (rc != SQLITE_OK) {
+            return rc;
+        }
+
+        return SQLITE_OK;
     });
 }
 
