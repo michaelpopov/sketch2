@@ -1273,6 +1273,27 @@ TEST_F(DatasetTest, GuestModeAllowsQueries) {
     ASSERT_NE(nullptr, next_reader->get(2));
 }
 
+TEST_F(DatasetTest, WriterInitSucceedsAgainAfterPreviousOwnerIsDestroyed) {
+    auto dir = make_dir("d_owner_release");
+    generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
+    const std::string lock_path = dir + "/" + kOwnerLockFileName;
+
+    {
+        DatasetNode owner;
+        ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
+        ASSERT_EQ(0, owner.store(input_path_).code());
+        EXPECT_FALSE(Singleton::instance().check_file_path(lock_path));
+    }
+
+    EXPECT_TRUE(Singleton::instance().check_file_path(lock_path));
+    EXPECT_TRUE(Singleton::instance().release_file_path(lock_path));
+
+    DatasetNode reopened;
+    ASSERT_EQ(0, reopened.init({dir}, 100, DataType::f32, 4).code());
+    const Ret reopened_ret = reopened.store(input_path_);
+    EXPECT_EQ(0, reopened_ret.code()) << reopened_ret.message();
+}
+
 
 // --- UpdateNotifier integration ---
 

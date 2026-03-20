@@ -44,6 +44,7 @@
 #pragma once
 
 #include "compute_unit.h"
+#include "utils/file_path_lock.h"
 
 #include <memory>
 #include <mutex>
@@ -70,6 +71,8 @@ public:
 
     const ComputeUnit& compute_unit() const;
     const std::shared_ptr<ThreadPool>& thread_pool() const;
+    bool check_file_path(const std::string& file_path);
+    bool release_file_path(const std::string& file_path);
 
 private:
     Singleton();
@@ -97,6 +100,7 @@ private:
     std::mutex mutex_;
     ComputeUnit compute_unit_;
     std::shared_ptr<ThreadPool> thread_pool_;
+    FilePathLock file_path_lock_;
     bool initialized_ = false;
 };
 

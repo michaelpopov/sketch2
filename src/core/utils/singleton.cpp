@@ -84,6 +84,14 @@ const std::shared_ptr<ThreadPool>& Singleton::thread_pool() const {
     return thread_pool_;
 }
 
+bool Singleton::check_file_path(const std::string& file_path) {
+    return file_path_lock_.check_file_path(file_path);
+}
+
+bool Singleton::release_file_path(const std::string& file_path) {
+    return file_path_lock_.release_file_path(file_path);
+}
+
 // runtime_init_ always seals the singleton, even when it ends up using only
 // defaults. Once the process commits to a runtime configuration, later init
 // attempts are rejected so logging, threading, and compute dispatch stay fixed.

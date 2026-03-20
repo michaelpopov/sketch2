@@ -1,4 +1,4 @@
-add_library(utils STATIC utils.cpp ini_reader.cpp string_utils.cpp dynamic_bitset.cpp compute_unit.cpp singleton.cpp log.cpp update_notifier.cpp)
+add_library(utils STATIC utils.cpp ini_reader.cpp string_utils.cpp dynamic_bitset.cpp compute_unit.cpp singleton.cpp log.cpp update_notifier.cpp file_path_lock.cpp)
 
 target_include_directories(utils PUBLIC ${CMAKE_SOURCE_DIR}/src/core)
 

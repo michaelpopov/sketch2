@@ -13,6 +13,7 @@
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -24,11 +25,12 @@ namespace {
 std::filesystem::path make_temp_dir() {
     const std::filesystem::path base = std::filesystem::temp_directory_path();
     std::filesystem::create_directories(base);
-    const std::filesystem::path dir =
-        base / std::filesystem::path("sketch2_parasol_ut_" + std::to_string(::getpid()) + "_" +
-                                     std::to_string(std::rand()));
-    std::filesystem::create_directories(dir);
-    return dir;
+    std::string pattern = (base / "sketch2_parasol_ut_XXXXXX").string();
+    std::vector<char> writable(pattern.begin(), pattern.end());
+    writable.push_back('\0');
+    char* const dir = mkdtemp(writable.data());
+    EXPECT_NE(nullptr, dir);
+    return dir == nullptr ? base / "sketch2_parasol_ut_fallback" : std::filesystem::path(dir);
 }
 
 std::string read_file(const std::filesystem::path& path) {

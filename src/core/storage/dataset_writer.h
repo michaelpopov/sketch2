@@ -19,7 +19,8 @@ class DatasetWriter : public Dataset {
 public:
     ~DatasetWriter() override;
 
-    // init() overrides acquire the owner lock and replay any pending WAL.
+    // init() overrides replay any pending WAL; owner lock is acquired lazily
+    // when a write path first needs ownership.
     Ret init(const DatasetMetadata& metadata);
     Ret init(const std::vector<std::string>& dirs, uint64_t range_size,
             DataType type = DataType::f32, uint64_t dim = 4,
@@ -39,6 +40,7 @@ public:
 private:
     std::mutex write_mutex_;
     mutable std::unique_ptr<FileLockGuard> owner_lock_;
+    bool owner_path_registered_ = false;
     mutable std::unique_ptr<Accumulator> accumulator_;
     mutable std::unique_ptr<UpdateNotifier> update_notifier_;
 

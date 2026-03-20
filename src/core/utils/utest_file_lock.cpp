@@ -1,6 +1,7 @@
 // Unit tests for filesystem locking helpers.
 
 #include "utils/file_lock.h"
+#include "utils/file_path_lock.h"
 
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -8,6 +9,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <fstream>
 #include <filesystem>
 #include <string>
 
@@ -108,4 +110,89 @@ TEST_F(FileLockGuardTest, DestructorReleasesLockAllowingReacquisition) {
     FileLockGuard guard2;
     const Ret ret = guard2.lock(lock_path_);
     EXPECT_EQ(0, ret.code()) << ret.message();
+}
+
+TEST(FilePathLockTest, RejectsNonexistentFile) {
+    FilePathLock lock;
+    const std::string missing_path = tmp_dir() + "/sketch2_utest_missing_file_" + std::to_string(getpid());
+    EXPECT_FALSE(lock.check_file_path(missing_path));
+}
+
+TEST(FilePathLockTest, AllowsOnlyFirstCheckPerPath) {
+    const std::string file_path = tmp_dir() + "/sketch2_utest_file_" + std::to_string(getpid());
+    std::ofstream file(file_path);
+    ASSERT_TRUE(file.is_open());
+    file << "test";
+    file.close();
+
+    FilePathLock lock;
+    EXPECT_TRUE(lock.check_file_path(file_path));
+    EXPECT_FALSE(lock.check_file_path(file_path));
+
+    std::remove(file_path.c_str());
+}
+
+TEST(FilePathLockTest, ReleaseAllowsReuse) {
+    const std::string file_path = tmp_dir() + "/sketch2_utest_file_release_" + std::to_string(getpid());
+    std::ofstream file(file_path);
+    ASSERT_TRUE(file.is_open());
+    file << "data";
+    file.close();
+
+    FilePathLock lock;
+    ASSERT_TRUE(lock.check_file_path(file_path));
+    EXPECT_TRUE(lock.release_file_path(file_path));
+    EXPECT_FALSE(lock.release_file_path(file_path));
+    EXPECT_TRUE(lock.check_file_path(file_path));
+
+    std::remove(file_path.c_str());
+}
+
+TEST(FilePathLockTest, ReleaseAfterFileRemoved) {
+    const std::string file_path = tmp_dir() + "/sketch2_utest_file_release_missing_" + std::to_string(getpid());
+    std::ofstream file(file_path);
+    ASSERT_TRUE(file.is_open());
+    file << "data";
+    file.close();
+
+    FilePathLock lock;
+    ASSERT_TRUE(lock.check_file_path(file_path));
+    EXPECT_TRUE(fs::exists(file_path));
+    std::remove(file_path.c_str());
+    EXPECT_FALSE(fs::exists(file_path));
+    EXPECT_TRUE(lock.release_file_path(file_path));
+    EXPECT_FALSE(lock.check_file_path(file_path));
+
+    std::ofstream recreated(file_path);
+    ASSERT_TRUE(recreated.is_open());
+    recreated << "data";
+    recreated.close();
+    EXPECT_TRUE(lock.check_file_path(file_path));
+
+    std::remove(file_path.c_str());
+}
+
+TEST(FilePathLockTest, CanonicalizesDuplicatePaths) {
+    const fs::path base_dir = fs::path(tmp_dir()) / ("sketch2_utest_dir_" + std::to_string(getpid()));
+    const fs::path target_file = base_dir / "data.bin";
+    const fs::path link_dir = fs::path(tmp_dir()) / ("sketch2_utest_dir_link_" + std::to_string(getpid()));
+
+    fs::create_directories(base_dir);
+    std::ofstream file(target_file);
+    ASSERT_TRUE(file.is_open());
+    file << "data";
+    file.close();
+
+    if (fs::exists(link_dir)) {
+        fs::remove(link_dir);
+    }
+    fs::create_directory_symlink(base_dir, link_dir);
+
+    FilePathLock lock;
+    EXPECT_TRUE(lock.check_file_path(target_file.string()));
+    EXPECT_FALSE(lock.check_file_path((link_dir / "data.bin").string()));
+
+    fs::remove(link_dir);
+    fs::remove(target_file);
+    fs::remove(base_dir);
 }

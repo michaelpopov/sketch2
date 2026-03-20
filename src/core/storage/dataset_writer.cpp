@@ -41,22 +41,27 @@ struct StoreRangeTask {
  */
 
 DatasetWriter::~DatasetWriter() {
-    if (!accumulator_ || !owner_lock_) {
-        return;
-    }
-    if (accumulator_->vectors_count() == 0 && accumulator_->deleted_count() == 0) {
-        return;
+    if (accumulator_ && owner_lock_ &&
+            (accumulator_->vectors_count() != 0 || accumulator_->deleted_count() != 0)) {
+        try {
+            const Ret ret = store_accumulator();
+            if (ret.code() != 0) {
+                LOG_ERROR << "DatasetWriter destructor failed to flush accumulator: " << ret.message();
+            }
+        } catch (const std::exception& ex) {
+            LOG_ERROR << "DatasetWriter destructor failed to flush accumulator: " << ex.what();
+        } catch (...) {
+            LOG_ERROR << "DatasetWriter destructor failed to flush accumulator: unknown error";
+        }
     }
 
-    try {
-        const Ret ret = store_accumulator();
-        if (ret.code() != 0) {
-            LOG_ERROR << "DatasetWriter destructor failed to flush accumulator: " << ret.message();
+    if (owner_path_registered_ && !metadata_.dirs.empty()) {
+        const std::string lock_path = dataset_owner_lock_path(metadata_);
+        const bool ok = Singleton::instance().release_file_path(lock_path);
+        if (!ok) {
+            LOG_ERROR << "DatasetWriter destructor failed to release locked file path";
         }
-    } catch (const std::exception& ex) {
-        LOG_ERROR << "DatasetWriter destructor failed to flush accumulator: " << ex.what();
-    } catch (...) {
-        LOG_ERROR << "DatasetWriter destructor failed to flush accumulator: unknown error";
+        owner_path_registered_ = false;
     }
 }
 
@@ -82,9 +87,7 @@ Ret DatasetWriter::init(const std::string& path) {
 Ret DatasetWriter::init_writer_() {
     // Replay WAL only if no other process currently owns this dataset.
     // Use a temporary lock that is released immediately after replay so that
-    // the owner_lock_ slot stays empty and is acquired lazily by the first
-    // write operation.  This avoids inheriting a held fd across fork() and
-    // blocking concurrent openers that will never write.
+    // ownership is still acquired lazily when first write happens.
     const std::string lock_path = dataset_owner_lock_path(metadata_);
     {
         FileLockGuard temp_lock;
@@ -92,7 +95,7 @@ Ret DatasetWriter::init_writer_() {
             return Ret(0);
         }
         CHECK(init_accumulator_());
-    }  // temp_lock released here
+    }
     return Ret(0);
 }
 
@@ -101,39 +104,60 @@ Ret DatasetWriter::init_writer_() {
  */
 
 Ret DatasetWriter::store(const std::string& input_path) {
+    Ret ret{0};
+    bool should_notify = false;
     try {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
-        Ret ret = store_(input_path);
-        notify_update_("DatasetWriter::store");
-        return ret;
+        should_notify = true;
+        ret = store_(input_path);
     } catch (const std::exception& ex) {
-        return Ret(ex.what());
+        ret = Ret(ex.what());
     }
+
+    if (should_notify) {
+        notify_update_("DatasetWriter::store");
+    }
+
+    return ret;
 }
 
 Ret DatasetWriter::store_accumulator() {
+    Ret ret{0};
+    bool should_notify = false;
     try {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
-        Ret ret = store_accumulator_();
-        notify_update_("DatasetWriter::store_accumulator");
-        return ret;
+        should_notify = true;
+        ret = store_accumulator_();
     } catch (const std::exception& ex) {
-        return Ret(ex.what());
+        ret = Ret(ex.what());
     }
+
+    if (should_notify) {
+        notify_update_("DatasetWriter::store_accumulator");
+    }
+
+    return ret;
 }
 
 Ret DatasetWriter::merge() {
+    Ret ret{0};
+    bool should_notify = false;
     try {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
-        Ret ret = merge_();
-        notify_update_("DatasetWriter::merge");
-        return ret;
+        should_notify = true;
+        ret = merge_();
     } catch (const std::exception& ex) {
-        return Ret(ex.what());
+        ret = Ret(ex.what());
     }
+
+    if (should_notify) {
+        notify_update_("DatasetWriter::merge");
+    }
+
+    return ret;
 }
 
 Ret DatasetWriter::add_vector(uint64_t id, const uint8_t* data) {
@@ -171,6 +195,11 @@ Ret DatasetWriter::ensure_owner_lock_() {
     owner_lock_ = std::make_unique<FileLockGuard>();
     const std::string lock_path = dataset_owner_lock_path(metadata_);
     CHECK(owner_lock_->lock(lock_path));
+    if (!Singleton::instance().check_file_path(lock_path)) {
+        owner_lock_.reset();
+        return Ret("DatasetWriter: file already in use");
+    }
+    owner_path_registered_ = true;
 
     // Ensure the lock file contains a valid 8-byte counter so that
     // checker-mode DatasetReader::update_notifier_ can read it without hitting
@@ -183,10 +212,16 @@ Ret DatasetWriter::ensure_owner_lock_() {
                 value = 0;
                 const ssize_t ret = pwrite(fd, &value, sizeof(value), 0);
                 if (ret < 0) {
+                    (void)Singleton::instance().release_file_path(lock_path);
+                    owner_path_registered_ = false;
+                    owner_lock_.reset();
                     return Ret("Dataset: failed to initialize owner lock counter in " + lock_path +
                         ": " + std::string(std::strerror(errno)));
                 }
                 if (ret != static_cast<ssize_t>(sizeof(value))) {
+                    (void)Singleton::instance().release_file_path(lock_path);
+                    owner_path_registered_ = false;
+                    owner_lock_.reset();
                     return Ret("Dataset: short write while initializing owner lock counter in " + lock_path);
                 }
                 (void)fdatasync(fd);
