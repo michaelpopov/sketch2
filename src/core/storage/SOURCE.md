@@ -1,6 +1,7 @@
 # Source Index
 
 - `CMakeLists.txt`: Build rules for the storage library and storage tests.
+- `CHANGE.md`: Refactor/change log for Dataset, DatasetReader, and DatasetWriter evolution.
 - `DESIGN.md`: Design notes for the storage subsystem.
 - `README.md`: Storage module overview and file-format notes.
 - `accumulator.cpp`: In-memory write buffer for pending vector updates and deletes.
@@ -15,8 +16,14 @@
 - `data_reader.h`: Data reader declarations and iterator types.
 - `data_writer.cpp`: Writer that converts text or binary input records into binary data files.
 - `data_writer.h`: Data writer interface.
-- `dataset.cpp`: Dataset lifecycle, persistence, merge, and read-state coordination.
-- `dataset.h`: Dataset metadata, dataset API, and dataset reader declarations.
+- `dataset.cpp`: Dataset base implementation for metadata and initialization.
+- `dataset.h`: Lean Dataset base declarations and shared free helpers.
+- `dataset_node.cpp`: Adapter implementation that combines DatasetReader and DatasetWriter for mixed-use callers.
+- `dataset_node.h`: DatasetNode adapter interface used by Parasol/tests.
+- `dataset_reader.cpp`: Read-path implementation (cache, notifier checker mode, and range reader).
+- `dataset_reader.h`: DatasetReader and DatasetRangeReader declarations.
+- `dataset_writer.cpp`: Write-path implementation (owner lock, accumulator, WAL, notifier updater mode).
+- `dataset_writer.h`: DatasetWriter declarations for mutation and compaction flows.
 - `input_generator.cpp`: Synthetic text and binary input generation helpers.
 - `input_generator.h`: Input generation patterns, binary-mode option, and helper declarations.
 - `input_reader.cpp`: Parser and range-view implementation for text and binary input files.

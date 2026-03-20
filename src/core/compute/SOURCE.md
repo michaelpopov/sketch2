@@ -8,6 +8,7 @@
 - `compute.h`: Common distance-item types and the base compute interface.
 - `compute_avx2_utils.h`: Shared AVX2 target-attribute and SIMD helper utilities.
 - `compute_avx512_utils.h`: Shared AVX-512 target-attribute and SIMD helper utilities.
+- `compute_neon_utils.h`: Shared NEON target-attribute and SIMD helper utilities.
 - `compute_cos.h`: Portable cosine-distance implementation and runtime resolver entry points.
 - `compute_cos_avx2.h`: AVX2-specialized cosine-distance kernels.
 - `compute_cos_avx512.h`: AVX-512 cosine-distance kernels for `avx512f` and `avx512_vnni`.
@@ -23,7 +24,9 @@
 - `gbench_compute.cpp`: Google Benchmark suite covering compute kernels and scanner query paths.
 - `scanner.cpp`: Nearest-neighbor scanning logic over readers and datasets with runtime backend dispatch.
 - `scanner.h`: Public scanner API for top-k search.
+- `bench_compute.cpp`: Lightweight benchmark executable for end-to-end compute throughput checks.
 - `utest_compute_cos.cpp`: Unit tests for cosine-distance compute paths.
+- `utest_compute_helpers.h`: Shared helper utilities for compute unit tests.
 - `utest_compute_l1.cpp`: Unit tests for L1-distance compute paths.
 - `utest_compute_l2.cpp`: Unit tests for L2-distance compute paths.
 - `utest_compute_runtime.cpp`: Unit tests for runtime compute-unit selection and resolver dispatch.

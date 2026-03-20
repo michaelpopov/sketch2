@@ -20,6 +20,8 @@
 - `string_utils.h`: Declarations for textual vector parsing and formatting.
 - `thread_pool.h`: Header-only fixed-size thread pool for utility and test parallelism.
 - `timer.h`: Stack-scoped elapsed-time helper for tests and utilities.
+- `update_notifier.cpp`: File-backed update counter implementation for cross-process cache invalidation.
+- `update_notifier.h`: Update notifier interface used by storage reader/writer paths.
 - `utest_dynamic_bitset.cpp`: Unit tests for the dynamic bitset.
 - `utest_file_lock.cpp`: Unit tests for file locking behavior.
 - `utest_ini_reader.cpp`: Unit tests for the INI reader.
@@ -28,4 +30,6 @@
 - `utest_singleton.cpp`: Unit tests for config-driven singleton initialization helpers.
 - `utest_string_utils.cpp`: Unit tests for textual vector parsing and printing.
 - `utest_thread_pool.cpp`: Unit tests for thread-pool submission and shutdown behavior.
+- `utest_update_notifier.cpp`: Unit tests for notifier update/checker behavior and counter persistence.
 - `utils.cpp`: Placeholder translation unit for the utilities library.
+- `rw_lock.h`: Reader-writer lock wrapper used by shared caches in read-heavy code paths.
