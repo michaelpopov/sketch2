@@ -58,13 +58,15 @@ inline double ComputeCos_Neon::squared_norm_f32(const uint8_t *a, size_t dim) {
     float32x4_t norm_acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
-    for (; i + 8 <= dim; i += 8) {
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    for (; i < simd8_end; i += 8) {
         const float32x4_t a0 = vld1q_f32(va + i);
         const float32x4_t a1 = vld1q_f32(va + i + 4);
         norm_acc0 = vmlaq_f32(norm_acc0, a0, a0);
         norm_acc1 = vmlaq_f32(norm_acc1, a1, a1);
     }
-    for (; i + 4 <= dim; i += 4) {
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
+    for (; i < simd4_end; i += 4) {
         const float32x4_t a0 = vld1q_f32(va + i);
         norm_acc0 = vmlaq_f32(norm_acc0, a0, a0);
     }
@@ -84,11 +86,13 @@ inline double ComputeCos_Neon::dot_f32(const uint8_t *a, const uint8_t *b, size_
     float32x4_t dot_acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
-    for (; i + 8 <= dim; i += 8) {
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    for (; i < simd8_end; i += 8) {
         dot_acc0 = vmlaq_f32(dot_acc0, vld1q_f32(va + i),     vld1q_f32(vb + i));
         dot_acc1 = vmlaq_f32(dot_acc1, vld1q_f32(va + i + 4), vld1q_f32(vb + i + 4));
     }
-    for (; i + 4 <= dim; i += 4) {
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
+    for (; i < simd4_end; i += 4) {
         dot_acc0 = vmlaq_f32(dot_acc0, vld1q_f32(va + i), vld1q_f32(vb + i));
     }
 
@@ -107,7 +111,8 @@ inline double ComputeCos_Neon::dist_f32_with_query_norm(const uint8_t *a, const 
     float32x4_t norm_a_acc = vdupq_n_f32(0.0f);
 
     size_t i = 0;
-    for (; i + 4 <= dim; i += 4) {
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
+    for (; i < simd4_end; i += 4) {
         const float32x4_t a4 = vld1q_f32(va + i);
         const float32x4_t b4 = vld1q_f32(vb + i);
         dot_acc = vmlaq_f32(dot_acc, a4, b4);
@@ -136,8 +141,10 @@ inline double ComputeCos_Neon::squared_norm_f16(const uint8_t *a, size_t dim) {
     float32x4_t norm_acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
 #if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
-    for (; i + 8 <= dim; i += 8) {
+    for (; i < simd8_end; i += 8) {
         const float16x8_t a8 = vld1q_f16(reinterpret_cast<const float16_t *>(va + i));
         const float32x4_t a_lo = vcvt_f32_f16(vget_low_f16(a8));
         const float32x4_t a_hi = vcvt_f32_f16(vget_high_f16(a8));
@@ -145,7 +152,7 @@ inline double ComputeCos_Neon::squared_norm_f16(const uint8_t *a, size_t dim) {
         norm_acc1 = vmlaq_f32(norm_acc1, a_hi, a_hi);
     }
 #endif
-    for (; i + 4 <= dim; i += 4) {
+    for (; i < simd4_end; i += 4) {
         const float32x4_t a4_f32 = vcvt_f32_f16(vld1_f16(reinterpret_cast<const float16_t *>(va + i)));
         norm_acc0 = vmlaq_f32(norm_acc0, a4_f32, a4_f32);
     }
@@ -165,8 +172,10 @@ inline double ComputeCos_Neon::dot_f16(const uint8_t *a, const uint8_t *b, size_
     float32x4_t dot_acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
 #if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
-    for (; i + 8 <= dim; i += 8) {
+    for (; i < simd8_end; i += 8) {
         const float16x8_t a8 = vld1q_f16(reinterpret_cast<const float16_t *>(va + i));
         const float16x8_t b8 = vld1q_f16(reinterpret_cast<const float16_t *>(vb + i));
         const float32x4_t a_lo = vcvt_f32_f16(vget_low_f16(a8));
@@ -178,7 +187,7 @@ inline double ComputeCos_Neon::dot_f16(const uint8_t *a, const uint8_t *b, size_
         dot_acc1 = vmlaq_f32(dot_acc1, a_hi, b_hi);
     }
 #endif
-    for (; i + 4 <= dim; i += 4) {
+    for (; i < simd4_end; i += 4) {
         const float16x4_t a4 = vld1_f16(reinterpret_cast<const float16_t *>(va + i));
         const float16x4_t b4 = vld1_f16(reinterpret_cast<const float16_t *>(vb + i));
         dot_acc0 = vmlaq_f32(dot_acc0, vcvt_f32_f16(a4), vcvt_f32_f16(b4));
@@ -201,8 +210,10 @@ inline double ComputeCos_Neon::dist_f16_with_query_norm(const uint8_t *a, const 
     float32x4_t norm_a_acc1 = vdupq_n_f32(0.0f);
 
     size_t i = 0;
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
 #if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
-    for (; i + 8 <= dim; i += 8) {
+    for (; i < simd8_end; i += 8) {
         const float16x8_t a8 = vld1q_f16(reinterpret_cast<const float16_t *>(va + i));
         const float16x8_t b8 = vld1q_f16(reinterpret_cast<const float16_t *>(vb + i));
         const float32x4_t a_lo = vcvt_f32_f16(vget_low_f16(a8));
@@ -216,7 +227,7 @@ inline double ComputeCos_Neon::dist_f16_with_query_norm(const uint8_t *a, const 
         norm_a_acc1 = vmlaq_f32(norm_a_acc1, a_hi, a_hi);
     }
 #endif
-    for (; i + 4 <= dim; i += 4) {
+    for (; i < simd4_end; i += 4) {
         const float16x4_t a4 = vld1_f16(reinterpret_cast<const float16_t *>(va + i));
         const float16x4_t b4 = vld1_f16(reinterpret_cast<const float16_t *>(vb + i));
         const float32x4_t a4_f32 = vcvt_f32_f16(a4);
@@ -250,7 +261,8 @@ inline double ComputeCos_Neon::squared_norm_i16(const uint8_t *a, size_t dim) {
     int64x2_t norm_acc3 = vdupq_n_s64(0);
 
     size_t i = 0;
-    for (; i + 8 <= dim; i += 8) {
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    for (; i < simd8_end; i += 8) {
         const int16x8_t a8 = vld1q_s16(va + i);
         const int32x4_t a_lo = vmovl_s16(vget_low_s16(a8));
         const int32x4_t a_hi = vmovl_s16(vget_high_s16(a8));
@@ -276,7 +288,8 @@ inline double ComputeCos_Neon::dot_i16(const uint8_t *a, const uint8_t *b, size_
     int64x2_t dot_acc3 = vdupq_n_s64(0);
 
     size_t i = 0;
-    for (; i + 8 <= dim; i += 8) {
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    for (; i < simd8_end; i += 8) {
         const int16x8_t a8 = vld1q_s16(va + i);
         const int16x8_t b8 = vld1q_s16(vb + i);
         const int32x4_t a_lo = vmovl_s16(vget_low_s16(a8));
@@ -310,7 +323,8 @@ inline double ComputeCos_Neon::dist_i16_with_query_norm(const uint8_t *a, const 
     int64x2_t norm_a_acc3 = vdupq_n_s64(0);
 
     size_t i = 0;
-    for (; i + 8 <= dim; i += 8) {
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    for (; i < simd8_end; i += 8) {
         const int16x8_t a8 = vld1q_s16(va + i);
         const int16x8_t b8 = vld1q_s16(vb + i);
         const int32x4_t a_lo = vmovl_s16(vget_low_s16(a8));
