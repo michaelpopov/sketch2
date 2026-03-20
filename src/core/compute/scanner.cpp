@@ -66,11 +66,11 @@ void extract_items(DistHeap* heap, std::vector<DistItem>* result) {
     }
 }
 
-void extract_ids(DistHeap* heap, std::vector<uint64_t>* result) {
-    result->resize(heap->size());
-    for (size_t i = heap->size(); i-- > 0;) {
-        (*result)[i] = heap->top().id;
-        heap->pop();
+void extract_ids_from_items(const std::vector<DistItem>& items, std::vector<uint64_t>* result) {
+    result->clear();
+    result->reserve(items.size());
+    for (const auto& item : items) {
+        result->push_back(item.id);
     }
 }
 
@@ -390,7 +390,7 @@ Ret dispatch_with_backend(DataType type, DistFunc func, const DataReader& reader
 
 // Build the top-k heap by selecting the right SIMD backend at runtime.
 // Works for both Dataset and DataReader via the dispatch_with_backend overloads.
-// find_() and find_items_() share this path and diverge only at the extract step.
+// ID-returning and item-returning APIs both share this path.
 template <typename Source>
 Ret build_heap(const Source& source, DistFunc func, size_t count,
         const uint8_t* vec, DistHeap* heap) {
@@ -428,7 +428,10 @@ Ret build_heap(const Source& source, DistFunc func, size_t count,
 Ret Scanner::find(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     try {
-        return find_(reader, func, count, vec, result);
+        std::vector<DistItem> items;
+        CHECK(find_items_(reader, func, count, vec, items));
+        extract_ids_from_items(items, &result);
+        return Ret(0);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
@@ -446,7 +449,10 @@ Ret Scanner::find_items(const DataReader& reader, DistFunc func, size_t count, c
 Ret Scanner::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     try {
-        return find_(dataset, count, vec, result);
+        std::vector<DistItem> items;
+        CHECK(find_items_(dataset, count, vec, items));
+        extract_ids_from_items(items, &result);
+        return Ret(0);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
@@ -461,20 +467,6 @@ Ret Scanner::find_items(const DatasetReader& dataset, size_t count, const uint8_
     }
 }
 
-Ret Scanner::find_(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) const {
-    if (vec == nullptr || count == 0) {
-        return Ret("Scanner::find: invalid arguments.");
-    }
-    result.clear();
-    const DistFunc func = dataset.dist_func();
-    log_query_dispatch("dataset", func, dataset.type(), dataset.dim(), count, false);
-    DistHeap heap;
-    CHECK(build_heap(dataset, func, count, vec, &heap));
-    extract_ids(&heap, &result);
-    return Ret(0);
-}
-
 Ret Scanner::find_items_(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result) const {
     if (vec == nullptr || count == 0) {
@@ -486,19 +478,6 @@ Ret Scanner::find_items_(const DatasetReader& dataset, size_t count, const uint8
     DistHeap heap;
     CHECK(build_heap(dataset, func, count, vec, &heap));
     extract_items(&heap, &result);
-    return Ret(0);
-}
-
-Ret Scanner::find_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) const {
-    if (vec == nullptr || count == 0) {
-        return Ret("Scanner::find: invalid arguments.");
-    }
-    result.clear();
-    log_query_dispatch("reader", func, reader.type(), reader.dim(), count, false);
-    DistHeap heap;
-    CHECK(build_heap(reader, func, count, vec, &heap));
-    extract_ids(&heap, &result);
     return Ret(0);
 }
 

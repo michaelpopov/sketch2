@@ -629,14 +629,18 @@ static int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k) {
         ERR(ret.message().c_str())
     }
 
-    std::vector<uint64_t> result;
+    std::vector<DistItem> items;
     Scanner scanner;
-    ret = scanner.find(handle->ds->reader_dataset(), k, buf.data(), result);
+    ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
 
-    handle->knn_result = std::move(result);
+    handle->knn_result.clear();
+    handle->knn_result.reserve(items.size());
+    for (const auto& item : items) {
+        handle->knn_result.push_back(item.id);
+    }
     return 0;
 }
 
