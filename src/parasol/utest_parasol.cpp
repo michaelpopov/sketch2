@@ -65,54 +65,6 @@ TEST(parasol, create_open_close_drop_lifecycle) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, upsert_get_gid_and_delete_follow_design_results) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    ASSERT_OK(handle, sk_upsert(handle, 42, "1.0, 2.0, 3.0, 4.0"));
-    ASSERT_OK(handle, sk_macc(handle));
-
-    ASSERT_OK(handle, sk_get(handle, 42));
-    EXPECT_STREQ("[ 1, 2, 3, 4 ]", sk_gres(handle));
-
-    ASSERT_OK(handle, sk_gid(handle, "1.0, 2.0, 3.0, 4.0"));
-    uint64_t id = 0;
-    ASSERT_OK(handle, sk_ires(handle, &id));
-    EXPECT_EQ(42u, id);
-
-    ASSERT_OK(handle, sk_del(handle, 42));
-    ASSERT_OK(handle, sk_macc(handle));
-    EXPECT_NE(0, sk_get(handle, 42));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(parasol, get_reads_pending_accumulator_vector_without_store_accumulator) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    ASSERT_OK(handle, sk_upsert(handle, 42, "1.0, 2.0, 3.0, 4.0"));
-
-    ASSERT_OK(handle, sk_get(handle, 42));
-    EXPECT_STREQ("[ 1, 2, 3, 4 ]", sk_gres(handle));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
 TEST(parasol, reopen_restores_pending_wal_for_get_and_knn) {
     const std::filesystem::path root = make_temp_dir();
 

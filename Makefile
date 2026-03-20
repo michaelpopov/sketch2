@@ -138,6 +138,22 @@ ds_bench: benchbuild
 ds_mix_bench: benchbuild
 	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential SKETCH2_GBENCH_SCANNER_MODE=dataset_mixed bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
 
+# Runs full local coverage flow:
+# - debug unit tests
+# - release unit tests
+# - Python integration tests
+# - Python demo
+# - reader/dataset benchmark slices
+.PHONY: cover
+cover:
+	$(MAKE) test
+	$(MAKE) rtest
+	$(MAKE) pytest
+	$(MAKE) demo
+	$(MAKE) reader_bench
+	$(MAKE) ds_bench
+	$(MAKE) ds_mix_bench
+
 # Runs Python shell with Sketch2 objects ready
 .PHONY: pyshell
 pyshell:

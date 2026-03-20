@@ -37,30 +37,6 @@ struct StoreRangeTask {
 } // namespace
 
 /***********************************************************
- *  DatasetWriter::AccumulatorIterator
- */
-
-void DatasetWriter::AccumulatorIterator::next() {
-    iterator_.next();
-}
-
-bool DatasetWriter::AccumulatorIterator::eof() const {
-    return iterator_.eof();
-}
-
-uint64_t DatasetWriter::AccumulatorIterator::id() const {
-    return iterator_.id();
-}
-
-const uint8_t* DatasetWriter::AccumulatorIterator::data() const {
-    return iterator_.data();
-}
-
-float DatasetWriter::AccumulatorIterator::cosine_inv_norm() const {
-    return iterator_.cosine_inv_norm();
-}
-
-/***********************************************************
  *  DatasetWriter lifecycle
  */
 
@@ -129,7 +105,6 @@ Ret DatasetWriter::store(const std::string& input_path) {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
         Ret ret = store_(input_path);
-        invalidate_data_caches_();
         notify_update_("DatasetWriter::store");
         return ret;
     } catch (const std::exception& ex) {
@@ -142,7 +117,6 @@ Ret DatasetWriter::store_accumulator() {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
         Ret ret = store_accumulator_();
-        invalidate_data_caches_();
         notify_update_("DatasetWriter::store_accumulator");
         return ret;
     } catch (const std::exception& ex) {
@@ -155,7 +129,6 @@ Ret DatasetWriter::merge() {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
         Ret ret = merge_();
-        invalidate_data_caches_();
         notify_update_("DatasetWriter::merge");
         return ret;
     } catch (const std::exception& ex) {
@@ -186,13 +159,6 @@ Ret DatasetWriter::delete_vector(uint64_t id) {
     return accumulator_->delete_vector(id);
 }
 
-DatasetWriter::AccumulatorIterator DatasetWriter::accumulator_begin() const {
-    if (!accumulator_) {
-        return AccumulatorIterator(Accumulator::Iterator());
-    }
-    return AccumulatorIterator(accumulator_->begin());
-}
-
 /***********************************************************
  *  Private helpers
  */
@@ -215,7 +181,14 @@ Ret DatasetWriter::ensure_owner_lock_() {
             uint64_t value = 0;
             if (pread(fd, &value, sizeof(value), 0) < static_cast<ssize_t>(sizeof(value))) {
                 value = 0;
-                (void)pwrite(fd, &value, sizeof(value), 0);
+                const ssize_t ret = pwrite(fd, &value, sizeof(value), 0);
+                if (ret < 0) {
+                    return Ret("Dataset: failed to initialize owner lock counter in " + lock_path +
+                        ": " + std::string(std::strerror(errno)));
+                }
+                if (ret != static_cast<ssize_t>(sizeof(value))) {
+                    return Ret("Dataset: short write while initializing owner lock counter in " + lock_path);
+                }
                 (void)fdatasync(fd);
             }
             (void)close(fd);
@@ -267,20 +240,6 @@ void DatasetWriter::notify_update_(const char* caller) {
     if (ur.code() != 0) {
         LOG_ERROR << caller << ": " << ur.message();
     }
-}
-
-std::pair<const uint8_t*, bool> DatasetWriter::get_vector_from_accumulator_(uint64_t id) const {
-    if (!accumulator_) {
-        return {nullptr, false};
-    }
-    if (accumulator_->is_deleted(id)) {
-        return {nullptr, true};
-    }
-    const uint8_t* vec = accumulator_->get_vector(id);
-    if (vec) {
-        return {vec, true};
-    }
-    return {nullptr, false};
 }
 
 /***********************************************************

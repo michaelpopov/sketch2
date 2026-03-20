@@ -94,11 +94,6 @@ int sk_get(sk_handle_t* handle, uint64_t id);
 const char* sk_gres(sk_handle_t* handle);
 
 /*
- * Find an id by exact vector value and cache it on the handler.
- */
-int sk_gid(sk_handle_t* handle, const char* vec);
-
-/*
  * Copy the cached id into value.
  */
 int sk_ires(sk_handle_t* handle, uint64_t* value);

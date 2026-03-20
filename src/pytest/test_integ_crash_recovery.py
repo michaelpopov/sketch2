@@ -44,12 +44,14 @@ os._exit(0)
         self.assert_subprocess_ok(result, "crash script")
         self.progress("Crash simulated (os._exit after 10 unflushed upserts)")
 
-        # Step 3: New process opens dataset. WAL replays accumulator.
+        # Step 3: New process opens dataset. WAL replays into the writer-side
+        # accumulator; then merge it so reader-side get() can observe recovered ids.
         recovery_script = f"""
 import json
 from sketch2_wrapper import Sketch2
 with Sketch2({str(self.root)!r}) as ps:
     ps.open({self.dataset_name!r})
+    ps.merge_accumulator()
     results = {{}}
     for i in range(10):
         vec = ps.get(i)
@@ -95,9 +97,9 @@ os._exit(0)
         # New handle: open, verify WAL data, merge, close.
         with Sketch2(self.root) as ps:
             ps.open(self.dataset_name)
+            ps.merge_accumulator()
             vec = ps.get(50)
             self.assertTrue(len(vec) > 0)
-            ps.merge_accumulator()
             ps.close(self.dataset_name)
         self.progress("WAL replayed, merge_accumulator persisted recovered data")
 

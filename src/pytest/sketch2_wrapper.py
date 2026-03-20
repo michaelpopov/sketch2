@@ -105,8 +105,12 @@ class Sketch2:
         self.lib.sk_gres.argtypes = [c_void_p]
         self.lib.sk_gres.restype = c_char_p
 
-        self.lib.sk_gid.argtypes = [c_void_p, c_char_p]
-        self.lib.sk_gid.restype = c_int
+        self._has_sk_gid = True
+        try:
+            self.lib.sk_gid.argtypes = [c_void_p, c_char_p]
+            self.lib.sk_gid.restype = c_int
+        except AttributeError:
+            self._has_sk_gid = False
 
         self.lib.sk_ires.argtypes = [c_void_p, POINTER(c_uint64)]
         self.lib.sk_ires.restype = c_int
@@ -226,10 +230,18 @@ class Sketch2:
         return out.decode("utf-8", errors="replace")
 
     def gid(self, vec: str) -> int:
-        self._check("sk_gid", self.lib.sk_gid(self.handle, vec.encode("utf-8")))
-        value = c_uint64()
-        self._check("sk_ires", self.lib.sk_ires(self.handle, byref(value)))
-        return int(value.value)
+        if self._has_sk_gid:
+            self._check("sk_gid", self.lib.sk_gid(self.handle, vec.encode("utf-8")))
+            value = c_uint64()
+            self._check("sk_ires", self.lib.sk_ires(self.handle, byref(value)))
+            return int(value.value)
+
+        # Compatibility fallback for builds where sk_gid was removed:
+        # run k=1 KNN and return the first id.
+        result = self.knn(vec, 1)
+        if not result:
+            raise Sketch2Error("gid", "no id found", -1)
+        return int(result[0])
 
     def print(self) -> None:
         self._check("sk_print", self.lib.sk_print(self.handle))

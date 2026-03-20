@@ -1,7 +1,7 @@
 // Declares DatasetWriter: write operations, accumulator, and WAL management.
 
 #pragma once
-#include "dataset_reader.h"
+#include "dataset.h"
 #include "core/storage/accumulator.h"
 #include "core/utils/file_lock.h"
 #include "core/utils/update_notifier.h"
@@ -15,28 +15,9 @@ class InputReader;
 
 // DatasetWriter owns the write infrastructure: mutex, owner lock, accumulator,
 // and the updater-mode UpdateNotifier for cross-process cache invalidation.
-class DatasetWriter : public DatasetReader {
+class DatasetWriter : public Dataset {
 public:
-    using DatasetReader::DatasetReader;
     ~DatasetWriter() override;
-
-    // AccumulatorIterator exposes pending in-memory writes for administrative
-    // lookups (e.g. finding a vector id by value before it is flushed).
-    class AccumulatorIterator {
-    public:
-        void next();
-        bool eof() const;
-        uint64_t id() const;
-        const uint8_t* data() const;
-        float cosine_inv_norm() const;
-
-    private:
-        friend class DatasetWriter;
-        explicit AccumulatorIterator(Accumulator::Iterator iterator)
-            : iterator_(std::move(iterator)) {}
-
-        Accumulator::Iterator iterator_;
-    };
 
     // init() overrides acquire the owner lock and replay any pending WAL.
     Ret init(const DatasetMetadata& metadata);
@@ -52,22 +33,6 @@ public:
     Ret add_vector(uint64_t id, const uint8_t* data);
     Ret delete_vector(uint64_t id);
 
-    // Checks the accumulator first (unflushed writes visible without merging),
-    // then falls back to the persisted read path.
-    std::pair<const uint8_t*, Ret> get_vector(uint64_t id) const {
-        auto [vec, in_accumulator] = get_vector_from_accumulator_(id);
-        if (in_accumulator) {
-            return {vec, Ret(0)};
-        }
-        return DatasetReader::get_vector(id);
-    }
-
-    AccumulatorIterator accumulator_begin() const;
-
-    bool has_accumulator() const { return static_cast<bool>(accumulator_); }
-    bool accumulator_has_cosine_inv_norms() const {
-        return accumulator_ && accumulator_->has_cosine_inv_norms();
-    }
     size_t accumulator_vectors_count() const { return accumulator_ ? accumulator_->vectors_count() : 0; }
     size_t accumulator_deleted_count() const { return accumulator_ ? accumulator_->deleted_count() : 0; }
 
@@ -82,8 +47,6 @@ private:
     Ret init_accumulator_();
     Ret ensure_update_notifier_() const;
     void notify_update_(const char* caller);
-
-    std::pair<const uint8_t*, bool> get_vector_from_accumulator_(uint64_t id) const;
 
     Ret store_(const std::string& input_path);
     Ret store_accumulator_();

@@ -4,7 +4,7 @@
 
 #include "sqlite3.h"
 
-#include "core/storage/dataset_writer.h"
+#include "core/storage/dataset_node.h"
 #include "utils/shared_types.h"
 
 #include <cstdio>
@@ -70,7 +70,7 @@ protected:
     }
 
     void create_dataset(DataType type, uint64_t dim, uint64_t range_size, DistFunc dist_func) {
-        DatasetWriter dataset;
+        DatasetNode dataset;
         ASSERT_EQ(0, dataset.init({dataset_dir_.string()}, range_size, type, dim,
             kAccumulatorBufferSize, dist_func).code());
         ASSERT_EQ(0, dataset.store(input_path_.string()).code());
@@ -438,7 +438,7 @@ TEST_F(VliteTest, DeletedVectorsStayHidden) {
                 "2 : [ 2.1, 2.1, 2.1, 2.1 ]\n"
                 "3 : [ 3.1, 3.1, 3.1, 3.1 ]\n");
 
-    DatasetWriter dataset;
+    DatasetNode dataset;
     ASSERT_EQ(0, dataset.init({dataset_dir_.string()}, 100, DataType::f32, 4,
         kAccumulatorBufferSize, DistFunc::L1).code());
     ASSERT_EQ(0, dataset.store(input_path_.string()).code());

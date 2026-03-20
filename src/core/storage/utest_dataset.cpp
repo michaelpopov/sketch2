@@ -10,7 +10,7 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_writer.h"
-#include "core/storage/dataset_writer.h"
+#include "core/storage/dataset_node.h"
 #include "core/storage/data_reader.h"
 #include "core/utils/singleton.h"
 #include "utils/ini_reader.h"
@@ -65,17 +65,17 @@ protected:
 // --- init error cases ---
 
 TEST_F(DatasetTest, InitFailsOnEmptyDirs) {
-    DatasetWriter sc;
+    DatasetNode sc;
     EXPECT_NE(0, sc.init({}, 100, DataType::f32, 4).code());
 }
 
 TEST_F(DatasetTest, InitFailsOnZeroRangeSize) {
-    DatasetWriter sc;
+    DatasetNode sc;
     EXPECT_NE(0, sc.init({make_dir("d")}, 0, DataType::f32, 4).code());
 }
 
 TEST_F(DatasetTest, InitFailsOnDoubleInit) {
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({make_dir("d")}, 100, DataType::f32, 4).code());
     EXPECT_NE(0, sc.init({make_dir("d2")}, 100, DataType::f32, 4).code());
 }
@@ -95,7 +95,7 @@ TEST_F(DatasetTest, InitFromIniSectionKeysWorks) {
     ASSERT_EQ(0, ini_cfg.init(config_path_).code());
     EXPECT_EQ(4, ini_cfg.get_int("dataset.dim", -1));
 
-    DatasetWriter sc;
+    DatasetNode sc;
     const Ret ret = sc.init(config_path_);
     ASSERT_EQ(0, ret.code()) << ret.message();
     EXPECT_EQ(DistFunc::L2, sc.dist_func());
@@ -114,7 +114,7 @@ TEST_F(DatasetTest, StoreProcessesIndependentRangesThroughConfiguredThreadPool) 
     ASSERT_TRUE(Singleton::apply_config_file(config_path_));
     ASSERT_NE(nullptr, get_singleton().thread_pool());
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir0, dir1}, 10, DataType::f32, 4).code());
     ASSERT_EQ(0, generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4)).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
@@ -137,7 +137,7 @@ TEST_F(DatasetTest, InitDefaultsDistFuncToL1WhenMissingFromIni) {
         "type = f32\n"
         "dim = 4\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init(config_path_).code());
     EXPECT_EQ(DistFunc::L1, sc.dist_func());
 }
@@ -152,7 +152,7 @@ TEST_F(DatasetTest, InitFromIniAcceptsCosDistanceFunction) {
         "dist_func = cos\n"
         "dim = 4\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init(config_path_).code());
     EXPECT_EQ(DistFunc::COS, sc.dist_func());
 }
@@ -165,7 +165,7 @@ TEST_F(DatasetTest, InitFromMetadataExposesDistanceFunction) {
     metadata.dist_func = DistFunc::L2;
     metadata.dim = 4;
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init(metadata).code());
     EXPECT_EQ(DistFunc::L2, sc.dist_func());
 }
@@ -180,7 +180,7 @@ TEST_F(DatasetTest, InitFromIniUsesAccumulatorSizeForLazyAddVector) {
         "dim = 4\n"
         "accumulator_size = 23\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init(config_path_).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
@@ -198,7 +198,7 @@ TEST_F(DatasetTest, InitFromIniFailsOnMissingType) {
         "range_size = 100\n"
         "dims = 4\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     EXPECT_NE(0, sc.init(config_path_).code());
 }
 
@@ -211,7 +211,7 @@ TEST_F(DatasetTest, InitFromIniFailsOnNegativeDim) {
         "type = f32\n"
         "dim = -1\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     const Ret ret = sc.init(config_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Dataset: dataset.dim must be >= 0", ret.message());
@@ -226,7 +226,7 @@ TEST_F(DatasetTest, InitFromIniFailsOnTooLargeDim) {
         "type = f32\n"
         "dim = " + std::to_string(kMaxDimension + 1) + "\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     const Ret ret = sc.init(config_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Dataset: dim must be in range [4, 4096].", ret.message());
@@ -241,7 +241,7 @@ TEST_F(DatasetTest, InitFromIniFailsOnNegativeRangeSize) {
         "type = f32\n"
         "dim = 4\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     const Ret ret = sc.init(config_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Dataset: dataset.range_size must be >= 0", ret.message());
@@ -257,7 +257,7 @@ TEST_F(DatasetTest, InitFromIniFailsOnNegativeAccumulatorSize) {
         "dim = 4\n"
         "accumulator_size = -1\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     const Ret ret = sc.init(config_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Dataset: dataset.accumulator_size must be >= 0", ret.message());
@@ -273,7 +273,7 @@ TEST_F(DatasetTest, InitFromIniFailsOnInvalidDistanceFunction) {
         "dist_func = cosine\n"
         "dim = 4\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     const Ret ret = sc.init(config_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Invalid distance function string.", ret.message());
@@ -282,36 +282,36 @@ TEST_F(DatasetTest, InitFromIniFailsOnInvalidDistanceFunction) {
 // --- load error cases ---
 
 TEST_F(DatasetTest, StoreFailsWhenNotInitialized) {
-    DatasetWriter sc;
+    DatasetNode sc;
     EXPECT_NE(0, sc.store(input_path_).code());
 }
 
 TEST_F(DatasetTest, StoreAccumulatorFailsWhenNotInitialized) {
-    DatasetWriter sc;
+    DatasetNode sc;
     EXPECT_NE(0, sc.store_accumulator().code());
 }
 
 TEST_F(DatasetTest, AddVectorFailsWhenNotInitialized) {
-    DatasetWriter sc;
+    DatasetNode sc;
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
     EXPECT_NE(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
 }
 
 TEST_F(DatasetTest, DeleteVectorFailsWhenNotInitialized) {
-    DatasetWriter sc;
+    DatasetNode sc;
     EXPECT_NE(0, sc.delete_vector(1).code());
 }
 
 
 TEST_F(DatasetTest, StoreFailsOnBadInputPath) {
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({make_dir("d")}, 100, DataType::f32, 4).code());
     EXPECT_NE(0, sc.store("/nonexistent/dir/input.txt").code());
 }
 
 TEST_F(DatasetTest, StoreFailsOnBadOutputDir) {
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({"/nonexistent/output/dir"}, 100, DataType::f32, 4).code());
     EXPECT_NE(0, sc.store(input_path_).code());
 }
@@ -321,7 +321,7 @@ TEST_F(DatasetTest, StoreFailsOnBadOutputDir) {
 TEST_F(DatasetTest, StoreCreatesOutputFile) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
@@ -333,7 +333,7 @@ TEST_F(DatasetTest, CosineDatasetStoresCosineValuesSection) {
         "f32,4\n"
         "10 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -347,7 +347,7 @@ TEST_F(DatasetTest, CosineDatasetAccumulatorFlushStoresCosineValuesInDeltaFile) 
     auto dir = make_dir("d_cos_acc_delta");
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -373,7 +373,7 @@ TEST_F(DatasetTest, CosineDatasetRejectsPersistedFilesWithoutStoredInverseNorms)
     ASSERT_EQ(0, writer.init(input_path_, file_path(dir, 0, ".data")).code());
     ASSERT_EQ(0, writer.exec().code());
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
 
     auto [reader, ret] = sc.get(10);
@@ -384,14 +384,14 @@ TEST_F(DatasetTest, CosineDatasetRejectsPersistedFilesWithoutStoredInverseNorms)
 
 TEST_F(DatasetTest, StoreAccumulatorSucceedsWhenMissing) {
     auto dir = make_dir("d_acc_none");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
     EXPECT_EQ(0, sc.store_accumulator().code());
 }
 
 TEST_F(DatasetTest, StoreAccumulatorCreatesOutputFilesFromAccumulator) {
     auto dir = make_dir("d_acc_store");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
 
     const std::array<float, 4> vec0 {1.0f, 1.0f, 1.0f, 1.0f};
@@ -419,7 +419,7 @@ TEST_F(DatasetTest, StoreAccumulatorCreatesOutputFilesFromAccumulator) {
 
 TEST_F(DatasetTest, StoreAccumulatorLeavesNoTempWhenCreatingData) {
     auto dir = make_dir("d_acc_staging_data");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
 
     const std::array<float, 4> vec {2.0f, 2.0f, 2.0f, 2.0f};
@@ -432,7 +432,7 @@ TEST_F(DatasetTest, StoreAccumulatorLeavesNoTempWhenCreatingData) {
 
 TEST_F(DatasetTest, StoreAccumulatorLeavesNoTempWhenCreatingDelta) {
     auto dir = make_dir("d_acc_staging_delta");
-    DatasetWriter sc;
+    DatasetNode sc;
     DatasetMetadata metadata;
     metadata.dirs = {dir};
     metadata.range_size = 100;
@@ -458,7 +458,7 @@ TEST_F(DatasetTest, StoreAccumulatorLeavesNoTempWhenCreatingDelta) {
 
 TEST_F(DatasetTest, StoreAccumulatorIgnoresDeleteForMissingRange) {
     auto dir = make_dir("d_acc_missing_delete");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
 
     ASSERT_EQ(0, sc.delete_vector(25).code());
@@ -470,7 +470,7 @@ TEST_F(DatasetTest, StoreAccumulatorIgnoresDeleteForMissingRange) {
 
 TEST_F(DatasetTest, StoreAccumulatorClearsAccumulatorAfterSuccess) {
     auto dir = make_dir("d_acc_clear");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::i16, 4, 40).code());
 
     const std::array<int16_t, 4> vec0 {1, 2, 3, 4};
@@ -493,7 +493,7 @@ TEST_F(DatasetTest, StoreAccumulatorReplaysWalAfterReopen) {
     const std::array<float, 4> vec {3.0f, 4.0f, 5.0f, 6.0f};
 
     {
-        DatasetWriter sc;
+        DatasetNode sc;
         ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
         ASSERT_EQ(0, sc.add_vector(17, reinterpret_cast<const uint8_t*>(vec.data())).code());
     }
@@ -501,7 +501,7 @@ TEST_F(DatasetTest, StoreAccumulatorReplaysWalAfterReopen) {
     const std::string wal_path = dir + "/sketch2.accumulator.wal";
     ASSERT_TRUE(fs::exists(wal_path));
 
-    DatasetWriter reopened;
+    DatasetNode reopened;
     ASSERT_EQ(0, reopened.init({dir}, 100, DataType::f32, 4).code());
     ASSERT_EQ(0, reopened.store_accumulator().code());
 
@@ -518,7 +518,7 @@ TEST_F(DatasetTest, DestructorFlushesPendingAccumulatorUpdates) {
     const std::array<float, 4> vec {3.0f, 4.0f, 5.0f, 6.0f};
 
     {
-        DatasetWriter sc;
+        DatasetNode sc;
         ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
         ASSERT_EQ(0, sc.add_vector(17, reinterpret_cast<const uint8_t*>(vec.data())).code());
     }
@@ -532,7 +532,7 @@ TEST_F(DatasetTest, DestructorFlushesPendingAccumulatorUpdates) {
 
 TEST_F(DatasetTest, AddVectorCreatesAccumulatorLazily) {
     auto dir = make_dir("d_acc_add");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
@@ -541,7 +541,7 @@ TEST_F(DatasetTest, AddVectorCreatesAccumulatorLazily) {
 
 TEST_F(DatasetTest, AddVectorFlushesAccumulatorWhenFull) {
     auto dir = make_dir("d_acc_add_flush");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 40).code());
 
     const std::array<float, 4> vec0 {1.0f, 2.0f, 3.0f, 4.0f};
@@ -559,7 +559,7 @@ TEST_F(DatasetTest, AddVectorFlushesAccumulatorWhenFull) {
 
 TEST_F(DatasetTest, AddVectorNullDoesNotFlushPendingAccumulatorData) {
     auto dir = make_dir("d_acc_add_null");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 40).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
@@ -581,7 +581,7 @@ TEST_F(DatasetTest, AddVectorNullDoesNotFlushPendingAccumulatorData) {
 
 TEST_F(DatasetTest, AddVectorUsesConfiguredAccumulatorSize) {
     auto dir = make_dir("d_acc_add_small");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 23).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
@@ -592,7 +592,7 @@ TEST_F(DatasetTest, AddVectorUsesConfiguredAccumulatorSize) {
 
 TEST_F(DatasetTest, DeleteVectorCreatesAccumulatorLazily) {
     auto dir = make_dir("d_acc_del");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     EXPECT_EQ(0, sc.delete_vector(1).code());
@@ -600,7 +600,7 @@ TEST_F(DatasetTest, DeleteVectorCreatesAccumulatorLazily) {
 
 TEST_F(DatasetTest, DeleteVectorFlushesAccumulatorWhenFull) {
     auto dir = make_dir("d_acc_del_flush");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 40).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
@@ -621,7 +621,7 @@ TEST_F(DatasetTest, DeleteVectorFlushesAccumulatorWhenFull) {
 
 TEST_F(DatasetTest, DeleteVectorUsesConfiguredAccumulatorSize) {
     auto dir = make_dir("d_acc_del_small");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4, 7).code());
 
     const Ret ret = sc.delete_vector(1);
@@ -633,7 +633,7 @@ TEST_F(DatasetTest, StoreFileIdFromMinId) {
     // ids [2005..2009], range_size=1000 -> file_id=2 -> "2.data"
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 2005, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/2.data"));
@@ -644,7 +644,7 @@ TEST_F(DatasetTest, StoreMultipleRangesCreateMultipleFiles) {
     // ids [5..19], range_size=10 -> file 0 (ids 5-9), file 1 (ids 10-19)
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(15, 5, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir + "/0.data"));
@@ -657,7 +657,7 @@ TEST_F(DatasetTest, StoreMultipleDirsRoutesByFileId) {
     auto dir0 = make_dir("d0");
     auto dir1 = make_dir("d1");
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir0, dir1}, 10, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     EXPECT_TRUE(fs::exists(dir0 + "/0.data"));
@@ -670,7 +670,7 @@ TEST_F(DatasetTest, StoreMultipleDirsRoutesByFileId) {
 TEST_F(DatasetTest, StoreFileCount) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(7, 0, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     DataReader dr;
@@ -681,7 +681,7 @@ TEST_F(DatasetTest, StoreFileCount) {
 TEST_F(DatasetTest, StoreFileType) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     DataReader dr;
@@ -692,7 +692,7 @@ TEST_F(DatasetTest, StoreFileType) {
 TEST_F(DatasetTest, StoreFileDim) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 64));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 64).code());
     const Ret ret = sc.store(input_path_);
     ASSERT_EQ(0, ret.code()) << ret.message();
@@ -705,7 +705,7 @@ TEST_F(DatasetTest, StoreFileDataValues) {
     // generator writes id+0.1 for each dimension
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 10, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
     DataReader dr;
@@ -726,7 +726,7 @@ TEST_F(DatasetTest, StoreMultipleRangesCorrectCounts) {
     // file 1: ids 10-19 -> 10 vectors
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(15, 5, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -746,7 +746,7 @@ TEST_F(DatasetTest, StoreSkipsMissingMiddleRanges) {
         f << "20 : [ 20.10, 20.10, 20.10, 20.10 ]\n";
     }
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -761,7 +761,7 @@ TEST_F(DatasetTest, StoreHeaderOnlyInputCreatesNoFiles) {
     auto dir = make_dir("d");
     write_input("f32,4\n");
 
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -771,7 +771,7 @@ TEST_F(DatasetTest, StoreHeaderOnlyInputCreatesNoFiles) {
 
 TEST_F(DatasetTest, SecondSmallLoadCreatesDeltaFile) {
     auto dir = make_dir("d");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -795,7 +795,7 @@ TEST_F(DatasetTest, SecondSmallLoadCreatesDeltaFile) {
 
 TEST_F(DatasetTest, SecondLargeLoadMergesIntoDataWithoutDelta) {
     auto dir = make_dir("d");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
@@ -816,7 +816,7 @@ TEST_F(DatasetTest, SecondLargeLoadMergesIntoDataWithoutDelta) {
 
 TEST_F(DatasetTest, ExistingDeltaGetsMergedWithNewSmallUpdateAndStaysDelta) {
     auto dir = make_dir("d");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -843,7 +843,7 @@ TEST_F(DatasetTest, ExistingDeltaGetsMergedWithNewSmallUpdateAndStaysDelta) {
 
 TEST_F(DatasetTest, LargeDeltaEventuallyMergesIntoDataAndRemovesDeltaFile) {
     auto dir = make_dir("d");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(10, 0, DataType::f32, 4));
@@ -868,7 +868,7 @@ TEST_F(DatasetTest, LargeDeltaEventuallyMergesIntoDataAndRemovesDeltaFile) {
 
 TEST_F(DatasetTest, DeleteFromDeltaIsAppliedAfterDataDeltaMerge) {
     auto dir = make_dir("d");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(10, 0, DataType::f32, 4));
@@ -893,7 +893,7 @@ TEST_F(DatasetTest, DeleteFromDeltaIsAppliedAfterDataDeltaMerge) {
 
 TEST_F(DatasetTest, DeltaCreatedOnlyForTouchedRange) {
     auto dir = make_dir("d");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4)); // files 0 and 1
@@ -910,7 +910,7 @@ TEST_F(DatasetTest, DeltaCreatedOnlyForTouchedRange) {
 
 TEST_F(DatasetTest, MergeCombinesExistingDeltaIntoDataFile) {
     auto dir = make_dir("d_merge");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -934,7 +934,7 @@ TEST_F(DatasetTest, MergeCombinesExistingDeltaIntoDataFile) {
 
 TEST_F(DatasetTest, MergeCombinesAccumulatorDeltaIntoDataFile) {
     auto dir = make_dir("d_merge_acc");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -959,7 +959,7 @@ TEST_F(DatasetTest, MergeCombinesAccumulatorDeltaIntoDataFile) {
 
 TEST_F(DatasetTest, MergeProcessesAllRangesWithDeltaFiles) {
     auto dir = make_dir("d_merge_all");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -996,7 +996,7 @@ TEST_F(DatasetTest, MergeProcessesAllRangesWithDeltaFiles) {
 TEST_F(DatasetTest, DatasetRangeReaderNextReturnsNullWhenExhausted) {
     auto dir = make_dir("d");
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -1020,7 +1020,7 @@ TEST_F(DatasetTest, DatasetRangeReaderNextReturnsNullWhenExhausted) {
 
 TEST_F(DatasetTest, DatasetRangeReaderNextOnEmptyDatasetReturnsNull) {
     auto dir = make_dir("empty");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
     // No store() call — no files in dir.
     auto drs = sc.reader();
@@ -1031,7 +1031,7 @@ TEST_F(DatasetTest, DatasetRangeReaderNextOnEmptyDatasetReturnsNull) {
 
 TEST_F(DatasetTest, DatasetGetOnEmptyDatasetReturnsNull) {
     auto dir = make_dir("empty_get");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 1000, DataType::f32, 4).code());
 
     auto [reader, ret] = sc.get(42);
@@ -1043,7 +1043,7 @@ TEST_F(DatasetTest, DatasetRangeReaderNextIteratesAllFiles) {
     auto dir = make_dir("d");
     // ids 0..29 with range_size=10 → 3 data files: 0.data, 1.data, 2.data.
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4));
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -1060,7 +1060,7 @@ TEST_F(DatasetTest, DatasetRangeReaderNextIteratesAllFiles) {
 
 TEST_F(DatasetTest, DatasetRangeReaderNextReturnsDeltaFileAlongsideData) {
     auto dir = make_dir("d");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -1086,7 +1086,7 @@ TEST_F(DatasetTest, DatasetRangeReaderNextReturnsDeltaFileAlongsideData) {
 TEST_F(DatasetTest, DatasetRangeReaderGetReturnsReaderForContainingRange) {
     auto dir = make_dir("d_get");
     generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4)); // files 0,1,2 for range_size=10
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -1104,7 +1104,7 @@ TEST_F(DatasetTest, DatasetRangeReaderGetReturnsNullWhenRangeHasNoFile) {
         "f32,4\n"
         "0 : [ 0.1, 0.1, 0.1, 0.1 ]\n"
         "20 : [ 20.1, 20.1, 20.1, 20.1 ]\n");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
     ASSERT_EQ(0, sc.store(input_path_).code());
 
@@ -1116,7 +1116,7 @@ TEST_F(DatasetTest, DatasetRangeReaderGetReturnsNullWhenRangeHasNoFile) {
 
 TEST_F(DatasetTest, DatasetGetReturnsReaderWithDeltaApplied) {
     auto dir = make_dir("d_ds_get");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -1138,30 +1138,12 @@ TEST_F(DatasetTest, DatasetGetReturnsReaderWithDeltaApplied) {
     EXPECT_EQ(nullptr, missing_reader);
 }
 
-TEST_F(DatasetTest, DatasetGetVectorPrefersPendingAccumulatorUpdate) {
-    auto dir = make_dir("d_ds_get_vector_pending");
-    DatasetWriter sc;
-    ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
-
-    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
-    ASSERT_EQ(0, sc.store(input_path_).code());
-
-    const std::array<float, 4> updated {500.0f, 500.0f, 500.0f, 500.0f};
-    ASSERT_EQ(0, sc.add_vector(2, reinterpret_cast<const uint8_t*>(updated.data())).code());
-
-    auto [vec_data, ret] = sc.get_vector(2);
-    ASSERT_EQ(0, ret.code()) << ret.message();
-    ASSERT_NE(nullptr, vec_data);
-    const float* values = reinterpret_cast<const float*>(vec_data);
-    EXPECT_FLOAT_EQ(500.0f, values[0]);
-}
-
 TEST_F(DatasetTest, DatasetGetVectorLoadsPendingWalAfterReopen) {
     auto dir = make_dir("d_ds_get_vector_reopen");
     const std::array<float, 4> updated {500.0f, 500.0f, 500.0f, 500.0f};
 
     {
-        DatasetWriter owner;
+        DatasetNode owner;
         ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
         generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
         ASSERT_EQ(0, owner.store(input_path_).code());
@@ -1169,7 +1151,7 @@ TEST_F(DatasetTest, DatasetGetVectorLoadsPendingWalAfterReopen) {
         ASSERT_EQ(0, owner.delete_vector(3).code());
     }
 
-    DatasetWriter reopened;
+    DatasetNode reopened;
     ASSERT_EQ(0, reopened.init({dir}, 100, DataType::f32, 4).code());
 
     auto [vec_data, ret] = reopened.get_vector(2);
@@ -1185,7 +1167,7 @@ TEST_F(DatasetTest, DatasetGetVectorLoadsPendingWalAfterReopen) {
 
 TEST_F(DatasetTest, DatasetGetCachesOpenedReaders) {
     auto dir = make_dir("d_ds_cache");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -1203,7 +1185,7 @@ TEST_F(DatasetTest, DatasetGetCachesOpenedReaders) {
 
 TEST_F(DatasetTest, DatasetRangeReaderSharesDatasetRangeReaderCache) {
     auto dir = make_dir("d_ds_reader_cache");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -1222,7 +1204,7 @@ TEST_F(DatasetTest, DatasetRangeReaderSharesDatasetRangeReaderCache) {
 
 TEST_F(DatasetTest, DatasetInvalidatesCachesAfterStore) {
     auto dir = make_dir("d_ds_invalidate_store");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
@@ -1248,7 +1230,7 @@ TEST_F(DatasetTest, DatasetInvalidatesCachesAfterStore) {
 
 TEST_F(DatasetTest, DatasetInvalidatesItemCacheAfterStoreCreatesNewRange) {
     auto dir = make_dir("d_ds_invalidate_items");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 10, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
@@ -1270,7 +1252,7 @@ TEST_F(DatasetTest, DatasetInvalidatesItemCacheAfterStoreCreatesNewRange) {
 TEST_F(DatasetTest, GuestModeAllowsQueries) {
     auto dir = make_dir("d_guest_query");
 
-    DatasetWriter owner;
+    DatasetNode owner;
     ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
     ASSERT_EQ(0, owner.store(input_path_).code());
@@ -1296,7 +1278,7 @@ TEST_F(DatasetTest, GuestModeAllowsQueries) {
 
 TEST_F(DatasetTest, StoreCreatesNotifierFile) {
     auto dir = make_dir("d_notifier_store");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
@@ -1307,7 +1289,7 @@ TEST_F(DatasetTest, StoreCreatesNotifierFile) {
 
 TEST_F(DatasetTest, StoreAccumulatorIncrementsNotifierCounter) {
     auto dir = make_dir("d_notifier_acc");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
@@ -1331,7 +1313,7 @@ TEST_F(DatasetTest, GuestDetectsOwnerStoreAndFlushesCache) {
     auto dir = make_dir("d_notifier_guest");
 
     // Owner stores initial data.
-    DatasetWriter owner;
+    DatasetNode owner;
     ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
     ASSERT_EQ(0, owner.store(input_path_).code());
@@ -1364,7 +1346,7 @@ TEST_F(DatasetTest, GuestDetectsOwnerStoreAndFlushesCache) {
 TEST_F(DatasetTest, GuestCacheStaysValidWhenNoUpdate) {
     auto dir = make_dir("d_notifier_no_update");
 
-    DatasetWriter owner;
+    DatasetNode owner;
     ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
     ASSERT_EQ(0, owner.store(input_path_).code());
@@ -1387,7 +1369,7 @@ TEST_F(DatasetTest, GuestCacheStaysValidWhenNoUpdate) {
 
 TEST_F(DatasetTest, MergeIncrementsNotifierCounter) {
     auto dir = make_dir("d_notifier_merge");
-    DatasetWriter sc;
+    DatasetNode sc;
     ASSERT_EQ(0, sc.init({dir}, 100, DataType::f32, 4).code());
 
     // Store base data, then a small update to create a delta file.
@@ -1417,7 +1399,7 @@ TEST_F(DatasetTest, GetRetriesWhenDeltaFileDeletedByWriter) {
     auto dir = make_dir("d_stale_retry");
 
     // Owner: store data, add a vector, flush to create a delta file.
-    DatasetWriter owner;
+    DatasetNode owner;
     ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
     ASSERT_EQ(0, owner.store(input_path_).code());
@@ -1451,7 +1433,7 @@ TEST_F(DatasetTest, GetRetriesWhenDeltaFileDeletedByWriter) {
 TEST_F(DatasetTest, GetFailsWhenDataFileDeletedAndRetryAlsoFails) {
     auto dir = make_dir("d_stale_fail");
 
-    DatasetWriter owner;
+    DatasetNode owner;
     ASSERT_EQ(0, owner.init({dir}, 100, DataType::f32, 4).code());
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
     ASSERT_EQ(0, owner.store(input_path_).code());
