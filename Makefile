@@ -9,6 +9,11 @@ BENCH_TMPDIR ?= /tmp
 
 # --- Targets ---
 
+# Install required dependencies on Ubuntu
+.PHONY: install
+install:
+	sudo apt update && sudo apt install -y build-essential cmake ninja-build -y
+
 # Default target (runs when you type 'make')
 .PHONY: all
 all: build
@@ -38,12 +43,14 @@ initsan: $(BUILD_SAN)/CMakeCache.txt
 # Compiles the project in debug build (initializes build-dbg if needed)
 .PHONY: build
 build: $(BUILD_DBG)/CMakeCache.txt
+	@test -d bin-dbg || mkdir -p bin-dbg
 	@test -d "$(BUILD_DBG)" || mkdir -p "$(BUILD_DBG)"
 	cmake --build $(BUILD_DBG) --parallel $(JOBS)
 
 # Compiles the project in release build (initializes build if needed)
 .PHONY: rel
 rel: $(BUILD_REL)/CMakeCache.txt
+	@test -d bin || mkdir -p bin
 	@test -d "$(BUILD_REL)" || mkdir -p "$(BUILD_REL)"
 	cmake --build $(BUILD_REL) --parallel $(JOBS)
 
@@ -60,7 +67,7 @@ test: build
 
 # Runs the standalone thread-pool unit tests on demand
 .PHONY: tpooltest
-tpooltest:
+tpooltest: build
 	bin-dbg/utest_thread_pool
 
 # Runs the test suite in release build
@@ -151,6 +158,7 @@ ds_mix_bench: benchbuild
 cover:
 	$(MAKE) test
 	$(MAKE) rtest
+	$(MAKE) santest
 	$(MAKE) pytest
 	$(MAKE) demo
 	$(MAKE) reader_bench

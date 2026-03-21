@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ctypes
-from ctypes import POINTER, c_char_p, c_double, c_int, c_int64, c_uint, c_uint64, c_void_p, byref
+from ctypes import c_char_p, c_double, c_int, c_int64, c_uint, c_uint64, c_void_p
 from pathlib import Path
 
 
@@ -40,16 +40,14 @@ class Sketch2:
 
         self._open_datasets: list[str] = []
 
+    # Temporary setting for the shared library search path.
+    # TODO: Think about a better way to set it.
     @staticmethod
     def _default_lib_path() -> Path:
         repo_root = Path(__file__).resolve().parents[2]
         candidates = [
-            repo_root / "build" / "lib" / "libsketch2.so",
             repo_root / "bin" / "libsketch2.so",
-            repo_root / "build-dbg" / "lib" / "libsketch2.so",
             repo_root / "bin-dbg" / "libsketch2.so",
-            repo_root / "build-san" / "lib" / "libsketch2.so",
-            repo_root / "bin-san" / "libsketch2.so",
         ]
         for candidate in candidates:
             if candidate.exists():
@@ -104,16 +102,6 @@ class Sketch2:
 
         self.lib.sk_gres.argtypes = [c_void_p]
         self.lib.sk_gres.restype = c_char_p
-
-        self._has_sk_gid = True
-        try:
-            self.lib.sk_gid.argtypes = [c_void_p, c_char_p]
-            self.lib.sk_gid.restype = c_int
-        except AttributeError:
-            self._has_sk_gid = False
-
-        self.lib.sk_ires.argtypes = [c_void_p, POINTER(c_uint64)]
-        self.lib.sk_ires.restype = c_int
 
         self.lib.sk_print.argtypes = [c_void_p]
         self.lib.sk_print.restype = c_int
@@ -217,10 +205,7 @@ class Sketch2:
 
         self._check("sk_knn", self.lib.sk_knn(self.handle, vec.encode("utf-8"), c_uint(count)))
         size = int(self.lib.sk_kres(self.handle, c_int64(-1)))
-        return [self.kres(index) for index in range(size)]
-
-    def kres(self, index: int) -> int:
-        return int(self.lib.sk_kres(self.handle, c_int64(index)))
+        return [int(self.lib.sk_kres(self.handle, c_int64(index))) for index in range(size)]
 
     def get(self, item_id: int) -> str:
         self._check("sk_get", self.lib.sk_get(self.handle, c_uint64(item_id)))
@@ -228,20 +213,6 @@ class Sketch2:
         if not out:
             return ""
         return out.decode("utf-8", errors="replace")
-
-    def gid(self, vec: str) -> int:
-        if self._has_sk_gid:
-            self._check("sk_gid", self.lib.sk_gid(self.handle, vec.encode("utf-8")))
-            value = c_uint64()
-            self._check("sk_ires", self.lib.sk_ires(self.handle, byref(value)))
-            return int(value.value)
-
-        # Compatibility fallback for builds where sk_gid was removed:
-        # run k=1 KNN and return the first id.
-        result = self.knn(vec, 1)
-        if not result:
-            raise Sketch2Error("gid", "no id found", -1)
-        return int(result[0])
 
     def print(self) -> None:
         self._check("sk_print", self.lib.sk_print(self.handle))
