@@ -1,226 +1,214 @@
-### Project Sketch2
+# Sketch2
 
-## Goal
+Sketch2 is a vector storage and compute engine focused on high-throughput, SIMD-accelerated KNN workloads.
 
-Design a system where vector data is stored and processed in a way that matches the underlying hardware—rather than adapting it to general-purpose abstractions.
+## What It Provides
 
-In short: apply **mechanical sympathy** to vector storage and computation, end to end.
+- Range-partitioned vector storage with low-overhead binary formats
+- Runtime SIMD backend dispatch (AVX-512 VNNI, AVX-512F, AVX2, NEON, scalar)
+- WAL-backed accumulator for crash-safe recent writes
+- Multi-file / multi-directory scaling by id range
+- Integrations:
+  - SQLite virtual table extension (`vlite`)
+  - Python wrapper used by integration tests and demos
 
----
+Storage and compute are designed together so search runs directly against the stored representation.
 
-The phrase *“mechanical sympathy”*— applied to software by Martin Thompson — describes systems built with a deep understanding of how machines actually work.
+## Current Scope
 
-In software, that means aligning with hardware realities: memory layout, CPU caches, vectorized execution, and I/O behavior. The goal is simple: **minimize friction, minimize wasted work, maximize flow**.
+- Brute-force KNN search (no ANN index yet)
+- Supported vector element types: `f32`, `f16`, `i16`
+- Supported distance functions: `l1`, `l2`, `cos`
+- Linux-only build and runtime support
 
----
+## Build Requirements
 
-Sketch2 is a **vector storage engine with a built-in compute layer**, designed specifically for vector workloads.
+| Requirement | Minimum | Notes                   |
+|-------------|---------|-------------------------|
+| OS          | Linux   | Only supported platform |
+| Compiler    | C++20   | GCC or Clang            |
+| CMake       | 3.20    | Build system            |
 
-- Data layout minimizes storage overhead and maximizes I/O throughput  
-- Memory is organized for cache locality and efficient data movement  
-- Vectors are aligned for SIMD execution  
-- Compute units use platform-specific instructions (Intel, AMD, ARM)
 
-Storage and computation are tightly integrated so that vector processing operates directly on data in its optimal form.
+## Build Quick Start
 
----
-
-## Core
-
-**Performance.**
-Runtime SIMD dispatch selects the best available backend — AVX-512 VNNI, AVX-512F, AVX2, or NEON — at startup, without recompilation. A single binary runs optimally across Intel, AMD, and ARM hardware.
-
-**Reliability.**
-An in-memory accumulator with a Write-Ahead Log (WAL) ensures that recent writes survive process crashes. Data is never silently lost.
-
-**Scalability.** 
-Vectors are partitioned by ID range and spread across multiple directories, allowing the dataset to grow beyond a single disk or filesystem.
-
-**Flexibility.** 
-Supported element types: f32, f16, i16. 
-Supported  distance functions (L1, L2, Cosine).
-
----
-
-## Quick Start / Building
-
-### Prerequisites
-
-Sketch2 is built and supported on **Linux only**. Other operating systems are not
-supported.
-
-| Requirement  | Minimum version | Notes                                         |
-|--------------|-----------------|-----------------------------------------------|
-| OS           | Linux           | Only supported platform.                      |
-| C++ compiler | C++20           | GCC or Clang required. MSVC is not supported. |
-| CMake        | 3.20            | Used to configure all build types.            |
-
-On x86-64, the AVX2 / AVX-512 SIMD compute backends require GCC or Clang because
-they use per-function target attributes for runtime dispatch. The build will fail
-at configuration time if a non-GCC/Clang compiler is detected with those backends
-enabled.
-
-### Build types
-
-There are three CMake build types, each with a corresponding Makefile shorthand:
-
-| Type      | Directory    | Makefile target        | Use for                               |
-|-----------|--------------|------------------------|---------------------------------------|
-| Debug     | `build-dbg/` | `make` or `make build` | Day-to-day development and unit tests |
-| Release   | `build/`     | `make rel`             | Performance work, benchmarks, demos   |
-| Sanitizer | `build-san/` | `make san`             | Memory and UB error detection         |
-
-### Configure & build
-
-For each build directory, configure with CMake and then build. Replace the build directory name and `CMAKE_BUILD_TYPE` flag to match the target configuration (see the table above) before running the commands below:
+Debug build:
 
 ```bash
 cmake -S . -B build-dbg -DCMAKE_BUILD_TYPE=Debug
 cmake --build build-dbg
 ```
 
-Once a build directory exists you can rerun `cmake --build <dir>` as needed to compile updated sources. Use `cmake --build <dir> --target help` to list available targets (benchmarks, unit tests, demos, etc.). `JOBS=N` overrides the default parallelism.
-
-For release or sanitizer builds change the build directory and `CMAKE_BUILD_TYPE` flag accordingly (e.g., `-B build -DCMAKE_BUILD_TYPE=Release`).
-
-### Common targets
-
-```
-make              Build debug (default)
-make rel          Build release
-make san          Build with AddressSanitizer / UBSan
-
-make test         Build debug, run unit tests
-make rtest        Build release, run unit tests
-make santest      Build sanitizer, run unit tests
-make pytest       Run Python API tests
-
-make demo         Build release, run bulk-load KNN demo (10M vectors, dim=256)
-make bench        Build release with benchmarks enabled, run essential benchmark suite
-make benchext     Run extended benchmark suite
-
-make clean        Delete .o/.obj files from the debug build directory
-```
-
-Parallel jobs default to the number of online CPUs. Override with `JOBS=N`:
+Release build:
 
 ```bash
-make JOBS=4
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
 
-## Creating datasets for vlite
+Sanitizer build:
 
-`vlite` expects an existing Sketch2 dataset INI file (see `src/vlite/SQLITE.md`). The dataset generator lives in the same repository: either import the Python wrapper under `src/pytest/sketch2_wrapper.py` or run the bundled demo script.
+```bash
+cmake -S . -B build-san -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build-san
+```
 
-1. Add `src/pytest` to `PYTHONPATH` so Python can find the wrapper:
+## Makefile Shortcuts
 
-   ```bash
-   PYTHONPATH=$(pwd)/src/pytest python - <<'PY'
-   from sketch2_wrapper import Sketch2
+```text
+make              Build debug (default)
+make rel          Build release
+make san          Build sanitizer build
 
-   with Sketch2("/tmp/sketch2_workspace") as sk:
-       sk.create("my_dataset", type_name="f32", dim=128, range_size=1000, dist_func="l2")
-       sk.upsert(1, "1.0, 0.0, 0.0, 0.0")
-       sk.merge_accumulator()
-       sk.close("my_dataset")
-   PY
+make test         Build debug and run C++ tests
+make rtest        Build release and run C++ tests
+make santest      Build sanitizer and run C++ tests
+make pytest       Run Python integration tests
+make cover        Run broader validation/coverage flow
 
-   # point vlite at /tmp/sketch2_workspace/my_dataset.ini
-   ```
+make demo         Run release demo workload
+make bench        Run benchmark suite
+make benchext     Run extended benchmark suite
 
-   The workspace directory contains `my_dataset.ini`, the data folders, and the WAL file after the writer shuts down. Point `vlite` (or the demo's `vlite('/path/to/my_dataset.ini')`) at the INI file.
+make clean        Clean debug build objects
+```
 
-2. The helper script `src/pytest/demo.py` orchestrates this end-to-end flow: run
+## Usage
 
-   ```bash
-   PYTHONPATH=$(pwd)/src/pytest python src/pytest/demo.py --keep
-   ```
+### Python
 
-   It keeps the generated workspace, prints its path, and leaves a `dataset.ini` you can reuse with the SQLite example.
+`Sketch2` wrapper location: `src/pytest/sketch2_wrapper.py`
 
-For production demos you can also use the C API (`libsketch2.so`/`parasol`) directly; the dataset INI still lives in the workspace root with the dataset name + `.ini`.
+Run with `PYTHONPATH=$(pwd)/src/pytest`:
 
-## Current State
+```python
+from sketch2_wrapper import Sketch2
 
-- Core storage and compute mechanisms are in place  
-- Processing is currently brute-force (no indexing yet)  
-## Initial Integrations
+with Sketch2("/tmp/my_workspace") as sk:
+    # 1) Create and open a dataset
+    sk.create("items", type_name="f32", dim=4, range_size=1000, dist_func="l2")
 
-- Python
-- SQLite
+    # 2) Ingest vectors
+    sk.upsert(100, "0.0, 0.0, 0.0, 0.0")
+    sk.upsert(101, "1.0, 1.0, 1.0, 1.0")
+    sk.upsert(102, "2.0, 2.0, 2.0, 2.0")
+    sk.upsert(103, "3.0, 3.0, 3.0, 3.0")
 
-## Usage Examples
+    # 3) Update and delete
+    sk.upsert(101, "1.1, 1.1, 1.1, 1.1")  # overwrite id=101
+    sk.delete(103)                         # tombstone id=103
 
-### SQLite
+    # 4) Flush accumulator to storage files
+    sk.merge_accumulator()
 
-Load the Sketch2 extension and query an existing dataset through a virtual table:
+    # 5) Run KNN
+    query = "1.2, 1.2, 1.2, 1.2"
+    ids = sk.knn(query, count=3)
+    print("top-3 ids:", ids)
+
+    # 6) Fetch exact stored vector text for a returned id
+    if ids:
+        print("vector for best match:", sk.get(ids[0]))
+
+    # 7) Close
+    sk.close("items")
+```
+
+### SQLite (`vlite`)
 
 ```sql
--- Load the extension (path to libsketch2.so)
-.load ./build/lib/libsketch2.so
+.load /absolute/path/to/libsketch2.so
+CREATE VIRTUAL TABLE nn USING vlite('/absolute/path/to/dataset.ini');
 
--- Create a virtual table pointing to a Sketch2 dataset INI
-CREATE VIRTUAL TABLE nn USING vlite('/path/to/my_dataset.ini');
-
--- Find the 5 nearest neighbors
 SELECT id, distance
 FROM nn
 WHERE query = '1.0, 2.0, 3.0, 4.0' AND k = 5
 ORDER BY distance;
 ```
 
-### Python
+`vlite` also supports optional `allowed_ids` filtering via bitset BLOBs produced
+by `bitset_agg(id)`. See `src/vlite/SQLITE.md` and `src/vlite/BITSET.md`.
 
-The `Sketch2` wrapper lives under `src/pytest/sketch2_wrapper.py`. Run the snippet with `PYTHONPATH=$(pwd)/src/pytest` (or execute the demo from the previous section) so Python can import the module.
+#### Join KNN Results With Metadata
 
-Use the `Sketch2` wrapper to manage datasets and perform searches:
+Store metadata in a regular SQLite table and join by vector id:
 
-```python
-from sketch2_wrapper import Sketch2
+```sql
+CREATE TABLE items_meta (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT
+);
 
-# Initialize and connect to a workspace
-with Sketch2("/tmp/my_workspace") as sk:
-    # Create a new dataset
-    sk.create("items", type_name="f32", dim=128, dist_func="l2")
-
-    # Insert a vector
-    sk.upsert(101, "1.0, 0.5, 0.2, ...")
-
-    # Search for nearest neighbors
-    results = sk.knn("1.0, 0.5, 0.2, ...", count=10)
-    print(f"Nearest neighbor IDs: {results}")
+SELECT m.title, m.category
+FROM nn AS n
+JOIN items_meta AS m ON m.id = n.id
+WHERE n.query = '1.0, 2.0, 3.0, 4.0' AND n.k = 5
+ORDER BY n.distance;
 ```
 
-## Project Structure
+Filter by metadata first, then join with KNN:
 
-- `src/core`: The core storage engine and high-performance compute kernels (L1, L2, Cosine).
-- `src/parasol`: The C API and shared library entry points for `libsketch2.so`.
-- `src/vlite`: The `vlite` SQLite virtual table extension.
-- `src/pytest`: Python bindings, demo scripts, and comprehensive integration tests.
+```sql
+SELECT m.id, m.title, n.distance
+FROM nn AS n
+JOIN items_meta AS m ON m.id = n.id
+WHERE n.match_expr MATCH '0.1, 0.2, 0.3, 0.4'
+  AND n.k = 20
+  AND m.category = 'books'
+ORDER BY n.distance
+LIMIT 10;
+```
 
-## Documentation
+#### Push a list of "allowed_ids" to the KNN search
 
-### Architecture & Design
-- **[Storage Engine](src/core/storage/README.md)**: Deep dive into the range-partitioned storage engine, WAL-backed accumulator, and binary file formats.
-- **[Compute Architecture](src/core/compute/README.md)**: Details on the runtime-dispatched SIMD kernels (AVX-512, AVX2, NEON) and the specialized scan layer.
-- **[Parasol C API](src/parasol/README.md)**: Overview of the C API used for dataset management, mutation, and KNN queries.
-- **[Storage Design Specs](src/core/storage/DESIGN.md)**: Technical specifications for input generation, data merging, and partitioning.
+Use `bitset_agg(id)` from a relational table to constrain candidates:
 
-### User Guides & Integration
-- **[SQLite Virtual Table (vlite)](src/vlite/SQLITE.md)**: Complete guide to using Sketch2 within SQLite, including schema details and SQL examples.
-- **[Compute Operations](src/core/compute/OPERATIONS.md)**: Manual for controlling and verifying the runtime compute backends via environment variables.
-- **[Python Wrapper](src/pytest/SOURCE.md)**: Index of the Python integration layers and demo scripts.
+```sql
+SELECT n.id, n.distance
+FROM nn AS n
+WHERE n.match_expr MATCH '2.1, 2.1, 2.1, 2.1'
+  AND n.k = 10
+  AND n.allowed_ids = (
+        SELECT bitset_agg(id)
+        FROM items_meta
+        WHERE category = 'books'
+      )
+ORDER BY n.distance;
+```
 
-### Performance & Benchmarking
-- **[Benchmark Guide](src/core/compute/BENCHMARKS.md)**: Instructions for running the Google Benchmark suite and interpreting throughput results.
+## Repository Layout
 
-### Technical References
-- **[Source Index](src/SOURCE.md)**: A high-level map of all source components in the repository.
+- `src/core` — storage engine and compute kernels
+- `src/parasol` — C API and shared-library entry points
+- `src/vlite` — SQLite virtual table extension
+- `src/pytest` — Python wrapper, demos, integration tests
+
+## Documentation Index
+
+### Architecture And Design
+
+- [Storage Engine](src/core/storage/README.md)
+- [Compute Architecture](src/core/compute/README.md)
+- [Storage Design Specs](src/core/storage/DESIGN.md)
+
+### APIs And Integrations
+
+- [Parasol C API](src/parasol/README.md)
+- [SQLite `vlite` Guide](src/vlite/SQLITE.md)
+- [Bitset Filter Format](src/vlite/BITSET.md)
+- [Python Integration Source Index](src/pytest/SOURCE.md)
+
+### Performance
+
+- [Benchmark Guide](src/core/compute/BENCHMARKS.md)
+
+### Source Navigation
+
+- [Top-Level Source Index](src/SOURCE.md)
 
 ## Roadmap
 
-- Add indexing structures (IVF, PQ)  
-- Expand integrations (Postgres, MySQL)  
-- Explore interoperability with FAISS  
-
----
+- Add ANN indexing (IVF, PQ)
+- Expand database integrations (e.g. PostgreSQL, MySQL)
+- Evaluate interoperability with FAISS
