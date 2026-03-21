@@ -38,16 +38,19 @@ initsan: $(BUILD_SAN)/CMakeCache.txt
 # Compiles the project in debug build (initializes build-dbg if needed)
 .PHONY: build
 build: $(BUILD_DBG)/CMakeCache.txt
+	@test -d "$(BUILD_DBG)" || mkdir -p "$(BUILD_DBG)"
 	cmake --build $(BUILD_DBG) --parallel $(JOBS)
 
 # Compiles the project in release build (initializes build if needed)
 .PHONY: rel
 rel: $(BUILD_REL)/CMakeCache.txt
+	@test -d "$(BUILD_REL)" || mkdir -p "$(BUILD_REL)"
 	cmake --build $(BUILD_REL) --parallel $(JOBS)
 
 # Compiles the project in sanitizer build (initializes build-san if needed)
 .PHONY: san
 san: $(BUILD_SAN)/CMakeCache.txt
+	@test -d "$(BUILD_SAN)" || mkdir -p "$(BUILD_SAN)"
 	cmake --build $(BUILD_SAN) --parallel $(JOBS)
 
 # Runs the test suite with failure output enabled
