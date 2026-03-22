@@ -9,11 +9,6 @@ BENCH_TMPDIR ?= /tmp
 
 # --- Targets ---
 
-# Install required dependencies on Ubuntu
-.PHONY: install
-install:
-	sudo apt update && sudo apt install -y build-essential cmake ninja-build -y
-
 # Default target (runs when you type 'make')
 .PHONY: all
 all: build
@@ -21,6 +16,11 @@ all: build
 # --- Build directory initialization ---
 # These are real-file targets keyed on CMakeCache.txt so cmake only runs once.
 # Use 'make initdbg / initrel / initsan' to re-run configuration explicitly.
+
+# Install required dependencies on Ubuntu
+.PHONY: install
+install:
+	sudo apt update && sudo apt install -y build-essential cmake ninja-build -y
 
 $(BUILD_DBG)/CMakeCache.txt:
 	cmake -S . -B $(BUILD_DBG) -DCMAKE_BUILD_TYPE=Debug
@@ -133,11 +133,6 @@ benchext: benchbuild
 benchcomp: benchbuild
 	bin/bench_comp
 
-# Runs the essential Google Benchmark suite restricted to the reader scanner mode.
-.PHONY: reader_bench
-reader_bench: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential SKETCH2_GBENCH_SCANNER_MODE=reader bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
-
 # Runs the essential Google Benchmark suite restricted to the dataset_persisted scanner mode.
 .PHONY: ds_bench
 ds_bench: benchbuild
@@ -153,7 +148,7 @@ ds_mix_bench: benchbuild
 # - release unit tests
 # - Python integration tests
 # - Python demo
-# - reader/dataset benchmark slices
+# - dataset benchmark slices
 .PHONY: cover
 cover:
 	$(MAKE) test
@@ -161,7 +156,6 @@ cover:
 	$(MAKE) santest
 	$(MAKE) pytest
 	$(MAKE) demo
-	$(MAKE) reader_bench
 	$(MAKE) ds_bench
 	$(MAKE) ds_mix_bench
 

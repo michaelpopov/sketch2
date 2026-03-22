@@ -146,7 +146,9 @@ const std::vector<int>& scanner_modes() {
         if (env && *env) {
             const std::string mode = env;
             if (mode == "reader") {
-                values.push_back(0);
+                throw std::runtime_error(
+                    "SKETCH2_GBENCH_SCANNER_MODE=reader is no longer supported; "
+                    "use dataset_persisted or dataset_mixed");
             } else if (mode == "dataset_persisted") {
                 values.push_back(1);
             } else if (mode == "dataset_mixed") {
@@ -154,10 +156,9 @@ const std::vector<int>& scanner_modes() {
             } else {
                 throw std::runtime_error(
                     "invalid SKETCH2_GBENCH_SCANNER_MODE: " + mode +
-                    " (expected reader, dataset_persisted, or dataset_mixed)");
+                    " (expected dataset_persisted or dataset_mixed)");
             }
         } else {
-            values.push_back(0);
             values.push_back(1);
             values.push_back(2);
         }
@@ -321,7 +322,7 @@ std::unique_ptr<ICompute> make_compute(DistFunc func) {
     }
 }
 
-struct ReaderBenchmarkData {
+struct [[maybe_unused]] ReaderBenchmarkData {
     TempDir temp{"sketch2_bench_reader"};
     fs::path input_path = temp.path / "input.txt";
     fs::path data_path = temp.path / "data.bin";
@@ -382,7 +383,7 @@ struct DatasetBenchmarkData {
     }
 };
 
-std::shared_ptr<ReaderBenchmarkData> get_reader_benchmark_data(
+[[maybe_unused]] std::shared_ptr<ReaderBenchmarkData> get_reader_benchmark_data(
         DistFunc func, DataType type, size_t dim, size_t count) {
     static std::map<std::string, std::shared_ptr<ReaderBenchmarkData>> cache;
     const std::string key = make_fixture_key(func, type, dim, count, false);
@@ -428,19 +429,14 @@ void ApplyComputeArgs(benchmark::internal::Benchmark* benchmark) {
 void ApplyScannerArgs(benchmark::internal::Benchmark* benchmark) {
     const BenchmarkProfile profile = benchmark_profile();
     const std::vector<int>& modes = scanner_modes();
-    // In the essential profile, only reader cases run by default to keep
-    // `make bench` fast. When a specific mode is explicitly requested via
-    // SKETCH2_GBENCH_SCANNER_MODE (modes.size() == 1), cases are generated
-    // for that mode using the same representative args.
-    const bool single_mode = (modes.size() == 1);
+    // In the essential profile, run a compact representative set for supported
+    // dataset modes.
     for (int backend : benchmark_backends()) {
         if (profile == BenchmarkProfile::essential) {
             for (int mode : modes) {
-                if (mode == 0 || single_mode) {
-                    benchmark->Args({backend, 1, 0, 256, 10, mode});
-                    benchmark->Args({backend, 1, 2, 256, 10, mode});
-                    benchmark->Args({backend, 2, 2, 256, 10, mode});
-                }
+                benchmark->Args({backend, 1, 0, 256, 10, mode});
+                benchmark->Args({backend, 1, 2, 256, 10, mode});
+                benchmark->Args({backend, 2, 2, 256, 10, mode});
             }
         } else {
             for (int metric = 0; metric <= 2; ++metric) {
@@ -531,14 +527,9 @@ void BM_ScannerFindIds(benchmark::State& state) {
     result.reserve(k);
     size_t visible_count = 0;
 
-    std::shared_ptr<ReaderBenchmarkData> reader_data;
     std::shared_ptr<DatasetBenchmarkData> dataset_data;
     const size_t vector_count = scanner_vector_count();
     switch (mode) {
-        case ScannerMode::reader:
-            reader_data = get_reader_benchmark_data(func, type, dim, vector_count);
-            visible_count = reader_data->reader.count();
-            break;
         case ScannerMode::dataset_persisted:
             dataset_data = get_dataset_benchmark_data(func, type, dim, vector_count, false);
             visible_count = dataset_data->visible_count;
@@ -553,12 +544,7 @@ void BM_ScannerFindIds(benchmark::State& state) {
     }
 
     for (auto _ : state) {
-        Ret ret = Ret("invalid benchmark state");
-        if (mode == ScannerMode::reader) {
-            ret = scanner.find(reader_data->reader, func, k, reader_data->query.data(), result);
-        } else {
-            ret = scanner.find(dataset_data->dataset, k, dataset_data->query.data(), result);
-        }
+        const Ret ret = scanner.find(dataset_data->dataset, k, dataset_data->query.data(), result);
         if (ret.code() != 0) {
             state.SkipWithError(ret.message().c_str());
             break;

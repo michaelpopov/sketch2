@@ -442,27 +442,6 @@ Ret build_heap(const Source& source, DistFunc func, size_t count,
 
 } // namespace
 
-Ret Scanner::find(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) const {
-    try {
-        std::vector<DistItem> items;
-        CHECK(find_items_(reader, func, count, vec, items));
-        extract_ids_from_items(items, &result);
-        return Ret(0);
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
-}
-
-Ret Scanner::find_items(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result) const {
-    try {
-        return find_items_(reader, func, count, vec, result);
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
-}
-
 Ret Scanner::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     try {
@@ -494,19 +473,6 @@ Ret Scanner::find_items_(const DatasetReader& dataset, size_t count, const uint8
     log_query_dispatch("dataset", func, dataset.type(), dataset.dim(), count, true);
     DistHeap heap;
     CHECK(build_heap(dataset, func, count, vec, &heap, bitset));
-    extract_items(&heap, &result);
-    return Ret(0);
-}
-
-Ret Scanner::find_items_(const DataReader& reader, DistFunc func, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result) const {
-    if (vec == nullptr || count == 0) {
-        return Ret("Scanner::find: invalid arguments.");
-    }
-    result.clear();
-    log_query_dispatch("reader", func, reader.type(), reader.dim(), count, true);
-    DistHeap heap;
-    CHECK(build_heap(reader, func, count, vec, &heap));
     extract_items(&heap, &result);
     return Ret(0);
 }

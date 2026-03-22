@@ -28,6 +28,8 @@ protected:
     std::string data_path_;
     std::string delta_input_path_;
     std::string delta_path_;
+    std::vector<std::string> cleanup_dirs_;
+    std::vector<std::string> cleanup_files_;
 
     void SetUp() override {
         std::string base = tmp_dir() + "/sketch2_utest_sc_" + std::to_string(getpid());
@@ -42,6 +44,12 @@ protected:
         std::remove(data_path_.c_str());
         std::remove(delta_input_path_.c_str());
         std::remove(delta_path_.c_str());
+        for (const std::string& path : cleanup_files_) {
+            std::remove(path.c_str());
+        }
+        for (const std::string& path : cleanup_dirs_) {
+            fs::remove_all(path);
+        }
     }
 
     void generate_file(const std::string& in_path, const std::string& out_path, const GeneratorConfig& cfg) {
@@ -74,6 +82,38 @@ protected:
         std::ofstream f(path);
         f << content;
         f.close();
+    }
+
+    std::unique_ptr<DatasetReader> make_dataset_reader(
+            DataType type,
+            uint64_t dim,
+            DistFunc func,
+            const std::vector<std::string>& store_inputs,
+            uint64_t range_size = 1000) {
+        const std::string dataset_dir = data_path_ + ".dataset_" + std::to_string(cleanup_dirs_.size());
+        const std::string config_path = data_path_ + ".dataset_" + std::to_string(cleanup_dirs_.size()) + ".ini";
+        cleanup_dirs_.push_back(dataset_dir);
+        cleanup_files_.push_back(config_path);
+        fs::create_directories(dataset_dir);
+
+        DatasetNode ds;
+        EXPECT_EQ(0, ds.init({dataset_dir}, range_size, type, dim, kAccumulatorBufferSize, func).code());
+        for (const std::string& input : store_inputs) {
+            EXPECT_EQ(0, ds.store(input).code());
+        }
+
+        write_input_raw(
+            config_path,
+            std::string("[dataset]\n") +
+            "dirs = " + dataset_dir + "\n"
+            "range_size = " + std::to_string(range_size) + "\n"
+            "type = " + data_type_to_string(type) + "\n"
+            "dist_func = " + dist_func_to_string(func) + "\n"
+            "dim = " + std::to_string(dim) + "\n");
+
+        auto reader = std::make_unique<DatasetReader>();
+        EXPECT_EQ(0, reader->init(config_path).code());
+        return reader;
     }
 
     std::vector<uint8_t> f32_vec(float val, size_t dim) {
@@ -121,71 +161,64 @@ protected:
 
 TEST_F(ScannerTest, FindFailsOnCountZero) {
     generate(3, 0, DataType::f32, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
     Scanner s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(reader, DistFunc::L1, 0, q.data(), result).code());
+    EXPECT_NE(0, s.find(*reader, 0, q.data(), result).code());
 }
 
 TEST_F(ScannerTest, FindFailsOnNullQueryPointer) {
     generate(3, 0, DataType::f32, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
     Scanner s;
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(reader, DistFunc::L1, 1, nullptr, result).code());
+    EXPECT_NE(0, s.find(*reader, 1, nullptr, result).code());
 }
 
 TEST_F(ScannerTest, FindFailsOnUnknownFunction) {
-    generate(3, 0, DataType::f32, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    DatasetReader reader;
     Scanner s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(reader, static_cast<DistFunc>(999), 1, q.data(), result).code());
+    EXPECT_NE(0, s.find(reader, 1, q.data(), result).code());
 }
 
 TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {
     const size_t total = 3;
     generate(total, 0, DataType::f32, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
     Scanner s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 100, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 100, q.data(), result).code());
     EXPECT_EQ(total, result.size());
 }
 
 TEST_F(ScannerTest, FindResultSizeMatchesRequest) {
     generate(5, 0, DataType::f32, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
 
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 1, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
     EXPECT_EQ(1u, result.size());
 
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 3, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
     EXPECT_EQ(3u, result.size());
 
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 5, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 5, q.data(), result).code());
     EXPECT_EQ(5u, result.size());
 }
 
 TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
     generate(5, 0, DataType::f32, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 3, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
@@ -193,13 +226,34 @@ TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
 }
 
 TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
-    generate(5, 0, DataType::f32, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    const std::string dataset_dir = data_path_ + ".dataset_l1";
+    const std::string config_path = data_path_ + ".dataset_l1.ini";
+    std::experimental::scope_exit cleanup([&]() {
+        fs::remove_all(dataset_dir);
+        std::remove(config_path.c_str());
+    });
+    fs::create_directories(dataset_dir);
+
+    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init({dataset_dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::L1).code());
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    write_input_raw(
+        config_path,
+        std::string("[dataset]\n") +
+        "dirs = " + dataset_dir + "\n"
+        "range_size = 1000\n"
+        "type = f32\n"
+        "dist_func = l1\n"
+        "dim = 4\n");
+
+    DatasetReader reader;
+    ASSERT_EQ(0, reader.init(config_path).code());
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(reader, DistFunc::L1, 3, q.data(), result).code());
+    ASSERT_EQ(0, s.find_items(reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(3u, result[0].id);
     EXPECT_EQ(4u, result[1].id);
@@ -211,12 +265,11 @@ TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
 
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
     generate(5, 0, DataType::f32, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::L2, 3, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
@@ -230,16 +283,11 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrder) {
         "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
-    DataWriter writer;
-    ASSERT_EQ(0, writer.init(input_path_, data_path_).code());
-    ASSERT_EQ(0, writer.exec().code());
-
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
     Scanner s;
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::COS, 3, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
@@ -253,39 +301,49 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithStoredCosineValues) {
         "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
-    DataWriter writer;
-    ASSERT_EQ(0, writer.init(input_path_, data_path_, 0, 0, true).code());
-    ASSERT_EQ(0, writer.exec().code());
-
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
-    ASSERT_TRUE(reader.has_cosine_inv_norms());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
 
     Scanner s;
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::COS, 3, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
     ASSERT_EQ((std::vector<uint64_t> {10u, 20u, 30u}), result);
 }
 
 TEST_F(ScannerTest, FindF32CosStoredCosineValuesHandleZeroVectors) {
+    const std::string dataset_dir = data_path_ + ".dataset_cos";
+    const std::string config_path = data_path_ + ".dataset_cos.ini";
+    std::experimental::scope_exit cleanup([&]() {
+        fs::remove_all(dataset_dir);
+        std::remove(config_path.c_str());
+    });
+    fs::create_directories(dataset_dir);
+
     write_input_raw(
         input_path_,
         "f32,4\n"
         "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
         "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n");
-    DataWriter writer;
-    ASSERT_EQ(0, writer.init(input_path_, data_path_, 0, 0, true).code());
-    ASSERT_EQ(0, writer.exec().code());
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init({dataset_dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+    ASSERT_EQ(0, ds.store(input_path_).code());
 
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
-    ASSERT_TRUE(reader.has_cosine_inv_norms());
+    write_input_raw(
+        config_path,
+        std::string("[dataset]\n") +
+        "dirs = " + dataset_dir + "\n"
+        "range_size = 1000\n"
+        "type = f32\n"
+        "dist_func = cos\n"
+        "dim = 4\n");
+
+    DatasetReader reader;
+    ASSERT_EQ(0, reader.init(config_path).code());
 
     Scanner s;
     auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
     std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(reader, DistFunc::COS, 2, q.data(), result).code());
+    ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code());
     ASSERT_EQ(2u, result.size());
     EXPECT_EQ(10u, result[0].id);
     EXPECT_DOUBLE_EQ(0.0, result[0].dist);
@@ -303,31 +361,15 @@ TEST_F(ScannerTest, FindF32CosStoredAndComputedPathsMatchRanking) {
         "40 : [ 0.0, 1.0, 0.0, 0.0 ]\n"
         "50 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
 
-    const std::string with_inv_path = data_path_ + ".cos";
-    std::experimental::scope_exit cleanup([&]() { std::remove(with_inv_path.c_str()); });
-
-    DataWriter plain_writer;
-    ASSERT_EQ(0, plain_writer.init(input_path_, data_path_).code());
-    ASSERT_EQ(0, plain_writer.exec().code());
-
-    DataWriter inv_writer;
-    ASSERT_EQ(0, inv_writer.init(input_path_, with_inv_path, 0, 0, true).code());
-    ASSERT_EQ(0, inv_writer.exec().code());
-
-    DataReader plain_reader;
-    ASSERT_EQ(0, plain_reader.init(data_path_).code());
-    ASSERT_FALSE(plain_reader.has_cosine_inv_norms());
-
-    DataReader inv_reader;
-    ASSERT_EQ(0, inv_reader.init(with_inv_path).code());
-    ASSERT_TRUE(inv_reader.has_cosine_inv_norms());
+    auto plain_reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
+    auto inv_reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
 
     Scanner s;
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> plain_result;
     std::vector<uint64_t> inv_result;
-    ASSERT_EQ(0, s.find(plain_reader, DistFunc::COS, 5, q.data(), plain_result).code());
-    ASSERT_EQ(0, s.find(inv_reader, DistFunc::COS, 5, q.data(), inv_result).code());
+    ASSERT_EQ(0, s.find(*plain_reader, 5, q.data(), plain_result).code());
+    ASSERT_EQ(0, s.find(*inv_reader, 5, q.data(), inv_result).code());
 
     ASSERT_EQ((std::vector<uint64_t> {10u, 20u, 30u, 40u, 50u}), plain_result);
     EXPECT_EQ(plain_result, inv_result);
@@ -335,12 +377,11 @@ TEST_F(ScannerTest, FindF32CosStoredAndComputedPathsMatchRanking) {
 
 TEST_F(ScannerTest, FindI16AllSortedByDistance) {
     generate(3, 0, DataType::i16, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::L1, {input_path_});
     Scanner s;
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 3, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(0u, result[0]);
     EXPECT_EQ(1u, result[1]);
@@ -349,12 +390,11 @@ TEST_F(ScannerTest, FindI16AllSortedByDistance) {
 
 TEST_F(ScannerTest, FindF16Works) {
     generate(3, 0, DataType::f16, 4);
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_).code());
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L1, {input_path_});
     Scanner s;
     auto q = f16_vec(1.1f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 1, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(1u, result[0]);
 }
@@ -363,15 +403,12 @@ TEST_F(ScannerTest, DeltaSkipsDeletedIds) {
     generate(6, 0, DataType::f32, 4);
     generate_delta(6, 0, DataType::f32, 4, 2); // deleted ids: 2,4
 
-    auto delta = std::make_unique<DataReader>();
-    ASSERT_EQ(0, delta->init(delta_path_).code());
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_, std::move(delta)).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_, delta_input_path_});
 
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 6, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 6, q.data(), result).code());
 
     for (uint64_t id : result) {
         EXPECT_NE(2u, id);
@@ -387,15 +424,12 @@ TEST_F(ScannerTest, DeltaDeletingAllVectorsReturnsEmptyResult) {
         "1 : []\n"
         "2 : []\n");
 
-    auto delta = std::make_unique<DataReader>();
-    ASSERT_EQ(0, delta->init(delta_path_).code());
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_, std::move(delta)).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_, delta_input_path_});
 
     Scanner s;
     auto q = f32_vec(1.1f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 3, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
     EXPECT_TRUE(result.empty());
 }
 
@@ -405,15 +439,12 @@ TEST_F(ScannerTest, DeltaUsesUpdatedVectors) {
         "f32,4\n"
         "11 : [ 20.0, 20.0, 20.0, 20.0 ]\n");
 
-    auto delta = std::make_unique<DataReader>();
-    ASSERT_EQ(0, delta->init(delta_path_).code());
-    DataReader reader;
-    ASSERT_EQ(0, reader.init(data_path_, std::move(delta)).code());
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_, delta_input_path_});
 
     Scanner s;
     auto q = f32_vec(20.0f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(reader, DistFunc::L1, 1, q.data(), result).code());
+    ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(11u, result[0]);
 }

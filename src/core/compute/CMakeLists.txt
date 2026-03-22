@@ -1,4 +1,4 @@
-add_library(comp STATIC compute.cpp scanner.cpp)
+add_library(comp STATIC scanner.cpp)
 set_target_properties(comp PROPERTIES OUTPUT_NAME "comp")
 target_link_libraries(comp PUBLIC stor sketch_compile_options Threads::Threads)
 
