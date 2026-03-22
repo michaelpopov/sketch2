@@ -157,6 +157,23 @@ TEST_F(DatasetTest, InitFromIniAcceptsCosDistanceFunction) {
     EXPECT_EQ(DistFunc::COS, sc.dist_func());
 }
 
+TEST_F(DatasetTest, InitFromIniSetsDatasetNameFromIniFilenameStem) {
+    const auto dir = make_dir("d_name");
+    const std::string named_config_path = base_dir_ + "/dataset_name_test.ini";
+    std::ofstream out(named_config_path);
+    ASSERT_TRUE(out.is_open());
+    out << "[dataset]\n";
+    out << "dirs = " << dir << "\n";
+    out << "range_size = 10\n";
+    out << "type = f32\n";
+    out << "dim = 4\n";
+    out.close();
+
+    DatasetReader reader;
+    ASSERT_EQ(0, reader.init(named_config_path).code());
+    EXPECT_EQ("dataset_name_test", reader.name());
+}
+
 TEST_F(DatasetTest, InitFromMetadataExposesDistanceFunction) {
     DatasetMetadata metadata;
     metadata.dirs = {make_dir("d_metadata_dist")};
@@ -1258,7 +1275,13 @@ TEST_F(DatasetTest, GuestModeAllowsQueries) {
     ASSERT_EQ(0, owner.store(input_path_).code());
 
     DatasetReader guest;
-    ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = 4\n");
+    ASSERT_EQ(0, guest.init(config_path_).code());
 
 
     auto [reader, ret] = guest.get(2);
@@ -1341,7 +1364,13 @@ TEST_F(DatasetTest, GuestDetectsOwnerStoreAndFlushesCache) {
 
     // Guest reads data — populates its cache.
     DatasetReader guest;
-    ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = 4\n");
+    ASSERT_EQ(0, guest.init(config_path_).code());
 
 
     auto [reader0, ret0] = guest.get(2);
@@ -1373,7 +1402,13 @@ TEST_F(DatasetTest, GuestCacheStaysValidWhenNoUpdate) {
     ASSERT_EQ(0, owner.store(input_path_).code());
 
     DatasetReader guest;
-    ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = 4\n");
+    ASSERT_EQ(0, guest.init(config_path_).code());
 
 
     auto [reader0, ret0] = guest.get(2);
@@ -1432,7 +1467,13 @@ TEST_F(DatasetTest, GetRetriesWhenDeltaFileDeletedByWriter) {
 
     // Guest: populate items cache (sees 0.data + 0.delta).
     DatasetReader guest;
-    ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = 4\n");
+    ASSERT_EQ(0, guest.init(config_path_).code());
 
     auto [miss, miss_ret] = guest.get(999); // miss — but items cache is now populated
     ASSERT_EQ(0, miss_ret.code());
@@ -1460,7 +1501,13 @@ TEST_F(DatasetTest, GetFailsWhenDataFileDeletedAndRetryAlsoFails) {
     ASSERT_EQ(0, owner.store(input_path_).code());
 
     DatasetReader guest;
-    ASSERT_EQ(0, guest.init({dir}, 100, DataType::f32, 4).code());
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = 4\n");
+    ASSERT_EQ(0, guest.init(config_path_).code());
 
     auto [miss, miss_ret] = guest.get(999);
     ASSERT_EQ(0, miss_ret.code());

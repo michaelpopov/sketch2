@@ -1,9 +1,65 @@
 // Implements DatasetNode: a small adapter over DatasetReader + DatasetWriter.
 
 #include "dataset_node.h"
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
+#include <unistd.h>
 
 namespace sketch2 {
+
+namespace {
+
+Ret write_dataset_ini_(const DatasetMetadata& metadata, std::string* path) {
+    char tmp_path[] = "/tmp/sketch2_dataset_node_XXXXXX.ini";
+    const int fd = mkstemps(tmp_path, 4);
+    if (fd < 0) {
+        return Ret("DatasetNode: failed to create temporary ini file");
+    }
+    close(fd);
+
+    std::ofstream out(tmp_path);
+    if (!out.is_open()) {
+        std::error_code ec;
+        std::filesystem::remove(tmp_path, ec);
+        return Ret("DatasetNode: failed to open temporary ini file");
+    }
+
+    out << "[dataset]\n";
+    out << "dirs = ";
+    for (size_t i = 0; i < metadata.dirs.size(); ++i) {
+        if (i > 0) {
+            out << ", ";
+        }
+        out << metadata.dirs[i];
+    }
+    out << "\n";
+    out << "range_size = " << metadata.range_size << "\n";
+    out << "type = " << data_type_to_string(metadata.type) << "\n";
+    out << "dist_func = " << dist_func_to_string(metadata.dist_func) << "\n";
+    out << "dim = " << metadata.dim << "\n";
+    out << "accumulator_size = " << metadata.accumulator_size << "\n";
+    out.close();
+    if (out.fail()) {
+        std::error_code ec;
+        std::filesystem::remove(tmp_path, ec);
+        return Ret("DatasetNode: failed to write temporary ini file");
+    }
+
+    *path = tmp_path;
+    return Ret(0);
+}
+
+Ret init_reader_from_metadata_(DatasetReader* reader, const DatasetMetadata& metadata) {
+    std::string ini_path;
+    CHECK(write_dataset_ini_(metadata, &ini_path));
+    const Ret ret = reader->init(ini_path);
+    std::error_code ec;
+    std::filesystem::remove(ini_path, ec);
+    return ret;
+}
+
+} // namespace
 
 Ret DatasetNode::ensure_initialized_() const {
     if (!reader_ || !writer_) {
@@ -19,7 +75,7 @@ Ret DatasetNode::init(const DatasetMetadata& metadata) {
 
     auto reader = std::make_unique<DatasetReader>();
     auto writer = std::make_unique<DatasetWriter>();
-    CHECK(reader->init(metadata));
+    CHECK(init_reader_from_metadata_(reader.get(), metadata));
     CHECK(writer->init(metadata));
 
     reader_ = std::move(reader);
@@ -29,18 +85,14 @@ Ret DatasetNode::init(const DatasetMetadata& metadata) {
 
 Ret DatasetNode::init(const std::vector<std::string>& dirs, uint64_t range_size,
         DataType type, uint64_t dim, uint64_t accumulator_size, DistFunc dist_func) {
-    if (reader_ || writer_) {
-        return Ret("DatasetNode is already initialized.");
-    }
-
-    auto reader = std::make_unique<DatasetReader>();
-    auto writer = std::make_unique<DatasetWriter>();
-    CHECK(reader->init(dirs, range_size, type, dim, accumulator_size, dist_func));
-    CHECK(writer->init(dirs, range_size, type, dim, accumulator_size, dist_func));
-
-    reader_ = std::move(reader);
-    writer_ = std::move(writer);
-    return Ret(0);
+    DatasetMetadata metadata;
+    metadata.dirs = dirs;
+    metadata.range_size = range_size;
+    metadata.type = type;
+    metadata.dim = dim;
+    metadata.accumulator_size = accumulator_size;
+    metadata.dist_func = dist_func;
+    return init(metadata);
 }
 
 Ret DatasetNode::init(const std::string& path) {

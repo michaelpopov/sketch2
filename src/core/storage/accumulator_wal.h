@@ -33,16 +33,17 @@ public:
     Ret reset();
 
 private:
-    Ret open_file_();
-    Ret load_or_create_header_();
-    Ret write_header_();
-    Ret append_record_(WalOp op, uint64_t id, const uint8_t* payload, size_t payload_size);
-
     std::string path_;
     int fd_ = -1;
     DataType type_ = DataType::f32;
     uint64_t dim_ = 0;
     size_t vector_size_ = 0;
+
+    Ret open_file_();
+    Ret load_or_create_header_();
+    Ret write_header_();
+    Ret append_record_(WalOp op, uint64_t id, const uint8_t* payload, size_t payload_size);
+    Ret replay_(Accumulator* accumulator);
 };
 
 } // namespace sketch2

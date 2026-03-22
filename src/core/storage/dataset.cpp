@@ -2,6 +2,7 @@
 
 #include "dataset.h"
 #include "utils/ini_reader.h"
+#include <filesystem>
 
 namespace sketch2 {
 
@@ -79,7 +80,13 @@ Ret Dataset::init_(const std::string& path) {
     metadata.type = data_type_from_string(type_str);
     metadata.dist_func = dist_func_from_string(cfg.get_str("dataset.dist_func", "l1"));
 
-    return init(metadata);
+    const Ret ret = init(metadata);
+    if (ret.code() != 0) {
+        return ret;
+    }
+
+    name_ = std::filesystem::path(path).stem().string();
+    return Ret(0);
 }
 
 std::string Dataset::item_path_base(uint64_t file_id) const {

@@ -266,10 +266,10 @@ inline bool should_log(LogLevel level) {
     ::sketch2::log::FILELog().get(*file_log_level_ptr__, (file), (line))
 
 #define LOG_CRITICAL FILE_LOG(::sketch2::log::LogLevel::Critical, __FILE__, __LINE__)
-#define LOG_ERROR FILE_LOG(::sketch2::log::LogLevel::Error, __FILE__, __LINE__)
-#define LOG_WARN FILE_LOG(::sketch2::log::LogLevel::Warn, __FILE__, __LINE__)
-#define LOG_INFO FILE_LOG(::sketch2::log::LogLevel::Info, __FILE__, __LINE__)
-#define LOG_TRACE FILE_LOG(::sketch2::log::LogLevel::Trace, __FILE__, __LINE__)
+#define LOG_ERROR FILE_LOG(::sketch2::log::LogLevel::Error, nullptr, 0)
+#define LOG_WARN FILE_LOG(::sketch2::log::LogLevel::Warn, nullptr, 0)
+#define LOG_INFO FILE_LOG(::sketch2::log::LogLevel::Info, nullptr, 0)
+#define LOG_TRACE FILE_LOG(::sketch2::log::LogLevel::Trace, nullptr, 0)
 #define LOG_DEBUG FILE_LOG(::sketch2::log::LogLevel::Debug, __FILE__, __LINE__)
 
 #define CRITICAL_EXIT(x)                                                                                 \

@@ -161,6 +161,36 @@ TEST(LogTest, EnabledMessagesProduceOutput) {
     set_log_level(original);
 }
 
+TEST(LogTest, ErrorInfoTraceWarnDoNotIncludeSourceLocation) {
+    LogLevel original = get_log_level();
+    set_log_level(LogLevel::Trace);
+
+    const std::string output = capture_stderr_output([]() {
+        LOG_ERROR << "error message";
+        LOG_WARN << "warn message";
+        LOG_INFO << "info message";
+        LOG_TRACE << "trace message";
+    });
+
+    EXPECT_FALSE(output.empty());
+    EXPECT_EQ(output.find("utest_log.cpp"), std::string::npos);
+    set_log_level(original);
+}
+
+TEST(LogTest, CriticalAndDebugIncludeSourceLocation) {
+    LogLevel original = get_log_level();
+    set_log_level(LogLevel::Debug);
+
+    const std::string output = capture_stderr_output([]() {
+        LOG_CRITICAL << "critical message";
+        LOG_DEBUG << "debug message";
+    });
+
+    EXPECT_FALSE(output.empty());
+    EXPECT_NE(output.find("utest_log.cpp"), std::string::npos);
+    set_log_level(original);
+}
+
 TEST(LogTest, LongMessagesAreTruncatedSafely) {
     LogLevel original = get_log_level();
     set_log_level(LogLevel::Info);

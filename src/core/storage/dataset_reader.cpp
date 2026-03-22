@@ -5,6 +5,7 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_reader.h"
 #include "core/utils/log.h"
+#include "core/utils/timer.h"
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
@@ -46,13 +47,14 @@ std::string dataset_owner_lock_path(const DatasetMetadata& metadata) {
 // Scans every dataset directory, groups matching .data/.delta files by numeric
 // file id, validates that each group has a base data file, and returns the
 // resulting items sorted by id for deterministic reads and merges.
-Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetItem>* items) {
+Ret collect_dataset_items(const std::string& name, const DatasetMetadata& metadata, std::vector<DatasetItem>* items) {
     if (metadata.dirs.empty()) {
         return Ret("DatasetReader::init: dirs are not set");
     }
 
     std::unordered_map<uint64_t, DatasetItem> items_map;
 
+    Timer timer("collect_dataset_items");
     for (const std::string& dir : metadata.dirs) {
         std::error_code ec;
         if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) {
@@ -111,6 +113,8 @@ Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetIt
         });
 
     *items = std::move(sorted_items);
+
+    LOG_TRACE << "collect_dataset_items: collected items cache for " << name << " in " << timer.elapsed_ms() << " ms";
     return Ret(0);
 }
 
@@ -142,7 +146,7 @@ Ret DatasetReader::ensure_items_cache_() const {
     if (items_cache_valid_) {
         return Ret(0);
     }
-    CHECK(collect_dataset_items(metadata_, &items_cache_));
+    CHECK(collect_dataset_items(name_, metadata_, &items_cache_));
     items_cache_valid_ = true;
     return Ret(0);
 }

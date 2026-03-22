@@ -157,6 +157,8 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         return Ret("DataReader: delta is inconsistent");
     }
 
+    path_ = path;
+
     int fd = open(path.c_str(), O_RDONLY);
     if (fd < 0) {
         return Ret("DataReader: failed to open file: " + path);

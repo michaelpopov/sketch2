@@ -10,6 +10,7 @@
 #include "core/utils/log.h"
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"
+#include "core/utils/timer.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
@@ -110,7 +111,9 @@ Ret DatasetWriter::store(const std::string& input_path) {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
         should_notify = true;
+        Timer timer("DatasetWriter::store");
         ret = store_(input_path);
+        LOG_INFO << "Completed DatasetWriter::store for " << name() << " in " << timer.elapsed_ms() << " ms";
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
@@ -129,7 +132,9 @@ Ret DatasetWriter::store_accumulator() {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
         should_notify = true;
+        Timer timer("DatasetWriter::store_accumulator");
         ret = store_accumulator_();
+        LOG_INFO << "Completed DatasetWriter::store_accumulator for " << name() << " in " << timer.elapsed_ms() << " ms";
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
@@ -148,7 +153,9 @@ Ret DatasetWriter::merge() {
         std::lock_guard<std::mutex> lg(write_mutex_);
         CHECK(ensure_owner_lock_());
         should_notify = true;
+        Timer timer("DatasetWriter::merge");
         ret = merge_();
+        LOG_INFO << "Completed DatasetWriter::merge for " << name() << " in " << timer.elapsed_ms() << " ms";
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
@@ -451,7 +458,7 @@ Ret DatasetWriter::merge_() {
     }
 
     std::vector<DatasetItem> all_items;
-    CHECK(collect_dataset_items(metadata_, &all_items));
+    CHECK(collect_dataset_items(name_, metadata_, &all_items));
 
     std::vector<DatasetItem> to_merge;
     for (DatasetItem& item : all_items) {

@@ -3,7 +3,9 @@
 #include "core/storage/accumulator_wal.h"
 
 #include "core/storage/accumulator.h"
+#include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
+#include "core/utils/timer.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -102,6 +104,13 @@ Ret AccumulatorWal::replay(Accumulator* accumulator) {
         return Ret("AccumulatorWal::replay: accumulator is null");
     }
 
+    Timer timer("AccumulatorWal::replay");
+    Ret ret = replay_(accumulator);
+    LOG_INFO << "AccumulatorWal::replay completed for " << path_ << " in " << timer.elapsed_ms() << " ms";
+    return ret;
+}
+
+Ret AccumulatorWal::replay_(Accumulator* accumulator) {
     off_t offset = static_cast<off_t>(sizeof(WalFileHeader));
     while (true) {
         WalRecordHeader header{};

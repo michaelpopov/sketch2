@@ -3,7 +3,9 @@
 #include "data_writer.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
+#include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
+#include "core/utils/timer.h"
 #include <algorithm>
 #include <experimental/scope>
 #include <cstdint>
@@ -34,12 +36,17 @@ Ret DataWriter::exec() {
         return Ret("Output path is not set.");
     }
 
+    Timer timer("data_writer::exec");
+
     // Create and init InputReader from input_path
     InputReader source;
     CHECK(source.init(input_path_));
 
     InputReaderView reader(source, start_, end_);
-    return load(reader, output_path_, write_cosine_inv_norms_);
+    Ret ret = load(reader, output_path_, write_cosine_inv_norms_);
+
+    LOG_INFO << "DataWriter completed exec for " << output_path_ << " in " << timer.elapsed_ms() << " ms";
+    return ret;
 }
 
 // Converts a sorted text-or-binary input view into the binary on-disk data-file format.

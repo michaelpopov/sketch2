@@ -2,7 +2,9 @@
 
 #include "data_merger.h"
 #include "core/storage/data_file_layout.h"
+#include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
+#include "core/utils/timer.h"
 #include <algorithm>
 #include <cassert>
 #include <experimental/scope>
@@ -313,10 +315,11 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         return Ret("DataMerger::merge_data_file: source and updater must not have deltas");
     }
 
+    Timer timer("merge_data_file");
     const std::vector<MergeItem> updater_items = load_update_records(updater);
     const std::vector<uint64_t> deletes = load_deleted_ids(updater);
 
-    return merge_to_file(source, path, "DataMerger::merge_data_files",
+    Ret ret = merge_to_file(source, path, "DataMerger::merge_data_files",
         [&](FILE* f, DataFileHeader* hdr) -> Ret {
             std::vector<uint64_t> output_ids;
             CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
@@ -344,6 +347,9 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
             hdr->count = static_cast<uint32_t>(output_ids.size());
             return rewrite_header(f, *hdr, "DataMerger::merge_data_files");
         });
+    
+    LOG_INFO << "Merged data file " << source.path() << " in " << timer.elapsed_ms() << " ms";
+    return ret;
 }
 
 Ret DataMerger::merge_delta_file(const DataReader& source, const DataReader& updater, const std::string& path) {
@@ -393,11 +399,12 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         return Ret("DataMerger::merge_delta_file: source and updater must not have deltas");
     }
 
+    Timer timer("merge_delta_file");
     const std::vector<MergeItem> updater_items = load_update_records(updater);
     const std::vector<uint64_t> updater_deletes = load_deleted_ids(updater);
     const std::vector<uint64_t> deletes = build_delta_deletes(source, updater_items, updater_deletes);
 
-    return merge_to_file(source, path, "DataMerger::merge_delta_file",
+    Ret ret = merge_to_file(source, path, "DataMerger::merge_delta_file",
         [&](FILE* f, DataFileHeader* hdr) -> Ret {
             std::vector<uint64_t> output_ids;
             CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
@@ -428,6 +435,9 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
             hdr->count = static_cast<uint32_t>(output_ids.size());
             return rewrite_header(f, *hdr, "DataMerger::merge_delta_file");
         });
+ 
+    LOG_INFO << "Merged delta file " << source.path() << " in " << timer.elapsed_ms() << " ms";
+    return ret;
 }
 
 // Merges a persisted data file with range-scoped accumulator contents, using
@@ -443,9 +453,10 @@ Ret DataMerger::merge_data_file_(
         return Ret("DataMerger::merge_data_file: source and updater must not have deltas");
     }
 
+    Timer timer("merge_data_file_accumulator");
     const std::vector<MergeItem> updater_items = load_update_records(updater, ids);
 
-    return merge_to_file(source, path, "DataMerger::merge_data_files",
+    Ret ret = merge_to_file(source, path, "DataMerger::merge_data_files",
         [&](FILE* f, DataFileHeader* hdr) -> Ret {
             std::vector<uint64_t> output_ids;
             CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
@@ -473,6 +484,9 @@ Ret DataMerger::merge_data_file_(
             hdr->count = static_cast<uint32_t>(output_ids.size());
             return rewrite_header(f, *hdr, "DataMerger::merge_data_files");
         });
+    
+    LOG_INFO << "Merged data file " << source.path() << " accumulator in " << timer.elapsed_ms() << " ms";
+    return ret;
 }
 
 // Merges a persisted delta file with range-scoped accumulator contents while
@@ -488,10 +502,11 @@ Ret DataMerger::merge_delta_file_(
         return Ret("DataMerger::merge_delta_file: source and updater must not have deltas");
     }
 
+    Timer timer("merge_delta_file_accumulator");
     const std::vector<MergeItem> updater_items = load_update_records(updater, ids);
     const std::vector<uint64_t> deletes = build_delta_deletes(source, updater_items, deleted_ids);
 
-    return merge_to_file(source, path, "DataMerger::merge_delta_file",
+    Ret ret = merge_to_file(source, path, "DataMerger::merge_delta_file",
         [&](FILE* f, DataFileHeader* hdr) -> Ret {
             std::vector<uint64_t> output_ids;
             CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
@@ -522,6 +537,9 @@ Ret DataMerger::merge_delta_file_(
             hdr->count = static_cast<uint32_t>(output_ids.size());
             return rewrite_header(f, *hdr, "DataMerger::merge_delta_file");
         });
+        
+    LOG_INFO << "Merged delta file " << source.path() << " accumulator in " << timer.elapsed_ms() << " ms";
+    return ret;
 }
 
 } // namespace sketch2

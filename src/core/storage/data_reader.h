@@ -83,6 +83,7 @@ public:
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     const uint8_t* at(size_t index) const;   // lookup by position; might return nullptr if the vector is deleted
     bool           is_hidden(size_t index) const;
+    std::string    path() const { return path_; }
 
     size_t deleted_count() const { return hdr_->deleted_count; }
     uint64_t deleted_id(size_t index) const;
@@ -100,6 +101,7 @@ private:
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
     size_t                   stride_  = 0;        // bytes between persisted vectors
+    std::string              path_ = "<undefined>";
 
     DynamicBitset           bitset_;
     std::unique_ptr<DataReader> delta_;

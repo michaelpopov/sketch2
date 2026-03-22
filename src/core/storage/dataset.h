@@ -27,7 +27,7 @@ struct DatasetItem {
 };
 
 // Free functions used by dataset_reader.cpp and dataset_writer.cpp.
-Ret collect_dataset_items(const DatasetMetadata& metadata, std::vector<DatasetItem>* items);
+Ret collect_dataset_items(const std::string& name, const DatasetMetadata& metadata, std::vector<DatasetItem>* items);
 std::string dataset_owner_lock_path(const DatasetMetadata& metadata);
 
 // Dataset is the lean base class: metadata storage and init only.
@@ -37,13 +37,6 @@ public:
     Dataset() = default;
     virtual ~Dataset() = default;
 
-    Ret init(const DatasetMetadata& metadata);
-
-    Ret init(const std::vector<std::string>& dirs, uint64_t range_size,
-        DataType type = DataType::f32, uint64_t dim = 4,
-        uint64_t accumulator_size = kAccumulatorBufferSize,
-        DistFunc dist_func = DistFunc::L1);
-
     // Initialize with values from ini file.
     Ret init(const std::string& path);
 
@@ -52,10 +45,20 @@ public:
     uint64_t dim() const { return metadata_.dim; }
     uint64_t range_size() const { return metadata_.range_size; }
     const std::vector<std::string>& dirs() const { return metadata_.dirs; }
+    const std::string name() const { return name_; }
 
 protected:
     DatasetMetadata metadata_;
+    std::string name_;
+
     std::string item_path_base(uint64_t file_id) const;
+
+    Ret init(const DatasetMetadata& metadata);
+
+    Ret init(const std::vector<std::string>& dirs, uint64_t range_size,
+        DataType type = DataType::f32, uint64_t dim = 4,
+        uint64_t accumulator_size = kAccumulatorBufferSize,
+        DistFunc dist_func = DistFunc::L1);
 
 private:
     Ret init_(const std::string& path);

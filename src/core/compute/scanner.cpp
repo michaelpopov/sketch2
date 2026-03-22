@@ -8,6 +8,7 @@
 #include "core/storage/dataset_reader.h"
 #include "core/utils/log.h"
 #include "core/utils/thread_pool.h"
+#include "core/utils/timer.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -31,20 +32,16 @@ const char* dist_func_name(DistFunc func) {
     }
 }
 
-const char* query_result_name(bool items) {
-    return items ? "items" : "ids";
-}
-
-void log_query_dispatch(const char* source, DistFunc func, DataType type, size_t dim,
-        size_t count, bool items) {
-    LOG_INFO << "Scanner query dispatch: runtime_backend='"
+void log_query(const std::string& source, DistFunc func, DataType type, size_t dim,
+        size_t count, int64_t elapsed_ms) {
+    LOG_INFO << "Scanner query: runtime_backend='"
              << get_singleton().compute_unit().name()
              << "' source=" << source
              << " metric=" << dist_func_name(func)
              << " type=" << data_type_to_string(type)
              << " dim=" << dim
              << " k=" << count
-             << " result=" << query_result_name(items);
+             << " time=" << elapsed_ms << " ms";
 }
 
 void push_result(DistHeap* heap, size_t count, uint64_t id, double dist) {
@@ -470,9 +467,10 @@ Ret Scanner::find_items_(const DatasetReader& dataset, size_t count, const uint8
     }
     result.clear();
     const DistFunc func = dataset.dist_func();
-    log_query_dispatch("dataset", func, dataset.type(), dataset.dim(), count, true);
     DistHeap heap;
+    Timer timer("scanner::query");
     CHECK(build_heap(dataset, func, count, vec, &heap, bitset));
+    log_query(dataset.name(), func, dataset.type(), dataset.dim(), count, timer.elapsed_ms());
     extract_items(&heap, &result);
     return Ret(0);
 }
