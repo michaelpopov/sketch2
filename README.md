@@ -66,10 +66,11 @@ with `l1`, `l2`, and `cos` distance functions.
 
 | Document | Path |
 | --- | --- |
-| Manifesto | docs/0.%20Manifesto.md |
-| Design | docs/1.%20Design.md |
-| Build | docs/2.%20Build.md |
-| Test | docs/3.%20Test.md |
-| Python Integration | docs/4.%20Python%20Integration.md |
-| SQLite Integration | docs/5.%20SQLite%20Integration.md |
-| Demo | docs/6.%20Demo.md |
+| Manifesto | [docs/Manifesto.md](docs/Manifesto.md) |
+| Key Concepts | [docs/KeyConcepts.md](docs/KeyConcepts.md) |
+| Design | [docs/Design.md](docs/Design.md) |
+| Build | [docs/Build.md](docs/Build.md) |
+| Test | [docs/Test.md](docs/Test.md) |
+| Python Integration | [docs/PythonIntegration.md](docs/PythonIntegration.md) |
+| SQLite Integration | [docs/SQLiteIntegration.md](docs/SQLiteIntegration.md) |
+| Demo | [docs/Demo.md](docs/Demo.md) |
