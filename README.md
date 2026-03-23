@@ -1,12 +1,32 @@
 # Sketch2
 
-Sketch2 is a vector storage and compute engine built for high-throughput KNN
-workloads.
+Sketch2 is an open-source, embeddable vector engine built for fast, large-scale similarity search.
+It’s designed to live inside your application — not as a separate service — giving you direct control over how vectors are stored, scanned, and computed.
 
-It is designed as an embeddable system rather than a general-purpose database.
-The project focuses on storing vector data efficiently, scanning it directly in
-its stored representation, and using hardware-aware compute paths to execute
-distance calculations with low overhead.
+Instead of treating vector search like a database problem, Sketch2 focuses on what matters most: moving less data and doing less work per query. It stores vectors in a compact, compute-friendly format and executes distance calculations using hardware-aware paths for maximum throughput.
+
+💫 Why Sketch2?
+
+- **High-Throughput by Design**  
+  Optimized for workloads where you need to evaluate large candidate sets quickly — not just index and pray.
+- **Embeddable & Lightweight**  
+  No servers, no orchestration. Link it into your system and run vector search where your data already lives.
+- **Compute-Centric Architecture**  
+  Designed around efficient scanning and distance computation, minimizing memory movement and overhead.
+- **Storage Meets Execution**  
+  Vectors aren’t just stored — they’re laid out for fast, direct processing without expensive transformations.
+- **Built for Control**  
+  Ideal for systems where you want to own the full query pipeline, from filtering to scoring.
+
+🚀 Where it fits
+
+Sketch2 is a great fit for:
+
+- Custom search and ranking systems
+- Recommendation engines
+- Retrieval pipelines (RAG, semantic search)
+- High-performance analytics over embeddings
+- Systems where tight integration and performance matter more than turnkey features.
 
 ## What Sketch2 Is
 
@@ -44,10 +64,12 @@ with `l1`, `l2`, and `cos` distance functions.
 
 ## Documentation
 
-- [Manifesto](docs/0.%20Manifesto.md)
-- [Design](docs/1.%20Design.md)
-- [Build](docs/2.%20Build.md)
-- [Test](docs/3.%20Test.md)
-- [Python Integration](docs/4.%20Python%20Integration.md)
-- [SQLite Integration](docs/5.%20SQLite%20Integration.md)
-- [Demo](docs/6.%20Demo.md)
+| Document | Path |
+| --- | --- |
+| Manifesto | docs/0.%20Manifesto.md |
+| Design | docs/1.%20Design.md |
+| Build | docs/2.%20Build.md |
+| Test | docs/3.%20Test.md |
+| Python Integration | docs/4.%20Python%20Integration.md |
+| SQLite Integration | docs/5.%20SQLite%20Integration.md |
+| Demo | docs/6.%20Demo.md |
