@@ -36,6 +36,7 @@ using DatasetRangeReaderPtr = std::unique_ptr<DatasetRangeReader>;
 // DatasetReader owns the read infrastructure: file cache, update notifier
 // (checker mode), and the public read API (reader(), get(), get_vector()).
 class DatasetReader : public Dataset {
+    friend class DatasetRangeReader;
 public:
     using Dataset::Dataset;
     ~DatasetReader() override = default;
@@ -45,7 +46,6 @@ public:
     std::pair<const uint8_t*, Ret> get_vector(uint64_t id) const;
 
 protected:
-    // Cache members are protected so DatasetWriter can access them via friendship.
     mutable sketch::RWLock cache_lock_;
     mutable bool items_cache_valid_ = false;
     mutable std::vector<DatasetItem> items_cache_;
@@ -61,9 +61,6 @@ private:
     const DatasetItem* find_item_(uint64_t file_id) const;
     std::pair<DataReaderPtr, Ret> open_reader_(const DatasetItem& item) const;
     std::pair<DataReaderPtr, Ret> get_cached_reader_(const DatasetItem& item) const;
-
-    friend class DatasetWriter;
-    friend class DatasetRangeReader;
 };
 
 } // namespace sketch2
