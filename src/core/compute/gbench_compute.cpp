@@ -13,6 +13,7 @@
 #include "core/utils/log.h"
 #include "core/utils/singleton.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdlib>
@@ -32,10 +33,6 @@ namespace {
 
 constexpr size_t kScannerVectorCountEssential = 8192;
 constexpr size_t kScannerVectorCountExtended = 16384;
-constexpr size_t kScannerAccumulatorAdditionsEssential = 256;
-constexpr size_t kScannerAccumulatorAdditionsExtended = 512;
-constexpr size_t kScannerAccumulatorDeletionsEssential = 128;
-constexpr size_t kScannerAccumulatorDeletionsExtended = 256;
 constexpr size_t kScannerRangeSize = 2048;
 
 enum class ScannerMode : int64_t {
@@ -127,16 +124,6 @@ BenchmarkProfile benchmark_profile() {
 size_t scanner_vector_count() {
     return benchmark_profile() == BenchmarkProfile::essential ?
         kScannerVectorCountEssential : kScannerVectorCountExtended;
-}
-
-size_t scanner_accumulator_additions() {
-    return benchmark_profile() == BenchmarkProfile::essential ?
-        kScannerAccumulatorAdditionsEssential : kScannerAccumulatorAdditionsExtended;
-}
-
-size_t scanner_accumulator_deletions() {
-    return benchmark_profile() == BenchmarkProfile::essential ?
-        kScannerAccumulatorDeletionsEssential : kScannerAccumulatorDeletionsExtended;
 }
 
 const std::vector<int>& scanner_modes() {
@@ -355,28 +342,21 @@ struct DatasetBenchmarkData {
         metadata.dim = dim;
         metadata.dist_func = func;
         metadata.range_size = kScannerRangeSize;
-        metadata.accumulator_size = static_cast<uint64_t>(count * dim * data_type_size(type)) + (1u << 20);
         require_ok(dataset.init_for_test(metadata), "init dataset");
 
-        for (size_t id = 0; id < count; ++id) {
-            const std::vector<uint8_t> vec = make_vector(type, dim, id);
-            require_ok(dataset.add_vector(id, vec.data()), "add persisted dataset vector");
-        }
-        require_ok(dataset.store_accumulator(), "store persisted dataset vectors");
+        const fs::path input_path = temp.path / "dataset_input.txt";
+        GeneratorConfig cfg{PatternType::Sequential, count, 0, type, dim, 1000};
+        require_ok(generate_input_file(input_path.string(), cfg), "generate dataset input");
+        require_ok(dataset.store(input_path.string()), "store dataset");
         visible_count = count;
 
         if (mixed_state) {
-            for (size_t i = 0; i < scanner_accumulator_additions(); ++i) {
-                const uint64_t id = static_cast<uint64_t>(count + i);
-                const std::vector<uint8_t> vec = make_vector(type, dim, 100000 + id);
-                require_ok(dataset.add_vector(id, vec.data()), "add accumulator dataset vector");
-                ++visible_count;
-            }
-            for (size_t i = 0; i < scanner_accumulator_deletions(); ++i) {
-                const uint64_t id = static_cast<uint64_t>(i * 2);
-                require_ok(dataset.delete_vector(id), "delete dataset vector");
-                --visible_count;
-            }
+            const size_t extra = std::max<size_t>(1, count / 10);
+            const fs::path extra_path = temp.path / "dataset_extra.txt";
+            GeneratorConfig extra_cfg{PatternType::Sequential, extra, count, type, dim, 1000};
+            require_ok(generate_input_file(extra_path.string(), extra_cfg), "generate extra dataset input");
+            require_ok(dataset.store(extra_path.string()), "store extra dataset");
+            visible_count += extra;
         }
 
         query = make_vector(type, dim, count + 31);

@@ -271,17 +271,6 @@ TEST_F(DatasetTest, StoreFailsWhenNotInitialized) {
 }
 
 
-TEST_F(DatasetTest, AddVectorFailsWhenNotInitialized) {
-    DatasetNode sc;
-    const std::array<float, 4> vec {1.0f, 2.0f, 3.0f, 4.0f};
-    EXPECT_NE(0, sc.add_vector(1, reinterpret_cast<const uint8_t*>(vec.data())).code());
-}
-
-TEST_F(DatasetTest, DeleteVectorFailsWhenNotInitialized) {
-    DatasetNode sc;
-    EXPECT_NE(0, sc.delete_vector(1).code());
-}
-
 
 TEST_F(DatasetTest, StoreFailsOnBadInputPath) {
     DatasetNode sc;
@@ -792,33 +781,6 @@ TEST_F(DatasetTest, DatasetGetReturnsReaderWithDeltaApplied) {
     EXPECT_EQ(nullptr, missing_reader);
 }
 
-TEST_F(DatasetTest, DatasetGetVectorLoadsPendingWalAfterReopen) {
-    auto dir = make_dir("d_ds_get_vector_reopen");
-    const std::array<float, 4> updated {500.0f, 500.0f, 500.0f, 500.0f};
-
-    {
-        DatasetNode owner;
-        ASSERT_EQ(0, owner.init_for_test({dir}, 100, DataType::f32, 4).code());
-        generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
-        ASSERT_EQ(0, owner.store(input_path_).code());
-        ASSERT_EQ(0, owner.add_vector(2, reinterpret_cast<const uint8_t*>(updated.data())).code());
-        ASSERT_EQ(0, owner.delete_vector(3).code());
-    }
-
-    DatasetNode reopened;
-    ASSERT_EQ(0, reopened.init_for_test({dir}, 100, DataType::f32, 4).code());
-
-    auto [vec_data, ret] = reopened.get_vector(2);
-    ASSERT_EQ(0, ret.code()) << ret.message();
-    ASSERT_NE(nullptr, vec_data);
-    const float* values = reinterpret_cast<const float*>(vec_data);
-    EXPECT_FLOAT_EQ(500.0f, values[0]);
-
-    auto [deleted_data, deleted_ret] = reopened.get_vector(3);
-    ASSERT_EQ(0, deleted_ret.code()) << deleted_ret.message();
-    EXPECT_EQ(nullptr, deleted_data);
-}
-
 TEST_F(DatasetTest, DatasetGetCachesOpenedReaders) {
     auto dir = make_dir("d_ds_cache");
     DatasetNode sc;
@@ -1067,47 +1029,6 @@ TEST_F(DatasetTest, MergeIncrementsNotifierCounter) {
 // Simulates the race where a writer merges a delta file between the time a
 // guest reads its items cache and the time it opens the file.  The retry
 // in get_cached_reader_ should invalidate the cache and succeed.
-TEST_F(DatasetTest, GetRetriesWhenDeltaFileDeletedByWriter) {
-    auto dir = make_dir("d_stale_retry");
-
-    // Owner: store data, add a vector, flush to create a delta file.
-    DatasetNode owner;
-    ASSERT_EQ(0, owner.init_for_test({dir}, 100, DataType::f32, 4).code());
-    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
-    ASSERT_EQ(0, owner.store(input_path_).code());
-
-    const std::array<float, 4> updated {99.0f, 99.0f, 99.0f, 99.0f};
-    ASSERT_EQ(0, owner.add_vector(2, reinterpret_cast<const uint8_t*>(updated.data())).code());
-    ASSERT_EQ(0, owner.store_accumulator().code());
-    ASSERT_TRUE(fs::exists(dir + "/0.delta"));
-
-    // Guest: populate items cache (sees 0.data + 0.delta).
-    DatasetReader guest;
-    write_config(
-        std::string("[dataset]\n") +
-        "dirs = " + dir + "\n"
-        "range_size = 100\n"
-        "type = f32\n"
-        "dim = 4\n");
-    ASSERT_EQ(0, guest.init(config_path_).code());
-
-    auto [miss, miss_ret] = guest.get(999); // miss — but items cache is now populated
-    ASSERT_EQ(0, miss_ret.code());
-
-    // Simulate writer merge: delete the delta file without updating the
-    // notifier, so the guest's items cache stays stale.
-    fs::remove(dir + "/0.delta");
-    ASSERT_FALSE(fs::exists(dir + "/0.delta"));
-
-    // Guest tries to open a reader for file_id=0.  The first attempt uses the
-    // stale delta path and fails; the retry rescans the directory (no delta)
-    // and succeeds with the data file alone.
-    auto [reader, ret] = guest.get(2);
-    ASSERT_EQ(0, ret.code()) << ret.message();
-    ASSERT_NE(nullptr, reader);
-    ASSERT_NE(nullptr, reader->get(2));
-}
-
 TEST_F(DatasetTest, GetFailsWhenDataFileDeletedAndRetryAlsoFails) {
     auto dir = make_dir("d_stale_fail");
 

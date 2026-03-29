@@ -48,21 +48,6 @@ int sk_open(sk_handle_t* handle, const char* name);
 int sk_close(sk_handle_t* handle, const char* name);
 
 /*
- * Upsert a vector encoded as text.
- */
-int sk_upsert(sk_handle_t* handle, uint64_t id, const char* value);
-
-/*
- * Upsert a vector filled with the same scalar in every component.
- */
-int sk_ups2(sk_handle_t* handle, uint64_t id, double value);
-
-/*
- * Delete a vector by id.
- */
-int sk_del(sk_handle_t* handle, uint64_t id);
-
-/*
  * Run KNN and cache ids on the handler.
  */
 int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k);

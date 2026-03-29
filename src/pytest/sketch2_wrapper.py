@@ -76,15 +76,6 @@ class Sketch2:
         self.lib.sk_close.argtypes = [c_void_p, c_char_p]
         self.lib.sk_close.restype = c_int
 
-        self.lib.sk_upsert.argtypes = [c_void_p, c_uint64, c_char_p]
-        self.lib.sk_upsert.restype = c_int
-
-        self.lib.sk_ups2.argtypes = [c_void_p, c_uint64, c_double]
-        self.lib.sk_ups2.restype = c_int
-
-        self.lib.sk_del.argtypes = [c_void_p, c_uint64]
-        self.lib.sk_del.restype = c_int
-
         self.lib.sk_knn.argtypes = [c_void_p, c_char_p, c_uint]
         self.lib.sk_knn.restype = c_int
 
@@ -180,15 +171,6 @@ class Sketch2:
             self._open_datasets.remove(name)
         except ValueError:
             pass
-
-    def upsert(self, item_id: int, value: str) -> None:
-        self._check("sk_upsert", self.lib.sk_upsert(self.handle, c_uint64(item_id), value.encode("utf-8")))
-
-    def ups2(self, item_id: int, value: float) -> None:
-        self._check("sk_ups2", self.lib.sk_ups2(self.handle, c_uint64(item_id), c_double(value)))
-
-    def delete(self, item_id: int) -> None:
-        self._check("sk_del", self.lib.sk_del(self.handle, c_uint64(item_id)))
 
     def merge_delta(self) -> None:
         self._check("sk_mdelta", self.lib.sk_mdelta(self.handle))

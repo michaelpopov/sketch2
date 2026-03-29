@@ -15,10 +15,7 @@ public:
     Ret init(const std::string& path);
 
     Ret store(const std::string& input_path);
-    Ret store_accumulator();
     Ret merge();
-    Ret add_vector(uint64_t id, const uint8_t* data);
-    Ret delete_vector(uint64_t id);
 
     DatasetRangeReaderPtr reader() const;
     std::pair<DataReaderPtr, Ret> get(uint64_t id) const;
@@ -29,9 +26,6 @@ public:
     uint64_t dim() const;
     uint64_t range_size() const;
     const std::vector<std::string>& dirs() const;
-
-    size_t accumulator_vectors_count() const;
-    size_t accumulator_deleted_count() const;
 
     const DatasetReader& reader_dataset() const;
     operator const DatasetReader&() const { return reader_dataset(); }

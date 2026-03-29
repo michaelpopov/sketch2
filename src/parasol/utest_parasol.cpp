@@ -9,7 +9,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <limits>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -74,8 +73,14 @@ TEST(parasol, reopen_restores_pending_wal_for_get_and_knn) {
     ASSERT_NE(handle, nullptr);
 
     ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    ASSERT_OK(handle, sk_ups2(handle, 1, 0.0));
-    ASSERT_OK(handle, sk_ups2(handle, 2, 10.0));
+    const std::filesystem::path input_path = root / "vectors.txt";
+    {
+        std::ofstream out(input_path);
+        out << "f32,4\n";
+        out << "1 : [ 0.0, 0.0, 0.0, 0.0 ]\n";
+        out << "2 : [ 10.0, 10.0, 10.0, 10.0 ]\n";
+    }
+    ASSERT_OK(handle, sk_load_file(handle, input_path.string().c_str()));
     ASSERT_OK(handle, sk_close(handle, "ds"));
 
     ASSERT_OK(handle, sk_open(handle, "ds"));
@@ -113,7 +118,6 @@ TEST(parasol, generate_stats_and_print_smoke) {
     EXPECT_NE(stats_out.find("Dist: l1"), std::string::npos);
     EXPECT_NE(stats_out.find("Dim: 4"), std::string::npos);
     EXPECT_NE(stats_out.find("Range: 1000"), std::string::npos);
-    EXPECT_NE(stats_out.find("accumulator:"), std::string::npos);
     EXPECT_NE(stats_out.find(".data:"), std::string::npos);
 
     testing::internal::CaptureStdout();
@@ -207,42 +211,6 @@ TEST(parasol, create_rejects_invalid_distance_function) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, upsert_and_knn_reject_nonfinite_vectors) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    EXPECT_NE(0, sk_upsert(handle, 1, "nan, 0.0, 0.0, 0.0"));
-    EXPECT_STREQ("InputReader::data: non-finite f32 token", sk_error_message(handle));
-    EXPECT_NE(0, sk_knn(handle, "inf, 0.0, 0.0, 0.0", 1));
-    EXPECT_STREQ("InputReader::data: non-finite f32 token", sk_error_message(handle));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(parasol, ups2_rejects_nonfinite_scalar) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    EXPECT_NE(0, sk_ups2(handle, 1, std::numeric_limits<double>::infinity()));
-    EXPECT_STREQ("Value must be finite", sk_error_message(handle));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
 TEST(parasol, drop_waits_for_dataset_owner_lock) {
     const std::filesystem::path root = make_temp_dir();
 
@@ -264,7 +232,7 @@ TEST(parasol, drop_waits_for_dataset_owner_lock) {
         if (sk_open(child, "ds") != 0) {
             _exit(11);
         }
-        if (sk_upsert(child, 1, "1.0, 1.0, 1.0, 1.0") != 0) {
+        if (sk_generate(child, 1, 0, 0) != 0) {
             _exit(12);
         }
         const char ready = '1';

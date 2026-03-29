@@ -98,24 +98,9 @@ Ret DatasetNode::store(const std::string& input_path) {
     return writer_->store(input_path);
 }
 
-Ret DatasetNode::store_accumulator() {
-    CHECK(ensure_initialized_());
-    return writer_->store_accumulator();
-}
-
 Ret DatasetNode::merge() {
     CHECK(ensure_initialized_());
     return writer_->merge();
-}
-
-Ret DatasetNode::add_vector(uint64_t id, const uint8_t* data) {
-    CHECK(ensure_initialized_());
-    return writer_->add_vector(id, data);
-}
-
-Ret DatasetNode::delete_vector(uint64_t id) {
-    CHECK(ensure_initialized_());
-    return writer_->delete_vector(id);
 }
 
 DatasetRangeReaderPtr DatasetNode::reader() const {
@@ -174,20 +159,6 @@ const std::vector<std::string>& DatasetNode::dirs() const {
         throw std::runtime_error("DatasetNode::dirs: not initialized");
     }
     return reader_->dirs();
-}
-
-size_t DatasetNode::accumulator_vectors_count() const {
-    if (!writer_) {
-        throw std::runtime_error("DatasetNode::accumulator_vectors_count: not initialized");
-    }
-    return writer_->accumulator_vectors_count();
-}
-
-size_t DatasetNode::accumulator_deleted_count() const {
-    if (!writer_) {
-        throw std::runtime_error("DatasetNode::accumulator_deleted_count: not initialized");
-    }
-    return writer_->accumulator_deleted_count();
 }
 
 const DatasetReader& DatasetNode::reader_dataset() const {

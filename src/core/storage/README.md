@@ -334,8 +334,6 @@ Datasets run in one of two modes.
 Owner mode can:
 
 - bulk store input files
-- add vectors
-- delete vectors
 - merge deltas
 
 It also owns:
@@ -350,8 +348,6 @@ It rejects:
 
 - `store()`
 - `merge()`
-- `add_vector()`
-- `delete_vector()`
 
 `set_guest_mode()` also refuses to switch if there are pending writes, because
 that would discard mutable state.

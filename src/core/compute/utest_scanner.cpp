@@ -553,38 +553,6 @@ TEST_F(ScannerTest, FindDatasetCosWorks) {
     EXPECT_EQ(30u, result[2]);
 }
 
-TEST_F(ScannerTest, FindDatasetCosStoredDeltaHandlesZeroVectors) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_cosdelta_zero_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
-    write_input_raw(
-        input_path_,
-        "f32,4\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "21 : [ 2.0, 0.0, 0.0, 0.0 ]\n"
-        "22 : [ 3.0, 0.0, 0.0, 0.0 ]\n"
-        "23 : [ 4.0, 0.0, 0.0, 0.0 ]\n"
-        "24 : [ 5.0, 0.0, 0.0, 0.0 ]\n");
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    const auto zero = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
-    ASSERT_EQ(0, ds.add_vector(10, zero.data()).code());
-    ASSERT_EQ(0, ds.store_accumulator().code());
-    ASSERT_TRUE(fs::exists(d + "/0.delta"));
-
-    Scanner s;
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(ds, 2, zero.data(), result).code());
-    ASSERT_EQ(2u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].dist);
-    EXPECT_EQ(20u, result[1].id);
-    EXPECT_DOUBLE_EQ(1.0, result[1].dist);
-}
-
 TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
     std::string d = tmp_dir() + "/sketch2_utest_sc_cosds_legacy_" + std::to_string(getpid());
     fs::create_directories(d);
@@ -706,30 +674,6 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
     ASSERT_EQ(1u, result.size());
     // id=0 (value 0.1, dist=0.4) beats all others; id=1 at 500 is not the nearest.
     EXPECT_EQ(0u, result[0]);
-}
-
-TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccdup_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4).code());
-
-    write_input_raw(input_path_,
-        "f32,4\n"
-        "1 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
-        "2 : [ 20.0, 20.0, 20.0, 20.0 ]\n"
-        "3 : [ 30.0, 30.0, 30.0, 30.0 ]\n");
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    const auto updated = f32_vec(15.0f, 4);
-    ASSERT_EQ(0, ds.add_vector(1, updated.data()).code());
-
-    Scanner s;
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 3, updated.data(), result).code());
-    ASSERT_EQ((std::vector<uint64_t> {1u, 2u, 3u}), result);
 }
 
 // ---------------------------------------------------------------------------

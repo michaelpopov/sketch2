@@ -216,47 +216,6 @@ int print_stats_block(const std::string& label, size_t vectors_count, size_t del
     return 0;
 }
 
-// Fills a typed vector buffer with the same scalar value in every component,
-// validating finiteness and numeric range before writing type-specific values.
-Ret fill_vector_with_scalar(std::vector<uint8_t>* buf, DataType type, uint64_t dim, double value) {
-    if (buf == nullptr) {
-        return Ret("Invalid buffer");
-    }
-    if (!std::isfinite(value)) {
-        return Ret("Value must be finite");
-    }
-
-    switch (type) {
-        case DataType::f32: {
-            auto* out = reinterpret_cast<float*>(buf->data());
-            for (uint64_t i = 0; i < dim; ++i) {
-                out[i] = static_cast<float>(value);
-            }
-            return Ret(0);
-        }
-        case DataType::i16: {
-            if (value < static_cast<double>(std::numeric_limits<int16_t>::min()) ||
-                value > static_cast<double>(std::numeric_limits<int16_t>::max())) {
-                return Ret("Value is out of range for i16");
-            }
-            auto* out = reinterpret_cast<int16_t*>(buf->data());
-            for (uint64_t i = 0; i < dim; ++i) {
-                out[i] = static_cast<int16_t>(value);
-            }
-            return Ret(0);
-        }
-        case DataType::f16: {
-            auto* out = reinterpret_cast<float16*>(buf->data());
-            for (uint64_t i = 0; i < dim; ++i) {
-                out[i] = static_cast<float16>(value);
-            }
-            return Ret(0);
-        }
-        default:
-            return Ret("Unsupported data type");
-    }
-}
-
 } // namespace
 
 int sk_runtime_init(void) {
@@ -512,94 +471,6 @@ static int sk_close_(sk_handle_t* handle, const char* name) {
     }
 
     close_dataset(handle);
-    return 0;
-}
-
-static int sk_upsert_(sk_handle_t* handle, uint64_t id, const char* value);
-int sk_upsert(sk_handle_t* handle, uint64_t id, const char* value) {
-    try {
-        return sk_upsert_(handle, id, value);
-    } catch (const std::exception& ex) {
-        ERR(ex.what())
-    }
-}
-// Parses a textual vector into the dataset's binary type and forwards it to the
-// dataset write path.
-static int sk_upsert_(sk_handle_t* handle, uint64_t id, const char* value) {
-    DECL
-
-    if (handle->ds == nullptr) {
-        ERR("No dataset is open")
-    }
-    if (value == nullptr) {
-        ERR("Invalid vector parameter")
-    }
-
-    std::vector<uint8_t> buf(data_type_size(handle->ds->type()) * handle->ds->dim());
-    Ret ret = parse_vector(
-        buf.data(), buf.size(), handle->ds->type(), static_cast<uint16_t>(handle->ds->dim()), value);
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
-    ret = handle->ds->add_vector(id, buf.data());
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
-    return 0;
-}
-
-static int sk_ups2_(sk_handle_t* handle, uint64_t id, double value);
-int sk_ups2(sk_handle_t* handle, uint64_t id, double value) {
-    try {
-        return sk_ups2_(handle, id, value);
-    } catch (const std::exception& ex) {
-        ERR(ex.what())
-    }
-}
-// Builds a uniform vector from one scalar and inserts it into the open dataset.
-static int sk_ups2_(sk_handle_t* handle, uint64_t id, double value) {
-    DECL
-
-    if (handle->ds == nullptr) {
-        ERR("No dataset is open")
-    }
-
-    std::vector<uint8_t> buf(data_type_size(handle->ds->type()) * handle->ds->dim());
-    Ret ret = fill_vector_with_scalar(&buf, handle->ds->type(), handle->ds->dim(), value);
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
-    ret = handle->ds->add_vector(id, buf.data());
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
-    return 0;
-}
-
-static int sk_del_(sk_handle_t* handle, uint64_t id);
-int sk_del(sk_handle_t* handle, uint64_t id) {
-    try {
-        return sk_del_(handle, id);
-    } catch (const std::exception& ex) {
-        ERR(ex.what())
-    }
-}
-static int sk_del_(sk_handle_t* handle, uint64_t id) {
-    DECL
-
-    if (handle->ds == nullptr) {
-        ERR("No dataset is open")
-    }
-
-    Ret ret = handle->ds->delete_vector(id);
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
     return 0;
 }
 
@@ -943,13 +814,6 @@ static int sk_stats_(sk_handle_t* handle) {
             handle->dataset_ini.c_str(),
             handle->dataset_dir.c_str()) < 0) {
         ERR("Failed to print dataset stats")
-    }
-
-    if (print_stats_block(
-            "accumulator",
-            handle->ds->accumulator_vectors_count(),
-            handle->ds->accumulator_deleted_count()) != 0) {
-        ERR("Failed to print accumulator stats")
     }
 
     const std::filesystem::path dir_path = handle->dataset_dir;
