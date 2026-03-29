@@ -70,7 +70,7 @@ This keeps process-wide runtime state unified, with one copy of:
 - the singleton-owned thread pool
 - the one-time runtime initialization state
 
-`parasol` and `vlite` are both linked into this shared artifact, so loading the
+`Sketch2api` and `vlite` components are both linked into this shared artifact, so loading the
 extension does not create split singleton/runtime instances.
 
 When you deploy or load the extension, use `libsketch2.so`.
@@ -111,7 +111,7 @@ After the first successful initialization, the shared runtime is sealed:
 - log level does not change through config reload
 - thread-pool size does not change
 
-That matters when `vlite` and `parasol` are loaded into the same process: both
+That matters when `vlite` and `Sketch2api` are loaded into the same process: both
  use the same sealed process-wide runtime state through `libsketch2.so`.
 
 ## Loading In SQLite

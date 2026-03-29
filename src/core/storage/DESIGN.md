@@ -284,17 +284,17 @@ before they are persisted to data/delta files. It is not possible anymore and th
 read data persisted in data/delta files. Period.
 
 On the other hand, there are some parts of the system that depend on having an object that can provide read
-and write functionality. For example, parasol library supports both types of functionality. There is a large
+and write functionality. For example, the Sketch2api library supports both types of functionality. There is a large
 number of unit tests and integration tests that need both types of functionality.
 
-In order to support test scenarios and Parasol functionality, let's introduce a new class DatasetNode.
+In order to support test scenarios and Sketch2api functionality, let's introduce a new class DatasetNode.
 It is declared and implemented in storage/dataset_node.h storage/dataset_node.cpp.
 It has two private data members
    std::unique_ptr<DatasetReader> reader_;
    std::unique_ptr<DatasetWriter> writer_;
 It has public functions init(...) that allows initializing internal reader_ and writer_.
-It exposes public functions required for test scenarios and Parasol functionality. These functions
+It exposes public functions required for test scenarios and Sketch2api functionality. These functions
 call corresponding functions of reader_ and writer_.
 
-Then we replace DatasetWriter usage in unit and integration tests and in Parasol with using DatasetNode,
+Then we replace DatasetWriter usage in unit and integration tests and in Sketch2api with using DatasetNode,
 which provides all functionality required they require.

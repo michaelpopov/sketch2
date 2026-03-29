@@ -1,6 +1,6 @@
-// Unit tests for the public parasol API.
+// Unit tests for the public sketch2api API.
 
-#include "parasol.h"
+#include "sketch2api.h"
 
 #include "storage/input_generator.h"
 
@@ -40,7 +40,7 @@ std::string read_file(const std::filesystem::path& path) {
 
 } // namespace
 
-TEST(parasol, create_open_close_drop_lifecycle) {
+TEST(sketch2api, create_open_close_drop_lifecycle) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
@@ -66,7 +66,7 @@ TEST(parasol, create_open_close_drop_lifecycle) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, reopen_restores_pending_wal_for_get_and_knn) {
+TEST(sketch2api, reopen_restores_pending_wal_for_get_and_knn) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
@@ -100,7 +100,7 @@ TEST(parasol, reopen_restores_pending_wal_for_get_and_knn) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, generate_stats_and_print_smoke) {
+TEST(sketch2api, generate_stats_and_print_smoke) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
@@ -132,7 +132,7 @@ TEST(parasol, generate_stats_and_print_smoke) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, generate_bin_creates_and_loads_binary_input) {
+TEST(sketch2api, generate_bin_creates_and_loads_binary_input) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
@@ -154,7 +154,7 @@ TEST(parasol, generate_bin_creates_and_loads_binary_input) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, load_file_accepts_binary_input) {
+TEST(sketch2api, load_file_accepts_binary_input) {
     const std::filesystem::path root = make_temp_dir();
     const std::filesystem::path input_path = root / "input.bin";
 
@@ -184,7 +184,7 @@ TEST(parasol, load_file_accepts_binary_input) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, close_requires_matching_name) {
+TEST(sketch2api, close_requires_matching_name) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
@@ -199,7 +199,7 @@ TEST(parasol, close_requires_matching_name) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, create_rejects_invalid_distance_function) {
+TEST(sketch2api, create_rejects_invalid_distance_function) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
@@ -211,7 +211,7 @@ TEST(parasol, create_rejects_invalid_distance_function) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, drop_waits_for_dataset_owner_lock) {
+TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
@@ -268,7 +268,7 @@ TEST(parasol, drop_waits_for_dataset_owner_lock) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, gres_returns_empty_string_without_cached_vector) {
+TEST(sketch2api, gres_returns_empty_string_without_cached_vector) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
@@ -279,7 +279,7 @@ TEST(parasol, gres_returns_empty_string_without_cached_vector) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, kres_returns_zero_without_cached_result) {
+TEST(sketch2api, kres_returns_zero_without_cached_result) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());

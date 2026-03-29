@@ -1,15 +1,15 @@
-# parasol
+# Sketch2api
 
-`parasol` is the C API layer for Sketch2 dataset creation, loading,
+`Sketch2api` is the C API layer for Sketch2 dataset creation, loading,
 mutation, and query operations.
 
 ## Build Artifact Layout
 
-`parasol` is now built as a static library and linked into the shared
+`Sketch2api` is now built as a static library and linked into the shared
 `libsketch2.so` artifact.
 
 For host applications, the runtime library to load/deploy is `libsketch2.so`.
-`parasol` is not produced as a standalone shared library in the default build.
+`Sketch2api` is not produced as a standalone shared library in the default build.
 
 Typical release artifacts:
 
@@ -74,9 +74,9 @@ sk_handle_t* handle = sk_connect("/tmp/my_db");
 ## Thread Pool Notes
 
 If `SKETCH2_THREAD_POOL_SIZE` or `thread_pool.size` is greater than `1`,
- `parasol` creates one shared thread pool for the process inside the Sketch2
+ `Sketch2api` creates one shared thread pool for the process inside the Sketch2
  runtime.
 
 That shared pool is used by storage code such as range-level dataset loading.
- `parasol` and `vlite` now run through the same `libsketch2.so`, so they see
+ `Sketch2api` and `vlite` now run through the same `libsketch2.so`, so they see
  the same singleton and therefore the same thread pool.

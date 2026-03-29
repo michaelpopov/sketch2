@@ -1,8 +1,8 @@
-Parasol
+Sketch2api
 ======================
-Parasol is a dynamic library that can be used by Python scritps to get access to Sketch2 functionality.
+Sketch2api is a dynamic library that can be used by Python scripts to get access to Sketch2 functionality.
 
-Parasol supports the following functions:
+Sketch2api supports the following functions:
 
 1. connect
     Functionality: prepares database root directory, meaning ensures that it exists or created.

@@ -404,10 +404,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sketch2-lib",
-        "--parasol-lib",
         dest="sketch2_lib",
         type=Path,
-        help="Path to libsketch2.so (legacy alias: --parasol-lib)",
+        help="Path to libsketch2.so (provides the Sketch2api entry points)",
     )
     parser.add_argument(
         "--extension-lib",

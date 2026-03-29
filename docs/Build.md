@@ -65,7 +65,7 @@ The main runtime artifact is:
 
 - `libsketch2.so`
 
-This shared library contains the Sketch2 runtime, the `parasol` C API, and the
+This shared library contains the Sketch2 runtime, the `Sketch2api` C API, and the
 SQLite `vlite` extension entry points.
 
 Typical output layout:
