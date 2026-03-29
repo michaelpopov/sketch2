@@ -1,6 +1,7 @@
 // Implements conversion from text or binary input records into the binary data-file format.
 
 #include "data_writer.h"
+#include "core/compute/compute.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
 #include "core/utils/log.h"

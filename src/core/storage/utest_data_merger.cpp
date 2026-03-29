@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <unistd.h>
 #include <vector>
+#include "core/compute/compute.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_merger.h"

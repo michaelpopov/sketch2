@@ -471,8 +471,6 @@ Ret DatasetWriter::merge_() {
     if (!thread_pool || to_merge.size() <= 1) {
         for (const DatasetItem& item : to_merge) {
             const std::string output_path_base = item_path_base(item.id);
-            FileLockGuard file_lock;
-            CHECK(file_lock.lock(output_path_base + kLockExt));
             DataReader data_reader;
             CHECK(data_reader.init(item.data_file_path));
             DataReader delta_reader;
@@ -487,8 +485,6 @@ Ret DatasetWriter::merge_() {
     for (const DatasetItem& item : to_merge) {
         futures.push_back(thread_pool->submit([this, item]() -> Ret {
             const std::string output_path_base = item_path_base(item.id);
-            FileLockGuard file_lock;
-            CHECK(file_lock.lock(output_path_base + kLockExt));
             DataReader data_reader;
             CHECK(data_reader.init(item.data_file_path));
             DataReader delta_reader;
@@ -514,9 +510,6 @@ Ret DatasetWriter::merge_() {
 Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
         uint64_t range_start, uint64_t range_end) const {
     const std::string output_path_base = item_path_base(file_id);
-    FileLockGuard file_lock;
-    CHECK(file_lock.lock(output_path_base + kLockExt));
-
     const std::string output_path = output_path_base + kTempExt;
 
     std::experimental::scope_exit file_guard([output_path]() {

@@ -1,6 +1,7 @@
 // Implements the in-memory write accumulator used before data is flushed to disk.
 
 #include "accumulator.h"
+#include "core/compute/compute.h"
 #include "core/storage/accumulator_wal.h"
 #include "core/storage/data_file_layout.h"
 
