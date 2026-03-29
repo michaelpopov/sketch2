@@ -7,6 +7,9 @@ endif()
 
 project(sketch2 LANGUAGES C CXX)
 
+# Shared GoogleTest runner used by all unit test binaries.
+set(SHARED_UTEST_MAIN "${CMAKE_SOURCE_DIR}/src/core/utils/utest_main.cpp")
+
 option(SKETCH_ENABLE_BENCHMARKS "Build Google Benchmark-based benchmark executables" OFF)
 
 #----------------------------

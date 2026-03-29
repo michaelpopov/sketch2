@@ -374,7 +374,8 @@ static int sk_create_(sk_handle_t* handle, const char* name, unsigned int dim, c
         ERR("Failed to create dataset lock file")
     }
 
-    const int lock_written = std::fprintf(lock, "dataset=%s\n", name);
+    const uint64_t update_notifier_counter = 0;
+    const int lock_written = fwrite(&update_notifier_counter, sizeof(update_notifier_counter), 1, lock);
     const int lock_close_rc = std::fclose(lock);
     if (lock_written < 0 || lock_close_rc != 0) {
         std::error_code ec;

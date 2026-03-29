@@ -20,12 +20,8 @@ public:
     ~DatasetWriter() override;
 
     // init() overrides replay any pending WAL; owner lock is acquired lazily
-    // when a write path first needs ownership.
-    Ret init(const DatasetMetadata& metadata);
-    Ret init(const std::vector<std::string>& dirs, uint64_t range_size,
-            DataType type = DataType::f32, uint64_t dim = 4,
-            uint64_t accumulator_size = kAccumulatorBufferSize,
-            DistFunc dist_func = DistFunc::L1);
+    // when a write path first needs ownership. Only the INI-based path is
+    // exposed publicly; the other overloads remain for internal helpers.
     Ret init(const std::string& path);
 
     Ret store(const std::string& input_path);

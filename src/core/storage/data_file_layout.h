@@ -3,7 +3,6 @@
 #pragma once
 #include "core/storage/data_file.h"
 #include "utils/shared_types.h"
-#include <cmath>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
@@ -137,43 +136,6 @@ inline Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, si
         return Ret(context + ": failed to write vector padding");
     }
     return Ret(0);
-}
-
-inline float compute_cosine_inverse_norm(const uint8_t* data, DataType type, size_t dim) {
-    double norm_sq = 0.0;
-    switch (type) {
-        case DataType::f32: {
-            const auto* values = reinterpret_cast<const float*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        case DataType::f16: {
-            const auto* values = reinterpret_cast<const float16*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        case DataType::i16: {
-            const auto* values = reinterpret_cast<const int16_t*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        default:
-            throw std::runtime_error("compute_cosine_inverse_norm: unsupported data type");
-    }
-
-    if (norm_sq == 0.0) {
-        return 0.0f;
-    }
-    return static_cast<float>(1.0 / std::sqrt(norm_sq));
 }
 
 } // namespace sketch2

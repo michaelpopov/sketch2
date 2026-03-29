@@ -26,7 +26,7 @@
 - `utest_file_lock.cpp`: Unit tests for file locking behavior.
 - `utest_ini_reader.cpp`: Unit tests for the INI reader.
 - `utest_log.cpp`: Unit tests for the logging helpers.
-- `utest_main.cpp`: GoogleTest entry point for the utils test binary.
+- `utest_main.cpp`: GoogleTest entry point for the utils test binary and the shared runner for all other test binaries.
 - `utest_singleton.cpp`: Unit tests for config-driven singleton initialization helpers.
 - `utest_string_utils.cpp`: Unit tests for textual vector parsing and printing.
 - `utest_thread_pool.cpp`: Unit tests for thread-pool submission and shutdown behavior.

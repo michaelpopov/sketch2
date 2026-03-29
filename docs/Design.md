@@ -151,11 +151,10 @@ available CPU cores and storage bandwidth when independent work already exists.
 
 Sketch2 explicitly distinguishes between writer ownership and read-only access.
 
-- owner mode can mutate the dataset
-- guest mode is read-only
-- per-range lock files protect range-level write operations
-- a dataset owner lock ensures that only one owner instance modifies a dataset
-  at a time
+- a single writer can mutate the dataset
+- multiple readers have read-only access
+- a dataset lock ensures that only one writer modifies a dataset
+  at any time
 
 This matters because the design assumes the storage engine can be embedded into
 larger systems. The locking model is intended to keep read behavior simple and

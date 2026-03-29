@@ -30,5 +30,5 @@
 - `utest_compute_l1.cpp`: Unit tests for L1-distance compute paths.
 - `utest_compute_l2.cpp`: Unit tests for L2-distance compute paths.
 - `utest_compute_runtime.cpp`: Unit tests for runtime compute-unit selection and resolver dispatch.
-- `utest_main.cpp`: GoogleTest entry point for the compute test binary.
+- `utest_main.cpp`: Shared GoogleTest entry point (`src/core/utils/utest_main.cpp`) for the compute test binary.
 - `utest_scanner.cpp`: Unit tests for scanner behavior across data sources.

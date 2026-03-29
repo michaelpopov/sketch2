@@ -4,6 +4,7 @@
 #include "dataset_reader.h"
 #include "dataset_writer.h"
 #include <memory>
+#include <string>
 
 namespace sketch2 {
 
@@ -11,11 +12,6 @@ class DatasetNode {
 public:
     DatasetNode() = default;
 
-    Ret init(const DatasetMetadata& metadata);
-    Ret init(const std::vector<std::string>& dirs, uint64_t range_size,
-        DataType type = DataType::f32, uint64_t dim = 4,
-        uint64_t accumulator_size = kAccumulatorBufferSize,
-        DistFunc dist_func = DistFunc::L1);
     Ret init(const std::string& path);
 
     Ret store(const std::string& input_path);
@@ -39,6 +35,12 @@ public:
 
     const DatasetReader& reader_dataset() const;
     operator const DatasetReader&() const { return reader_dataset(); }
+
+    Ret init_for_test(const DatasetMetadata& metadata);
+    Ret init_for_test(const std::vector<std::string>& dirs, uint64_t range_size,
+        DataType type = DataType::f32, uint64_t dim = 4,
+        uint64_t accumulator_size = kAccumulatorBufferSize,
+        DistFunc dist_func = DistFunc::L1);
 
 private:
     Ret ensure_initialized_() const;
