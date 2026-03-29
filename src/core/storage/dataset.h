@@ -27,6 +27,7 @@ struct DatasetItem {
 };
 
 // Free functions used by dataset_reader.cpp and dataset_writer.cpp.
+Ret write_dataset_ini(const DatasetMetadata& metadata, const std::string& path);
 Ret collect_dataset_items(const std::string& name, const DatasetMetadata& metadata, std::vector<DatasetItem>* items);
 std::string dataset_owner_lock_path(const DatasetMetadata& metadata);
 

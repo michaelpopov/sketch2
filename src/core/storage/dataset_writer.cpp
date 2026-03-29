@@ -66,19 +66,6 @@ DatasetWriter::~DatasetWriter() {
     }
 }
 
-Ret DatasetWriter::init(const DatasetMetadata& metadata) {
-    Ret ret = Dataset::init(metadata);
-    if (ret.code() != 0) return ret;
-    return init_writer_();
-}
-
-Ret DatasetWriter::init(const std::vector<std::string>& dirs, uint64_t range_size,
-        DataType type, uint64_t dim, uint64_t accumulator_size, DistFunc dist_func) {
-    Ret ret = Dataset::init(dirs, range_size, type, dim, accumulator_size, dist_func);
-    if (ret.code() != 0) return ret;
-    return init_writer_();
-}
-
 Ret DatasetWriter::init(const std::string& path) {
     Ret ret = Dataset::init(path);
     if (ret.code() != 0) return ret;

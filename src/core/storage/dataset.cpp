@@ -3,6 +3,7 @@
 #include "dataset.h"
 #include "utils/ini_reader.h"
 #include <filesystem>
+#include <fstream>
 
 namespace sketch2 {
 
@@ -91,6 +92,38 @@ Ret Dataset::init_(const std::string& path) {
 
 std::string Dataset::item_path_base(uint64_t file_id) const {
     return metadata_.dirs[file_id % metadata_.dirs.size()] + "/" + std::to_string(file_id);
+}
+
+Ret write_dataset_ini(const DatasetMetadata& metadata, const std::string& path) {
+    std::ofstream out(path);
+    if (!out.is_open()) {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        return Ret("DatasetNode: failed to open temporary ini file");
+    }
+
+    out << "[dataset]\n";
+    out << "dirs = ";
+    for (size_t i = 0; i < metadata.dirs.size(); ++i) {
+        if (i > 0) {
+            out << ", ";
+        }
+        out << metadata.dirs[i];
+    }
+    out << "\n";
+    out << "range_size = " << metadata.range_size << "\n";
+    out << "type = " << data_type_to_string(metadata.type) << "\n";
+    out << "dist_func = " << dist_func_to_string(metadata.dist_func) << "\n";
+    out << "dim = " << metadata.dim << "\n";
+    out << "accumulator_size = " << metadata.accumulator_size << "\n";
+    out.close();
+    if (out.fail()) {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        return Ret("DatasetNode: failed to write temporary ini file");
+    }
+
+    return Ret(0);
 }
 
 } // namespace sketch2

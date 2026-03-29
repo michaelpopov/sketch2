@@ -71,7 +71,7 @@ protected:
 
     void create_dataset(DataType type, uint64_t dim, uint64_t range_size, DistFunc dist_func) {
         DatasetNode dataset;
-        ASSERT_EQ(0, dataset.init({dataset_dir_.string()}, range_size, type, dim,
+        ASSERT_EQ(0, dataset.init_for_test({dataset_dir_.string()}, range_size, type, dim,
             kAccumulatorBufferSize, dist_func).code());
         ASSERT_EQ(0, dataset.store(input_path_.string()).code());
         write_ini(type, dim, range_size, dist_func);
@@ -469,7 +469,7 @@ TEST_F(VliteTest, DeletedVectorsStayHidden) {
                 "3 : [ 3.1, 3.1, 3.1, 3.1 ]\n");
 
     DatasetNode dataset;
-    ASSERT_EQ(0, dataset.init({dataset_dir_.string()}, 100, DataType::f32, 4,
+    ASSERT_EQ(0, dataset.init_for_test({dataset_dir_.string()}, 100, DataType::f32, 4,
         kAccumulatorBufferSize, DistFunc::L1).code());
     ASSERT_EQ(0, dataset.store(input_path_.string()).code());
     ASSERT_EQ(0, dataset.delete_vector(2).code());

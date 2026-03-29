@@ -356,7 +356,7 @@ struct DatasetBenchmarkData {
         metadata.dist_func = func;
         metadata.range_size = kScannerRangeSize;
         metadata.accumulator_size = static_cast<uint64_t>(count * dim * data_type_size(type)) + (1u << 20);
-        require_ok(dataset.init(metadata), "init dataset");
+        require_ok(dataset.init_for_test(metadata), "init dataset");
 
         for (size_t id = 0; id < count; ++id) {
             const std::vector<uint8_t> vec = make_vector(type, dim, id);
