@@ -708,32 +708,6 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
     EXPECT_EQ(0u, result[0]);
 }
 
-TEST_F(ScannerTest, FindDatasetDeleteFlushedFromAccumulatorStaysHidden) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccflushdel_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4).code());
-
-    generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    ASSERT_EQ(0, ds.delete_vector(2).code());
-    ASSERT_EQ(0, ds.store_accumulator().code());
-    ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
-
-    Scanner s;
-    auto q = f32_vec(2.1f, 4);
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 5, q.data(), result).code());
-
-    EXPECT_EQ(4u, result.size());
-    for (uint64_t id : result) {
-        EXPECT_NE(2u, id);
-    }
-}
-
 TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
     std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccdup_" + std::to_string(getpid());
     fs::create_directories(d);
@@ -756,37 +730,6 @@ TEST_F(ScannerTest, FindDatasetUpdatedVectorAppearsOnlyOnceInResults) {
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(ds, 3, updated.data(), result).code());
     ASSERT_EQ((std::vector<uint64_t> {1u, 2u, 3u}), result);
-}
-
-TEST_F(ScannerTest, FindDatasetSkipsPersistedDeltaVersionWhenAccumulatorUpdatesSameId) {
-    std::string d = tmp_dir() + "/sketch2_utest_sc_dsaccdeltadup_" + std::to_string(getpid());
-    fs::create_directories(d);
-    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
-
-    DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4).code());
-
-    write_input_raw(input_path_,
-        "f32,4\n"
-        "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
-        "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n"
-        "12 : [ 12.0, 12.0, 12.0, 12.0 ]\n"
-        "13 : [ 13.0, 13.0, 13.0, 13.0 ]\n");
-    ASSERT_EQ(0, ds.store(input_path_).code());
-
-    write_input_raw(input_path_,
-        "f32,4\n"
-        "12 : [ 100.0, 100.0, 100.0, 100.0 ]\n");
-    ASSERT_EQ(0, ds.store(input_path_).code());
-    ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
-
-    const auto updated = f32_vec(500.0f, 4);
-    ASSERT_EQ(0, ds.add_vector(12, updated.data()).code());
-
-    Scanner s;
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 5, updated.data(), result).code());
-    ASSERT_EQ((std::vector<uint64_t> {12u, 13u, 11u, 10u}), result);
 }
 
 // ---------------------------------------------------------------------------

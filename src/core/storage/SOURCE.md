@@ -29,8 +29,6 @@
 - `input_reader.cpp`: Parser and range-view implementation for text and binary input files.
 - `input_reader.h`: Input reader and view declarations for text and binary imports.
 - `storage.cpp`: Placeholder storage module version function.
-- `utest_accumulator.cpp`: Unit tests for accumulator behavior.
-- `utest_accumulator_wal.cpp`: Unit tests for accumulator WAL recovery.
 - `utest_data_file_layout.cpp`: Unit tests for binary data-file layout helpers.
 - `utest_data_merger.cpp`: Unit tests for file merge logic.
 - `utest_data_reader.cpp`: Unit tests for reading binary data files.

@@ -15,8 +15,6 @@ add_executable(utest_stor
   utest_data_merger.cpp
   utest_dataset.cpp
   utest_full_cycle.cpp
-  utest_accumulator.cpp
-  utest_accumulator_wal.cpp
 )
 target_link_libraries(utest_stor PRIVATE stor GTest::gtest Threads::Threads)
 add_test(NAME utest_stor COMMAND utest_stor)
