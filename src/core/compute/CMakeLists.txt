@@ -10,6 +10,13 @@ if(TARGET benchmark::benchmark)
   target_link_libraries(gbench_comp PRIVATE benchmark::benchmark comp stor Threads::Threads)
 endif()
 
-add_executable(utest_comp utest_main.cpp utest_scanner.cpp utest_compute_l1.cpp utest_compute_l2.cpp utest_compute_cos.cpp utest_compute_runtime.cpp)
+add_executable(utest_comp
+  ${SHARED_UTEST_MAIN}
+  utest_scanner.cpp
+  utest_compute_l1.cpp
+  utest_compute_l2.cpp
+  utest_compute_cos.cpp
+  utest_compute_runtime.cpp
+)
 target_link_libraries(utest_comp PRIVATE comp stor GTest::gtest Threads::Threads)
 add_test(NAME utest_comp COMMAND utest_comp)

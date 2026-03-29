@@ -19,7 +19,10 @@ target_link_libraries(vlite
     Threads::Threads
 )
 
-add_executable(utest_vlite utest_main.cpp utest_vlite.cpp)
+add_executable(utest_vlite
+  ${SHARED_UTEST_MAIN}
+  utest_vlite.cpp
+)
 target_link_libraries(utest_vlite
   PRIVATE
     stor

@@ -39,4 +39,4 @@
 - `utest_full_cycle.cpp`: End-to-end storage tests covering full write/read/merge flows.
 - `utest_input_generator.cpp`: Unit tests for synthetic text and binary input generation.
 - `utest_input_reader.cpp`: Unit tests for text and binary input parsing and views.
-- `utest_main.cpp`: GoogleTest entry point for the storage test binary.
+- `utest_main.cpp`: Shared GoogleTest entry point (`src/core/utils/utest_main.cpp`) for the storage test binary.

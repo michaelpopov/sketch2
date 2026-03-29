@@ -16,7 +16,10 @@ target_link_libraries(parasol
     utils
 )
 
-add_executable(utest_parasol utest_main.cpp utest_parasol.cpp)
+add_executable(utest_parasol
+  ${SHARED_UTEST_MAIN}
+  utest_parasol.cpp
+)
 target_include_directories(utest_parasol PRIVATE ${CMAKE_SOURCE_DIR}/src/core)
 target_link_libraries(utest_parasol PRIVATE parasol GTest::gtest Threads::Threads)
 add_test(NAME utest_parasol COMMAND utest_parasol)
