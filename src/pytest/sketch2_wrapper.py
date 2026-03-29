@@ -91,9 +91,6 @@ class Sketch2:
         self.lib.sk_kres.argtypes = [c_void_p, c_int64]
         self.lib.sk_kres.restype = c_uint64
 
-        self.lib.sk_macc.argtypes = [c_void_p]
-        self.lib.sk_macc.restype = c_int
-
         self.lib.sk_mdelta.argtypes = [c_void_p]
         self.lib.sk_mdelta.restype = c_int
 
@@ -192,9 +189,6 @@ class Sketch2:
 
     def delete(self, item_id: int) -> None:
         self._check("sk_del", self.lib.sk_del(self.handle, c_uint64(item_id)))
-
-    def merge_accumulator(self) -> None:
-        self._check("sk_macc", self.lib.sk_macc(self.handle))
 
     def merge_delta(self) -> None:
         self._check("sk_mdelta", self.lib.sk_mdelta(self.handle))

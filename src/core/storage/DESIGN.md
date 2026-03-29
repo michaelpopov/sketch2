@@ -185,11 +185,11 @@ Guest mode rejects `store()`, `store_accumulator()`, `merge()`, `add_vector()`, 
 Dataset caches opened files after they are accessed. The following access operations do not require
 scanning directories, looking for files and opening them again.
 
-Dataset allows to check is there a specific deleted id in its internal Accumulator.
+Dataset allows checking whether a specific deleted id exists in its buffered state.
 This functionality is used in Scanner: function find_ that gets Dataset ref as an argument checks
-is id was deleted and skips adding it to the heap.
+if an id was deleted and skips adding it to the heap.
 
-Dataset supports iterator that allows iterating over vectors in accumulator. This iterator is used
+Dataset supports an iterator over buffered vectors. This iterator is used
 in the Scanner when it scans Dataset data.
 
 DataMerger
@@ -225,66 +225,6 @@ Transitions between these case:
 The logic of making merging decisions is in Dataset::store() function.
 The merge functionality is in the DataMerger class.
 
-Accumulator
------------------
-Fixed size in-memory buffer. Similar to input file in a sense that items can be added. Then the content of "accumulator"
-is loaded into data file similar to load from input file.
-
-Accumulator contains:
-  - sorted-id view over vector ids
-  - one aligned byte buffer for vector payloads
-  - optional per-vector cosine inverse norms for cosine datasets
-  - std::unordered_set<uint64_t> deleted_ids_
-
-It has a data member uint64_t data_size_ that controls the overall size of data.
-When size of all items in the collections reaches data_size no new data can be added to accumulator.
-
-When delete_vector(id) is called, accumulator removes the active vector with that id, if present.
-When add_vector(id, data) is called, accumulator removes the id from deleted_ids_, if present.
-It is ok to replace an existing vector with a new value when add_vector() is called.
-For cosine datasets accumulator also recomputes and stores the inverse norm of the new vector.
-
-Accumulator interface:
-  init(size)
-  add_vector(id, data)
-  delete_vector(id)
-  vectors_count()
-  deleted_count()
-
-  std::vector<uint64_t> get_vector_ids() --- return a sorted vector of active ids
-  std::vector<uint64_t> get_deleted_ids() --- return a sorted vector of elements from deleted_id_
-
-  const uint8_t* get_vector(id)
-  float get_vector_cosine_inv_norm(id)
-
-Vector data is stored in a single buffer that improves storage pattern of the vectors.
-Each vector in the buffer is aligned on 32-byte to allow efficient SIMD operations on the vectors.
-Cosine inverse norms are stored in a parallel `vector<float>` so pending cosine updates can use
-the same fast path as persisted files.
-
-WAL
------------------------
-Accumulator has a Write-Ahead Log. It is stored in a local file with extension .wal
-It has a following structure:
-
-    |--------+---------+---------+---------+------- ...   --|
-      header   record    record     record    record ...
-  
-Header is of type BaseFileHeader.
-Record consists of the following parts:
-  - operation identifier 1 byte: 
-       - 4 bits "vector" or "delete id"
-       - 4 bits "add" or "remove"
-  - uint64_t id
-  - if operation is "vector" "add" then it follows by vector data
-
-When Accumulator is created, it tries to open existing .wal file. If the file is present, Accumulator
-replays activities registered in the wal and restores its state. After that the wal records are truncated.
-
-Records to wal are written before corresponding changes are done in Accumulator in-memory data structures.
-
-After Accumulator data is merged, the records in wal are truncated.
-
 
 UpdateNotifier
 --------------------------
@@ -308,7 +248,7 @@ If a file is already opened, the function reads the 8-byte number again and comp
 are equal, it returns false. Otherwise, it sets a data member to a new value and returns true.
 There is a lock file used for acquiring lock on a dataset. Use this file for storing data for this mechanism.
 UpdateNotifier is a data member of Dataset. std::unique_ptr<UpdateNotifier>
-In Dataset functions store(), store_accumulator() and merge()
+In Dataset functions store() and merge()
   - if UpdateNotifier is not initialized, initialize it as updater
   - Call UpdateNotifier::update()
 In Dataset function reader()
@@ -340,9 +280,9 @@ things manageable I split this functionality to three classes:
  - DatasetWriter - a class that inherrits from Dataset and can handle all functionality related to writing data.
 
 Now we have clear responsibility for each class.
-We lost some functionality, which is acceptable. For example, it was possible to read data from the Accumulator
-that keeps in memory recent data changes before they are persisted to data/delta files. It is not possible anymore
-and that's by design: DatasetReader can only read data persisted in data/delta files. Period.
+We lost some functionality, which is acceptable. For example, it was possible to read buffered pending changes
+before they are persisted to data/delta files. It is not possible anymore and that's by design: DatasetReader can only
+read data persisted in data/delta files. Period.
 
 On the other hand, there are some parts of the system that depend on having an object that can provide read
 and write functionality. For example, parasol library supports both types of functionality. There is a large

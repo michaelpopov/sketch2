@@ -338,13 +338,9 @@ def run_demo(
                 ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name, binary=binary, dist_func=dist_func
             )
 
-            # SQLite reads only the persisted dataset state, so the writer must
-            # flush the accumulator before the virtual table opens the dataset.
-            log_step("merging the writer-side accumulator into persisted dataset files")
-            t0 = time.perf_counter()
-            ps.merge_accumulator()
-            t1 = time.perf_counter()
-            merge_time = t1 - t0
+            # SQLite reads only the persisted dataset state, so the virtual table
+            # should wait until the writer has finished loading data.
+            log_step("writer finished loading persisted dataset files")
 
             query_value = demo_query_scalar(count, type_name)
             query_vec = (
@@ -361,7 +357,6 @@ def run_demo(
 
             print(f"generate input time: {generate_time:.3f}s")
             print(f"load data time: {load_time:.3f}s")
-            print(f"merge time: {merge_time:.3f}s")
             print(f"sqlite query time: {query_time:.3f}s")
             print(f"type={type_name}")
             print(f"input_format={effective_input_format(binary, dist_func)}")

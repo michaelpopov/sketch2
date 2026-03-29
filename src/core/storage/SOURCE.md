@@ -4,13 +4,9 @@
 - `CHANGE.md`: Refactor/change log for Dataset, DatasetReader, and DatasetWriter evolution.
 - `DESIGN.md`: Design notes for the storage subsystem.
 - `README.md`: Storage module overview and file-format notes.
-- `accumulator.cpp`: In-memory write buffer for pending vector updates and deletes.
-- `accumulator.h`: Accumulator declarations and aligned byte-buffer helpers.
-- `accumulator_wal.cpp`: Write-ahead log implementation for accumulator recovery.
-- `accumulator_wal.h`: WAL interface used by the accumulator.
 - `data_file.h`: Shared binary file headers and file-format constants.
 - `data_file_layout.h`: Helpers for computing and writing binary data-file layout.
-- `data_merger.cpp`: Merge logic for data files, delta files, and accumulator output.
+- `data_merger.cpp`: Merge logic for data files and delta files.
 - `data_merger.h`: Merge API declarations for storage files.
 - `data_reader.cpp`: Memory-mapped reader for persisted data and delta files.
 - `data_reader.h`: Data reader declarations and iterator types.
@@ -22,7 +18,7 @@
 - `dataset_node.h`: DatasetNode adapter interface used by Parasol/tests.
 - `dataset_reader.cpp`: Read-path implementation (cache, notifier checker mode, and range reader).
 - `dataset_reader.h`: DatasetReader and DatasetRangeReader declarations.
-- `dataset_writer.cpp`: Write-path implementation (owner lock, accumulator, WAL, notifier updater mode).
+- `dataset_writer.cpp`: Write-path implementation (owner lock and notifier updater mode).
 - `dataset_writer.h`: DatasetWriter declarations for mutation and compaction flows.
 - `input_generator.cpp`: Synthetic text and binary input generation helpers.
 - `input_generator.h`: Input generation patterns, binary-mode option, and helper declarations.

@@ -13,8 +13,7 @@ Its job is to:
 - present a dataset as one logical collection to the compute/scanner layer
 
 The current implementation is no longer just an early design sketch. It has a
-concrete file format, a dataset coordinator, an in-memory accumulator, and a
-WAL-backed write path.
+concrete file format, a dataset coordinator, and a resilient write path.
 
 ## Design Goals
 
@@ -26,14 +25,12 @@ The storage layer is built around a few assumptions.
 4. Query code should read a logically current view without rewriting files for
    every mutation.
 5. Persisted state should be recoverable after a crash when owner-mode updates
-   are still buffered in memory.
+   are still pending.
 
 That leads to a hybrid model:
 
 - most data lives in immutable `.data` files
-- recent changes are persisted in `.delta` files or in the in-memory
-  accumulator
-- the accumulator is protected by a write-ahead log
+- recent changes are persisted in `.delta` files
 - merges periodically fold changes back into compact persisted files
 
 ## Main Components
@@ -88,46 +85,9 @@ It:
 
 When a delta is attached, `DataReader` hides base rows shadowed by the delta.
 
-### Accumulator
-
-`accumulator.{h,cpp}` stores recent owner-mode updates and deletes in memory.
-
-It keeps:
-
-- active vector ids
-- one aligned packed byte buffer for vector payloads
-- optional per-vector cosine inverse norms
-- a deleted-id set
-
-The accumulator gives the dataset a cheap mutable layer without rewriting
-persisted files for every change.
-
-### Accumulator WAL
-
-`accumulator_wal.{h,cpp}` persists accumulator mutations in append-only form.
-
-It exists so that:
-
-- acknowledged in-memory updates survive crashes
-- owner-mode datasets can reconstruct buffered state on startup
-
-The WAL stores:
-
-- a WAL header with type and dimension
-- checksummed add/delete records
-
-On replay, torn trailing records are truncated and valid records are applied in
-order.
-
 ### DataMerger
 
-`data_merger.{h,cpp}` combines:
-
-- base data files
-- delta files
-- accumulator slices
-
-into new persisted files.
+`data_merger.{h,cpp}` recombines base `.data` and `.delta` files into new persisted files.
 
 It handles both:
 
@@ -139,11 +99,9 @@ It handles both:
 `dataset.{h,cpp}` is the main storage coordinator.
 
 It owns:
-
 - dataset metadata
 - file-range mapping
 - owner/guest mode
-- the accumulator and its WAL
 - cached dataset items
 - cached readers
 
@@ -152,7 +110,6 @@ It exposes the high-level operations used by the rest of the system:
 - initialize a dataset
 - bulk store input files
 - add or delete vectors in owner mode
-- flush the accumulator
 - merge deltas
 - prepare a read-consistent view
 - iterate persisted ranges
@@ -206,13 +163,6 @@ File name: `sketch2.owner.lock`
 This lock lives in the first dataset directory and ensures only one owner-mode
 dataset instance performs modifications at a time.
 
-### 6. Accumulator WAL
-
-File name: `sketch2.accumulator.wal`
-
-This file lives in the first dataset directory and persists in-memory
-accumulator mutations.
-
 ## Partitioning by Id Range
 
 The dataset is partitioned by `range_size`.
@@ -243,7 +193,6 @@ That stability is important for:
 - splitting bulk ingest
 - targeted merges
 - caching readers
-- accumulator flushes by range
 
 ## Binary Data File Format
 
@@ -359,44 +308,6 @@ This split is important for scanner logic, which wants:
 
 This prevents malformed files from silently entering the query path.
 
-## Mutable State: Accumulator
-
-The accumulator is the in-memory mutable layer for owner-mode datasets.
-
-It is sized by `accumulator_size` and tracks current usage. When there is not
-enough capacity for another mutation, the dataset flushes it to persisted files.
-
-### What It Stores
-
-The accumulator keeps:
-
-- active vector ids
-- a packed aligned vector buffer
-- optional cosine inverse norms
-- deleted ids
-
-### Mutation Rules
-
-- `add_vector(id, data)` inserts or replaces the active value for `id`
-- `delete_vector(id)` removes an active buffered value and records a tombstone
-- adding an id removes it from the deleted set if present
-- deleting an id removes any buffered active value if present
-
-For cosine datasets, the accumulator recomputes and stores the inverse norm for
-every active buffered vector.
-
-### WAL Integration
-
-The accumulator can attach a WAL. Once attached:
-
-- adds append WAL add records
-- deletes append WAL delete records
-- startup replay rebuilds accumulator state
-- successful persisted flushes reset the WAL
-
-That means owner-mode datasets can recover pending buffered state after a crash
-instead of losing acknowledged updates.
-
 ## Dataset as the Main Coordinator
 
 `Dataset` is the storage subsystem entrypoint used by higher layers.
@@ -411,7 +322,6 @@ instead of losing acknowledged updates.
 - `dim`
 - `range_size`
 - `data_merge_ratio`
-- `accumulator_size`
 
 This metadata can be provided directly or loaded from an ini file.
 
@@ -426,14 +336,11 @@ Owner mode can:
 - bulk store input files
 - add vectors
 - delete vectors
-- flush the accumulator
 - merge deltas
 
 It also owns:
 
 - the owner lock
-- the accumulator
-- the accumulator WAL
 
 #### Guest
 
@@ -442,13 +349,12 @@ Guest mode is read-only.
 It rejects:
 
 - `store()`
-- `store_accumulator()`
 - `merge()`
 - `add_vector()`
 - `delete_vector()`
 
-`set_guest_mode()` also refuses to switch if there are pending accumulator
-updates, because that would discard mutable state.
+`set_guest_mode()` also refuses to switch if there are pending writes, because
+that would discard mutable state.
 
 ### Reader and Item Caches
 
@@ -478,16 +384,6 @@ Per range, the code:
    - merge directly into `.data`
 
 If a thread pool is configured, independent range tasks may run in parallel.
-
-### Accumulator Flush
-
-`Dataset::store_accumulator()` groups buffered ids and deletes by range and then
-persists each affected range independently.
-
-After all affected ranges are persisted successfully:
-
-- the WAL is reset
-- the accumulator is cleared
 
 ### Forced Delta Merge
 
@@ -543,25 +439,6 @@ For cosine datasets:
 - delta files are written with inverse norms
 - merge outputs preserve inverse norms
 
-### Accumulator
-
-The accumulator also stores one inverse norm per active vector.
-
-### Why This Exists
-
-The compute/scanner layer can then evaluate cosine distance using:
-
-```text
-1 - dot(a, q) * inv_norm(a) * inv_norm(q)
-```
-
-instead of recomputing the stored-vector norm in the hot scan loop.
-
-This is a storage/performance tradeoff:
-
-- a little more persisted metadata
-- less per-candidate compute
-
 ## Interaction with Query Execution
 
 The compute layer does not read raw files directly. It queries storage through:
@@ -572,15 +449,14 @@ The compute layer does not read raw files directly. It queries storage through:
 From the compute layer’s perspective:
 
 - `DataReader` is a visible persisted view
-- `Dataset` is a logical collection that combines persisted state and
-  accumulator state
+- `Dataset` is a logical collection that merges persisted base and delta state
 
 The scanner relies on this storage model in two important ways.
 
 1. Persisted readers expose base and delta streams in a form suitable for
    shadow-aware top-k scanning.
-2. The dataset exposes accumulator iterators and modified-id lists so scanner
-   can suppress stale persisted rows and include the freshest in-memory rows.
+2. The dataset exposes iterators that suppress stale persisted rows so the
+   scanner sees the freshest recognized data.
 
 ## Current Safety and Durability Model
 
@@ -590,7 +466,6 @@ The storage layer uses several mechanisms together:
 - per-range file locks
 - a dataset owner lock
 - temporary/merge files before rename
-- accumulator WAL replay and truncation of torn tails
 
 This is not a full transactional database, but it is designed to avoid the most
 obvious failure modes:
@@ -605,8 +480,6 @@ The current storage design is:
 
 - range-partitioned by vector id
 - based on immutable base files plus smaller change files
-- buffered by an in-memory accumulator
-- protected by a WAL for buffered mutations
 - compacted by explicit and heuristic merges
 - exposed through validated memory-mapped readers
 - coordinated by `Dataset`

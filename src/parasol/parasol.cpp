@@ -675,29 +675,6 @@ static uint64_t sk_kres_(sk_handle_t* handle, int64_t index) {
     return handle->knn_result[static_cast<size_t>(index)];
 }
 
-static int sk_macc_(sk_handle_t* handle);
-int sk_macc(sk_handle_t* handle) {
-    try {
-        return sk_macc_(handle);
-    } catch (const std::exception& ex) {
-        ERR(ex.what())
-    }
-}
-static int sk_macc_(sk_handle_t* handle) {
-    DECL
-
-    if (handle->ds == nullptr) {
-        ERR("No dataset is open")
-    }
-
-    Ret ret = handle->ds->store_accumulator();
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
-    return 0;
-}
-
 static int sk_mdelta_(sk_handle_t* handle);
 int sk_mdelta(sk_handle_t* handle) {
     try {

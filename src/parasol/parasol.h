@@ -74,11 +74,6 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k);
 uint64_t sk_kres(sk_handle_t* handle, int64_t index);
 
 /*
- * Flush the accumulator to dataset files.
- */
-int sk_macc(sk_handle_t* handle);
-
-/*
  * Merge delta files into data files.
  */
 int sk_mdelta(sk_handle_t* handle);
