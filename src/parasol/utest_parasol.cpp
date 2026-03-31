@@ -9,7 +9,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <limits>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -74,8 +73,14 @@ TEST(parasol, reopen_restores_pending_wal_for_get_and_knn) {
     ASSERT_NE(handle, nullptr);
 
     ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    ASSERT_OK(handle, sk_ups2(handle, 1, 0.0));
-    ASSERT_OK(handle, sk_ups2(handle, 2, 10.0));
+    const std::filesystem::path input_path = root / "vectors.txt";
+    {
+        std::ofstream out(input_path);
+        out << "f32,4\n";
+        out << "1 : [ 0.0, 0.0, 0.0, 0.0 ]\n";
+        out << "2 : [ 10.0, 10.0, 10.0, 10.0 ]\n";
+    }
+    ASSERT_OK(handle, sk_load_file(handle, input_path.string().c_str()));
     ASSERT_OK(handle, sk_close(handle, "ds"));
 
     ASSERT_OK(handle, sk_open(handle, "ds"));
@@ -87,111 +92,6 @@ TEST(parasol, reopen_restores_pending_wal_for_get_and_knn) {
     EXPECT_EQ(2u, sk_kres(handle, -1));
     EXPECT_EQ(1u, sk_kres(handle, 0));
     EXPECT_EQ(2u, sk_kres(handle, 1));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(parasol, get_propagates_dataset_read_errors) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    ASSERT_OK(handle, sk_upsert(handle, 42, "1.0, 2.0, 3.0, 4.0"));
-    ASSERT_OK(handle, sk_macc(handle));
-    ASSERT_OK(handle, sk_close(handle, "ds"));
-
-    {
-        std::ofstream out(root / "ds" / "0.data", std::ios::binary | std::ios::trunc);
-        ASSERT_TRUE(out.is_open());
-        const char bad = '\0';
-        out.write(&bad, 1);
-        ASSERT_TRUE(out.good());
-    }
-
-    ASSERT_OK(handle, sk_open(handle, "ds"));
-    EXPECT_NE(0, sk_get(handle, 42));
-    EXPECT_NE(std::string(sk_error_message(handle)).find("file too small"), std::string::npos);
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(parasol, ups2_knn_and_kres_cache_ids_on_handle) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    ASSERT_OK(handle, sk_ups2(handle, 1, 0.0));
-    ASSERT_OK(handle, sk_ups2(handle, 2, 10.0));
-    ASSERT_OK(handle, sk_ups2(handle, 3, 1.0));
-    ASSERT_OK(handle, sk_macc(handle));
-
-    ASSERT_OK(handle, sk_knn(handle, "0.0, 0.0, 0.0, 0.0", 2));
-    EXPECT_EQ(2u, sk_kres(handle, -1));
-    EXPECT_EQ(1u, sk_kres(handle, 0));
-    EXPECT_EQ(3u, sk_kres(handle, 1));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(parasol, knn_uses_distance_function_from_dataset_ini) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l2"));
-    ASSERT_OK(handle, sk_upsert(handle, 10, "3.0, 0.0, 0.0, 0.0"));
-    ASSERT_OK(handle, sk_upsert(handle, 20, "2.0, 2.0, 0.0, 0.0"));
-    ASSERT_OK(handle, sk_macc(handle));
-
-    const std::filesystem::path ini_path = root / "ds.ini";
-    std::string ini = read_file(ini_path);
-    EXPECT_NE(std::string::npos, ini.find("dist_func=l2\n"));
-    ASSERT_OK(handle, sk_knn(handle, "0.0, 0.0, 0.0, 0.0", 1));
-    EXPECT_EQ(20u, sk_kres(handle, 0));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(parasol, knn_supports_cosine_distance_function) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "cos"));
-    ASSERT_OK(handle, sk_upsert(handle, 10, "100.0, 1.0, 0.0, 0.0"));
-    ASSERT_OK(handle, sk_upsert(handle, 20, "1.0, 1.0, 0.0, 0.0"));
-    ASSERT_OK(handle, sk_upsert(handle, 30, "-1.0, 0.0, 0.0, 0.0"));
-    ASSERT_OK(handle, sk_macc(handle));
-
-    const std::filesystem::path ini_path = root / "ds.ini";
-    std::string ini = read_file(ini_path);
-    EXPECT_NE(std::string::npos, ini.find("dist_func=cos\n"));
-    ASSERT_OK(handle, sk_knn(handle, "1.0, 0.0, 0.0, 0.0", 3));
-    EXPECT_EQ(10u, sk_kres(handle, 0));
-    EXPECT_EQ(20u, sk_kres(handle, 1));
-    EXPECT_EQ(30u, sk_kres(handle, 2));
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
@@ -218,7 +118,6 @@ TEST(parasol, generate_stats_and_print_smoke) {
     EXPECT_NE(stats_out.find("Dist: l1"), std::string::npos);
     EXPECT_NE(stats_out.find("Dim: 4"), std::string::npos);
     EXPECT_NE(stats_out.find("Range: 1000"), std::string::npos);
-    EXPECT_NE(stats_out.find("accumulator:"), std::string::npos);
     EXPECT_NE(stats_out.find(".data:"), std::string::npos);
 
     testing::internal::CaptureStdout();
@@ -312,42 +211,6 @@ TEST(parasol, create_rejects_invalid_distance_function) {
     std::filesystem::remove_all(root);
 }
 
-TEST(parasol, upsert_and_knn_reject_nonfinite_vectors) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    EXPECT_NE(0, sk_upsert(handle, 1, "nan, 0.0, 0.0, 0.0"));
-    EXPECT_STREQ("InputReader::data: non-finite f32 token", sk_error_message(handle));
-    EXPECT_NE(0, sk_knn(handle, "inf, 0.0, 0.0, 0.0", 1));
-    EXPECT_STREQ("InputReader::data: non-finite f32 token", sk_error_message(handle));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(parasol, ups2_rejects_nonfinite_scalar) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_connect(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
-    EXPECT_NE(0, sk_ups2(handle, 1, std::numeric_limits<double>::infinity()));
-    EXPECT_STREQ("Value must be finite", sk_error_message(handle));
-
-    EXPECT_OK(handle, sk_close(handle, "ds"));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-
-    sk_disconnect(handle);
-    std::filesystem::remove_all(root);
-}
-
 TEST(parasol, drop_waits_for_dataset_owner_lock) {
     const std::filesystem::path root = make_temp_dir();
 
@@ -369,7 +232,7 @@ TEST(parasol, drop_waits_for_dataset_owner_lock) {
         if (sk_open(child, "ds") != 0) {
             _exit(11);
         }
-        if (sk_upsert(child, 1, "1.0, 1.0, 1.0, 1.0") != 0) {
+        if (sk_generate(child, 1, 0, 0) != 0) {
             _exit(12);
         }
         const char ready = '1';

@@ -46,29 +46,6 @@ Parasol supports the following functions:
     Result: 0 success, -1 failure, handler has error code and error message set
     If no dataset was opened on the handler, the function fails.
 
-7. upsert
-    Functionality: adds vector and id to dataset
-    Arguments:  handler,
-                id uint64_t
-                vector string in format "[ val, val, ... ]"
-    Result: 0 success, -1 failure, handler has error code and error message set
-    If no dataset was opened on the handler, the function fails.
-
-7. ups2
-    Functionality: adds vector and id to dataset
-    Arguments:  handler,
-                id uint64_t
-                vector as a number, which is used to construct vector having dim copies for the number
-    Result: 0 success, -1 failure, handler has error code and error message set
-    If no dataset was opened on the handler, the function fails.
-
-8. del
-    Functionality: delete vector by id
-    Arguments:  handler
-                id uint64_t
-    Result: 0 success, -1 failure, handler has error code and error message set
-    If no dataset was opened on the handler, the function fails.
-
 9. knn 
     Functionality: finds K nearest neighbors for the vector
         Clears previous knn result if it was there.
@@ -88,11 +65,6 @@ Parasol supports the following functions:
     Result: 0 success, -1 failure, handler has error code and error message set
     If no knn result was stored, the function fails.
 
-
-11. macc
-    Functionality: merge dataset accumulator
-    Arguments:  handler
-    Result: 0 success, -1 failure, handler has error code and error message set
 
 12. mdelta
     Functionality: merge delta file

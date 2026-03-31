@@ -29,8 +29,8 @@ At startup, the `Sketch2` class:
 4. calls `sk_runtime_init()`
 5. opens a Sketch2 handle with `sk_connect()`
 
-After that, Python methods such as `create()`, `upsert()`, `knn()`, and
-`merge_accumulator()` call directly into the shared library.
+After that, Python methods such as `create()`, `knn()`, `merge_delta()`, and
+`load_file()` call directly into the shared library.
 
 This means Python is an integration surface for the native engine, not a
 separate implementation.
@@ -84,9 +84,8 @@ Supported capabilities include:
 
 - connecting to a Sketch2 database root
 - creating, opening, closing, and dropping datasets
-- inserting and deleting vectors
 - bulk loading from generated data or input files
-- flushing the accumulator and merging delta files
+- merging delta files
 - running KNN queries
 - fetching stored vectors
 - printing and stats diagnostics
@@ -104,10 +103,8 @@ from sketch2_wrapper import Sketch2
 with Sketch2("/tmp/my_workspace") as sk:
     sk.create("items", type_name="f32", dim=4, range_size=1000, dist_func="l2")
 
-    sk.upsert(100, "0.0, 0.0, 0.0, 0.0")
-    sk.upsert(101, "1.0, 1.0, 1.0, 1.0")
-    sk.upsert(102, "2.0, 2.0, 2.0, 2.0")
-    sk.merge_accumulator()
+    sk.generate(3, 100, 0)
+    sk.merge_delta()
 
     ids = sk.knn("1.1, 1.1, 1.1, 1.1", 2)
     print(ids)
@@ -187,40 +184,6 @@ Opens an existing dataset on the current handle.
 ### `close(name)`
 
 Closes an open dataset on the current handle.
-
-### `upsert(item_id, value)`
-
-Inserts or replaces one vector by id.
-
-Arguments:
-
-- `item_id`: vector id
-- `value`: vector encoded as text
-
-Example:
-
-```python
-sk.upsert(42, "1.0, 2.0, 3.0, 4.0")
-```
-
-### `ups2(item_id, value)`
-
-Convenience insertion helper that constructs a vector by repeating one scalar
-value across the dataset dimension.
-
-Example:
-
-```python
-sk.ups2(42, 1.5)
-```
-
-### `delete(item_id)`
-
-Deletes one vector by id.
-
-### `merge_accumulator()`
-
-Flushes the current mutable accumulator state into persisted storage.
 
 ### `merge_delta()`
 

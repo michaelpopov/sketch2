@@ -20,8 +20,7 @@ That gives the project room to optimize for:
 
 This boundary is visible across the repository:
 
-- the core storage layer owns data files, deltas, the in-memory accumulator,
-  and crash recovery
+- the core storage layer owns data files, deltas, and crash recovery
 - the compute layer owns metric kernels and top-k scanning
 - the `parasol` API exposes a shared library interface
 - `vlite` exposes read-only SQLite integration
@@ -77,12 +76,9 @@ merge, and query-heavy workloads.
 
 ### Mutable State
 
-Sketch2 does not rewrite persisted base files on every update. Instead it uses
-two mutable layers:
-
-1. an in-memory accumulator for recent owner-mode updates and deletes
-2. optional `.delta` files for persisted changes that have not yet been folded
-   back into the base `.data` file
+Sketch2 does not rewrite persisted base files on every update. Instead recent
+changes are staged in `.delta` files until merge steps fold them back into the
+main `.data` file.
 
 This model is based on the assumption that most datasets are dominated by
 stable persisted state and that updates/deletes are smaller than the full data
@@ -91,13 +87,9 @@ the main body of data.
 
 ### Crash Recovery
 
-The accumulator is protected by an append-only write-ahead log,
-`sketch2.accumulator.wal`. Acknowledged in-memory changes can therefore be
-replayed after a crash instead of being lost. Torn trailing WAL records are
-truncated during recovery, and valid records are applied in order.
-
-This gives Sketch2 a mutable front layer without giving up durability for
-owner-mode writes.
+Persisted `.data` and `.delta` files, together with temporary rename/merge
+steps, guarantee that completed writes survive crashes. Torn files are
+discarded and rebuilt so the storage layer only ever opens coherent artifacts.
 
 ### Merge Strategy
 
@@ -107,7 +99,6 @@ Sketch2 can:
 - create a new base `.data` file
 - create or refresh a `.delta` file
 - merge `.delta` content back into a compact `.data` file
-- fold accumulator content into persisted state
 
 The design deliberately accepts a visibility gap between write time and compact
 persisted state. Queries still see a logically current view, but the physical
@@ -120,8 +111,7 @@ The read path is designed around a logically current view of a dataset even
 when data exists in multiple physical layers.
 
 - `DataReader` exposes memory-mapped persisted files
-- `Dataset` coordinates range mapping, cached readers, owner/guest behavior,
-  and accumulator state
+- `Dataset` coordinates range mapping, cached readers, and owner/guest behavior
 - the scanner can search either a `DataReader` or a `Dataset`
 - when newer data shadows older persisted rows, the scan logic skips the stale
   base rows instead of materializing a rewritten file first
@@ -171,7 +161,7 @@ separate roles.
   different threads
 
 The system is built to let writes proceed without forcing query processing to
-stop. Persisted base files, delta files, and the accumulator give the writer a
+stop. Persisted base files and delta files give the writer a
 way to apply changes incrementally, while readers continue to work against a
 consistent logical dataset view instead of requiring a full stop-the-world
 rewrite.

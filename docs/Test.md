@@ -87,7 +87,7 @@ These binaries cover:
 - utility code such as config parsing, file locks, logging, singleton state,
   and the update notifier
 - storage components such as input generation, input parsing, data file
-  layout, readers, writers, dataset logic, accumulator behavior, and WAL replay
+  layout, readers, writers, and dataset logic
 - compute kernels, runtime backend selection, and scanner logic
 - the `parasol` C API
 - the SQLite integration layer
@@ -116,8 +116,6 @@ Representative coverage includes:
 - error handling
 - distance-function behavior
 - bulk load and incremental compaction
-- accumulator pressure and flush behavior
-- crash recovery through the accumulator WAL
 - delete-heavy workloads
 - update-notifier visibility
 - multi-range datasets
@@ -179,7 +177,7 @@ plumbing and the higher-level SQL workflow that users actually run.
 At a high level, the suite checks these properties:
 
 - persisted storage files are written and read correctly
-- mutable state in the accumulator and WAL behaves correctly
+- mutable state in pending updates behaves correctly
 - merges preserve logical dataset contents
 - compute kernels and scanner logic return correct nearest neighbors
 - runtime backend dispatch stays correct across supported builds

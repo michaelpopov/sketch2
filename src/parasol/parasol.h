@@ -48,21 +48,6 @@ int sk_open(sk_handle_t* handle, const char* name);
 int sk_close(sk_handle_t* handle, const char* name);
 
 /*
- * Upsert a vector encoded as text.
- */
-int sk_upsert(sk_handle_t* handle, uint64_t id, const char* value);
-
-/*
- * Upsert a vector filled with the same scalar in every component.
- */
-int sk_ups2(sk_handle_t* handle, uint64_t id, double value);
-
-/*
- * Delete a vector by id.
- */
-int sk_del(sk_handle_t* handle, uint64_t id);
-
-/*
  * Run KNN and cache ids on the handler.
  */
 int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k);
@@ -72,11 +57,6 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k);
  * Returns 0 if no KNN result is cached or the index is invalid.
  */
 uint64_t sk_kres(sk_handle_t* handle, int64_t index);
-
-/*
- * Flush the accumulator to dataset files.
- */
-int sk_macc(sk_handle_t* handle);
 
 /*
  * Merge delta files into data files.

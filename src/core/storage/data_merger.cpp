@@ -1,4 +1,4 @@
-// Implements merge operations for base data files, delta files, and accumulator output.
+// Implements merge operations for base data files and delta files.
 
 #include "data_merger.h"
 #include "core/storage/data_file_layout.h"
@@ -87,28 +87,6 @@ std::vector<MergeItem> load_update_records(const DataReader& updater) {
             .id = iter.id(),
             .data = iter.data(),
             .cosine_inv_norm = iter.cosine_inv_norm(),
-        });
-    }
-#ifndef NDEBUG
-    for (size_t i = 1; i < updater_items.size(); ++i) {
-        assert(updater_items[i - 1].id < updater_items[i].id);
-    }
-#endif
-    return updater_items;
-}
-
-// Builds a sorted merge stream from the accumulator for only the ids relevant
-// to a single file range.
-std::vector<MergeItem> load_update_records(const Accumulator& updater, const std::vector<uint64_t>& ids) {
-    std::vector<MergeItem> updater_items;
-    updater_items.reserve(ids.size());
-    for (uint64_t id : ids) {
-        const uint8_t* data = updater.get_vector(id);
-        assert(data != nullptr);
-        updater_items.push_back(MergeItem {
-            .id = id,
-            .data = data,
-            .cosine_inv_norm = updater.get_vector_cosine_inv_norm(id),
         });
     }
 #ifndef NDEBUG
@@ -284,24 +262,6 @@ Ret DataMerger::merge_data_file(const DataReader& source, const DataReader& upda
     return ret;
 }
 
-Ret DataMerger::merge_data_file(
-        const DataReader& source, const Accumulator& updater,
-        const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
-        const std::string& path) {
-    Ret ret(0);
-    try {
-        ret = merge_data_file_(source, updater, ids, deleted_ids, path);
-    } catch (const std::exception& ex) {
-        ret = Ret(ex.what());
-    }
-
-    if (ret.code() != 0 && std::filesystem::exists(path)) {
-        std::filesystem::remove(path);
-    }
-
-    return ret;
-}
-
 // Rewrites a full data file by merging persisted rows with another sorted file
 // of updates/deletes, producing a compact output with no tombstone section.
 Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
@@ -371,24 +331,6 @@ Ret DataMerger::merge_delta_file(const DataReader& source, const DataReader& upd
     return ret;
 }
 
-Ret DataMerger::merge_delta_file(
-        const DataReader& source, const Accumulator& updater,
-        const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
-        const std::string& path) {
-    Ret ret(0);
-    try {
-        ret = merge_delta_file_(source, updater, ids, deleted_ids, path);
-    } catch (const std::exception& ex) {
-        ret = Ret(ex.what());
-    }
-
-    if (ret.code() != 0 && std::filesystem::exists(path)) {
-        std::filesystem::remove(path);
-    }
-
-    return ret;
-}
-
 // Rewrites a delta file while preserving delta semantics: live updates stay in
 // the record stream and the merged tombstone set is carried forward separately.
 Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
@@ -437,108 +379,6 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         });
  
     LOG_INFO << "Merged delta file " << source.path() << " in " << timer.elapsed_ms() << " ms";
-    return ret;
-}
-
-// Merges a persisted data file with range-scoped accumulator contents, using
-// the supplied sorted ids/deletes instead of reading an updater DataReader.
-Ret DataMerger::merge_data_file_(
-        const DataReader& source, const Accumulator& updater,
-        const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
-        const std::string& path) {
-    if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
-        return Ret("DataMerger::merge_data_file: incompatible cosine inverse-norm layout");
-    }
-    if (source.has_delta()) {
-        return Ret("DataMerger::merge_data_file: source and updater must not have deltas");
-    }
-
-    Timer timer("merge_data_file_accumulator");
-    const std::vector<MergeItem> updater_items = load_update_records(updater, ids);
-
-    Ret ret = merge_to_file(source, path, "DataMerger::merge_data_files",
-        [&](FILE* f, DataFileHeader* hdr) -> Ret {
-            std::vector<uint64_t> output_ids;
-            CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
-            output_cosine_inv_norms.reserve(source.count() + updater_items.size());
-            CHECK(merge_records(source, updater_items, deleted_ids,
-                "DataMerger::merge_data_files: updated id is also deleted",
-                [&](const uint8_t* data, float cosine_inv_norm, size_t size) -> Ret {
-                    CHECK(write_vector_record(f, data, size, hdr->vector_stride,
-                        "DataMerger::merge_data_files"));
-                    output_cosine_inv_norms.push(cosine_inv_norm);
-                    return Ret(0);
-                },
-                &output_ids));
-
-            output_cosine_inv_norms.assert_matches(output_ids.size());
-            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
-            CHECK(output_cosine_inv_norms.write(f, "DataMerger::merge_data_files"));
-            CHECK(write_zero_padding(f, ids_layout.ids_padding,
-                "DataMerger::merge_data_files: failed to write id alignment padding"));
-            CHECK(write_u64_array(f, output_ids,
-                "DataMerger::merge_data_files: failed to write ids to merge file"));
-
-            hdr->min_id = output_ids.empty() ? 0 : output_ids.front();
-            hdr->max_id = output_ids.empty() ? 0 : output_ids.back();
-            hdr->count = static_cast<uint32_t>(output_ids.size());
-            return rewrite_header(f, *hdr, "DataMerger::merge_data_files");
-        });
-    
-    LOG_INFO << "Merged data file " << source.path() << " accumulator in " << timer.elapsed_ms() << " ms";
-    return ret;
-}
-
-// Merges a persisted delta file with range-scoped accumulator contents while
-// rebuilding both the ordered live rows and the delta delete section.
-Ret DataMerger::merge_delta_file_(
-        const DataReader& source, const Accumulator& updater,
-        const std::vector<uint64_t>& ids, const std::vector<uint64_t>& deleted_ids,
-        const std::string& path) {
-    if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
-        return Ret("DataMerger::merge_delta_file: incompatible cosine inverse-norm layout");
-    }
-    if (source.has_delta()) {
-        return Ret("DataMerger::merge_delta_file: source and updater must not have deltas");
-    }
-
-    Timer timer("merge_delta_file_accumulator");
-    const std::vector<MergeItem> updater_items = load_update_records(updater, ids);
-    const std::vector<uint64_t> deletes = build_delta_deletes(source, updater_items, deleted_ids);
-
-    Ret ret = merge_to_file(source, path, "DataMerger::merge_delta_file",
-        [&](FILE* f, DataFileHeader* hdr) -> Ret {
-            std::vector<uint64_t> output_ids;
-            CosineInvNormOutput output_cosine_inv_norms((hdr->flags & kDataFileHasCosineInvNorms) != 0u);
-            output_cosine_inv_norms.reserve(source.count() + updater_items.size());
-            CHECK(merge_records(source, updater_items, deletes,
-                "DataMerger::merge_delta_file: updated id is also deleted",
-                [&](const uint8_t* data, float cosine_inv_norm, size_t size) -> Ret {
-                    CHECK(write_vector_record(f, data, size, hdr->vector_stride,
-                        "DataMerger::merge_delta_file"));
-                    output_cosine_inv_norms.push(cosine_inv_norm);
-                    return Ret(0);
-                },
-                &output_ids));
-
-            output_cosine_inv_norms.assert_matches(output_ids.size());
-            const IdsLayout ids_layout = compute_ids_layout(*hdr, output_ids.size());
-            CHECK(output_cosine_inv_norms.write(f, "DataMerger::merge_delta_file"));
-            CHECK(write_zero_padding(f, ids_layout.ids_padding,
-                "DataMerger::merge_delta_file: failed to write id alignment padding"));
-            CHECK(write_u64_array(f, output_ids,
-                "DataMerger::merge_delta_file: failed to write ids to merge file"));
-            CHECK(write_u64_array(f, deletes,
-                "DataMerger::merge_delta_file: failed to write deletes_array to merge file"));
-
-            hdr->deleted_count = static_cast<uint32_t>(deletes.size());
-            hdr->min_id = output_ids.empty() ? 0 : output_ids.front();
-            hdr->max_id = output_ids.empty() ? 0 : output_ids.back();
-            hdr->count = static_cast<uint32_t>(output_ids.size());
-            return rewrite_header(f, *hdr, "DataMerger::merge_delta_file");
-        });
-        
-    LOG_INFO << "Merged delta file " << source.path() << " accumulator in " << timer.elapsed_ms() << " ms";
     return ret;
 }
 

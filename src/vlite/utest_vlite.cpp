@@ -461,36 +461,6 @@ TEST_F(VliteTest, LimitZeroReturnsNoRows) {
     EXPECT_TRUE(rows.empty());
 }
 
-TEST_F(VliteTest, DeletedVectorsStayHidden) {
-    write_input("f32,4\n"
-                "0 : [ 0.1, 0.1, 0.1, 0.1 ]\n"
-                "1 : [ 1.1, 1.1, 1.1, 1.1 ]\n"
-                "2 : [ 2.1, 2.1, 2.1, 2.1 ]\n"
-                "3 : [ 3.1, 3.1, 3.1, 3.1 ]\n");
-
-    DatasetNode dataset;
-    ASSERT_EQ(0, dataset.init_for_test({dataset_dir_.string()}, 100, DataType::f32, 4,
-        kAccumulatorBufferSize, DistFunc::L1).code());
-    ASSERT_EQ(0, dataset.store(input_path_.string()).code());
-    ASSERT_EQ(0, dataset.delete_vector(2).code());
-    ASSERT_EQ(0, dataset.store_accumulator().code());
-    write_ini(DataType::f32, 4, 100, DistFunc::L1);
-
-    SqliteDbPtr db = open_db_with_extension();
-    create_virtual_table(db.get());
-
-    const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
-        "WHERE query = '2.1, 2.1, 2.1, 2.1' AND k = 4 "
-        "ORDER BY distance");
-
-    ASSERT_EQ(3u, rows.size());
-    for (const auto& [id, dist] : rows) {
-        (void)dist;
-        EXPECT_NE(2u, id);
-    }
-}
-
 TEST_F(VliteTest, FailsWithoutQueryConstraint) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
