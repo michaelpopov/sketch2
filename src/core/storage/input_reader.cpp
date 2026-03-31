@@ -152,15 +152,13 @@ Ret InputReader::process_binary_indexed_data(const char* record_begin, const cha
 
             uint64_t id = 0;
             uint64_t offset = 0;
-            uint64_t end_offset = 0;
             std::memcpy(&id, record, sizeof(id));
             if (!is_deleted) {
                 offset = static_cast<uint64_t>((record + sizeof(id)) - p);
-                end_offset = offset + size();
             }
 
             record += item_size;
-            lines_.push_back({id, offset, end_offset});
+            lines_.push_back({id, offset});
 
             if (record == end) {
                 if (block_index + 1 == kIndexedBinaryBlockItems) {
@@ -204,8 +202,7 @@ Ret InputReader::process_binary_data(const char* record_begin, const char* end) 
         uint64_t id = 0;
         std::memcpy(&id, record, sizeof(id));
         const uint64_t offset = static_cast<uint64_t>((record + sizeof(id)) - p);
-        const uint64_t end_offset = offset + size();
-        lines_.push_back({id, offset, end_offset});
+        lines_.push_back({id, offset});
     }
     
     return Ret(0);
@@ -246,14 +243,12 @@ Ret InputReader::process_text_data(const char* record_begin, const char* end) {
 
         // offset points to the character after "[" (first number)
         uint64_t offset = static_cast<uint64_t>(bracket + 1 - p);
-        uint64_t end_offset = static_cast<uint64_t>(close - p);
-        lines_.push_back({id, offset, end_offset});
+        lines_.push_back({id, offset});
 
         if (once && bracket[1] != ']') { // skip checking "delete" vectors
             once = false;
             const char* p = reinterpret_cast<const char*>(map_) + offset;
-            const char* vec_end = reinterpret_cast<const char*>(map_) + end_offset;
-            is_comma_delimited_ = check_comma_format(p, vec_end);
+            is_comma_delimited_ = check_comma_format(p, close);
         }
 
         line = next_nl ? next_nl + 1 : end;
@@ -312,7 +307,8 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     }
 
     const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
-    const char* vec_end = reinterpret_cast<const char*>(map_) + lines_[index].end;
+    const char* vec_end = nullptr;
+    CHECK(find_text_vector_end(index, &vec_end));
 
     return is_comma_delimited_ ? parse_vector(buf, size, type_, dim_, p, vec_end) :
         parse_vector_spaces(buf, size, type_, dim_, p, vec_end);
@@ -351,7 +347,32 @@ Ret InputReader::text_data_range(size_t index, const char** begin, const char** 
     }
 
     *begin = reinterpret_cast<const char*>(map_) + lines_[index].offset;
-    *end = reinterpret_cast<const char*>(map_) + lines_[index].end;
+    return find_text_vector_end(index, end);
+}
+
+Ret InputReader::find_text_vector_end(size_t index, const char** vec_end) const {
+    if (index >= lines_.size()) {
+        return Ret("InputReader::find_text_vector_end: index out of range");
+    }
+    if (vec_end == nullptr) {
+        return Ret("InputReader::find_text_vector_end: output pointer is null");
+    }
+    if (binary_) {
+        return Ret("InputReader::find_text_vector_end: text access is only available in text mode");
+    }
+
+    const char* start = reinterpret_cast<const char*>(map_) + lines_[index].offset;
+    const char* map_end = reinterpret_cast<const char*>(map_) + map_len_;
+    const char* line_end = static_cast<const char*>(memchr(start, '\n', static_cast<size_t>(map_end - start)));
+    if (line_end == nullptr) {
+        line_end = map_end;
+    }
+    const char* close = static_cast<const char*>(memchr(start, ']', static_cast<size_t>(line_end - start)));
+    if (close == nullptr) {
+        return Ret("InputReader::find_text_vector_end: invalid text payload");
+    }
+
+    *vec_end = close;
     return Ret(0);
 }
 

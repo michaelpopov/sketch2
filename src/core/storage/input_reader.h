@@ -13,7 +13,6 @@ namespace sketch2 {
 struct LineInfo {
     uint64_t id;
     uint64_t offset; // byte offset where vector data starts in the mapped file
-    uint64_t end;    // text: closing ']' offset, binary: end of vector payload
 };
 
 // InputReader exists to parse the text and binary import formats used by tests
@@ -65,6 +64,7 @@ private:
     Ret process_text_data(const char* record_begin, const char* end);
     Ret process_binary_data(const char* record_begin, const char* end);
     Ret process_binary_indexed_data(const char* record_begin, const char* end);
+    Ret find_text_vector_end(size_t index, const char** vec_end) const;
 };
 
 // InputReaderView exists to present a cheap subrange view over an InputReader
