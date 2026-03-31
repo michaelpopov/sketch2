@@ -148,9 +148,13 @@ TEST(NumKongKernelsTest, BackendSelectionPrefersSveOverNeonWhenAvailable) {
     const uint64_t sve = static_cast<uint64_t>(nk_cap_serial_k | nk_cap_neon_k | nk_cap_sve_k);
     const uint64_t sve_half = static_cast<uint64_t>(nk_cap_serial_k | nk_cap_neon_k | nk_cap_svehalf_k);
     const uint64_t neon = static_cast<uint64_t>(nk_cap_serial_k | nk_cap_neon_k);
+    const uint64_t compiled = nk_calc_compiled_capabilities();
 
-    EXPECT_STREQ("sve", nk_calc_backend_name_for_capabilities(DistFunc::L2, DataType::f32, sve));
-    EXPECT_STREQ("svehalf", nk_calc_backend_name_for_capabilities(DistFunc::COS, DataType::f16, sve_half));
+    const char* expected_f32 = (compiled & static_cast<uint64_t>(nk_cap_sve_k)) != 0 ? "sve" : "neon";
+    const char* expected_f16 = (compiled & static_cast<uint64_t>(nk_cap_svehalf_k)) != 0 ? "svehalf" : "neon";
+
+    EXPECT_STREQ(expected_f32, nk_calc_backend_name_for_capabilities(DistFunc::L2, DataType::f32, sve));
+    EXPECT_STREQ(expected_f16, nk_calc_backend_name_for_capabilities(DistFunc::COS, DataType::f16, sve_half));
     EXPECT_STREQ("neon", nk_calc_backend_name_for_capabilities(DistFunc::L2, DataType::f32, neon));
 }
 #endif

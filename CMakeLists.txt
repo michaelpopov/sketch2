@@ -19,10 +19,12 @@ add_library(sketch_compile_options INTERFACE)
 option(SKETCH_ENABLE_AVX2 "Enable AVX2 runtime-dispatched x86_64 compute backends" ON)
 option(SKETCH_ENABLE_AVX512F "Enable AVX-512F runtime-dispatched x86_64 compute backends" ON)
 option(SKETCH_ENABLE_AVX512VNNI "Enable AVX-512 VNNI runtime-dispatched x86_64 compute backends" ON)
+option(SKETCH_ENABLE_ARM_SVE "Enable Arm SVE/SVE-half kernels for AArch64 builds on SVE-capable CPUs" OFF)
 target_compile_definitions(sketch_compile_options INTERFACE
   SKETCH_ENABLE_AVX2=$<IF:$<BOOL:${SKETCH_ENABLE_AVX2}>,1,0>
   SKETCH_ENABLE_AVX512F=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512F}>,1,0>
-  SKETCH_ENABLE_AVX512VNNI=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512VNNI}>,1,0>)
+  SKETCH_ENABLE_AVX512VNNI=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512VNNI}>,1,0>
+  SKETCH_ENABLE_ARM_SVE=$<IF:$<BOOL:${SKETCH_ENABLE_ARM_SVE}>,1,0>)
 
 if((SKETCH_ENABLE_AVX2 OR SKETCH_ENABLE_AVX512F OR SKETCH_ENABLE_AVX512VNNI)
     AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")

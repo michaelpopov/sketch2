@@ -99,7 +99,6 @@ demo: rel
 	SKETCH2_LOG_LEVEL=DEBUG \
 	SKETCH2_THREAD_POOL_SIZE=12 \
 	python3 src/pytest/demo.py \
-		--count 10M \
 		--dim 256 \
 		--k 10 \
 		--range-size 1M \

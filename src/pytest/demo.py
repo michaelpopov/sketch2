@@ -53,6 +53,10 @@ def parse_size_arg(value: str) -> int:
     return int(text)
 
 
+def default_demo_count() -> int:
+    return parse_size_arg("10M") if os.environ.get("SKETCH2_BIG_DEMO") else parse_size_arg("100K")
+
+
 def dataset_ini_path(root: Path, dataset_name: str) -> Path:
     return root / dataset_name / f"{dataset_name}.ini"
 
@@ -280,8 +284,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--count",
         type=parse_size_arg,
-        default=parse_size_arg("20000"),
-        help="Number of vectors to load; accepts suffixes like 10K or 10M",
+        default=default_demo_count(),
+        help="Number of vectors to load; defaults to 100K, or 10M when SKETCH2_BIG_DEMO is set",
     )
     parser.add_argument("--dim", type=int, default=4, help="Vector dimension (>=4)")
     parser.add_argument("--k", type=int, default=10, help="Top-K neighbors to query")

@@ -59,6 +59,15 @@ options:
 All three are enabled by default. On AArch64, the build enables
 `-march=armv8.2-a+fp16`.
 
+SVE is intentionally not enabled by default on AArch64 because many `arm64`
+systems, including Apple Silicon, do not support it. If you are building for an
+SVE-capable Linux target such as Ampere/Neoverse and want the extra kernels,
+configure with:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_ARM_SVE=ON
+```
+
 ## Main Artifacts
 
 The main runtime artifact is:

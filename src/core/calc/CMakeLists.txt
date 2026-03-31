@@ -16,10 +16,12 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   set_source_files_properties(nk_kernels.cpp PROPERTIES
     COMPILE_DEFINITIONS "NK_TARGET_HASWELL=1;NK_TARGET_SKYLAKE=1")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-  set_source_files_properties(nk_kernels.cpp PROPERTIES
-    COMPILE_DEFINITIONS "NK_TARGET_NEON=1;NK_TARGET_NEONFHM=1;NK_TARGET_SVE=1;NK_TARGET_SVEHALF=1")
-  set_source_files_properties(nk_kernels.cpp PROPERTIES
-    COMPILE_OPTIONS "-march=armv8.2-a+sve+fp16+dotprod")
+  if(SKETCH_ENABLE_ARM_SVE)
+    # SVE is not part of the portable arm64 baseline. Keep it opt-in so builds
+    # remain runnable on Apple Silicon and other non-SVE AArch64 CPUs/VMs.
+    set_source_files_properties(nk_kernels.cpp PROPERTIES
+      COMPILE_OPTIONS "-march=armv8.2-a+sve+fp16+dotprod")
+  endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(wasm32|wasm64)$")
   set_source_files_properties(nk_kernels.cpp PROPERTIES
     COMPILE_DEFINITIONS "NK_TARGET_V128RELAXED=1")
@@ -29,8 +31,10 @@ endif()
 # errors by the project's global -Werror / -Wpedantic flags.
 set_source_files_properties(hwy_kernels.cpp PROPERTIES COMPILE_OPTIONS "-Wno-error;-Wno-pedantic")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-  set_source_files_properties(hwy_kernels.cpp PROPERTIES
-    COMPILE_OPTIONS "-Wno-error;-Wno-pedantic;-march=armv8.2-a+sve+fp16+dotprod")
+  if(SKETCH_ENABLE_ARM_SVE)
+    set_source_files_properties(hwy_kernels.cpp PROPERTIES
+      COMPILE_OPTIONS "-Wno-error;-Wno-pedantic;-march=armv8.2-a+sve+fp16+dotprod")
+  endif()
 endif()
 
 if(DEFINED ENV{DUMMY_CALC} AND NOT "$ENV{DUMMY_CALC}" STREQUAL "")
