@@ -56,9 +56,10 @@ A higher ratio means merges happen less frequently (allowing larger deltas), whi
 `DataMerger` is the utility class that performs the actual bit-level merging. It is designed to be agnostic of whether the updates come from another file on disk or directly from memory.
 
 ### Unified Update Streams
-To keep the core logic simple, `DataMerger` normalizes all update sources into a sorted stream of `MergeItem` objects.
-- **From File**: [load_update_records](data_merger.cpp) iterates through a `DataReader`.
-- **From Memory**: [materialize_input_updater](data_merger.cpp) parses raw input into a temporary buffer.
+To keep the core logic simple, `DataMerger` presents all update sources through lightweight sorted cursor adapters instead of materializing a separate merge array.
+- **From File**: `DataReaderUpdaterCursor` and `DataReaderDeletedCursor` stream live rows and deleted ids directly from a `DataReader`.
+- **From Memory**: `InputReaderUpdaterCursor` and `InputReaderDeletedCursor` stream live rows and delete-only rows directly from an `InputReaderView`.
+- **Delta Tombstones**: `DeltaDeleteCursor` merges persisted tombstones with incoming deletes while dropping any source delete that is resurrected by a live updater row.
 
 ### The Merge Algorithm
 The core of the merge is [merge_records](data_merger.cpp). It uses a **two-pointer walk** (similar to the "Merge" step in Merge Sort) across two sorted streams:
@@ -73,8 +74,12 @@ The core of the merge is [merge_records](data_merger.cpp). It uses a **two-point
 
 ## 4. Key Classes and Structures
 
-### [MergeItem](data_merger.cpp)
-A lightweight structure representing a single record during the merge. It holds the ID and a union that carries either binary record metadata (pointer and cosine inverse norm) or raw text slices (start and end pointers).
+### Cursor Adapters
+The cursor helpers in [data_merger.cpp](data_merger.cpp) give `merge_records` a uniform interface over different update sources:
+- `DataReaderUpdaterCursor`: streams sorted persisted updater rows.
+- `InputReaderUpdaterCursor`: streams sorted in-memory updater rows and parses text vectors only if the row survives to output.
+- `DataReaderDeletedCursor` and `InputReaderDeletedCursor`: stream sorted delete ids.
+- `DeltaDeleteCursor`: builds the merged delete stream used by delta-file merges.
 
 ### [MergeFile](data_merger.cpp)
 An RAII wrapper for the destination file. It handles:
@@ -85,8 +90,8 @@ An RAII wrapper for the destination file. It handles:
 ### [MergeOutputWriter](data_merger.cpp)
 A helper that manages the specific layout of the `sketch2` data format. It ensures that vectors are written first, followed by the optional cosine array, and finally the sorted ID array. It also handles on-demand parsing of text-based updates using a scratch buffer.
 
-### [MaterializedInputUpdater](data_merger.cpp)
-A container used when merging directly from memory (`InputReaderView`). It tracks the input storage mode (Binary vs. Text) and holds the sorted `MergeItem` stream. It eliminates redundant memory copies by borrowing pointers or text slices directly from the input reader.
+### Direct Input Path
+When merging from `InputReaderView`, `DataMerger` no longer builds a temporary materialized updater structure. Instead, it borrows raw binary payloads or text slices directly from the input reader and lets the updater cursors feed surviving rows into `MergeOutputWriter`. That keeps memory usage lower while preserving the same sorted merge semantics.
 
 ## 5. Atomic Safety and Durability
 

@@ -17,78 +17,11 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <utility>
 
 namespace sketch2 {
 
 namespace {
-
-enum class MergeItemStorage {
-    Binary,
-    Text,
-};
-
-struct MergeItemBinaryData {
-    const uint8_t* data;
-    float cosine_inv_norm;
-};
-
-struct MergeItemTextData {
-    const char* start;
-    const char* end;
-};
-
-struct MergeItem {
-    uint64_t id;
-    union {
-        MergeItemBinaryData binary;
-        MergeItemTextData text;
-    };
-};
-
-struct MaterializedInputUpdater {
-    // Every MergeItem in one updater uses the same representation, so the mode
-    // and text delimiter choice live at the container level instead of being
-    // repeated in each item. `compute_cosine_inv_norms` records the caller's
-    // expectation so debug builds can assert that materialization-time and
-    // write-time cosine handling stay in sync.
-    MergeItemStorage storage = MergeItemStorage::Binary;
-    bool text_is_comma_delimited = true;
-    bool compute_cosine_inv_norms = false;
-    std::vector<MergeItem> items;
-    std::vector<uint64_t> deletes;
-};
-
-MergeItem make_binary_merge_item(uint64_t id, const uint8_t* data, float cosine_inv_norm) {
-    MergeItem item{};
-    item.id = id;
-    item.binary = MergeItemBinaryData{
-        .data = data,
-        .cosine_inv_norm = cosine_inv_norm,
-    };
-    return item;
-}
-
-MergeItem make_text_merge_item(uint64_t id, const char* start, const char* end) {
-    MergeItem item{};
-    item.id = id;
-    item.text = MergeItemTextData{
-        .start = start,
-        .end = end,
-    };
-    return item;
-}
-
-Ret build_compact_ids_builder(const std::vector<uint64_t>& ids, const char* context, CompactIdsBuilder* out) {
-    out->clear();
-    out->reserve(ids.size());
-    for (uint64_t id : ids) {
-        const Ret append_ret = out->append(id);
-        if (append_ret.code() != 0) {
-            return Ret(std::string(context) + ": " + append_ret.message());
-        }
-    }
-    return Ret(0);
-}
 
 class CosineInvNormOutput {
 public:
@@ -251,13 +184,6 @@ public:
         return write_binary_record(id, parsed_text_buffer_.data(), cosine_inv_norm);
     }
 
-    Ret write_updater_record(const MergeItem& item, MergeItemStorage storage, bool text_is_comma_delimited) {
-        if (storage == MergeItemStorage::Binary) {
-            return write_binary_record(item.id, item.binary.data, item.binary.cosine_inv_norm);
-        }
-        return write_text_record(item.id, item.text.start, item.text.end, text_is_comma_delimited);
-    }
-
     // Writes the trailer that follows the vector-record area in every merged
     // file: optional cosine values, alignment padding before ids, and then the
     // compact active/deleted id sections.
@@ -291,6 +217,254 @@ private:
     std::vector<uint8_t> parsed_text_buffer_;
 };
 
+class DataReaderUpdaterCursor {
+public:
+    explicit DataReaderUpdaterCursor(const DataReader& reader) : iter_(reader.base_begin()) {}
+
+    bool eof() const { return iter_.eof(); }
+    uint64_t id() const { return iter_.id(); }
+    void next() { iter_.next(); }
+
+    Ret write_current(MergeOutputWriter* output) const {
+        return output->write_binary_record(iter_.id(), iter_.data(), iter_.cosine_inv_norm());
+    }
+
+private:
+    DataReader::OrderedIterator iter_;
+};
+
+class DataReaderDeletedCursor {
+public:
+    explicit DataReaderDeletedCursor(const DataReader& reader) : reader_(reader) {}
+
+    bool eof() const { return index_ >= reader_.deleted_count(); }
+    uint64_t id() const { return reader_.deleted_id(index_); }
+    void next() {
+        if (!eof()) {
+            ++index_;
+        }
+    }
+
+private:
+    const DataReader& reader_;
+    size_t index_ = 0;
+};
+
+class InputReaderUpdaterCursor {
+public:
+    InputReaderUpdaterCursor(const InputReaderView& reader, bool compute_cosine_inv_norms)
+        : reader_(reader), compute_cosine_inv_norms_(compute_cosine_inv_norms) {
+        advance_to_live_row();
+    }
+
+    bool eof() const { return index_ >= reader_.count(); }
+    uint64_t id() const { return reader_.id(index_); }
+    void next() {
+        if (!eof()) {
+            ++index_;
+            advance_to_live_row();
+        }
+    }
+
+    Ret write_current(MergeOutputWriter* output) const {
+        if (reader_.is_binary()) {
+            const uint8_t* raw_data = nullptr;
+            CHECK(reader_.raw_data(index_, &raw_data));
+            const float cosine_inv_norm = compute_cosine_inv_norms_
+                ? compute_cosine_inverse_norm(raw_data, reader_.type(), reader_.dim())
+                : 0.0f;
+            return output->write_binary_record(id(), raw_data, cosine_inv_norm);
+        }
+
+        const char* start = nullptr;
+        const char* end = nullptr;
+        CHECK(reader_.text_data_range(index_, &start, &end));
+        return output->write_text_record(id(), start, end, reader_.is_comma_delimited());
+    }
+
+private:
+    void advance_to_live_row() {
+        while (index_ < reader_.count() && reader_.is_no_data(index_)) {
+            ++index_;
+        }
+    }
+
+    const InputReaderView& reader_;
+    size_t index_ = 0;
+    bool compute_cosine_inv_norms_ = false;
+};
+
+class InputReaderDeletedCursor {
+public:
+    explicit InputReaderDeletedCursor(const InputReaderView& reader) : reader_(reader) {
+        advance_to_deleted_row();
+    }
+
+    bool eof() const { return index_ >= reader_.count(); }
+    uint64_t id() const { return reader_.id(index_); }
+    void next() {
+        if (!eof()) {
+            ++index_;
+            advance_to_deleted_row();
+        }
+    }
+
+private:
+    void advance_to_deleted_row() {
+        while (index_ < reader_.count() && !reader_.is_no_data(index_)) {
+            ++index_;
+        }
+    }
+
+    const InputReaderView& reader_;
+    size_t index_ = 0;
+};
+
+struct InputReaderViewCounts {
+    size_t live_count = 0;
+    size_t delete_count = 0;
+};
+
+InputReaderViewCounts count_input_reader_view_rows(const InputReaderView& reader) {
+    InputReaderViewCounts counts;
+    for (size_t i = 0; i < reader.count(); ++i) {
+        if (reader.is_no_data(i)) {
+            ++counts.delete_count;
+        } else {
+            ++counts.live_count;
+        }
+    }
+    return counts;
+}
+
+template <typename SourceDeletedCursor, typename UpdaterCursor, typename UpdaterDeletedCursor>
+class DeltaDeleteCursor {
+public:
+    DeltaDeleteCursor(SourceDeletedCursor source_deleted,
+            UpdaterCursor updater,
+            UpdaterDeletedCursor updater_deleted)
+        : source_deleted_(std::move(source_deleted)),
+          updater_(std::move(updater)),
+          updater_deleted_(std::move(updater_deleted)) {
+        select_current();
+    }
+
+    bool eof() const { return !has_current_; }
+    uint64_t id() const { return current_id_; }
+
+    void next() {
+        if (!has_current_) {
+            return;
+        }
+
+        switch (current_source_) {
+        case CurrentSource::SourceOnly:
+            source_deleted_.next();
+            break;
+        case CurrentSource::UpdaterOnly:
+            updater_deleted_.next();
+            break;
+        case CurrentSource::Both:
+            source_deleted_.next();
+            updater_deleted_.next();
+            break;
+        }
+        select_current();
+    }
+
+private:
+    enum class CurrentSource {
+        SourceOnly,
+        UpdaterOnly,
+        Both,
+    };
+
+    void skip_resurrected_source_deletes() {
+        while (!source_deleted_.eof()) {
+            const uint64_t source_id = source_deleted_.id();
+            while (!updater_.eof() && updater_.id() < source_id) {
+                updater_.next();
+            }
+            if (!updater_.eof() && updater_.id() == source_id) {
+                source_deleted_.next();
+                continue;
+            }
+            break;
+        }
+    }
+
+    void select_current() {
+        skip_resurrected_source_deletes();
+        if (source_deleted_.eof()) {
+            if (updater_deleted_.eof()) {
+                has_current_ = false;
+                return;
+            }
+            has_current_ = true;
+            current_source_ = CurrentSource::UpdaterOnly;
+            current_id_ = updater_deleted_.id();
+            return;
+        }
+        if (updater_deleted_.eof()) {
+            has_current_ = true;
+            current_source_ = CurrentSource::SourceOnly;
+            current_id_ = source_deleted_.id();
+            return;
+        }
+
+        const uint64_t source_id = source_deleted_.id();
+        const uint64_t updater_deleted_id = updater_deleted_.id();
+        has_current_ = true;
+        if (source_id < updater_deleted_id) {
+            current_source_ = CurrentSource::SourceOnly;
+            current_id_ = source_id;
+        } else if (updater_deleted_id < source_id) {
+            current_source_ = CurrentSource::UpdaterOnly;
+            current_id_ = updater_deleted_id;
+        } else {
+            current_source_ = CurrentSource::Both;
+            current_id_ = source_id;
+        }
+    }
+
+    SourceDeletedCursor source_deleted_;
+    UpdaterCursor updater_;
+    UpdaterDeletedCursor updater_deleted_;
+    uint64_t current_id_ = 0;
+    bool has_current_ = false;
+    CurrentSource current_source_ = CurrentSource::SourceOnly;
+};
+
+auto make_data_reader_delta_delete_cursor(const DataReader& source, const DataReader& updater) {
+    return DeltaDeleteCursor(
+        DataReaderDeletedCursor(source),
+        DataReaderUpdaterCursor(updater),
+        DataReaderDeletedCursor(updater));
+}
+
+auto make_input_reader_delta_delete_cursor(
+        const DataReader& source,
+        const InputReaderView& updater,
+        bool compute_cosine_inv_norms) {
+    return DeltaDeleteCursor(
+        DataReaderDeletedCursor(source),
+        InputReaderUpdaterCursor(updater, compute_cosine_inv_norms),
+        InputReaderDeletedCursor(updater));
+}
+
+template <typename Cursor>
+Ret build_compact_ids_builder(Cursor cursor, const char* context, size_t reserve_count, CompactIdsBuilder* out) {
+    out->clear();
+    out->reserve(reserve_count);
+    for (; !cursor.eof(); cursor.next()) {
+        const Ret append_ret = out->append(cursor.id());
+        if (append_ret.code() != 0) {
+            return Ret(std::string(context) + ": " + append_ret.message());
+        }
+    }
+    return Ret(0);
+}
+
 void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer) {
     file_buffer->resize(kFileBufferSize);
     (void)setvbuf(f, file_buffer->data(), _IOFBF, file_buffer->size());
@@ -312,137 +486,14 @@ Ret flush_and_close_merge_file(FILE** f, const char* context) {
     return Ret(0);
 }
 
-// Materializes persisted updater rows into a sorted merge stream that points
-// directly at mmap-backed binary records and their cosine metadata.
-std::vector<MergeItem> load_update_records(const DataReader& updater) {
-    std::vector<MergeItem> updater_items;
-    updater_items.reserve(updater.count());
-    for (auto iter = updater.begin(); !iter.eof(); iter.next()) {
-        assert(iter.data() != nullptr);
-        updater_items.push_back(make_binary_merge_item(iter.id(), iter.data(), iter.cosine_inv_norm()));
-    }
-#ifndef NDEBUG
-    for (size_t i = 1; i < updater_items.size(); ++i) {
-        assert(updater_items[i - 1].id < updater_items[i].id);
-    }
-#endif
-    return updater_items;
-}
-
-std::vector<uint64_t> load_deleted_ids(const DataReader& updater) {
-    std::vector<uint64_t> deletes;
-    deletes.reserve(updater.deleted_count());
-    for (size_t i = 0; i < updater.deleted_count(); ++i) {
-        deletes.push_back(updater.deleted_id(i));
-    }
-    return deletes;
-}
-
-// Materializes a range view from raw input into the normalized updater shape
-// used by the merge path: sorted live rows plus a sorted delete list. Binary
-// input items borrow the mapped payload directly; text input items carry just
-// the source slice and are parsed on demand when a surviving row is written.
-//
-// Important lifetime contract: text slices in `items` point into the mmap
-// owned by the InputReader behind `updater`. Callers must keep that
-// InputReader/InputReaderView alive until the merge fully completes.
-Ret materialize_input_updater(const InputReaderView& updater,
-        bool compute_cosine_inv_norms,
-        MaterializedInputUpdater* materialized) {
-    // This function keeps the merge core agnostic to the original source of
-    // updates while avoiding a second large buffer for text input vectors.
-    materialized->items.clear();
-    materialized->deletes.clear();
-    materialized->storage = updater.is_binary() ? MergeItemStorage::Binary : MergeItemStorage::Text;
-    materialized->text_is_comma_delimited = updater.is_comma_delimited();
-    materialized->compute_cosine_inv_norms = compute_cosine_inv_norms;
-
-    // First count and split ids into "live rows" vs "deletes". The input view
-    // is already sorted by id, so both output arrays preserve sorted order.
-    size_t live_count = 0;
-    for (size_t i = 0; i < updater.count(); ++i) {
-        if (updater.is_no_data(i)) {
-            materialized->deletes.push_back(updater.id(i));
-        } else {
-            ++live_count;
-        }
-    }
-
-    materialized->items.reserve(live_count);
-    for (size_t i = 0; i < updater.count(); ++i) {
-        if (updater.is_no_data(i)) {
-            continue;
-        }
-
-        if (updater.is_binary()) {
-            const uint8_t* raw_data = nullptr;
-            CHECK(updater.raw_data(i, &raw_data));
-            materialized->items.push_back(make_binary_merge_item(
-                updater.id(i),
-                raw_data,
-                compute_cosine_inv_norms ? compute_cosine_inverse_norm(raw_data, updater.type(), updater.dim()) : 0.0f));
-        } else {
-            const char* start = nullptr;
-            const char* end = nullptr;
-            CHECK(updater.text_data_range(i, &start, &end));
-            materialized->items.push_back(make_text_merge_item(updater.id(i), start, end));
-        }
-    }
-
-#ifndef NDEBUG
-    for (size_t i = 1; i < materialized->items.size(); ++i) {
-        assert(materialized->items[i - 1].id < materialized->items[i].id);
-    }
-    for (size_t i = 1; i < materialized->deletes.size(); ++i) {
-        assert(materialized->deletes[i - 1] < materialized->deletes[i]);
-    }
-#endif
-    return Ret(0);
-}
-
-// Computes the delete set for a merged delta file. Existing deletes survive
-// unless the updater reintroduces that id, and new deletes are then unioned in.
-std::vector<uint64_t> build_delta_deletes(const DataReader& source,
-        const std::vector<MergeItem>& updater_items,
-        const std::vector<uint64_t>& updater_deletes) {
-    std::vector<uint64_t> deletes;
-    const std::vector<uint64_t> source_deletes = load_deleted_ids(source);
-
-    // A delta merge is not a plain union of tombstones. If the source delta had
-    // a delete for some id, but the updater now reintroduces that id as a live
-    // row, the old tombstone must disappear. The two-pointer walk below keeps
-    // exactly those source deletes that are not resurrected by updater_items.
-    size_t ui = 0;
-    for (uint64_t sid : source_deletes) {
-        while (ui < updater_items.size() && updater_items[ui].id < sid) {
-            ++ui;
-        }
-        if (ui < updater_items.size() && updater_items[ui].id == sid) {
-            continue;
-        }
-        deletes.push_back(sid);
-    }
-
-    std::vector<uint64_t> merged_deletes;
-    merged_deletes.reserve(deletes.size() + updater_deletes.size());
-    std::merge(
-        deletes.begin(), deletes.end(),
-        updater_deletes.begin(), updater_deletes.end(),
-        std::back_inserter(merged_deletes));
-    merged_deletes.erase(
-        std::unique(merged_deletes.begin(), merged_deletes.end()),
-        merged_deletes.end());
-    return merged_deletes;
-}
-
 // Merges the sorted source stream and sorted updater stream into one ordered
 // output. Deletes suppress matching ids, updater rows replace same-id source
 // rows, and surviving records are streamed into the output writer.
+template <typename UpdaterCursor, typename SourceDeleteCursor, typename UpdaterDeleteCursor>
 Ret merge_records(const DataReader& source,
-        const std::vector<MergeItem>& updater_items,
-        MergeItemStorage updater_storage,
-        bool updater_text_is_comma_delimited,
-        const std::vector<uint64_t>& deletes,
+        UpdaterCursor updater,
+        SourceDeleteCursor source_deletes,
+        UpdaterDeleteCursor updater_deletes,
         const std::string& conflict_message,
         MergeOutputWriter* output) {
     // i  -> current live row in the persisted source file
@@ -453,55 +504,53 @@ Ret merge_records(const DataReader& source,
     // The arrays are all sorted, so each index only moves forward. That keeps
     // the merge linear in the total number of source rows, update rows, and
     // delete ids.
-    for (size_t i = 0, j = 0, di = 0, dj = 0; i < source.count() || j < updater_items.size(); ) {
+    for (size_t i = 0; i < source.count() || !updater.eof(); ) {
         const bool has_source = i < source.count();
-        const bool has_update = j < updater_items.size();
+        const bool has_update = !updater.eof();
 
         if (has_source) {
             const uint64_t source_id = source.id(i);
             // A delete means "this id must not appear as a live row". When the
             // current source row is deleted, we simply skip it and keep merging.
-            while (di < deletes.size() && deletes[di] < source_id) {
-                ++di;
+            while (!source_deletes.eof() && source_deletes.id() < source_id) {
+                source_deletes.next();
             }
-            if (di < deletes.size() && deletes[di] == source_id) {
+            if (!source_deletes.eof() && source_deletes.id() == source_id) {
                 ++i;
                 continue;
             }
         }
 
         if (has_update) {
-            const uint64_t update_id = updater_items[j].id;
+            const uint64_t update_id = updater.id();
             // Updater rows are already filtered to visible/live rows. If a live
             // updater id also appears in the delete set, the inputs are
             // contradictory and we fail the merge instead of silently choosing
             // one interpretation.
-            while (dj < deletes.size() && deletes[dj] < update_id) {
-                ++dj;
+            while (!updater_deletes.eof() && updater_deletes.id() < update_id) {
+                updater_deletes.next();
             }
-            if (dj < deletes.size() && deletes[dj] == update_id) {
+            if (!updater_deletes.eof() && updater_deletes.id() == update_id) {
                 return Ret(conflict_message);
             }
         }
 
         if (has_source && has_update) {
             const uint64_t source_id = source.id(i);
-            const uint64_t update_id = updater_items[j].id;
+            const uint64_t update_id = updater.id();
             if (source_id < update_id) {
                 // Source id comes first and is not shadowed by an update.
                 CHECK(output->write_binary_record(source_id, source.at(i), source.cosine_inv_norm(i)));
                 ++i;
             } else if (source_id > update_id) {
                 // Updater inserted a new id before the current source id.
-                CHECK(output->write_updater_record(
-                    updater_items[j], updater_storage, updater_text_is_comma_delimited));
-                ++j;
+                CHECK(updater.write_current(output));
+                updater.next();
             } else {
                 // Same id in both streams means "replace source with updater".
-                CHECK(output->write_updater_record(
-                    updater_items[j], updater_storage, updater_text_is_comma_delimited));
+                CHECK(updater.write_current(output));
                 ++i;
-                ++j;
+                updater.next();
             }
             continue;
         }
@@ -513,9 +562,8 @@ Ret merge_records(const DataReader& source,
             ++i;
         } else {
             // No source rows remain, so every remaining updater row is appended.
-            CHECK(output->write_updater_record(
-                updater_items[j], updater_storage, updater_text_is_comma_delimited));
-            ++j;
+            CHECK(updater.write_current(output));
+            updater.next();
         }
     }
 
@@ -576,19 +624,16 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     Timer timer("merge_data_file");
     // For a data-file merge, deletes come directly from the updater because the
     // destination is a compact base file with no persisted tombstone section.
-    const std::vector<MergeItem> updater_items = load_update_records(updater);
-    const std::vector<uint64_t> deletes = load_deleted_ids(updater);
     MergeFile merge_file;
     CHECK(merge_file.open(source, path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
-    output.reserve(source.count() + updater_items.size(), false);
+    output.reserve(source.count() + updater.count(), false);
     CHECK(merge_records(
         source,
-        updater_items,
-        MergeItemStorage::Binary,
-        true,
-        deletes,
+        DataReaderUpdaterCursor(updater),
+        DataReaderDeletedCursor(updater),
+        DataReaderDeletedCursor(updater),
         "DataMerger::merge_data_files: updated id is also deleted",
         &output));
     // After all vector records are streamed, write the trailing metadata needed
@@ -683,24 +728,24 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     }
 
     Timer timer("merge_delta_file");
-    const std::vector<MergeItem> updater_items = load_update_records(updater);
-    const std::vector<uint64_t> updater_deletes = load_deleted_ids(updater);
     // Delta-to-delta merge keeps a tombstone section, but it must first remove
     // any old deletes that the updater resurrected as live rows.
-    const std::vector<uint64_t> deletes = build_delta_deletes(source, updater_items, updater_deletes);
     CompactIdsBuilder compact_deleted_ids;
-    CHECK(build_compact_ids_builder(deletes, "DataMerger::merge_delta_file: deleted ids", &compact_deleted_ids));
+    CHECK(build_compact_ids_builder(
+        make_data_reader_delta_delete_cursor(source, updater),
+        "DataMerger::merge_delta_file: deleted ids",
+        source.deleted_count() + updater.deleted_count(),
+        &compact_deleted_ids));
     MergeFile merge_file;
     CHECK(merge_file.open(source, path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
-    output.reserve(source.count() + updater_items.size(), false);
+    output.reserve(source.count() + updater.count(), false);
     CHECK(merge_records(
         source,
-        updater_items,
-        MergeItemStorage::Binary,
-        true,
-        deletes,
+        DataReaderUpdaterCursor(updater),
+        make_data_reader_delta_delete_cursor(source, updater),
+        make_data_reader_delta_delete_cursor(source, updater),
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
     // Delta files have the same live-row trailer as data files...
@@ -711,7 +756,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         "DataMerger::merge_delta_file: failed to write ids to merge file",
         "DataMerger::merge_delta_file: failed to write deleted_ids to merge file"));
 
-    merge_file.header()->deleted_count = static_cast<uint32_t>(deletes.size());
+    merge_file.header()->deleted_count = static_cast<uint32_t>(compact_deleted_ids.count());
     set_output_id_range(output.output_ids(), merge_file.header());
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_delta_file");
@@ -729,27 +774,21 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
     }
 
     Timer timer("merge_data_file");
-    // The direct-input path still reuses the normal record merge loop and file
-    // writer. The normalization step now only captures updater ids, deletes,
-    // and either borrowed binary pointers or borrowed text slices; text vectors
-    // are parsed later only if the row survives to output.
-    MaterializedInputUpdater materialized;
+    const InputReaderViewCounts updater_counts = count_input_reader_view_rows(updater);
     const CompactIdsBuilder empty_deleted_ids;
-    CHECK(materialize_input_updater(updater, source.has_cosine_inv_norms(), &materialized));
     MergeFile merge_file;
     CHECK(merge_file.open(source, path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
-    output.reserve(source.count() + materialized.items.size(), materialized.storage == MergeItemStorage::Text);
+    output.reserve(source.count() + updater_counts.live_count, !updater.is_binary());
 #ifndef NDEBUG
-    assert(materialized.compute_cosine_inv_norms == output.cosine_inv_norms_enabled());
+    assert(source.has_cosine_inv_norms() == output.cosine_inv_norms_enabled());
 #endif
     CHECK(merge_records(
         source,
-        materialized.items,
-        materialized.storage,
-        materialized.text_is_comma_delimited,
-        materialized.deletes,
+        InputReaderUpdaterCursor(updater, source.has_cosine_inv_norms()),
+        InputReaderDeletedCursor(updater),
+        InputReaderDeletedCursor(updater),
         "DataMerger::merge_data_files: updated id is also deleted",
         &output));
     CHECK(output.write_ids_section(
@@ -776,28 +815,27 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     }
 
     Timer timer("merge_delta_file");
-    // Delta merges use the same lightweight adapter, then run the delta-
-    // specific delete reconciliation step so old tombstones survive unless the
-    // new input resurrects those ids as live rows.
-    MaterializedInputUpdater materialized;
-    CHECK(materialize_input_updater(updater, source.has_cosine_inv_norms(), &materialized));
-    const std::vector<uint64_t> deletes = build_delta_deletes(source, materialized.items, materialized.deletes);
+    const InputReaderViewCounts updater_counts = count_input_reader_view_rows(updater);
+    const bool compute_cosine_inv_norms = source.has_cosine_inv_norms();
     CompactIdsBuilder compact_deleted_ids;
-    CHECK(build_compact_ids_builder(deletes, "DataMerger::merge_delta_file: deleted ids", &compact_deleted_ids));
+    CHECK(build_compact_ids_builder(
+        make_input_reader_delta_delete_cursor(source, updater, compute_cosine_inv_norms),
+        "DataMerger::merge_delta_file: deleted ids",
+        source.deleted_count() + updater_counts.delete_count,
+        &compact_deleted_ids));
     MergeFile merge_file;
     CHECK(merge_file.open(source, path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
-    output.reserve(source.count() + materialized.items.size(), materialized.storage == MergeItemStorage::Text);
+    output.reserve(source.count() + updater_counts.live_count, !updater.is_binary());
 #ifndef NDEBUG
-    assert(materialized.compute_cosine_inv_norms == output.cosine_inv_norms_enabled());
+    assert(source.has_cosine_inv_norms() == output.cosine_inv_norms_enabled());
 #endif
     CHECK(merge_records(
         source,
-        materialized.items,
-        materialized.storage,
-        materialized.text_is_comma_delimited,
-        deletes,
+        InputReaderUpdaterCursor(updater, compute_cosine_inv_norms),
+        make_input_reader_delta_delete_cursor(source, updater, compute_cosine_inv_norms),
+        make_input_reader_delta_delete_cursor(source, updater, compute_cosine_inv_norms),
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
     CHECK(output.write_ids_section(
@@ -807,7 +845,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
         "DataMerger::merge_delta_file: failed to write ids to merge file",
         "DataMerger::merge_delta_file: failed to write deleted_ids to merge file"));
 
-    merge_file.header()->deleted_count = static_cast<uint32_t>(deletes.size());
+    merge_file.header()->deleted_count = static_cast<uint32_t>(compact_deleted_ids.count());
     set_output_id_range(output.output_ids(), merge_file.header());
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_delta_file");
