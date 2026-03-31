@@ -5,7 +5,7 @@ set_target_properties(sketch2 PROPERTIES OUTPUT_NAME "sketch2")
 target_link_libraries(sketch2
   PRIVATE
     -Wl,--whole-archive
-    parasol
+    sketch2api
     vlite
     -Wl,--no-whole-archive
     comp

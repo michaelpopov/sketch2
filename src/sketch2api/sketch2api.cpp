@@ -1,6 +1,6 @@
 // Implements the public C API for dataset lifecycle, mutation, and query operations.
 
-#include "parasol.h"
+#include "sketch2api.h"
 
 #include "core/compute/scanner.h"
 #include "core/storage/data_reader.h"

@@ -15,7 +15,7 @@
 - `dataset.cpp`: Dataset base implementation for metadata and initialization.
 - `dataset.h`: Lean Dataset base declarations and shared free helpers.
 - `dataset_node.cpp`: Adapter implementation that combines DatasetReader and DatasetWriter for mixed-use callers.
-- `dataset_node.h`: DatasetNode adapter interface used by Parasol/tests.
+- `dataset_node.h`: DatasetNode adapter interface used by Sketch2api/tests.
 - `dataset_reader.cpp`: Read-path implementation (cache, notifier checker mode, and range reader).
 - `dataset_reader.h`: DatasetReader and DatasetRangeReader declarations.
 - `dataset_writer.cpp`: Write-path implementation (owner lock and notifier updater mode).

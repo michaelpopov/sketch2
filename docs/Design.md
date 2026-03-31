@@ -22,7 +22,7 @@ This boundary is visible across the repository:
 
 - the core storage layer owns data files, deltas, and crash recovery
 - the compute layer owns metric kernels and top-k scanning
-- the `parasol` API exposes a shared library interface
+- the `Sketch2api` API exposes a shared library interface
 - `vlite` exposes read-only SQLite integration
 - Python support exists as a thin wrapper used for demos, tests, and scripting
 
@@ -249,9 +249,9 @@ This avoids the two common failure modes of vector libraries:
 Sketch2 is meant to be used from other environments, so integrations are a
 design requirement rather than an afterthought.
 
-### Parasol C API
+### Sketch2api C API
 
-The primary native integration surface is the `parasol` C API. It exposes
+The primary native integration surface is the `Sketch2api` C API. It exposes
 dataset creation, loading, mutation, and query operations through the shared
 `libsketch2.so` runtime library.
 

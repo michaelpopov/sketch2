@@ -1,7 +1,7 @@
-// Declares the public C API exposed by the parasol layer.
+// Declares the public C API exposed by the sketch2api layer.
 
-#ifndef PARASOL_H
-#define PARASOL_H
+#ifndef SKETCH2API_H
+#define SKETCH2API_H
 
 #include <stdint.h>
 
@@ -117,4 +117,4 @@ const char* sk_error_message(sk_handle_t* handle);
 }
 #endif
 
-#endif
+#endif // SKETCH2API_H

@@ -11,7 +11,7 @@ Sketch2 provides Python integration through a thin wrapper in:
 
 The wrapper does not implement storage or query logic in Python. Instead, it
 loads the native Sketch2 shared library, `libsketch2.so`, and forwards Python
-calls to the `parasol` C API.
+calls to the `Sketch2api` C API.
 
 That design keeps the Python layer small while reusing the same native runtime,
 storage engine, compute kernels, and process-wide configuration used by other

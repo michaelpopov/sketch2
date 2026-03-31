@@ -79,7 +79,7 @@ Tests are grouped by subsystem into separate executables:
 - `utest_utils`
 - `utest_stor`
 - `utest_comp`
-- `utest_parasol`
+- `utest_sketch2`
 - `utest_vlite`
 
 These binaries cover:
@@ -89,7 +89,7 @@ These binaries cover:
 - storage components such as input generation, input parsing, data file
   layout, readers, writers, and dataset logic
 - compute kernels, runtime backend selection, and scanner logic
-- the `parasol` C API
+- the `sketch2api` C API
 - the SQLite integration layer
 
 There is also a dedicated thread-pool test binary:
@@ -181,7 +181,7 @@ At a high level, the suite checks these properties:
 - merges preserve logical dataset contents
 - compute kernels and scanner logic return correct nearest neighbors
 - runtime backend dispatch stays correct across supported builds
-- public APIs behave correctly through `parasol`, Python, and SQLite
+- public APIs behave correctly through `Sketch2api`, Python, and SQLite
 - reader/writer coordination and update notification work across processes
 
 The suite is therefore not just checking isolated functions. It is validating

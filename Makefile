@@ -70,6 +70,11 @@ test: build
 tpooltest: build
 	bin-dbg/utest_thread_pool
 
+# Runs the sketch2api unit test binary on demand
+.PHONY: sketch2test
+sketch2test: build
+	bin-dbg/utest_sketch2
+
 # Runs the test suite in release build
 .PHONY: rtest
 rtest: rel
