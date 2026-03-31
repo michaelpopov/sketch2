@@ -38,6 +38,31 @@ std::string read_file(const std::filesystem::path& path) {
         std::istreambuf_iterator<char>());
 }
 
+std::string api_get(sk_handle_t* handle, uint64_t id) {
+    char* value = nullptr;
+    EXPECT_EQ(0, sk_get(handle, id, &value)) << sk_error_message(handle);
+    if (value == nullptr) {
+        return "";
+    }
+
+    std::string out(value);
+    sk_free(value);
+    return out;
+}
+
+std::vector<uint64_t> api_knn(sk_handle_t* handle, const char* vec, unsigned int k) {
+    uint64_t* ids = nullptr;
+    size_t count = 0;
+    EXPECT_EQ(0, sk_knn(handle, vec, k, &ids, &count)) << sk_error_message(handle);
+
+    std::vector<uint64_t> out;
+    if (ids != nullptr) {
+        out.assign(ids, ids + count);
+        sk_free(ids);
+    }
+    return out;
+}
+
 } // namespace
 
 TEST(sketch2api, create_open_close_drop_lifecycle) {
@@ -85,13 +110,12 @@ TEST(sketch2api, reopen_restores_pending_wal_for_get_and_knn) {
 
     ASSERT_OK(handle, sk_open(handle, "ds"));
 
-    ASSERT_OK(handle, sk_get(handle, 1));
-    EXPECT_STREQ("[ 0, 0, 0, 0 ]", sk_gres(handle));
+    EXPECT_EQ("[ 0, 0, 0, 0 ]", api_get(handle, 1));
 
-    ASSERT_OK(handle, sk_knn(handle, "0.0, 0.0, 0.0, 0.0", 2));
-    EXPECT_EQ(2u, sk_kres(handle, -1));
-    EXPECT_EQ(1u, sk_kres(handle, 0));
-    EXPECT_EQ(2u, sk_kres(handle, 1));
+    const std::vector<uint64_t> ids = api_knn(handle, "0.0, 0.0, 0.0, 0.0", 2);
+    ASSERT_EQ(2u, ids.size());
+    EXPECT_EQ(1u, ids[0]);
+    EXPECT_EQ(2u, ids[1]);
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
@@ -141,11 +165,11 @@ TEST(sketch2api, generate_bin_creates_and_loads_binary_input) {
     ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
     ASSERT_OK(handle, sk_generate_bin(handle, 8, 10, 0));
 
-    ASSERT_OK(handle, sk_get(handle, 10));
-    EXPECT_NE(std::string(sk_gres(handle)).find("[ 10.1"), std::string::npos);
+    EXPECT_NE(api_get(handle, 10).find("[ 10.1"), std::string::npos);
 
-    ASSERT_OK(handle, sk_knn(handle, "10.0, 10.0, 10.0, 10.0", 1));
-    EXPECT_EQ(10u, sk_kres(handle, 0));
+    const std::vector<uint64_t> ids = api_knn(handle, "10.0, 10.0, 10.0, 10.0", 1);
+    ASSERT_EQ(1u, ids.size());
+    EXPECT_EQ(10u, ids[0]);
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
@@ -174,8 +198,7 @@ TEST(sketch2api, load_file_accepts_binary_input) {
     ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
     ASSERT_OK(handle, sk_load_file(handle, input_path.string().c_str()));
 
-    ASSERT_OK(handle, sk_get(handle, 20));
-    EXPECT_NE(std::string(sk_gres(handle)).find("[ 20.1"), std::string::npos);
+    EXPECT_NE(api_get(handle, 20).find("[ 20.1"), std::string::npos);
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
@@ -268,25 +291,30 @@ TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
     std::filesystem::remove_all(root);
 }
 
-TEST(sketch2api, gres_returns_empty_string_without_cached_vector) {
+TEST(sketch2api, get_rejects_null_output_parameter) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    EXPECT_STREQ("", sk_gres(handle));
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    EXPECT_NE(0, sk_get(handle, 1, nullptr));
 
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_disconnect(handle);
     std::filesystem::remove_all(root);
 }
 
-TEST(sketch2api, kres_returns_zero_without_cached_result) {
+TEST(sketch2api, knn_rejects_null_output_parameters) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_connect(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    EXPECT_EQ(0u, sk_kres(handle, -1));
-    EXPECT_EQ(0u, sk_kres(handle, 0));
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    EXPECT_NE(0, sk_knn(handle, "0.0, 0.0, 0.0, 0.0", 1, nullptr, nullptr));
 
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_disconnect(handle);
     std::filesystem::remove_all(root);
 }

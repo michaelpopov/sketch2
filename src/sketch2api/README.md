@@ -19,18 +19,58 @@ Typical debug artifacts:
 
 - `build-dbg/lib/libsketch2.so`
 
-## Startup Initialization
+## Public C API Shape
 
-Sketch2 runtime initialization is explicit now.
+The public header is `src/sketch2api/sketch2api.h`.
 
-The important entry point is:
+The API follows a simple status-code pattern:
+
+- functions return `0` on success and nonzero on failure
+- detailed error state is stored on the handle
+- callers can inspect failures through `sk_error()` and `sk_error_message()`
+
+The main entry points are:
 
 ```c
-int sk_runtime_init(void);
+sk_handle_t* sk_connect(const char* db_path);
+void sk_disconnect(sk_handle_t* handle);
+
+int sk_create(sk_handle_t* handle, const char* name, unsigned int dim,
+              const char* type, unsigned int range_size, const char* dist_func);
+int sk_drop(sk_handle_t* handle, const char* name);
+int sk_open(sk_handle_t* handle, const char* name);
+int sk_close(sk_handle_t* handle, const char* name);
+
+int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
+           uint64_t** ids_out, size_t* count_out);
+int sk_get(sk_handle_t* handle, uint64_t id, char** value_out);
+void sk_free(void* ptr);
 ```
 
-This function applies process-wide runtime configuration once. It is intended
- to run before normal API usage such as `sk_connect()`.
+`sk_knn()` and `sk_get()` return allocated results through out-parameters. The
+caller owns those returned buffers and must release them with `sk_free()`.
+
+Example:
+
+```c
+uint64_t* ids = NULL;
+size_t count = 0;
+if (sk_knn(handle, "1.0, 2.0, 3.0, 4.0", 3, &ids, &count) != 0) {
+    fprintf(stderr, "knn failed: %s\n", sk_error_message(handle));
+} else {
+    for (size_t i = 0; i < count; ++i) {
+        printf("%llu\n", (unsigned long long)ids[i]);
+    }
+}
+sk_free(ids);
+```
+
+## Startup Initialization
+
+Sketch2 runtime initialization happens automatically from `sk_connect()`.
+
+That call applies process-wide runtime configuration before the handle is
+created, so callers do not need a separate startup step.
 
 Configuration sources and precedence:
 
@@ -54,22 +94,22 @@ This prevents process-wide behavior from mutating halfway through execution.
 
 ## Python Wrapper Behavior
 
-The Python wrapper in `src/pytest/sketch2_wrapper.py` already calls
- `sk_runtime_init()` before `sk_connect()`, so normal demo/test usage gets the
- explicit initialization automatically.
+The Python wrapper in `src/pytest/sketch2_wrapper.py` relies on `sk_connect()`
+to perform runtime initialization automatically.
 
-If you are using the C API directly from another host, you should do the same:
+If you are using the C API directly from another host, setting environment
+variables before `sk_connect()` is enough:
 
 ```c
 setenv("SKETCH2_LOG_LEVEL", "DEBUG", 1);
 setenv("SKETCH2_THREAD_POOL_SIZE", "8", 1);
 
-if (sk_runtime_init() != 0) {
-    /* handle startup failure */
-}
-
 sk_handle_t* handle = sk_connect("/tmp/my_db");
 ```
+
+If `sk_connect()` returns `NULL`, handle creation failed before a handle-local
+error object existed, so the caller should treat that as a connection/setup
+failure rather than trying to read `sk_error_message()`.
 
 ## Thread Pool Notes
 

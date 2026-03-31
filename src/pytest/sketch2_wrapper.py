@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ctypes
-from ctypes import c_char_p, c_double, c_int, c_int64, c_uint, c_uint64, c_void_p
+from ctypes import POINTER, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
 from pathlib import Path
 
 
@@ -31,9 +31,6 @@ class Sketch2:
         self.lib = ctypes.CDLL(str(self.lib_path))
         self._configure()
 
-        if self.lib.sk_runtime_init() != 0:
-            raise RuntimeError("sk_runtime_init() failed")
-
         self.handle = self.lib.sk_connect(str(self.db_path).encode("utf-8"))
         if not self.handle:
             raise RuntimeError("sk_connect() returned null handle")
@@ -55,9 +52,6 @@ class Sketch2:
         return candidates[0]
 
     def _configure(self) -> None:
-        self.lib.sk_runtime_init.argtypes = []
-        self.lib.sk_runtime_init.restype = c_int
-
         self.lib.sk_connect.argtypes = [c_char_p]
         self.lib.sk_connect.restype = c_void_p
 
@@ -76,20 +70,23 @@ class Sketch2:
         self.lib.sk_close.argtypes = [c_void_p, c_char_p]
         self.lib.sk_close.restype = c_int
 
-        self.lib.sk_knn.argtypes = [c_void_p, c_char_p, c_uint]
+        self.lib.sk_knn.argtypes = [
+            c_void_p,
+            c_char_p,
+            c_uint,
+            POINTER(POINTER(c_uint64)),
+            POINTER(c_size_t),
+        ]
         self.lib.sk_knn.restype = c_int
-
-        self.lib.sk_kres.argtypes = [c_void_p, c_int64]
-        self.lib.sk_kres.restype = c_uint64
 
         self.lib.sk_mdelta.argtypes = [c_void_p]
         self.lib.sk_mdelta.restype = c_int
 
-        self.lib.sk_get.argtypes = [c_void_p, c_uint64]
+        self.lib.sk_get.argtypes = [c_void_p, c_uint64, POINTER(c_char_p)]
         self.lib.sk_get.restype = c_int
 
-        self.lib.sk_gres.argtypes = [c_void_p]
-        self.lib.sk_gres.restype = c_char_p
+        self.lib.sk_free.argtypes = [c_void_p]
+        self.lib.sk_free.restype = None
 
         self.lib.sk_print.argtypes = [c_void_p]
         self.lib.sk_print.restype = c_int
@@ -179,16 +176,34 @@ class Sketch2:
         if count < 1:
             raise ValueError("count must be >= 1")
 
-        self._check("sk_knn", self.lib.sk_knn(self.handle, vec.encode("utf-8"), c_uint(count)))
-        size = int(self.lib.sk_kres(self.handle, c_int64(-1)))
-        return [int(self.lib.sk_kres(self.handle, c_int64(index))) for index in range(size)]
+        ids = POINTER(c_uint64)()
+        size = c_size_t()
+        self._check(
+            "sk_knn",
+            self.lib.sk_knn(
+                self.handle,
+                vec.encode("utf-8"),
+                c_uint(count),
+                ctypes.byref(ids),
+                ctypes.byref(size),
+            ),
+        )
+        try:
+            return [int(ids[index]) for index in range(size.value)]
+        finally:
+            if ids:
+                self.lib.sk_free(ctypes.cast(ids, c_void_p))
 
     def get(self, item_id: int) -> str:
-        self._check("sk_get", self.lib.sk_get(self.handle, c_uint64(item_id)))
-        out = self.lib.sk_gres(self.handle)
-        if not out:
-            return ""
-        return out.decode("utf-8", errors="replace")
+        out = c_char_p()
+        self._check("sk_get", self.lib.sk_get(self.handle, c_uint64(item_id), ctypes.byref(out)))
+        try:
+            if not out:
+                return ""
+            return ctypes.string_at(out).decode("utf-8", errors="replace")
+        finally:
+            if out:
+                self.lib.sk_free(ctypes.cast(out, c_void_p))
 
     def print(self) -> None:
         self._check("sk_print", self.lib.sk_print(self.handle))
