@@ -13,7 +13,6 @@
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
-#include <numeric>
 #include <stdexcept>
 
 namespace sketch2 {
@@ -75,33 +74,49 @@ void LinesInfo::sort() {
         return;
     }
 
-    std::vector<size_t> order(size());
-    std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(),
-              [this](size_t lhs, size_t rhs) { return ids_[lhs] < ids_[rhs]; });
-
-    std::vector<uint64_t> sorted_ids;
-    sorted_ids.reserve(size());
-    for (size_t index : order) {
-        sorted_ids.push_back(ids_[index]);
-    }
-    ids_.swap(sorted_ids);
-
-    if (is_u64_offsets_) {
-        std::vector<uint64_t> sorted_offsets;
-        sorted_offsets.reserve(size());
-        for (size_t index : order) {
-            sorted_offsets.push_back(offsets64_[index]);
+    auto swap_entries = [this](size_t lhs, size_t rhs) {
+        if (lhs == rhs) {
+            return;
         }
-        offsets64_.swap(sorted_offsets);
-    } else {
-        std::vector<uint32_t> sorted_offsets;
-        sorted_offsets.reserve(size());
-        for (size_t index : order) {
-            sorted_offsets.push_back(offsets32_[index]);
+        std::swap(ids_[lhs], ids_[rhs]);
+        if (is_u64_offsets_) {
+            std::swap(offsets64_[lhs], offsets64_[rhs]);
+        } else {
+            std::swap(offsets32_[lhs], offsets32_[rhs]);
         }
-        offsets32_.swap(sorted_offsets);
-    }
+    };
+
+    auto sort_range = [this, &swap_entries](auto&& self, size_t first, size_t last) -> void {
+        while (last - first > 1) {
+            const uint64_t pivot = ids_[first + ((last - first) / 2)];
+            size_t lt = first;
+            size_t i = first;
+            size_t gt = last;
+
+            while (i < gt) {
+                if (ids_[i] < pivot) {
+                    swap_entries(lt, i);
+                    ++lt;
+                    ++i;
+                } else if (ids_[i] > pivot) {
+                    --gt;
+                    swap_entries(i, gt);
+                } else {
+                    ++i;
+                }
+            }
+
+            if (lt - first < last - gt) {
+                self(self, first, lt);
+                first = gt;
+            } else {
+                self(self, gt, last);
+                last = lt;
+            }
+        }
+    };
+
+    sort_range(sort_range, 0, size());
 }
 
 size_t LinesInfo::lower_bound_index(uint64_t value) const {
