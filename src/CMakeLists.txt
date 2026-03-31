@@ -1,5 +1,5 @@
 add_subdirectory(core)
-add_subdirectory(shared)
+add_subdirectory(db)
+add_subdirectory(libsketch2)
 add_subdirectory(sketch2api)
 add_subdirectory(third-party/sqlite)
-add_subdirectory(vlite)
