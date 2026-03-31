@@ -79,7 +79,7 @@ FROM (SELECT 0 AS id UNION ALL SELECT 1 UNION ALL SELECT 8);
 
 ## Access In `vlite`
 
-`xFilter()` in `src/vlite/vlite.cpp` extracts:
+`xFilter()` in `src/db/vlite/vlite.cpp` extracts:
 
 - `const void* allowed_ids_blob`
 - `int allowed_ids_blob_size`
@@ -149,7 +149,7 @@ On allocation failure, it returns SQLite OOM (`sqlite3_result_error_nomem`).
 
 Covered by:
 
-- `src/vlite/utest_vlite.cpp` (unit tests)
+- `src/db/vlite/utest_vlite.cpp` (unit tests)
 - `src/pytest/test_integ_vlite_interfaces.py` (integration tests)
 
 These tests validate format, validation errors, and active `allowed_ids`

@@ -133,7 +133,7 @@ ORDER BY distance;
 
 This returns only neighbors whose ids are present in the bitset.
 
-Use `bitset_agg(id)` to build the BLOB. For format details, see `src/vlite/BITSET.md`.
+Use `bitset_agg(id)` to build the BLOB. For format details, see `src/db/vlite/BITSET.md`.
 
 ## Dataset Metadata (`dataset.ini`)
 
