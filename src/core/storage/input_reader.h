@@ -3,16 +3,42 @@
 #pragma once
 #include "utils/dynamic_bitset.h"
 #include "utils/shared_types.h"
+#include <algorithm>
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace sketch2 {
 
-struct LineInfo {
-    uint64_t id;
-    uint64_t offset; // byte offset where vector data starts in the mapped file
+class LinesInfo {
+public:
+    void clear();
+    void reserve(size_t count);
+    void set_u64_offsets(bool enabled);
+
+    bool is_u64_offsets() const { return is_u64_offsets_; }
+    size_t size() const { return ids_.size(); }
+    bool empty() const { return ids_.empty(); }
+
+    void add(uint64_t id, uint64_t offset);
+
+    uint64_t id(size_t index) const;
+    uint64_t offset(size_t index) const;
+
+    void sort();
+    size_t lower_bound_index(uint64_t value) const;
+    size_t lower_bound_index(size_t first, uint64_t value) const;
+
+private:
+    void check_index(size_t index) const;
+
+    std::vector<uint64_t> ids_;
+    std::vector<uint32_t> offsets32_;
+    std::vector<uint64_t> offsets64_;
+    bool is_u64_offsets_ = false;
 };
 
 // InputReader exists to parse the text and binary import formats used by tests
@@ -55,7 +81,7 @@ private:
     size_t                dim_     = 0;
     bool                  binary_  = false;
     bool                  bit_indexed_ = false;
-    std::vector<LineInfo> lines_;
+    LinesInfo             lines_;
     bool                  is_comma_delimited_ = true;
 
     Ret init_(const std::string &path);

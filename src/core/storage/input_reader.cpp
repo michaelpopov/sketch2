@@ -13,6 +13,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
+#include <numeric>
 #include <stdexcept>
 
 namespace sketch2 {
@@ -24,6 +25,102 @@ bool is_bit_set(uint64_t word, size_t bit_index) {
 }
 
 } // namespace
+
+void LinesInfo::clear() {
+    ids_.clear();
+    offsets32_.clear();
+    offsets64_.clear();
+}
+
+void LinesInfo::reserve(size_t count) {
+    ids_.reserve(count);
+    if (is_u64_offsets_) {
+        offsets64_.reserve(count);
+    } else {
+        offsets32_.reserve(count);
+    }
+}
+
+void LinesInfo::set_u64_offsets(bool enabled) {
+    if (!empty()) {
+        throw std::logic_error("LinesInfo::set_u64_offsets requires empty container");
+    }
+    is_u64_offsets_ = enabled;
+}
+
+void LinesInfo::add(uint64_t id, uint64_t offset) {
+    ids_.push_back(id);
+    if (is_u64_offsets_) {
+        offsets64_.push_back(offset);
+        return;
+    }
+    if (offset > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+        throw std::overflow_error("LinesInfo::add: offset exceeds uint32_t range");
+    }
+    offsets32_.push_back(static_cast<uint32_t>(offset));
+}
+
+uint64_t LinesInfo::id(size_t index) const {
+    check_index(index);
+    return ids_[index];
+}
+
+uint64_t LinesInfo::offset(size_t index) const {
+    check_index(index);
+    return is_u64_offsets_ ? offsets64_[index] : static_cast<uint64_t>(offsets32_[index]);
+}
+
+void LinesInfo::sort() {
+    if (size() < 2 || std::is_sorted(ids_.begin(), ids_.end())) {
+        return;
+    }
+
+    std::vector<size_t> order(size());
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(),
+              [this](size_t lhs, size_t rhs) { return ids_[lhs] < ids_[rhs]; });
+
+    std::vector<uint64_t> sorted_ids;
+    sorted_ids.reserve(size());
+    for (size_t index : order) {
+        sorted_ids.push_back(ids_[index]);
+    }
+    ids_.swap(sorted_ids);
+
+    if (is_u64_offsets_) {
+        std::vector<uint64_t> sorted_offsets;
+        sorted_offsets.reserve(size());
+        for (size_t index : order) {
+            sorted_offsets.push_back(offsets64_[index]);
+        }
+        offsets64_.swap(sorted_offsets);
+    } else {
+        std::vector<uint32_t> sorted_offsets;
+        sorted_offsets.reserve(size());
+        for (size_t index : order) {
+            sorted_offsets.push_back(offsets32_[index]);
+        }
+        offsets32_.swap(sorted_offsets);
+    }
+}
+
+size_t LinesInfo::lower_bound_index(uint64_t value) const {
+    return lower_bound_index(0, value);
+}
+
+size_t LinesInfo::lower_bound_index(size_t first, uint64_t value) const {
+    if (first > size()) {
+        throw std::out_of_range("LinesInfo::lower_bound_index: first out of range");
+    }
+    auto it = std::lower_bound(ids_.begin() + static_cast<std::ptrdiff_t>(first), ids_.end(), value);
+    return static_cast<size_t>(it - ids_.begin());
+}
+
+void LinesInfo::check_index(size_t index) const {
+    if (index >= size()) {
+        throw std::out_of_range("LinesInfo: index out of range");
+    }
+}
 
 InputReader::~InputReader() {
     if (map_) {
@@ -79,6 +176,9 @@ Ret InputReader::init_(const std::string& path) {
         return Ret(message);
     };
 
+    lines_.set_u64_offsets(
+        static_cast<uint64_t>(map_len_ - 1) > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()));
+
     const char* p   = reinterpret_cast<const char*>(map_);
     const char* end = p + map_len_;
 
@@ -112,15 +212,10 @@ Ret InputReader::init_(const std::string& path) {
         return fail(ret_lines_process.message());
     }
 
-    const auto by_id = [](const LineInfo& lhs, const LineInfo& rhs) {
-        return lhs.id < rhs.id;
-    };
-    if (!std::is_sorted(lines_.begin(), lines_.end(), by_id)) {
-        std::sort(lines_.begin(), lines_.end(), by_id);
-    }
+    lines_.sort();
 
     for (size_t i = 1; i < lines_.size(); ++i) {
-        if (lines_[i - 1].id == lines_[i].id) {
+        if (lines_.id(i - 1) == lines_.id(i)) {
             return fail("Duplicate ids");
         }
     }
@@ -158,7 +253,7 @@ Ret InputReader::process_binary_indexed_data(const char* record_begin, const cha
             }
 
             record += item_size;
-            lines_.push_back({id, offset});
+            lines_.add(id, offset);
 
             if (record == end) {
                 if (block_index + 1 == kIndexedBinaryBlockItems) {
@@ -202,7 +297,7 @@ Ret InputReader::process_binary_data(const char* record_begin, const char* end) 
         uint64_t id = 0;
         std::memcpy(&id, record, sizeof(id));
         const uint64_t offset = static_cast<uint64_t>((record + sizeof(id)) - p);
-        lines_.push_back({id, offset});
+        lines_.add(id, offset);
     }
     
     return Ret(0);
@@ -243,7 +338,7 @@ Ret InputReader::process_text_data(const char* record_begin, const char* end) {
 
         // offset points to the character after "[" (first number)
         uint64_t offset = static_cast<uint64_t>(bracket + 1 - p);
-        lines_.push_back({id, offset});
+        lines_.add(id, offset);
 
         if (once && bracket[1] != ']') { // skip checking "delete" vectors
             once = false;
@@ -286,7 +381,7 @@ uint64_t InputReader::id(size_t index) const {
     if (index >= lines_.size()) {
         throw std::out_of_range("InputReader::id: index out of range");
     }
-    return lines_[index].id;
+    return lines_.id(index);
 }
 
 Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
@@ -298,15 +393,15 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     }
 
     if (binary_) {
-        if (lines_[index].offset == 0) {
+        if (lines_.offset(index) == 0) {
             return Ret("InputReader::data: vector is deleted");
         }
 
-        std::memcpy(buf, map_ + lines_[index].offset, this->size());
+        std::memcpy(buf, map_ + lines_.offset(index), this->size());
         return Ret(0);
     }
 
-    const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
+    const char* p = reinterpret_cast<const char*>(map_) + lines_.offset(index);
     const char* vec_end = nullptr;
     CHECK(find_text_vector_end(index, &vec_end));
 
@@ -324,11 +419,11 @@ Ret InputReader::raw_data(size_t index, const uint8_t** data) const {
     if (!binary_) {
         return Ret("InputReader::raw_data: raw access is only available in binary mode");
     }
-    if (lines_[index].offset == 0) {
+    if (lines_.offset(index) == 0) {
         return Ret("InputReader::raw_data: vector is deleted");
     }
 
-    *data = map_ + lines_[index].offset;
+    *data = map_ + lines_.offset(index);
     return Ret(0);
 }
 
@@ -346,7 +441,7 @@ Ret InputReader::text_data_range(size_t index, const char** begin, const char** 
         return Ret("InputReader::text_data_range: vector is deleted");
     }
 
-    *begin = reinterpret_cast<const char*>(map_) + lines_[index].offset;
+    *begin = reinterpret_cast<const char*>(map_) + lines_.offset(index);
     return find_text_vector_end(index, end);
 }
 
@@ -361,7 +456,7 @@ Ret InputReader::find_text_vector_end(size_t index, const char** vec_end) const 
         return Ret("InputReader::find_text_vector_end: text access is only available in text mode");
     }
 
-    const char* start = reinterpret_cast<const char*>(map_) + lines_[index].offset;
+    const char* start = reinterpret_cast<const char*>(map_) + lines_.offset(index);
     const char* map_end = reinterpret_cast<const char*>(map_) + map_len_;
     const char* line_end = static_cast<const char*>(memchr(start, '\n', static_cast<size_t>(map_end - start)));
     if (line_end == nullptr) {
@@ -381,9 +476,9 @@ bool InputReader::is_no_data(size_t index) const {
         throw std::out_of_range("InputReader::is_no_data: index out of range");
     }
     if (binary_) {
-        return bit_indexed_ ? (lines_[index].offset == 0) : false;
+        return bit_indexed_ ? (lines_.offset(index) == 0) : false;
     }
-    const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
+    const char* p = reinterpret_cast<const char*>(map_) + lines_.offset(index);
     return *p == ']';
 }
 
@@ -394,32 +489,25 @@ bool InputReader::is_range_present(uint64_t start_range, uint64_t end_range) con
         return false;
     }
 
-    const uint64_t min_id = lines_.front().id;
-    const uint64_t max_id = lines_.back().id;
+    const uint64_t min_id = lines_.id(0);
+    const uint64_t max_id = lines_.id(lines_.size() - 1);
     if (end_range <= min_id || start_range > max_id) {
         return false;
     }
 
-    auto it = std::lower_bound(
-        lines_.begin(), lines_.end(), start_range,
-        [](const LineInfo& line, uint64_t value) { return line.id < value; });
-    return it != lines_.end() && it->id < end_range;
+    const size_t index = lines_.lower_bound_index(start_range);
+    return index != lines_.size() && lines_.id(index) < end_range;
 }
 
 // Finds the first parsed line in [start, end) and the number of contiguous
 // entries in that range so InputReaderView can expose a cheap subrange.
 std::pair<size_t, size_t> InputReader::find_index_range(uint64_t start, uint64_t end) const {
-    auto first = std::lower_bound(
-        lines_.begin(), lines_.end(), start,
-        [](const LineInfo& line, uint64_t value) { return line.id < value; });
-
-    auto last = std::lower_bound(
-        first, lines_.end(), end,
-        [](const LineInfo& line, uint64_t value) { return line.id < value; });
+    const size_t first = lines_.lower_bound_index(start);
+    const size_t last = lines_.lower_bound_index(first, end);
 
     return {
-        static_cast<size_t>(first - lines_.begin()),
-        static_cast<size_t>(last - first)
+        first,
+        last - first
     };
 }
 

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <array>
 #include <fstream>
+#include <limits>
 #include <cstdio>
 #include <unistd.h>
 #include "core/storage/input_generator.h"
@@ -10,6 +11,73 @@
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
+
+TEST(LinesInfoTest, StoresU32OffsetsWhenConfigured) {
+    LinesInfo lines;
+    lines.reserve(2);
+    lines.add(10, 20);
+    lines.add(11, 30);
+
+    ASSERT_FALSE(lines.is_u64_offsets());
+    ASSERT_EQ(2u, lines.size());
+    EXPECT_EQ(10u, lines.id(0));
+    EXPECT_EQ(20u, lines.offset(0));
+    EXPECT_EQ(11u, lines.id(1));
+    EXPECT_EQ(30u, lines.offset(1));
+}
+
+TEST(LinesInfoTest, StoresU64OffsetsWhenConfigured) {
+    LinesInfo lines;
+    lines.set_u64_offsets(true);
+    lines.add(10, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 42u);
+
+    ASSERT_TRUE(lines.is_u64_offsets());
+    ASSERT_EQ(1u, lines.size());
+    EXPECT_EQ(10u, lines.id(0));
+    EXPECT_EQ(static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 42u, lines.offset(0));
+}
+
+TEST(LinesInfoTest, RejectsU32OffsetOverflow) {
+    LinesInfo lines;
+    EXPECT_THROW(lines.add(10, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1u),
+                 std::overflow_error);
+}
+
+TEST(LinesInfoTest, SortKeepsOffsetsMatchedToIds) {
+    LinesInfo lines;
+    lines.add(20, 200);
+    lines.add(10, 100);
+    lines.add(30, 300);
+
+    lines.sort();
+
+    ASSERT_EQ(3u, lines.size());
+    EXPECT_EQ(10u, lines.id(0));
+    EXPECT_EQ(100u, lines.offset(0));
+    EXPECT_EQ(20u, lines.id(1));
+    EXPECT_EQ(200u, lines.offset(1));
+    EXPECT_EQ(30u, lines.id(2));
+    EXPECT_EQ(300u, lines.offset(2));
+}
+
+TEST(LinesInfoTest, LowerBoundIndexFindsExpectedPosition) {
+    LinesInfo lines;
+    lines.add(10, 100);
+    lines.add(20, 200);
+    lines.add(40, 400);
+
+    EXPECT_EQ(0u, lines.lower_bound_index(5));
+    EXPECT_EQ(1u, lines.lower_bound_index(15));
+    EXPECT_EQ(2u, lines.lower_bound_index(40));
+    EXPECT_EQ(3u, lines.lower_bound_index(41));
+    EXPECT_EQ(2u, lines.lower_bound_index(1, 40));
+}
+
+TEST(LinesInfoTest, CannotSwitchOffsetWidthAfterAddingData) {
+    LinesInfo lines;
+    lines.add(10, 20);
+    EXPECT_THROW(lines.set_u64_offsets(true), std::logic_error);
+}
 
 class InputReaderTest : public ::testing::Test {
 protected:
