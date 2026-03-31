@@ -1,4 +1,8 @@
-add_library(sketch2api STATIC sketch2api.cpp)
+add_library(sketch2api STATIC
+  internal.cpp
+  sketch2api.cpp
+  utils.cpp
+)
 
 set_target_properties(sketch2api PROPERTIES
   OUTPUT_NAME sketch2api

@@ -26,8 +26,10 @@ At startup, the `Sketch2` class:
 1. locates `libsketch2.so`
 2. loads it with `ctypes.CDLL(...)`
 3. configures the C function signatures
-4. calls `sk_runtime_init()`
-5. opens a Sketch2 handle with `sk_connect()`
+4. opens a Sketch2 handle with `sk_connect()`
+
+`sk_connect()` performs native runtime initialization automatically before the
+handle is created.
 
 After that, Python methods such as `create()`, `knn()`, `merge_delta()`, and
 `load_file()` call directly into the shared library.
@@ -129,7 +131,6 @@ Arguments:
 Behavior:
 
 - loads the native shared library
-- initializes the Sketch2 runtime
 - connects to the database root
 
 The class supports context-manager usage through `with Sketch2(...) as sk:`.
@@ -141,7 +142,6 @@ There is no separate Python `connect()` method in the wrapper.
 Connection happens inside `Sketch2(db_path, lib_path=None)`:
 
 - the wrapper loads `libsketch2.so`
-- initializes the runtime with `sk_runtime_init()`
 - connects to the database root with `sk_connect()`
 
 So, in Python, object construction is the connect step.
@@ -202,6 +202,12 @@ Returns:
 
 - list of result ids in nearest-first order
 
+Implementation note:
+
+- the native C API allocates a temporary `uint64_t*` result buffer
+- the wrapper copies that data into a Python `list[int]`
+- the wrapper releases the native buffer with `sk_free()`
+
 Example:
 
 ```python
@@ -211,6 +217,12 @@ ids = sk.knn("1.0, 2.0, 3.0, 4.0", 5)
 ### `get(item_id) -> str`
 
 Fetches one stored vector and returns its text representation.
+
+Implementation note:
+
+- the native C API allocates a temporary `char*`
+- the wrapper converts it into a Python `str`
+- the wrapper releases the native buffer with `sk_free()`
 
 ### `print()`
 
