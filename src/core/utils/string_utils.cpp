@@ -295,5 +295,16 @@ Ret print_vector(uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size
     return Ret(0);
 }
 
+uint32_t crc32_update(uint32_t crc, const uint8_t* data, size_t size) {
+    crc = ~crc;
+    for (size_t i = 0; i < size; ++i) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            const uint32_t mask = -(crc & 1u);
+            crc = (crc >> 1) ^ (0xEDB88320u & mask);
+        }
+    }
+    return ~crc;
+}
 
 } // namespace sketch2

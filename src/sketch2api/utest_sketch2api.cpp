@@ -392,3 +392,131 @@ TEST(sketch2api, staged_write_rejects_invalid_call_order) {
     sk_disconnect(handle);
     std::filesystem::remove_all(root);
 }
+
+TEST(sketch2api, staged_write_many_vectors_then_knn) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    for (uint64_t id = 0; id < 100; ++id) {
+        const std::string value = std::to_string(static_cast<float>(id)) + ", " +
+            std::to_string(static_cast<float>(id)) + ", " +
+            std::to_string(static_cast<float>(id)) + ", " +
+            std::to_string(static_cast<float>(id));
+        ASSERT_OK(handle, sk_write_vector(handle, id, value.c_str()));
+    }
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    const std::vector<uint64_t> ids = api_knn(handle, "0.0, 0.0, 0.0, 0.0", 3);
+    ASSERT_EQ(3u, ids.size());
+    EXPECT_EQ(0u, ids[0]);
+    EXPECT_EQ(1u, ids[1]);
+    EXPECT_EQ(2u, ids[2]);
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, staged_write_mixed_vectors_and_deletes) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+
+    // First session: create all vectors
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 10, "0.0, 0.0, 0.0, 0.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 20, "5.0, 5.0, 5.0, 5.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 30, "10.0, 10.0, 10.0, 10.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 40, "15.0, 15.0, 15.0, 15.0"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    // Second session: delete one
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_deleted(handle, 40));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    EXPECT_NE(api_get(handle, 10).find("[ 0"), std::string::npos);
+    EXPECT_NE(api_get(handle, 20).find("[ 5"), std::string::npos);
+    EXPECT_NE(api_get(handle, 30).find("[ 10"), std::string::npos);
+
+    char* value = nullptr;
+    EXPECT_NE(0, sk_get(handle, 40, &value));
+    EXPECT_EQ(nullptr, value);
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, staged_write_multiple_sessions_accumulate) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 10, "10.0, 10.0, 10.0, 10.0"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 20, "20.0, 20.0, 20.0, 20.0"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 30, "30.0, 30.0, 30.0, 30.0"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    EXPECT_NE(api_get(handle, 10).find("[ 10"), std::string::npos);
+    EXPECT_NE(api_get(handle, 20).find("[ 20"), std::string::npos);
+    EXPECT_NE(api_get(handle, 30).find("[ 30"), std::string::npos);
+
+    const std::vector<uint64_t> ids = api_knn(handle, "10.0, 10.0, 10.0, 10.0", 3);
+    ASSERT_EQ(3u, ids.size());
+    EXPECT_EQ(10u, ids[0]);
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, staged_write_rejects_null_and_empty_vector) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    EXPECT_NE(0, sk_write_vector(handle, 1, nullptr));
+    EXPECT_NE(0, sk_write_vector(handle, 1, ""));
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, staged_write_without_open_dataset_fails) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    EXPECT_NE(0, sk_start_writing(handle));
+    EXPECT_NE(0, sk_write_vector(handle, 1, "1.0, 1.0, 1.0, 1.0"));
+    EXPECT_NE(0, sk_write_deleted(handle, 1));
+    EXPECT_NE(0, sk_complete_writing(handle));
+
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}

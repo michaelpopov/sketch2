@@ -19,18 +19,6 @@ namespace sketch2 {
 
 namespace {
 
-uint32_t crc32_update(uint32_t crc, const uint8_t* data, size_t size) {
-    crc = ~crc;
-    for (size_t i = 0; i < size; ++i) {
-        crc ^= data[i];
-        for (int bit = 0; bit < 8; ++bit) {
-            const uint32_t mask = -(crc & 1u);
-            crc = (crc >> 1) ^ (0xEDB88320u & mask);
-        }
-    }
-    return ~crc;
-}
-
 bool is_bit_set(uint64_t word, size_t bit_index) {
     return (word & (uint64_t{1} << bit_index)) != 0;
 }
@@ -153,7 +141,6 @@ Ret InputReader::process_binary_indexed_data(const char* record_begin, const cha
 
         uint64_t word = 0;
         std::memcpy(&word, record, sizeof(word));
-        bit_index_.append(word);
         record += sizeof(uint64_t);
 
         for (size_t block_index = 0; block_index < kIndexedBinaryBlockItems; ++block_index, ++record_counter) {
@@ -312,7 +299,7 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     }
 
     if (binary_) {
-        if (bit_indexed_ && bit_index_.get(index)) {
+        if (lines_[index].offset == 0) {
             return Ret("InputReader::data: vector is deleted");
         }
 
@@ -337,7 +324,7 @@ Ret InputReader::raw_data(size_t index, const uint8_t** data) const {
     if (!binary_) {
         return Ret("InputReader::raw_data: raw access is only available in binary mode");
     }
-    if (bit_indexed_ && bit_index_.get(index)) {
+    if (lines_[index].offset == 0) {
         return Ret("InputReader::raw_data: vector is deleted");
     }
 
@@ -350,7 +337,7 @@ bool InputReader::is_no_data(size_t index) const {
         throw std::out_of_range("InputReader::is_no_data: index out of range");
     }
     if (binary_) {
-        return bit_indexed_ ? bit_index_.get(index) : false;
+        return bit_indexed_ ? (lines_[index].offset == 0) : false;
     }
     const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
     return *p == ']';

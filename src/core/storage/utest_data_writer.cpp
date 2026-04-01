@@ -479,3 +479,145 @@ TEST_F(DataWriterTest, DatasetWriterStagedDeleteOnExistingDataRemovesVisibleItem
     EXPECT_EQ(0u, data_reader.deleted_count());
     EXPECT_EQ(nullptr, data_reader.get(10));
 }
+
+TEST_F(DataWriterTest, DatasetWriterStagedWriteManyVectorsCreatesCorrectDataFile) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer, DataType::f32, 4, 1000).code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    for (uint64_t id = 0; id < 100; ++id) {
+        const std::string value = std::to_string(static_cast<float>(id) + 0.1f) + ", " +
+            std::to_string(static_cast<float>(id) + 0.1f) + ", " +
+            std::to_string(static_cast<float>(id) + 0.1f) + ", " +
+            std::to_string(static_cast<float>(id) + 0.1f);
+        ASSERT_EQ(0, writer.write_vector(id, value.c_str()).code());
+    }
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    const fs::path data_path = fs::path(dataset_dir_) / "0.data";
+    ASSERT_TRUE(fs::exists(data_path));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(data_path.string()).code());
+    ASSERT_EQ(100u, data_reader.count());
+    EXPECT_EQ(0u, data_reader.id(0));
+    EXPECT_EQ(99u, data_reader.id(99));
+}
+
+TEST_F(DataWriterTest, DatasetWriterStagedWriteWithDeletesProducesCorrectCounts) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer).code());
+
+    // First session: create the vectors
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_vector(10, "10.0, 10.0, 10.0, 10.0").code());
+    ASSERT_EQ(0, writer.write_vector(11, "11.0, 11.0, 11.0, 11.0").code());
+    ASSERT_EQ(0, writer.write_vector(12, "12.0, 12.0, 12.0, 12.0").code());
+    ASSERT_EQ(0, writer.write_vector(13, "13.0, 13.0, 13.0, 13.0").code());
+    ASSERT_EQ(0, writer.write_vector(14, "14.0, 14.0, 14.0, 14.0").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    // Second session: delete two of them
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_deleted(13).code());
+    ASSERT_EQ(0, writer.write_deleted(14).code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    // Force merge so deletes are folded into the data file
+    ASSERT_EQ(0, writer.merge().code());
+
+    const fs::path data_path = fs::path(dataset_dir_) / "0.data";
+    ASSERT_TRUE(fs::exists(data_path));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(data_path.string()).code());
+    EXPECT_EQ(3u, data_reader.count());
+}
+
+TEST_F(DataWriterTest, DatasetWriterStagedWriteUnsortedIdsProducesSortedDataFile) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer).code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_vector(30, "30.0, 30.0, 30.0, 30.0").code());
+    ASSERT_EQ(0, writer.write_vector(10, "10.0, 10.0, 10.0, 10.0").code());
+    ASSERT_EQ(0, writer.write_vector(20, "20.0, 20.0, 20.0, 20.0").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    const fs::path data_path = fs::path(dataset_dir_) / "0.data";
+    ASSERT_TRUE(fs::exists(data_path));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(data_path.string()).code());
+    EXPECT_EQ(3u, data_reader.count());
+    EXPECT_EQ(10u, data_reader.id(0));
+    EXPECT_EQ(20u, data_reader.id(1));
+    EXPECT_EQ(30u, data_reader.id(2));
+}
+
+TEST_F(DataWriterTest, DatasetWriterStagedWriteSpansMultipleRanges) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer, DataType::f32, 4, 100).code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_vector(50, "50.0, 50.0, 50.0, 50.0").code());
+    ASSERT_EQ(0, writer.write_vector(150, "150.0, 150.0, 150.0, 150.0").code());
+    ASSERT_EQ(0, writer.write_vector(250, "250.0, 250.0, 250.0, 250.0").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    EXPECT_TRUE(fs::exists(fs::path(dataset_dir_) / "0.data"));
+    EXPECT_TRUE(fs::exists(fs::path(dataset_dir_) / "1.data"));
+    EXPECT_TRUE(fs::exists(fs::path(dataset_dir_) / "2.data"));
+
+    DataReader r0, r1, r2;
+    ASSERT_EQ(0, r0.init((fs::path(dataset_dir_) / "0.data").string()).code());
+    ASSERT_EQ(0, r1.init((fs::path(dataset_dir_) / "1.data").string()).code());
+    ASSERT_EQ(0, r2.init((fs::path(dataset_dir_) / "2.data").string()).code());
+    EXPECT_EQ(1u, r0.count());
+    EXPECT_EQ(1u, r1.count());
+    EXPECT_EQ(1u, r2.count());
+    EXPECT_EQ(50u, r0.id(0));
+    EXPECT_EQ(150u, r1.id(0));
+    EXPECT_EQ(250u, r2.id(0));
+}
+
+TEST_F(DataWriterTest, DatasetWriterMultipleStagedWriteSessions) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer).code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_vector(10, "10.0, 10.0, 10.0, 10.0").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_vector(11, "11.0, 11.0, 11.0, 11.0").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    const fs::path data_path = fs::path(dataset_dir_) / "0.data";
+    ASSERT_TRUE(fs::exists(data_path));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(data_path.string()).code());
+    EXPECT_EQ(2u, data_reader.count());
+    EXPECT_EQ(10u, data_reader.id(0));
+    EXPECT_EQ(11u, data_reader.id(1));
+}
+
+TEST_F(DataWriterTest, DatasetWriterStagedWriteWithCosineDistFunc) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer, DataType::f32, 4, 1000, DistFunc::COS).code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_vector(10, "1.0, 0.0, 0.0, 0.0").code());
+    ASSERT_EQ(0, writer.write_vector(11, "0.0, 1.0, 0.0, 0.0").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    const fs::path data_path = fs::path(dataset_dir_) / "0.data";
+    ASSERT_TRUE(fs::exists(data_path));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(data_path.string()).code());
+    ASSERT_EQ(2u, data_reader.count());
+    EXPECT_NEAR(1.0f, data_reader.cosine_inv_norm(0), 1e-5f);
+    EXPECT_NEAR(1.0f, data_reader.cosine_inv_norm(1), 1e-5f);
+}
