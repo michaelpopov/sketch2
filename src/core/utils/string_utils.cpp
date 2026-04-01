@@ -1,12 +1,28 @@
 // Implements parsing and formatting helpers for textual vector values.
 
 #include "string_utils.h"
+#include "../../third-party/fast_float/fast_float.h"
 #include <cmath>
 #include <cstdio>
 #include <limits>
 #include <string.h>
 
 namespace sketch2 {
+
+namespace {
+
+constexpr fast_float::chars_format kFastFloatFormat =
+    fast_float::chars_format::general |
+    fast_float::chars_format::allow_leading_plus |
+    fast_float::chars_format::skip_white_space;
+
+bool parse_float_token(const char* line, const char* end, float& value, const char*& next) {
+    const auto result = fast_float::from_chars(line, end, value, kFastFloatFormat);
+    next = result.ptr;
+    return result.ec == std::errc() && next != line && next <= end;
+}
+
+} // namespace
 
 // Parses a textual vector payload into the typed binary buffer expected by the
 // storage and compute layers. The function validates buffer size, token count,
@@ -29,9 +45,8 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
             if (line >= end) {
                 return Ret("InputReader::data: truncated vector payload");
             }
-            char* next;
-            out[d] = strtof(line, &next);
-            if (next == line || next > end) {
+            const char* next;
+            if (!parse_float_token(line, end, out[d], next)) {
                 return Ret("InputReader::data: invalid f32 token");
             }
             if (!std::isfinite(out[d])) {
@@ -71,9 +86,9 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
             if (line >= end) {
                 return Ret("InputReader::data: truncated vector payload");
             }
-            char* next;
-            float f = strtof(line, &next);
-            if (next == line || next > end) {
+            const char* next;
+            float f;
+            if (!parse_float_token(line, end, f, next)) {
                 return Ret("InputReader::data: invalid f16 token");
             }
             if (!std::isfinite(f)) {
@@ -117,9 +132,8 @@ Ret parse_vector_spaces(uint8_t* buf, size_t size, DataType type, uint16_t dim, 
             if (line >= end) {
                 return Ret("InputReader::data: truncated vector payload");
             }
-            char* next;
-            out[d] = strtof(line, &next);
-            if (next == line || next > end) {
+            const char* next;
+            if (!parse_float_token(line, end, out[d], next)) {
                 return Ret("InputReader::data: invalid f32 token");
             }
             if (!std::isfinite(out[d])) {
@@ -159,9 +173,9 @@ Ret parse_vector_spaces(uint8_t* buf, size_t size, DataType type, uint16_t dim, 
             if (line >= end) {
                 return Ret("InputReader::data: truncated vector payload");
             }
-            char* next;
-            float f = strtof(line, &next);
-            if (next == line || next > end) {
+            const char* next;
+            float f;
+            if (!parse_float_token(line, end, f, next)) {
                 return Ret("InputReader::data: invalid f16 token");
             }
             if (!std::isfinite(f)) {
