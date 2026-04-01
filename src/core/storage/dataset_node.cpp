@@ -103,6 +103,26 @@ Ret DatasetNode::merge() {
     return writer_->merge();
 }
 
+Ret DatasetNode::start_writing() {
+    CHECK(ensure_initialized_());
+    return writer_->start_writing();
+}
+
+Ret DatasetNode::write_vector(uint64_t id, const char* vector) {
+    CHECK(ensure_initialized_());
+    return writer_->write_vector(id, vector);
+}
+
+Ret DatasetNode::write_deleted(uint64_t id) {
+    CHECK(ensure_initialized_());
+    return writer_->write_deleted(id);
+}
+
+Ret DatasetNode::complete_writing() {
+    CHECK(ensure_initialized_());
+    return writer_->complete_writing();
+}
+
 DatasetRangeReaderPtr DatasetNode::reader() const {
     if (!reader_) {
         throw std::runtime_error("DatasetNode::reader: not initialized");

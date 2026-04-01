@@ -327,6 +327,69 @@ int sk_print_(sk_handle_t* handle) {
     return 0;
 }
 
+int sk_start_writing_(sk_handle_t* handle) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+
+    Ret ret = handle->ds->start_writing();
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    return 0;
+}
+
+int sk_write_vector_(sk_handle_t* handle, uint64_t id, const char* data) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+    if (data == nullptr || data[0] == '\0') {
+        ERR("Invalid vector parameter")
+    }
+
+    Ret ret = handle->ds->write_vector(id, data);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    return 0;
+}
+
+int sk_write_deleted_(sk_handle_t* handle, uint64_t id) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+
+    Ret ret = handle->ds->write_deleted(id);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    return 0;
+}
+
+int sk_complete_writing_(sk_handle_t* handle) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+
+    Ret ret = handle->ds->complete_writing();
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    return 0;
+}
+
 int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
     return sk_generate_impl_(handle, count, start_id, pattern, false);
 }

@@ -16,6 +16,10 @@ SKETCH2API_HIDDEN int sk_knn_(
 SKETCH2API_HIDDEN int sk_mdelta_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_get_(sk_handle_t* handle, uint64_t id, char** value_out);
 SKETCH2API_HIDDEN int sk_print_(sk_handle_t* handle);
+SKETCH2API_HIDDEN int sk_start_writing_(sk_handle_t* handle);
+SKETCH2API_HIDDEN int sk_write_vector_(sk_handle_t* handle, uint64_t id, const char* data);
+SKETCH2API_HIDDEN int sk_write_deleted_(sk_handle_t* handle, uint64_t id);
+SKETCH2API_HIDDEN int sk_complete_writing_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
 SKETCH2API_HIDDEN int sk_generate_bin_(
     sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
