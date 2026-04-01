@@ -67,13 +67,12 @@ Ret DatasetNode::init_for_test(const DatasetMetadata& metadata) {
 }
 
 Ret DatasetNode::init_for_test(const std::vector<std::string>& dirs, uint64_t range_size,
-        DataType type, uint64_t dim, uint64_t accumulator_size, DistFunc dist_func) {
+        DataType type, uint64_t dim, DistFunc dist_func) {
     DatasetMetadata metadata;
     metadata.dirs = dirs;
     metadata.range_size = range_size;
     metadata.type = type;
     metadata.dim = dim;
-    metadata.accumulator_size = accumulator_size;
     metadata.dist_func = dist_func;
     return init_for_test(metadata);
 }

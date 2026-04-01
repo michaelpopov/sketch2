@@ -44,14 +44,13 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
 }
 
 Ret Dataset::init(const std::vector<std::string>& dirs, uint64_t range_size,
-        DataType type, uint64_t dim, uint64_t accumulator_size, DistFunc dist_func) {
+        DataType type, uint64_t dim, DistFunc dist_func) {
     DatasetMetadata metadata;
     metadata.dirs             = dirs;
     metadata.range_size       = range_size;
     metadata.type             = type;
     metadata.dist_func        = dist_func;
     metadata.dim              = dim;
-    metadata.accumulator_size = accumulator_size;
     return init(metadata);
 }
 
@@ -75,7 +74,6 @@ Ret Dataset::init_(const std::string& path) {
     metadata.dirs             = cfg.get_str_list("dataset.dirs");
     CHECK(get_non_negative_ini_u64(cfg, "dataset.dim", 0, &metadata.dim));
     CHECK(get_non_negative_ini_u64(cfg, "dataset.range_size", kRangeSize, &metadata.range_size));
-    CHECK(get_non_negative_ini_u64(cfg, "dataset.accumulator_size", kAccumulatorBufferSize, &metadata.accumulator_size));
 
     std::string type_str = cfg.get_str("dataset.type", "f32");
     metadata.type = data_type_from_string(type_str);
@@ -115,7 +113,6 @@ Ret write_dataset_ini(const DatasetMetadata& metadata, const std::string& path) 
     out << "type = " << data_type_to_string(metadata.type) << "\n";
     out << "dist_func = " << dist_func_to_string(metadata.dist_func) << "\n";
     out << "dim = " << metadata.dim << "\n";
-    out << "accumulator_size = " << metadata.accumulator_size << "\n";
     out.close();
     if (out.fail()) {
         std::error_code ec;

@@ -10,9 +10,6 @@ namespace sketch2 {
 // Dataset metadata file name shared by Dataset INI loading and dataset-management callers.
 inline constexpr char kMetadataFileName[] = "sketch2.metadata";
 
-// Default in-memory accumulator capacity used by Dataset metadata and scanner/storage tests.
-inline constexpr size_t kAccumulatorBufferSize = 64 * 1024;
-
 // Default dataset id range size used when splitting vectors into per-range files.
 inline constexpr uint64_t kRangeSize = 10'000;
 

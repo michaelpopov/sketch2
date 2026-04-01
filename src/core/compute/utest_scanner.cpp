@@ -97,7 +97,7 @@ protected:
         fs::create_directories(dataset_dir);
 
         DatasetNode ds;
-        EXPECT_EQ(0, ds.init_for_test({dataset_dir}, range_size, type, dim, kAccumulatorBufferSize, func).code());
+        EXPECT_EQ(0, ds.init_for_test({dataset_dir}, range_size, type, dim, func).code());
         for (const std::string& input : store_inputs) {
             EXPECT_EQ(0, ds.store(input).code());
         }
@@ -236,7 +236,7 @@ TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
 
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
     DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::L1).code());
+    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 1000, DataType::f32, 4, DistFunc::L1).code());
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     write_input_raw(
@@ -325,7 +325,7 @@ TEST_F(ScannerTest, FindF32CosStoredCosineValuesHandleZeroVectors) {
         "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
         "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n");
     DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 1000, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 1000, DataType::f32, 4, DistFunc::COS).code());
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     write_input_raw(
@@ -512,7 +512,7 @@ TEST_F(ScannerTest, FindDatasetL2Works) {
     });
 
     DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({d0, d1}, 10, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::L2).code());
+    ASSERT_EQ(0, ds.init_for_test({d0, d1}, 10, DataType::f32, 4, DistFunc::L2).code());
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
     ASSERT_EQ(0, ds.store(input_path_).code());
 
@@ -533,7 +533,7 @@ TEST_F(ScannerTest, FindDatasetCosWorks) {
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
 
     DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::COS).code());
     write_input_raw(
         input_path_,
         "f32,4\n"
@@ -569,7 +569,7 @@ TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
     ASSERT_EQ(0, writer.exec().code());
 
     DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, kAccumulatorBufferSize, DistFunc::COS).code());
+    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::COS).code());
 
     Scanner s;
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
@@ -710,7 +710,7 @@ protected:
             DatasetNode& ds, DataType type = DataType::f32, DistFunc func = DistFunc::L1) {
         fs::create_directories(d0);
         fs::create_directories(d1);
-        ASSERT_EQ(0, ds.init_for_test({d0, d1}, 10, type, 4, kAccumulatorBufferSize, func).code());
+        ASSERT_EQ(0, ds.init_for_test({d0, d1}, 10, type, 4, func).code());
         generate_input_file(input_path_,
             GeneratorConfig{PatternType::Sequential, 30, 0, type, 4, 1000});
         ASSERT_EQ(0, ds.store(input_path_).code());
@@ -815,7 +815,7 @@ TEST_F(ScannerConcurrentTest, CosineTopKSpansMultipleReaders) {
     fs::create_directories(d1);
     DatasetNode ds;
     ASSERT_EQ(0, ds.init_for_test({d0, d1}, 10, DataType::f32, 4,
-        kAccumulatorBufferSize, DistFunc::COS).code());
+        DistFunc::COS).code());
 
     // Three vectors in different id ranges (different reader files).
     write_input_raw(input_path_,

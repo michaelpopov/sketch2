@@ -177,6 +177,7 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
         const Ret ret = reader.init(config_path);
         if (ret.code() == 0) {
             merged.level = reader.get_str("log.level", "");
+            merged.log_file = reader.get_str("log.path", "");
             merged.thread_pool_size = reader.get_str("thread_pool.size", "");
         } else {
             LOG_WARN << "Failed to read SKETCH2_CONFIG from " << config_path

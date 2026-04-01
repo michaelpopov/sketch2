@@ -38,7 +38,6 @@ public:
     Ret init_for_test(const DatasetMetadata& metadata);
     Ret init_for_test(const std::vector<std::string>& dirs, uint64_t range_size,
         DataType type = DataType::f32, uint64_t dim = 4,
-        uint64_t accumulator_size = kAccumulatorBufferSize,
         DistFunc dist_func = DistFunc::L1);
 
 private:

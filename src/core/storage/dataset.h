@@ -17,7 +17,6 @@ struct DatasetMetadata {
     uint64_t range_size = kRangeSize;
     uint64_t data_merge_ratio = 2; // merge data files when the new file is less than
                                    // data_merge_ratio times smaller than the existing file
-    uint64_t accumulator_size = kAccumulatorBufferSize;
 };
 
 struct DatasetItem {
@@ -58,7 +57,6 @@ protected:
 
     Ret init(const std::vector<std::string>& dirs, uint64_t range_size,
         DataType type = DataType::f32, uint64_t dim = 4,
-        uint64_t accumulator_size = kAccumulatorBufferSize,
         DistFunc dist_func = DistFunc::L1);
 
 private:
