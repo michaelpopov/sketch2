@@ -19,6 +19,7 @@ public:
     Ret start_writing();
     Ret write_vector(uint64_t id, const char* vector);
     Ret write_deleted(uint64_t id);
+    Ret abort_writing();
     Ret complete_writing();
 
     DatasetRangeReaderPtr reader() const;

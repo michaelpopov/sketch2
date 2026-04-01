@@ -200,7 +200,7 @@ Merges persisted delta content back into compact data files.
 Starts a staged native write session for the currently open dataset.
 
 Subsequent `write_vector()` and `write_deleted()` calls append items to a
-temporary input file until `complete_writing()` is called.
+temporary input file until `complete_writing()` or `abort_writing()` is called.
 
 ### `write_vector(item_id, data)`
 
@@ -214,6 +214,11 @@ Arguments:
 ### `write_deleted(item_id)`
 
 Appends one deleted-id marker to the active staged write session.
+
+### `abort_writing()`
+
+Aborts the active staged write session, removes the temporary input file, and
+discards any staged rows without changing the persisted dataset.
 
 ### `complete_writing()`
 

@@ -26,7 +26,10 @@ public:
         return (words_[word_index] & (uint64_t{1} << bit_index)) != 0;
     }
     void set(size_t index, bool value = true);
-    void append(uint64_t word) { words_.push_back(word); bit_count_ = words_.size() * 8; }
+    void append(uint64_t word) {
+        words_.push_back(word);
+        bit_count_ = words_.size() * kWordBits;
+    }
 
 private:
     static constexpr size_t kWordBits = sizeof(uint64_t) * 8;

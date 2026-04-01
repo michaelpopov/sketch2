@@ -1,4 +1,4 @@
-// Declares a buffered writer for indexed-binary input files.
+// Declares a writer for indexed-binary input files.
 
 #pragma once
 
@@ -6,7 +6,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -23,10 +22,11 @@ public:
     Ret init(DataType type, size_t dim, const std::string& path);
     Ret write_vector(uint64_t id, const char* vector);
     Ret write_deleted(uint64_t id);
+    Ret abort_writing();
     Ret close_file();
 
 private:
-    FILE* file_ = nullptr;
+    int fd_ = -1;
     DataType type_ = DataType::f32;
     size_t dim_ = 0;
     size_t vector_size_ = 0;
@@ -35,8 +35,9 @@ private:
     size_t total_items_ = 0;
     uint64_t block_bitset_ = 0;
     std::vector<uint8_t> block_buffer_;
-    std::vector<uint8_t> file_buffer_;
     std::vector<uint8_t> vector_buffer_;
+    bool comma_delimited_ = false;
+    bool comma_delimited_detected_ = false;
 
     Ret init_(DataType type, size_t dim, const std::string& path);
     Ret append_record_header(uint64_t id, bool deleted);

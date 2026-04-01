@@ -85,6 +85,12 @@ int sk_write_vector(sk_handle_t* handle, uint64_t id, const char* data);
 int sk_write_deleted(sk_handle_t* handle, uint64_t id);
 
 /*
+ * Abort the active staged write session, remove the temporary input file, and
+ * discard any accumulated staged rows.
+ */
+int sk_abort_writing(sk_handle_t* handle);
+
+/*
  * Finalize the active staged write session, load the accumulated input into
  * the current dataset, and remove the temporary input file.
  */

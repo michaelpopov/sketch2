@@ -100,6 +100,9 @@ class Sketch2:
         self.lib.sk_write_deleted.argtypes = [c_void_p, c_uint64]
         self.lib.sk_write_deleted.restype = c_int
 
+        self.lib.sk_abort_writing.argtypes = [c_void_p]
+        self.lib.sk_abort_writing.restype = c_int
+
         self.lib.sk_complete_writing.argtypes = [c_void_p]
         self.lib.sk_complete_writing.restype = c_int
 
@@ -231,6 +234,9 @@ class Sketch2:
 
     def write_deleted(self, item_id: int) -> None:
         self._check("sk_write_deleted", self.lib.sk_write_deleted(self.handle, c_uint64(item_id)))
+
+    def abort_writing(self) -> None:
+        self._check("sk_abort_writing", self.lib.sk_abort_writing(self.handle))
 
     def complete_writing(self) -> None:
         self._check("sk_complete_writing", self.lib.sk_complete_writing(self.handle))
