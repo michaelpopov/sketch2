@@ -3,6 +3,7 @@
 #include "input_reader.h"
 #include "utils/log.h"
 #include "utils/shared_consts.h"
+#include "utils/shared_types.h"
 #include "utils/string_utils.h"
 #include "utils/timer.h"
 #include <fcntl.h>
@@ -18,47 +19,20 @@ namespace sketch2 {
 
 namespace {
 
-Ret parse_input_header(const char* begin, const char* end, DataType* type, size_t* dim, bool* binary) {
-    if (begin == nullptr || end == nullptr || type == nullptr || dim == nullptr || binary == nullptr || begin >= end) {
-        return Ret("Invalid header");
-    }
-
-    const std::string header(begin, static_cast<size_t>(end - begin));
-    const size_t first_comma = header.find(',');
-    if (first_comma == std::string::npos) {
-        return Ret("Invalid header: missing comma");
-    }
-
-    try {
-        *type = data_type_from_string(header.substr(0, first_comma));
-    } catch (const std::exception& e) {
-        return Ret(e.what());
-    }
-
-    const size_t second_comma = header.find(',', first_comma + 1);
-    const std::string dim_part = second_comma == std::string::npos
-        ? header.substr(first_comma + 1)
-        : header.substr(first_comma + 1, second_comma - first_comma - 1);
-    if (dim_part.empty()) {
-        return Ret("Invalid header: missing dimension");
-    }
-
-    char* dim_end = nullptr;
-    *dim = static_cast<size_t>(strtoull(dim_part.c_str(), &dim_end, 10));
-    if (dim_end == dim_part.c_str() || *dim_end != '\0') {
-        return Ret("Invalid header: invalid dimension");
-    }
-
-    *binary = false;
-    if (second_comma != std::string::npos) {
-        const std::string mode = header.substr(second_comma + 1);
-        if (mode != "bin") {
-            return Ret("Invalid header: unsupported mode");
+uint32_t crc32_update(uint32_t crc, const uint8_t* data, size_t size) {
+    crc = ~crc;
+    for (size_t i = 0; i < size; ++i) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            const uint32_t mask = -(crc & 1u);
+            crc = (crc >> 1) ^ (0xEDB88320u & mask);
         }
-        *binary = true;
     }
+    return ~crc;
+}
 
-    return Ret(0);
+bool is_bit_set(uint64_t word, size_t bit_index) {
+    return (word & (uint64_t{1} << bit_index)) != 0;
 }
 
 } // namespace
@@ -124,7 +98,7 @@ Ret InputReader::init_(const std::string& path) {
     if (!header_end) {
         return fail("Invalid header: missing newline");
     }
-    Ret header_ret = parse_input_header(p, header_end, &type_, &dim_, &binary_);
+    Ret header_ret = parse_input_header(p, header_end);
     if (header_ret.code() != 0) {
         return fail(header_ret.message());
     }
@@ -137,75 +111,24 @@ Ret InputReader::init_(const std::string& path) {
         return fail("Invalid header: vector data size is too small");
     }
 
+    Ret ret_lines_process{0};
     const char* record_begin = header_end + 1;
     if (binary_) {
-        const size_t record_size = sizeof(uint64_t) + size();
-        const size_t payload_bytes = static_cast<size_t>(end - record_begin);
-        if (payload_bytes % record_size != 0) {
-            return fail("Invalid binary payload size");
-        }
-
-        for (const char* record = record_begin; record < end; record += record_size) {
-            uint64_t id = 0;
-            std::memcpy(&id, record, sizeof(id));
-            const uint64_t offset = static_cast<uint64_t>((record + sizeof(id)) - p);
-            const uint64_t end_offset = offset + size();
-            lines_.push_back({id, offset, end_offset});
-        }
+        ret_lines_process = bit_indexed_ ? process_binary_indexed_data(record_begin, end) :
+             process_binary_data(record_begin, end);
     } else {
-        const char* line = record_begin;
-        bool once = true;
+        ret_lines_process = process_text_data(record_begin, end);
+    }
 
-        // Parse each vector line: "{id} : [ {data...} ]\n"
-        while (line < end) {
-            const char* next_nl = static_cast<const char*>(memchr(line, '\n', static_cast<size_t>(end - line)));
-            const char* line_limit = next_nl ? next_nl : end;
-
-            char* id_end;
-            uint64_t id = strtoull(line, &id_end, 10);
-            if (id_end == line) {
-                // Skip empty lines or trailing whitespace
-                if (next_nl) {
-                    line = next_nl + 1;
-                    continue;
-                } else {
-                    break;
-                }
-            }
-
-            const char* bracket = static_cast<const char*>(
-                memchr(id_end, '[', static_cast<size_t>(line_limit - id_end)));
-            if (!bracket) {
-                return fail("Invalid line: missing '['");
-            }
-            const char* close = static_cast<const char*>(
-                memchr(bracket + 1, ']', static_cast<size_t>(line_limit - (bracket + 1))));
-            if (!close) {
-                return fail("Invalid line: missing ']'");
-            }
-
-            // offset points to the character after "[" (first number)
-            uint64_t offset = static_cast<uint64_t>(bracket + 1 - p);
-            uint64_t end_offset = static_cast<uint64_t>(close - p);
-            lines_.push_back({id, offset, end_offset});
-
-            if (once && bracket[1] != ']') { // skip checking "delete" vectors
-                once = false;
-                const char* p = reinterpret_cast<const char*>(map_) + offset;
-                const char* vec_end = reinterpret_cast<const char*>(map_) + end_offset;
-                is_comma_delimited_ = check_comma_format(p, vec_end);
-            }
-
-            line = next_nl ? next_nl + 1 : end;
-        }
+    if (ret_lines_process.code() != 0) {
+        return fail(ret_lines_process.message());
     }
 
     const auto by_id = [](const LineInfo& lhs, const LineInfo& rhs) {
         return lhs.id < rhs.id;
     };
     if (!std::is_sorted(lines_.begin(), lines_.end(), by_id)) {
-        std::sort(lines_.begin(), lines_.end(),
-            by_id);
+        std::sort(lines_.begin(), lines_.end(), by_id);
     }
 
     for (size_t i = 1; i < lines_.size(); ++i) {
@@ -216,6 +139,142 @@ Ret InputReader::init_(const std::string& path) {
 
     return Ret(0);
 }
+
+Ret InputReader::process_binary_indexed_data(const char* record_begin, const char* end) {
+    const char* p   = reinterpret_cast<const char*>(map_);
+    const size_t record_size = sizeof(uint64_t) + size();
+    size_t record_counter = 0;
+
+    for (const char* record = record_begin; record < end;) {
+        const char* const block_begin = record;
+        if (record + sizeof(uint64_t) > end) {
+            return Ret("Corrupted indexed binary data: missing block bitset");
+        }
+
+        uint64_t word = 0;
+        std::memcpy(&word, record, sizeof(word));
+        bit_index_.append(word);
+        record += sizeof(uint64_t);
+
+        for (size_t block_index = 0; block_index < kIndexedBinaryBlockItems; ++block_index, ++record_counter) {
+            const bool is_deleted = is_bit_set(word, block_index);
+            const size_t item_size = is_deleted ? sizeof(uint64_t) : record_size;
+            if (record + item_size > end) {
+                return Ret("Corrupted indexed binary data: truncated record");
+            }
+
+            uint64_t id = 0;
+            uint64_t offset = 0;
+            uint64_t end_offset = 0;
+            std::memcpy(&id, record, sizeof(id));
+            if (!is_deleted) {
+                offset = static_cast<uint64_t>((record + sizeof(id)) - p);
+                end_offset = offset + size();
+            }
+
+            record += item_size;
+            lines_.push_back({id, offset, end_offset});
+
+            if (record == end) {
+                if (block_index + 1 == kIndexedBinaryBlockItems) {
+                    return Ret("Corrupted indexed binary data: missing full-block footer");
+                }
+                return Ret(0);
+            }
+        }
+
+        if (record + sizeof(IndexedBlockFooter) > end) {
+            return Ret("Corrupted indexed binary data: truncated full-block footer");
+        }
+
+        IndexedBlockFooter footer{};
+        std::memcpy(&footer, record, sizeof(footer));
+        if (footer.count != record_counter) {
+            return Ret("Corrupted indexed binary data: mismatching footer counter");
+        }
+
+        const uint32_t block_crc = crc32_update(
+            0, reinterpret_cast<const uint8_t*>(block_begin), static_cast<size_t>(record - block_begin));
+        if (footer.crc32 != block_crc) {
+            return Ret("Corrupted indexed binary data: mismatching footer checksum");
+        }
+
+        record += sizeof(footer);
+    }
+
+    return Ret(0);
+}
+
+Ret InputReader::process_binary_data(const char* record_begin, const char* end) {
+    const char* p   = reinterpret_cast<const char*>(map_);
+    const size_t record_size = sizeof(uint64_t) + size();
+    const size_t payload_bytes = static_cast<size_t>(end - record_begin);
+    if (payload_bytes % record_size != 0) {
+        return Ret("Invalid binary payload size");
+    }
+
+    for (const char* record = record_begin; record < end; record += record_size) {
+        uint64_t id = 0;
+        std::memcpy(&id, record, sizeof(id));
+        const uint64_t offset = static_cast<uint64_t>((record + sizeof(id)) - p);
+        const uint64_t end_offset = offset + size();
+        lines_.push_back({id, offset, end_offset});
+    }
+    
+    return Ret(0);
+}
+
+Ret InputReader::process_text_data(const char* record_begin, const char* end) {
+    const char* p   = reinterpret_cast<const char*>(map_);
+    const char* line = record_begin;
+    bool once = true;
+
+    // Parse each vector line: "{id} : [ {data...} ]\n"
+    while (line < end) {
+        const char* next_nl = static_cast<const char*>(memchr(line, '\n', static_cast<size_t>(end - line)));
+        const char* line_limit = next_nl ? next_nl : end;
+
+        char* id_end;
+        uint64_t id = strtoull(line, &id_end, 10);
+        if (id_end == line) {
+            // Skip empty lines or trailing whitespace
+            if (next_nl) {
+                line = next_nl + 1;
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        const char* bracket = static_cast<const char*>(
+            memchr(id_end, '[', static_cast<size_t>(line_limit - id_end)));
+        if (!bracket) {
+            return Ret("Invalid line: missing '['");
+        }
+        const char* close = static_cast<const char*>(
+            memchr(bracket + 1, ']', static_cast<size_t>(line_limit - (bracket + 1))));
+        if (!close) {
+            return Ret("Invalid line: missing ']'");
+        }
+
+        // offset points to the character after "[" (first number)
+        uint64_t offset = static_cast<uint64_t>(bracket + 1 - p);
+        uint64_t end_offset = static_cast<uint64_t>(close - p);
+        lines_.push_back({id, offset, end_offset});
+
+        if (once && bracket[1] != ']') { // skip checking "delete" vectors
+            once = false;
+            const char* p = reinterpret_cast<const char*>(map_) + offset;
+            const char* vec_end = reinterpret_cast<const char*>(map_) + end_offset;
+            is_comma_delimited_ = check_comma_format(p, vec_end);
+        }
+
+        line = next_nl ? next_nl + 1 : end;
+    }
+
+    return Ret{0};
+}
+
 
 size_t InputReader::count() const {
     return lines_.size();
@@ -253,6 +312,10 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
     }
 
     if (binary_) {
+        if (bit_indexed_ && bit_index_.get(index)) {
+            return Ret("InputReader::data: vector is deleted");
+        }
+
         std::memcpy(buf, map_ + lines_[index].offset, this->size());
         return Ret(0);
     }
@@ -274,6 +337,9 @@ Ret InputReader::raw_data(size_t index, const uint8_t** data) const {
     if (!binary_) {
         return Ret("InputReader::raw_data: raw access is only available in binary mode");
     }
+    if (bit_indexed_ && bit_index_.get(index)) {
+        return Ret("InputReader::raw_data: vector is deleted");
+    }
 
     *data = map_ + lines_[index].offset;
     return Ret(0);
@@ -284,7 +350,7 @@ bool InputReader::is_no_data(size_t index) const {
         throw std::out_of_range("InputReader::is_no_data: index out of range");
     }
     if (binary_) {
-        return false;
+        return bit_indexed_ ? bit_index_.get(index) : false;
     }
     const char* p = reinterpret_cast<const char*>(map_) + lines_[index].offset;
     return *p == ']';
@@ -324,6 +390,53 @@ std::pair<size_t, size_t> InputReader::find_index_range(uint64_t start, uint64_t
         static_cast<size_t>(first - lines_.begin()),
         static_cast<size_t>(last - first)
     };
+}
+
+Ret InputReader::parse_input_header(const char* begin, const char* end) {
+    if (begin == nullptr || end == nullptr || begin >= end) {
+        return Ret("Invalid header");
+    }
+
+    const std::string header(begin, static_cast<size_t>(end - begin));
+    const size_t first_comma = header.find(',');
+    if (first_comma == std::string::npos) {
+        return Ret("Invalid header: missing comma");
+    }
+
+    try {
+        type_ = data_type_from_string(header.substr(0, first_comma));
+    } catch (const std::exception& e) {
+        return Ret(e.what());
+    }
+
+    const size_t second_comma = header.find(',', first_comma + 1);
+    const std::string dim_part = second_comma == std::string::npos
+        ? header.substr(first_comma + 1)
+        : header.substr(first_comma + 1, second_comma - first_comma - 1);
+    if (dim_part.empty()) {
+        return Ret("Invalid header: missing dimension");
+    }
+
+    char* dim_end = nullptr;
+    dim_ = static_cast<size_t>(strtoull(dim_part.c_str(), &dim_end, 10));
+    if (dim_end == dim_part.c_str() || *dim_end != '\0') {
+        return Ret("Invalid header: invalid dimension");
+    }
+
+    if (second_comma != std::string::npos) {
+        const std::string mode = header.substr(second_comma + 1);
+        if (mode != BinFileMarker && mode != BinIndexedFileMarker) {
+            return Ret("Invalid header: unsupported mode");
+        }
+
+        binary_ = true;
+
+        if (mode == BinIndexedFileMarker) {
+            bit_indexed_ = true;
+        }
+    }
+
+    return Ret(0);
 }
 
 /***********************************************

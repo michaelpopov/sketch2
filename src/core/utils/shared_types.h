@@ -29,6 +29,12 @@ enum class DistFunc {
     COS,
 };
 
+// Footer for indexed block in input files.
+struct IndexedBlockFooter {
+    uint32_t count;
+    uint32_t crc32;
+};
+
 inline const char* data_type_to_string(DataType type) {
     switch (type) {
         case DataType::f16: return "f16";

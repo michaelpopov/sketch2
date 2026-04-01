@@ -4,6 +4,7 @@
 #include "core/storage/data_merger.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/input_reader.h"
+#include "core/storage/input_writer.h"
 #include "core/utils/file_lock.h"
 #include "core/utils/log.h"
 #include "core/utils/singleton.h"
@@ -32,6 +33,12 @@ struct StoreRangeTask {
     uint64_t range_start;
     uint64_t range_end;
 };
+
+std::string dataset_input_path(const DatasetMetadata& metadata) {
+    std::filesystem::path path = dataset_owner_lock_path(metadata);
+    path.replace_extension(".input");
+    return path.string();
+}
 
 } // namespace
 
@@ -116,6 +123,84 @@ Ret DatasetWriter::merge() {
     return ret;
 }
 
+Ret DatasetWriter::start_writing() {
+    try {
+        std::lock_guard<std::mutex> lg(write_mutex_);
+        CHECK(ensure_owner_lock_());
+        if (input_writer_) {
+            return Ret("DatasetWriter::start_writing: input writer is active already");
+        }
+
+        input_writer_ = std::make_unique<InputWriter>();
+        const Ret ret = input_writer_->init(metadata_.type, metadata_.dim, dataset_input_path(metadata_));
+        if (ret.code() != 0) {
+            input_writer_.reset();
+            return ret;
+        }
+        return Ret(0);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
+Ret DatasetWriter::write_vector(uint64_t id, const char* vector) {
+    try {
+        std::lock_guard<std::mutex> lg(write_mutex_);
+        CHECK(ensure_owner_lock_());
+        if (!input_writer_) {
+            return Ret("DatasetWriter::write_vector: input writer is not active");
+        }
+        return input_writer_->write_vector(id, vector);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
+Ret DatasetWriter::write_deleted(uint64_t id) {
+    try {
+        std::lock_guard<std::mutex> lg(write_mutex_);
+        CHECK(ensure_owner_lock_());
+        if (!input_writer_) {
+            return Ret("DatasetWriter::write_deleted: input writer is not active");
+        }
+        return input_writer_->write_deleted(id);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
+Ret DatasetWriter::complete_writing() {
+    Ret ret{0};
+    bool should_notify = false;
+    try {
+        std::lock_guard<std::mutex> lg(write_mutex_);
+        CHECK(ensure_owner_lock_());
+        if (!input_writer_) {
+            return Ret("DatasetWriter::complete_writing: input writer is not active");
+        }
+
+        const std::string input_path = dataset_input_path(metadata_);
+        std::experimental::scope_exit cleanup([&input_path]() {
+            std::error_code ec;
+            std::filesystem::remove(input_path, ec);
+        });
+
+        CHECK(input_writer_->close_file());
+        input_writer_.reset();
+
+        should_notify = true;
+        ret = store_(input_path);
+    } catch (const std::exception& ex) {
+        ret = Ret(ex.what());
+    }
+
+    if (should_notify) {
+        notify_update_("DatasetWriter::complete_writing");
+    }
+
+    return ret;
+}
+
 /***********************************************************
  *  Private helpers
  */
@@ -166,7 +251,7 @@ Ret DatasetWriter::ensure_owner_lock_() {
     return Ret(0);
 }
 
-Ret DatasetWriter::ensure_update_notifier_() const {
+Ret DatasetWriter::ensure_update_notifier_() {
     if (update_notifier_) {
         return Ret(0);
     }
