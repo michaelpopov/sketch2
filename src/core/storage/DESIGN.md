@@ -2,26 +2,90 @@ Storage Design
 
 Stage 1.
 
+InputFormat
+-------------------------
+Data is loaded into Sketch2 storage from input files.
+There are four possible formats of these files:
+  - text with vector values delimited by coma
+  - text with vector values delimited by space
+  - binary with vector values in binary format matching vector data type
+  - indexed binary with vector values in binary format matching vector data type.
+
+The first line of the input file is always in text format. It is finished with
+end-of-line symbol '\n'. This line contains information about vector data type,
+vector dimensions and optional indicators for binary and indexed binary format.
+For example:
+f32,128\n
+f32,128,bin\n
+f32,128,binind\n
+
+Supported data types: f32, f16, i16
+Supported dimensions range: 4 .. 4096
+
+Text format consists of id and vector value delimited by colon ':'
+id : value
+  where id is uint64_t in text representation
+        value is a set of numbers in square brackets [ ... ]
+
+Empty vector value [] indicates that vector with this id is deleted.
+
+Example of text format with comma-separated values:
+f32,128
+1 : [ 1.1, 1.1, ... 1.1, 1.1 ]
+2 : [ 2.1, 2.1, ... 2.1, 2.1 ]
+3 : []
+...
+999: [ 999.1, 999.1, ... 999.1, 999.1 ]
+
+Example of text format with space-separated values:
+f32,128
+1 : [ 1.1 1.1, ... 1.1 1.1 ]
+2 : [ 2.1 2.1, ... 2.1 2.1 ]
+3 : []
+...
+999: [ 999.1 999.1 ... 999.1 999.1 ]
+
+Binary format consists of sequence of pairs id and value, where id is uint64_t
+number and value is a set of numbers of a corresponding data type. The count
+of numbers in a value matches vector's dimensions.
+
+ |------|-------------------------------|
+    id        vector value
+
+Binary format cannot contain information about deleted vectors.
+
+To overcome this limitation there is an indexed binary format.
+Indexed binary format consists of blocks 64 items, where each item
+can be either uint64_t id or a pair of uint64_t id and vector value
+similar to binary format.
+In front of each block, there are 8 bytes containing a bitset describing
+the following data:
+ - if a bit is set to 1, then the corresponding item consists only of
+   uint64_t id indicating deleted vector id
+ - if a bit is set to 0, the  the corresponding item consists of
+   uint64_t id and vector value.
+
+In the end of each full block there is a control footer consisting of:
+ - uint32_t counter equal to the index of the last record in the block
+ - uint32_t CRC32 checksum of the preceding full block payload
+
+The counter values should be like 64, 128, 192, 256, etc.
+
+ |-------|------|-------------------------------|------|------|-------------------------------|--------|--------|
+  bitset   id        vector value                  id     id      vector value                  counter  crc32
+
+The control footers are used for checking the correctness of file format and detecting corruption
+of binary data. The control footers are added after each full block of exactly 64 items. If in the
+end there is incomplete block of items, there is no footer to check.
+
+The CRC32 checksum covers the whole preceding full block payload, starting from
+the 64-bit bitset at the beginning of the block and ending with the last byte
+of the 64th item. The footer bytes themselves are not included in the checksum.
+
 InputGenerator
 -------------------------
 For development and testing purposes we need datasets. There is a dataset generator that writes
 files in input data format. It can be configured to write files with different patterns.
-The simple pattern contains sorted, sequentially increasing ids and vectors with floats derived 
-from ids like id+0.1 First line contains metadata: type, dimension.
-Example:
-
-f32,128
-1 : [ 1.1, 1.1, ... 1.1, 1.1 ]
-2 : [ 2.1, 2.1, ... 2.1, 2.1 ]
-...
-999: [ 999.1, 999.1, ... 999.1, 999.1 ]
-
-At the stage 1 
- - there are no "delete" lines with empty vectors
- - there are no "update" lines with ids that already exist.
-
-Supported types: f32, f16
-Dimension range: 4 .. 4096
 
 
 InputReader

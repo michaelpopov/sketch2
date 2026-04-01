@@ -1,6 +1,7 @@
 // Declares the input reader and subrange view types for text and binary imports.
 
 #pragma once
+#include "utils/dynamic_bitset.h"
 #include "utils/shared_types.h"
 #include <cstdint>
 #include <string>
@@ -47,11 +48,17 @@ private:
     DataType              type_    = DataType::f32;
     size_t                dim_     = 0;
     bool                  binary_  = false;
+    bool                  bit_indexed_ = false;
     std::vector<LineInfo> lines_;
     bool                  is_comma_delimited_ = true;
+    DynamicBitset         bit_index_;
 
     Ret init_(const std::string &path);
     std::pair<size_t, size_t> find_index_range(uint64_t start, uint64_t end) const;
+    Ret parse_input_header(const char* begin, const char* end);
+    Ret process_text_data(const char* record_begin, const char* end);
+    Ret process_binary_data(const char* record_begin, const char* end);
+    Ret process_binary_indexed_data(const char* record_begin, const char* end);
 };
 
 // InputReaderView exists to present a cheap subrange view over an InputReader

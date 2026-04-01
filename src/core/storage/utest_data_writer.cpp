@@ -11,24 +11,35 @@
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_writer.h"
+#include "core/storage/data_reader.h"
+#include "core/storage/dataset_writer.h"
 #include "utest_tmp_dir.h"
+#include <filesystem>
 
 using namespace sketch2;
+namespace fs = std::filesystem;
 
 class DataWriterTest : public ::testing::Test {
 protected:
     std::string input_path_;
     std::string output_path_;
+    std::string dataset_dir_;
+    std::string dataset_ini_path_;
 
     void SetUp() override {
         std::string base = tmp_dir() + "/sketch2_utest_dw_" + std::to_string(getpid());
         input_path_  = base + ".txt";
         output_path_ = base + ".bin";
+        dataset_dir_ = base + "_dataset";
+        dataset_ini_path_ = base + "_dataset.ini";
+        fs::create_directories(dataset_dir_);
     }
 
     void TearDown() override {
         std::remove(input_path_.c_str());
         std::remove(output_path_.c_str());
+        std::remove(dataset_ini_path_.c_str());
+        fs::remove_all(dataset_dir_);
     }
 
     // Generate input and run DataWriter::exec(), return the Ret from exec()
@@ -138,6 +149,18 @@ protected:
             fclose(f);
         }
         return values;
+    }
+
+    Ret init_dataset_writer(DatasetWriter* writer, DataType type = DataType::f32, uint64_t dim = 4,
+            uint64_t range_size = 1000, DistFunc dist_func = DistFunc::L1) {
+        DatasetMetadata metadata;
+        metadata.dirs = {dataset_dir_};
+        metadata.type = type;
+        metadata.dim = dim;
+        metadata.range_size = range_size;
+        metadata.dist_func = dist_func;
+        CHECK(write_dataset_ini(metadata, dataset_ini_path_));
+        return writer->init(dataset_ini_path_);
     }
 };
 
@@ -394,4 +417,65 @@ TEST_F(DataWriterTest, AllDeletedInputProducesZeroActiveRangeAndCount) {
     EXPECT_EQ(3u, hdr.deleted_count);
     EXPECT_EQ(0u, hdr.min_id);
     EXPECT_EQ(0u, hdr.max_id);
+}
+
+// --- DatasetWriter staged input path ---
+
+TEST_F(DataWriterTest, DatasetWriterStagedWriteCreatesDataFileAndRemovesInputFile) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer).code());
+
+    const fs::path input_path = fs::path(dataset_dir_) / "sketch2.owner.input";
+    const fs::path data_path = fs::path(dataset_dir_) / "0.data";
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_TRUE(fs::exists(input_path));
+    ASSERT_EQ(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
+    ASSERT_EQ(0, writer.write_vector(11, "11.1 11.1 11.1 11.1").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    EXPECT_FALSE(fs::exists(input_path));
+    ASSERT_TRUE(fs::exists(data_path));
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path.string()).code());
+    ASSERT_EQ(2u, reader.count());
+    EXPECT_EQ(10u, reader.id(0));
+    EXPECT_EQ(11u, reader.id(1));
+}
+
+TEST_F(DataWriterTest, DatasetWriterStagedWriteRejectsInvalidCallOrder) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer).code());
+
+    EXPECT_NE(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
+    EXPECT_NE(0, writer.write_deleted(10).code());
+    EXPECT_NE(0, writer.complete_writing().code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    EXPECT_NE(0, writer.start_writing().code());
+}
+
+TEST_F(DataWriterTest, DatasetWriterStagedDeleteOnExistingDataRemovesVisibleItem) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer).code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_deleted(10).code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    const fs::path data_path = fs::path(dataset_dir_) / "0.data";
+    const fs::path delta_path = fs::path(dataset_dir_) / "0.delta";
+    ASSERT_TRUE(fs::exists(data_path));
+    EXPECT_FALSE(fs::exists(delta_path));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(data_path.string()).code());
+    EXPECT_EQ(0u, data_reader.count());
+    EXPECT_EQ(0u, data_reader.deleted_count());
+    EXPECT_EQ(nullptr, data_reader.get(10));
 }

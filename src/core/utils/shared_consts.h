@@ -79,4 +79,12 @@ inline constexpr char kVliteModuleName[] = "vlite";
 inline constexpr char kVliteSchema[] =
     "CREATE TABLE x(query TEXT HIDDEN, k INTEGER HIDDEN, id INTEGER, distance REAL)";
 
+// Number of items in the input block.
+inline constexpr size_t kIndexedBinaryBlockItems = sizeof(uint64_t) * 8;
+
+// Input format markers.
+constexpr const char* BinFileMarker = "bin";
+constexpr const char* BinIndexedFileMarker = "binind";
+
+
 } // namespace sketch2

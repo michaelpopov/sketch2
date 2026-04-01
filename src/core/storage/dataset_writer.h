@@ -2,6 +2,7 @@
 
 #pragma once
 #include "dataset.h"
+#include "input_writer.h"
 #include "core/utils/file_lock.h"
 #include "core/utils/update_notifier.h"
 #include <memory>
@@ -12,7 +13,6 @@ namespace sketch2 {
 
 class DataReader;
 class InputReader;
-
 // DatasetWriter owns the write infrastructure: mutex, owner lock, and the updater-
 // mode UpdateNotifier for cross-process cache invalidation.
 class DatasetWriter : public Dataset {
@@ -27,15 +27,21 @@ public:
     Ret store(const std::string& input_path);
     Ret merge();
 
+    Ret start_writing();
+    Ret write_vector(uint64_t id, const char* vector);
+    Ret write_deleted(uint64_t id);
+    Ret complete_writing();
+
 private:
     std::mutex write_mutex_;
-    mutable std::unique_ptr<FileLockGuard> owner_lock_;
+    std::unique_ptr<FileLockGuard> owner_lock_;
     bool owner_path_registered_ = false;
-    mutable std::unique_ptr<UpdateNotifier> update_notifier_;
+    std::unique_ptr<UpdateNotifier> update_notifier_;
+    std::unique_ptr<InputWriter> input_writer_;
 
     Ret init_writer_();
     Ret ensure_owner_lock_();
-    Ret ensure_update_notifier_() const;
+    Ret ensure_update_notifier_();
     void notify_update_(const char* caller);
 
     Ret store_(const std::string& input_path);

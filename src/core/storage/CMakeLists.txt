@@ -1,4 +1,4 @@
-add_library(stor STATIC input_generator.cpp input_reader.cpp data_writer.cpp data_reader.cpp data_merger.cpp dataset.cpp dataset_reader.cpp dataset_writer.cpp dataset_node.cpp)
+add_library(stor STATIC input_generator.cpp input_reader.cpp input_writer.cpp data_writer.cpp data_reader.cpp data_merger.cpp dataset.cpp dataset_reader.cpp dataset_writer.cpp dataset_node.cpp)
 
 target_include_directories(stor PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
@@ -9,6 +9,7 @@ add_executable(utest_stor
   ${SHARED_UTEST_MAIN}
   utest_input_generator.cpp
   utest_input_reader.cpp
+  utest_input_writer.cpp
   utest_data_file_layout.cpp
   utest_data_writer.cpp
   utest_data_reader.cpp
