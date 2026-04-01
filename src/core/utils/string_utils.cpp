@@ -295,14 +295,34 @@ Ret print_vector(uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size
     return Ret(0);
 }
 
+namespace {
+
+constexpr uint32_t crc32_byte(uint32_t byte) {
+    uint32_t crc = byte;
+    for (int bit = 0; bit < 8; ++bit) {
+        const uint32_t mask = -(crc & 1u);
+        crc = (crc >> 1) ^ (0xEDB88320u & mask);
+    }
+    return crc;
+}
+
+struct Crc32Table {
+    uint32_t entries[256];
+    constexpr Crc32Table() : entries{} {
+        for (uint32_t i = 0; i < 256; ++i) {
+            entries[i] = crc32_byte(i);
+        }
+    }
+};
+
+constexpr Crc32Table kCrc32Table{};
+
+} // namespace
+
 uint32_t crc32_update(uint32_t crc, const uint8_t* data, size_t size) {
     crc = ~crc;
     for (size_t i = 0; i < size; ++i) {
-        crc ^= data[i];
-        for (int bit = 0; bit < 8; ++bit) {
-            const uint32_t mask = -(crc & 1u);
-            crc = (crc >> 1) ^ (0xEDB88320u & mask);
-        }
+        crc = kCrc32Table.entries[(crc ^ data[i]) & 0xFFu] ^ (crc >> 8);
     }
     return ~crc;
 }

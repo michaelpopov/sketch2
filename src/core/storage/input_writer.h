@@ -35,6 +35,8 @@ private:
     uint64_t block_bitset_ = 0;
     std::vector<uint8_t> block_buffer_;
     std::vector<uint8_t> vector_buffer_;
+    bool comma_delimited_ = false;
+    bool comma_delimited_detected_ = false;
 
     Ret init_(DataType type, size_t dim, const std::string& path);
     Ret append_record_header(uint64_t id, bool deleted);

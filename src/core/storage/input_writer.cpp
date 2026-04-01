@@ -119,8 +119,12 @@ Ret InputWriter::write_vector(uint64_t id, const char* vector) {
         return Ret("InputWriter::write_vector: vector is null");
     }
 
-    const bool comma_delimited = check_comma_format(vector);
-    const Ret parse_ret = comma_delimited
+    if (!comma_delimited_detected_) {
+        comma_delimited_detected_ = true;
+        comma_delimited_ = check_comma_format(vector);
+    }
+
+    const Ret parse_ret = comma_delimited_
         ? parse_vector(vector_buffer_.data(), vector_buffer_.size(), type_, static_cast<uint16_t>(dim_), vector)
         : parse_vector_spaces(vector_buffer_.data(), vector_buffer_.size(), type_, static_cast<uint16_t>(dim_), vector);
     if (parse_ret.code() != 0) {
@@ -167,6 +171,11 @@ Ret InputWriter::flush_block(bool write_footer) {
     const Ret write_ret = write_all(fd_, block_buffer_.data(), bytes_to_write, "InputWriter: failed to write block");
     if (write_ret.code() != 0) {
         return write_ret;
+    }
+
+    const int flush_rc = fdatasync(fd_);
+    if (flush_rc != 0) {
+        return Ret(std::string("InputWriter: failed to store data: ") + strerror(errno));
     }
 
     block_used_ = sizeof(uint64_t);
