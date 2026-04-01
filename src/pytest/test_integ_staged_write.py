@@ -39,6 +39,24 @@ class Sketch2StagedWriteIntegTest(IntegTestBase):
             with self.assertRaisesRegex(RuntimeError, "sk_get failed"):
                 ps.get(10)
 
+    def test_staged_abort_discards_session_and_allows_restart(self) -> None:
+        self.progress("writing staged data and aborting the session")
+        with Sketch2(self.root, lib_path=lib_path()) as ps:
+            ps.create(self.dataset_name, type_name="f32", dim=4, range_size=1000, dist_func="l1")
+            ps.start_writing()
+            ps.write_vector(10, "0.0, 0.0, 0.0, 0.0")
+            ps.abort_writing()
+
+            self.progress("restarting staged write and verifying only new data is visible")
+            ps.start_writing()
+            ps.write_vector(20, "5.0, 5.0, 5.0, 5.0")
+            ps.complete_writing()
+
+            self.assertEqual([20], ps.knn("5.0, 5.0, 5.0, 5.0", 1))
+            with self.assertRaisesRegex(RuntimeError, "sk_get failed"):
+                ps.get(10)
+            self.assertEqual("[ 5, 5, 5, 5 ]", ps.get(20))
+
 
 if __name__ == "__main__":
     unittest.main()

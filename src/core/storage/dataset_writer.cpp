@@ -169,6 +169,29 @@ Ret DatasetWriter::write_deleted(uint64_t id) {
     }
 }
 
+Ret DatasetWriter::abort_writing() {
+    try {
+        std::lock_guard<std::mutex> lg(write_mutex_);
+        CHECK(ensure_owner_lock_());
+        if (!input_writer_) {
+            return Ret("DatasetWriter::abort_writing: input writer is not active");
+        }
+
+        const std::string input_path = dataset_input_path(metadata_);
+        CHECK(input_writer_->abort_writing());
+        input_writer_.reset();
+
+        std::error_code ec;
+        std::filesystem::remove(input_path, ec);
+        if (ec) {
+            return Ret("DatasetWriter::abort_writing: failed to remove temporary input file");
+        }
+        return Ret(0);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
 Ret DatasetWriter::complete_writing() {
     Ret ret{0};
     bool should_notify = false;

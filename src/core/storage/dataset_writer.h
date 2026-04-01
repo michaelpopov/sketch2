@@ -13,6 +13,7 @@ namespace sketch2 {
 
 class DataReader;
 class InputReader;
+
 // DatasetWriter owns the write infrastructure: mutex, owner lock, and the updater-
 // mode UpdateNotifier for cross-process cache invalidation.
 class DatasetWriter : public Dataset {
@@ -30,6 +31,7 @@ public:
     Ret start_writing();
     Ret write_vector(uint64_t id, const char* vector);
     Ret write_deleted(uint64_t id);
+    Ret abort_writing();
     Ret complete_writing();
 
 private:

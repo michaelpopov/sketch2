@@ -22,6 +22,7 @@ public:
     Ret init(DataType type, size_t dim, const std::string& path);
     Ret write_vector(uint64_t id, const char* vector);
     Ret write_deleted(uint64_t id);
+    Ret abort_writing();
     Ret close_file();
 
 private:

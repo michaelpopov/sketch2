@@ -118,6 +118,11 @@ Ret DatasetNode::write_deleted(uint64_t id) {
     return writer_->write_deleted(id);
 }
 
+Ret DatasetNode::abort_writing() {
+    CHECK(ensure_initialized_());
+    return writer_->abort_writing();
+}
+
 Ret DatasetNode::complete_writing() {
     CHECK(ensure_initialized_());
     return writer_->complete_writing();

@@ -141,6 +141,14 @@ int sk_write_deleted(sk_handle_t* handle, uint64_t id) {
     }
 }
 
+int sk_abort_writing(sk_handle_t* handle) {
+    try {
+        return sk_abort_writing_(handle);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
 int sk_complete_writing(sk_handle_t* handle) {
     try {
         return sk_complete_writing_(handle);

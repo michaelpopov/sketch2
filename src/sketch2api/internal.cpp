@@ -375,6 +375,21 @@ int sk_write_deleted_(sk_handle_t* handle, uint64_t id) {
     return 0;
 }
 
+int sk_abort_writing_(sk_handle_t* handle) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+
+    Ret ret = handle->ds->abort_writing();
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    return 0;
+}
+
 int sk_complete_writing_(sk_handle_t* handle) {
     DECL
 

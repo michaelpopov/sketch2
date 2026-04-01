@@ -184,6 +184,26 @@ Ret InputWriter::flush_block(bool write_footer) {
     return Ret(0);
 }
 
+Ret InputWriter::abort_writing() {
+    if (fd_ < 0) {
+        return Ret(0);
+    }
+
+    const int close_rc = ::close(fd_);
+    fd_ = -1;
+    block_used_ = 0;
+    block_items_ = 0;
+    total_items_ = 0;
+    block_bitset_ = 0;
+    comma_delimited_ = false;
+    comma_delimited_detected_ = false;
+    if (close_rc != 0) {
+        return Ret("InputWriter: failed to abort writing");
+    }
+
+    return Ret(0);
+}
+
 Ret InputWriter::close_file() {
     if (fd_ < 0) {
         return Ret(0);

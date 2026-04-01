@@ -450,10 +450,37 @@ TEST_F(DataWriterTest, DatasetWriterStagedWriteRejectsInvalidCallOrder) {
 
     EXPECT_NE(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
     EXPECT_NE(0, writer.write_deleted(10).code());
+    EXPECT_NE(0, writer.abort_writing().code());
     EXPECT_NE(0, writer.complete_writing().code());
 
     ASSERT_EQ(0, writer.start_writing().code());
     EXPECT_NE(0, writer.start_writing().code());
+}
+
+TEST_F(DataWriterTest, DatasetWriterAbortWritingRemovesInputFileAndDiscardsSession) {
+    DatasetWriter writer;
+    ASSERT_EQ(0, init_dataset_writer(&writer).code());
+
+    const fs::path input_path = fs::path(dataset_dir_) / "sketch2.owner.input";
+    const fs::path data_path = fs::path(dataset_dir_) / "0.data";
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_TRUE(fs::exists(input_path));
+    ASSERT_EQ(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
+    ASSERT_EQ(0, writer.abort_writing().code());
+
+    EXPECT_FALSE(fs::exists(input_path));
+    EXPECT_FALSE(fs::exists(data_path));
+
+    ASSERT_EQ(0, writer.start_writing().code());
+    ASSERT_EQ(0, writer.write_vector(11, "11.1, 11.1, 11.1, 11.1").code());
+    ASSERT_EQ(0, writer.complete_writing().code());
+
+    ASSERT_TRUE(fs::exists(data_path));
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path.string()).code());
+    ASSERT_EQ(1u, reader.count());
+    EXPECT_EQ(11u, reader.id(0));
 }
 
 TEST_F(DataWriterTest, DatasetWriterStagedDeleteOnExistingDataRemovesVisibleItem) {

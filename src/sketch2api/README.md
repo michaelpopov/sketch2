@@ -47,6 +47,7 @@ int sk_get(sk_handle_t* handle, uint64_t id, char** value_out);
 int sk_start_writing(sk_handle_t* handle);
 int sk_write_vector(sk_handle_t* handle, uint64_t id, const char* data);
 int sk_write_deleted(sk_handle_t* handle, uint64_t id);
+int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
 void sk_free(void* ptr);
 ```
@@ -57,7 +58,8 @@ caller owns those returned buffers and must release them with `sk_free()`.
 For incremental ingest, the staged-writing API accumulates vectors and delete
 markers into a temporary input file owned by the open dataset. Calling
 `sk_complete_writing()` loads that accumulated input and removes the temporary
-file.
+file. Calling `sk_abort_writing()` discards the staged session, removes the
+temporary input file, and leaves the persisted dataset unchanged.
 
 Example:
 
@@ -88,6 +90,18 @@ if (sk_write_deleted(handle, 11) != 0) {
 }
 if (sk_complete_writing(handle) != 0) {
     fprintf(stderr, "complete_writing failed: %s\n", sk_error_message(handle));
+}
+```
+
+Abort example:
+
+```c
+if (sk_start_writing(handle) != 0) {
+    fprintf(stderr, "start_writing failed: %s\n", sk_error_message(handle));
+}
+if (sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1") != 0) {
+    fprintf(stderr, "write_vector failed: %s\n", sk_error_message(handle));
+    sk_abort_writing(handle);
 }
 ```
 
