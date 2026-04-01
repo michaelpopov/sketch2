@@ -318,3 +318,77 @@ TEST(sketch2api, knn_rejects_null_output_parameters) {
     sk_disconnect(handle);
     std::filesystem::remove_all(root);
 }
+
+TEST(sketch2api, staged_write_creates_data_and_removes_input_file) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+
+    const std::filesystem::path input_path = root / "ds" / "sketch2.owner.input";
+    ASSERT_OK(handle, sk_start_writing(handle));
+    EXPECT_TRUE(std::filesystem::exists(input_path));
+    ASSERT_OK(handle, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
+    ASSERT_OK(handle, sk_write_vector(handle, 11, "11.1 11.1 11.1 11.1"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    EXPECT_FALSE(std::filesystem::exists(input_path));
+    EXPECT_NE(api_get(handle, 10).find("[ 10.1"), std::string::npos);
+    EXPECT_NE(api_get(handle, 11).find("[ 11.1"), std::string::npos);
+
+    const std::vector<uint64_t> ids = api_knn(handle, "10.0, 10.0, 10.0, 10.0", 2);
+    ASSERT_EQ(2u, ids.size());
+    EXPECT_EQ(10u, ids[0]);
+    EXPECT_EQ(11u, ids[1]);
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, staged_write_delete_hides_existing_item) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_deleted(handle, 10));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    char* value = nullptr;
+    EXPECT_NE(0, sk_get(handle, 10, &value));
+    EXPECT_EQ(nullptr, value);
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, staged_write_rejects_invalid_call_order) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_connect(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+
+    EXPECT_NE(0, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
+    EXPECT_NE(0, sk_write_deleted(handle, 10));
+    EXPECT_NE(0, sk_complete_writing(handle));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    EXPECT_NE(0, sk_start_writing(handle));
+
+    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_disconnect(handle);
+    std::filesystem::remove_all(root);
+}

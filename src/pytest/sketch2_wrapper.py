@@ -91,6 +91,18 @@ class Sketch2:
         self.lib.sk_print.argtypes = [c_void_p]
         self.lib.sk_print.restype = c_int
 
+        self.lib.sk_start_writing.argtypes = [c_void_p]
+        self.lib.sk_start_writing.restype = c_int
+
+        self.lib.sk_write_vector.argtypes = [c_void_p, c_uint64, c_char_p]
+        self.lib.sk_write_vector.restype = c_int
+
+        self.lib.sk_write_deleted.argtypes = [c_void_p, c_uint64]
+        self.lib.sk_write_deleted.restype = c_int
+
+        self.lib.sk_complete_writing.argtypes = [c_void_p]
+        self.lib.sk_complete_writing.restype = c_int
+
         self.lib.sk_generate.argtypes = [c_void_p, c_uint64, c_uint64, c_int]
         self.lib.sk_generate.restype = c_int
 
@@ -207,6 +219,21 @@ class Sketch2:
 
     def print(self) -> None:
         self._check("sk_print", self.lib.sk_print(self.handle))
+
+    def start_writing(self) -> None:
+        self._check("sk_start_writing", self.lib.sk_start_writing(self.handle))
+
+    def write_vector(self, item_id: int, data: str) -> None:
+        self._check(
+            "sk_write_vector",
+            self.lib.sk_write_vector(self.handle, c_uint64(item_id), data.encode("utf-8")),
+        )
+
+    def write_deleted(self, item_id: int) -> None:
+        self._check("sk_write_deleted", self.lib.sk_write_deleted(self.handle, c_uint64(item_id)))
+
+    def complete_writing(self) -> None:
+        self._check("sk_complete_writing", self.lib.sk_complete_writing(self.handle))
 
     def generate(self, count: int, start_id: int, pattern: int) -> None:
         self._check(

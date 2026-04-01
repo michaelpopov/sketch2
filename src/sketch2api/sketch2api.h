@@ -67,6 +67,30 @@ int sk_get(sk_handle_t* handle, uint64_t id, char** value_out);
 int sk_print(sk_handle_t* handle);
 
 /*
+ * Start a staged write session for the currently open dataset. Subsequent
+ * sk_write_vector() and sk_write_deleted() calls accumulate into a temporary
+ * input file until sk_complete_writing() is called.
+ */
+int sk_start_writing(sk_handle_t* handle);
+
+/*
+ * Append one vector to the active staged write session. The vector payload is
+ * parsed using the current dataset type and dimension.
+ */
+int sk_write_vector(sk_handle_t* handle, uint64_t id, const char* data);
+
+/*
+ * Append one deleted-id marker to the active staged write session.
+ */
+int sk_write_deleted(sk_handle_t* handle, uint64_t id);
+
+/*
+ * Finalize the active staged write session, load the accumulated input into
+ * the current dataset, and remove the temporary input file.
+ */
+int sk_complete_writing(sk_handle_t* handle);
+
+/*
  * Generate test vectors and load them into the current dataset.
  */
 int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);

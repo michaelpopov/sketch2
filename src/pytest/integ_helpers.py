@@ -15,8 +15,16 @@ PYTEST_DIR = str(Path(__file__).resolve().parent)
 
 
 def lib_path() -> str:
-    """Return the path to the sketch2 shared library."""
-    return str(Sketch2._default_lib_path())
+    """Return the preferred path to the sketch2 shared library for tests."""
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root / "bin-dbg" / "libsketch2.so",
+        repo_root / "bin" / "libsketch2.so",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return str(candidates[0])
 
 
 def subprocess_env() -> dict[str, str]:

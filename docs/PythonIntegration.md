@@ -31,8 +31,8 @@ At startup, the `Sketch2` class:
 `sk_connect()` performs native runtime initialization automatically before the
 handle is created.
 
-After that, Python methods such as `create()`, `knn()`, `merge_delta()`, and
-`load_file()` call directly into the shared library.
+After that, Python methods such as `create()`, `knn()`, `start_writing()`,
+and `load_file()` call directly into the shared library.
 
 This means Python is an integration surface for the native engine, not a
 separate implementation.
@@ -42,8 +42,8 @@ separate implementation.
 If `lib_path` is not passed explicitly, the wrapper searches the standard build
 locations in this order:
 
-1. `bin/libsketch2.so`
-2. `bin-dbg/libsketch2.so`
+1. `bin-dbg/libsketch2.so`
+2. `bin/libsketch2.so`
 
 If no file is found, wrapper construction fails with `FileNotFoundError`.
 
@@ -80,12 +80,14 @@ python3 my_script.py
 
 ## Supported Functionality
 
-The Python wrapper supports the main dataset lifecycle and query operations.
+The Python wrapper supports the main dataset lifecycle, staged ingest, and
+query operations.
 
 Supported capabilities include:
 
 - connecting to a Sketch2 database root
 - creating, opening, closing, and dropping datasets
+- staged writing of vectors and deletes
 - bulk loading from generated data or input files
 - merging delta files
 - running KNN queries
@@ -113,6 +115,10 @@ with Sketch2("/tmp/my_workspace") as sk:
 
     vec = sk.get(ids[0])
     print(vec)
+
+    sk.start_writing()
+    sk.write_vector(200, "2.0, 2.0, 2.0, 2.0")
+    sk.complete_writing()
 
     sk.close("items")
 ```
@@ -188,6 +194,31 @@ Closes an open dataset on the current handle.
 ### `merge_delta()`
 
 Merges persisted delta content back into compact data files.
+
+### `start_writing()`
+
+Starts a staged native write session for the currently open dataset.
+
+Subsequent `write_vector()` and `write_deleted()` calls append items to a
+temporary input file until `complete_writing()` is called.
+
+### `write_vector(item_id, data)`
+
+Appends one vector to the active staged write session.
+
+Arguments:
+
+- `item_id`: vector id
+- `data`: vector payload encoded as text
+
+### `write_deleted(item_id)`
+
+Appends one deleted-id marker to the active staged write session.
+
+### `complete_writing()`
+
+Closes the active staged write session, loads the accumulated input into the
+dataset, and removes the temporary input file.
 
 ### `knn(vec, count) -> list[int]`
 

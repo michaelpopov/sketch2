@@ -16,6 +16,10 @@ public:
 
     Ret store(const std::string& input_path);
     Ret merge();
+    Ret start_writing();
+    Ret write_vector(uint64_t id, const char* vector);
+    Ret write_deleted(uint64_t id);
+    Ret complete_writing();
 
     DatasetRangeReaderPtr reader() const;
     std::pair<DataReaderPtr, Ret> get(uint64_t id) const;

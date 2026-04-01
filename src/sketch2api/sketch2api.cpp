@@ -117,6 +117,38 @@ int sk_print(sk_handle_t* handle) {
     }
 }
 
+int sk_start_writing(sk_handle_t* handle) {
+    try {
+        return sk_start_writing_(handle);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
+int sk_write_vector(sk_handle_t* handle, uint64_t id, const char* data) {
+    try {
+        return sk_write_vector_(handle, id, data);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
+int sk_write_deleted(sk_handle_t* handle, uint64_t id) {
+    try {
+        return sk_write_deleted_(handle, id);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
+int sk_complete_writing(sk_handle_t* handle) {
+    try {
+        return sk_complete_writing_(handle);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
 int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
     try {
         return sk_generate_(handle, count, start_id, pattern);
