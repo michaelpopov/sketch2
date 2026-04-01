@@ -35,7 +35,7 @@ The main entry points are:
 sk_handle_t* sk_connect(const char* db_path);
 void sk_disconnect(sk_handle_t* handle);
 
-int sk_create(sk_handle_t* handle, const char* name, unsigned int dim,
+int sk_create(sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim,
               const char* type, unsigned int range_size, const char* dist_func);
 int sk_drop(sk_handle_t* handle, const char* name);
 int sk_open(sk_handle_t* handle, const char* name);

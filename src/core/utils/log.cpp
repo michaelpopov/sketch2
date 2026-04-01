@@ -15,7 +15,7 @@ namespace log {
 namespace {
 
 std::atomic<LogLevel>& level_storage() {
-    static std::atomic<LogLevel> level{LogLevel::Error};
+    static std::atomic<LogLevel> level{LogLevel::Info};
     return level;
 }
 

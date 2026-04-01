@@ -25,8 +25,8 @@ void sk_disconnect(sk_handle_t* handle);
 /*
  * Create dataset metadata, lock file, and data directory under the handler root.
  */
-int sk_create(sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
-    unsigned int range_size, const char* dist_func);
+int sk_create(sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim,
+    const char* type, unsigned int range_size, const char* dist_func);
 
 /*
  * Drop a dataset by name.

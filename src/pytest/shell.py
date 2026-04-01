@@ -27,7 +27,8 @@ def main() -> None:
     args = parse_args()
 
     root = Path(args.db_root)
-    ps = Sketch2(root)
+    ps = Sketch2()
+    ps.connect(root)
     dataset_name = args.dataset
 
     try:

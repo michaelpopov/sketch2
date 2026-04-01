@@ -6,7 +6,7 @@
 namespace sketch2api::detail {
 
 SKETCH2API_HIDDEN int sk_create_(
-    sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
+    sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim, const char* type,
     unsigned int range_size, const char* dist_func);
 SKETCH2API_HIDDEN int sk_drop_(sk_handle_t* handle, const char* name);
 SKETCH2API_HIDDEN int sk_open_(sk_handle_t* handle, const char* name);

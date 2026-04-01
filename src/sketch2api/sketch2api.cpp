@@ -51,10 +51,10 @@ void sk_disconnect(sk_handle_t* handle) {
     delete handle;
 }
 
-int sk_create(sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
+int sk_create(sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim, const char* type,
         unsigned int range_size, const char* dist_func) {
     try {
-        return sk_create_(handle, name, dim, type, range_size, dist_func);
+        return sk_create_(handle, name, dirs, dim, type, range_size, dist_func);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }

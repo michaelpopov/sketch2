@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import ctypes
 from ctypes import POINTER, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
 from pathlib import Path
@@ -22,19 +24,15 @@ class Sketch2:
     The class exists to hide the raw ctypes configuration and expose the
     dataset lifecycle, mutation, query, and diagnostic operations as Python methods.
     """
-    def __init__(self, db_path: str | Path, lib_path: str | Path | None = None):
+    def __init__(self, lib_path: str | Path | None = None):
         self.lib_path = Path(lib_path) if lib_path else self._default_lib_path()
         if not self.lib_path.exists():
             raise FileNotFoundError(f"libsketch2.so not found at: {self.lib_path}")
 
-        self.db_path = Path(db_path)
+        self.db_path: Path | None = None
         self.lib = ctypes.CDLL(str(self.lib_path))
         self._configure()
-
-        self.handle = self.lib.sk_connect(str(self.db_path).encode("utf-8"))
-        if not self.handle:
-            raise RuntimeError("sk_connect() returned null handle")
-
+        self.handle = None
         self._open_datasets: list[str] = []
 
     # Temporary setting for the shared library search path.
@@ -58,7 +56,15 @@ class Sketch2:
         self.lib.sk_disconnect.argtypes = [c_void_p]
         self.lib.sk_disconnect.restype = None
 
-        self.lib.sk_create.argtypes = [c_void_p, c_char_p, c_uint, c_char_p, c_uint, c_char_p]
+        self.lib.sk_create.argtypes = [
+            c_void_p,
+            c_char_p,
+            c_char_p,
+            c_uint,
+            c_char_p,
+            c_uint,
+            c_char_p,
+        ]
         self.lib.sk_create.restype = c_int
 
         self.lib.sk_drop.argtypes = [c_void_p, c_char_p]
@@ -124,6 +130,18 @@ class Sketch2:
         self.lib.sk_error_message.argtypes = [c_void_p]
         self.lib.sk_error_message.restype = c_char_p
 
+    @staticmethod
+    def _format_dirs_arg(dirs: str | Iterable[str] | None) -> bytes | None:
+        if dirs is None:
+            return None
+        if isinstance(dirs, (bytes, bytearray)):
+            return bytes(dirs)
+        if isinstance(dirs, str):
+            return dirs.encode("utf-8")
+        if isinstance(dirs, Iterable):
+            return ", ".join(str(entry) for entry in dirs).encode("utf-8")
+        raise TypeError("dirs must be None, a string, bytes, or an iterable of strings")
+
     def close_handle(self) -> None:
         if self.handle:
             for name in self._open_datasets:
@@ -135,33 +153,54 @@ class Sketch2:
             self.lib.sk_disconnect(self.handle)
             self.handle = None
 
+    def connect(self, db_path: str | Path) -> None:
+        if self.handle:
+            raise RuntimeError("Sketch2 handle is already connected")
+        self.db_path = Path(db_path)
+        self.handle = self.lib.sk_connect(str(self.db_path).encode("utf-8"))
+        if not self.handle:
+            raise RuntimeError("sk_connect() returned null handle")
+
+    def disconnect(self) -> None:
+        self.close_handle()
+
     def __enter__(self) -> "Sketch2":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close_handle()
 
+    def _require_connected(self) -> None:
+        if not self.handle:
+            raise RuntimeError("Sketch2 handle is not connected. Call connect() first.")
+
     def _check(self, operation: str, rc: int) -> None:
+        self._require_connected()
         if rc == 0:
             return
         raise Sketch2Error(operation, self.error_message(), self.error())
 
     def error(self) -> int:
+        self._require_connected()
         return int(self.lib.sk_error(self.handle))
 
     def error_message(self) -> str:
+        self._require_connected()
         msg = self.lib.sk_error_message(self.handle)
         if not msg:
             return ""
         return msg.decode("utf-8", errors="replace")
 
     def create(self, name: str, type_name: str = "f32", dim: int = 4,
-               range_size: int = 1000, dist_func: str = "l1") -> None:
+               range_size: int = 1000, dist_func: str = "l1",
+               dirs: str | Iterable[str] | None = None) -> None:
+        dirs_arg = self._format_dirs_arg(dirs)
         self._check(
             "sk_create",
             self.lib.sk_create(
                 self.handle,
                 name.encode("utf-8"),
+                dirs_arg,
                 c_uint(dim),
                 type_name.encode("utf-8"),
                 c_uint(range_size),

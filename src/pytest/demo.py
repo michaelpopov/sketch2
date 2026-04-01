@@ -141,7 +141,7 @@ def default_extension_path() -> Path:
 
 
 def dataset_ini_path(root: Path, dataset_name: str) -> Path:
-    return root / f"{dataset_name}.ini"
+    return root / dataset_name / f"{dataset_name}.ini"
 
 
 def load_dataset_with_binary_generator(ps: Sketch2, from_id: int, count: int) -> tuple[float, float]:
@@ -326,7 +326,8 @@ def run_demo(
         if sketch2_lib is not None:
             log_step(f"using Sketch2 library override: {sketch2_lib}")
         log_step(f"using SQLite extension: {extension_path}")
-        with Sketch2(root, lib_path=sketch2_lib) as ps:
+        with Sketch2(lib_path=sketch2_lib) as ps:
+            ps.connect(root)
             log_step(f"connected to libsketch2: {ps.lib_path}")
             log_step(
                 f"creating dataset '{dataset_name}' "
