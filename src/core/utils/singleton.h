@@ -3,16 +3,16 @@
 // Singleton exists to hold process-wide runtime configuration shared by the
 // utilities library. The key behavior is that initialization is not performed
 // at shared-library load time; it begins only when an integration surface such
-// as sk_connect() or sqlite3_sketch2_init() triggers sketch2_runtime_init().
+// as sk_new_handler() or sqlite3_sketch2_init() triggers sketch2_runtime_init().
 //
 // Expected initialization flow:
 //   1. the host process sets env vars such as SKETCH2_CONFIG,
 //      SKETCH2_LOG_LEVEL, SKETCH2_THREAD_POOL_SIZE, or SKETCH2_LOG_FILE
-//   2. a library entry point such as sk_connect() triggers sketch2_runtime_init()
+//   2. a library entry point such as sk_new_handler() triggers sketch2_runtime_init()
 //   3. the singleton merges config and keeps the resulting process-wide state
 //
 // In this codebase, runtime init is triggered from:
-// - sk_connect() in the Parasol C API
+// - sk_new_handler() in the Parasol C API
 // - sqlite3_sketch2_init() when the SQLite extension is loaded directly
 //
 // Compute backend selection is also process-wide. The singleton chooses the

@@ -28,7 +28,7 @@ namespace {
 
 } // namespace
 
-sk_handle_t* sk_connect(const char* db_path) {
+sk_handle_t* sk_new_handler(const char* db_path) {
     try {
         if (db_path == nullptr || db_path[0] == '\0') {
             return nullptr;
@@ -47,14 +47,14 @@ sk_handle_t* sk_connect(const char* db_path) {
     }
 }
 
-void sk_disconnect(sk_handle_t* handle) {
+void sk_release_handler(sk_handle_t* handle) {
     delete handle;
 }
 
-int sk_create(sk_handle_t* handle, const char* name, unsigned int dim, const char* type,
+int sk_create(sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim, const char* type,
         unsigned int range_size, const char* dist_func) {
     try {
-        return sk_create_(handle, name, dim, type, range_size, dist_func);
+        return sk_create_(handle, name, dirs, dim, type, range_size, dist_func);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }

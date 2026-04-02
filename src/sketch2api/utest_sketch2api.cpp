@@ -68,15 +68,16 @@ std::vector<uint64_t> api_knn(sk_handle_t* handle, const char* vec, unsigned int
 TEST(sketch2api, create_open_close_drop_lifecycle) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
-    ASSERT_OK(handle, sk_create(handle, "dataset", 4, "f32", 1000, "l1"));
-    EXPECT_TRUE(std::filesystem::exists(root / "dataset"));
-    EXPECT_TRUE(std::filesystem::exists(root / "dataset.ini"));
-    EXPECT_TRUE(std::filesystem::exists(root / "dataset.lock"));
+    ASSERT_OK(handle, sk_create(handle, "dataset", nullptr, 4, "f32", 1000, "l1"));
+    const std::filesystem::path dataset_dir = root / "dataset";
+    EXPECT_TRUE(std::filesystem::exists(dataset_dir));
+    EXPECT_TRUE(std::filesystem::exists(dataset_dir / "dataset.ini"));
+    EXPECT_TRUE(std::filesystem::exists(dataset_dir / "dataset.lock"));
 
-    const std::string ini = read_file(root / "dataset.ini");
+    const std::string ini = read_file(dataset_dir / "dataset.ini");
     EXPECT_NE(ini.find("[dataset]\n"), std::string::npos);
     EXPECT_NE(ini.find("dirs=" + (root / "dataset").string() + "\n"), std::string::npos);
     EXPECT_NE(ini.find("range_size=1000\n"), std::string::npos);
@@ -87,17 +88,17 @@ TEST(sketch2api, create_open_close_drop_lifecycle) {
     EXPECT_OK(handle, sk_close(handle, "dataset"));
     EXPECT_OK(handle, sk_drop(handle, "dataset"));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, reopen_restores_pending_wal_for_get_and_knn) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     const std::filesystem::path input_path = root / "vectors.txt";
     {
         std::ofstream out(input_path);
@@ -120,17 +121,17 @@ TEST(sketch2api, reopen_restores_pending_wal_for_get_and_knn) {
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, generate_stats_and_print_smoke) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     ASSERT_OK(handle, sk_generate(handle, 8, 10, 0));
 
     testing::internal::CaptureStdout();
@@ -152,17 +153,17 @@ TEST(sketch2api, generate_stats_and_print_smoke) {
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, generate_bin_creates_and_loads_binary_input) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     ASSERT_OK(handle, sk_generate_bin(handle, 8, 10, 0));
 
     EXPECT_NE(api_get(handle, 10).find("[ 10.1"), std::string::npos);
@@ -174,7 +175,7 @@ TEST(sketch2api, generate_bin_creates_and_loads_binary_input) {
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
@@ -192,10 +193,10 @@ TEST(sketch2api, load_file_accepts_binary_input) {
     cfg.binary = true;
     ASSERT_EQ(0, sketch2::generate_input_file(input_path.string(), cfg).code());
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     ASSERT_OK(handle, sk_load_file(handle, input_path.string().c_str()));
 
     EXPECT_NE(api_get(handle, 20).find("[ 20.1"), std::string::npos);
@@ -203,43 +204,43 @@ TEST(sketch2api, load_file_accepts_binary_input) {
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, close_requires_matching_name) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     EXPECT_NE(0, sk_close(handle, "other"));
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, create_rejects_invalid_distance_function) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
-    EXPECT_NE(0, sk_create(handle, "ds", 4, "f32", 1000, "cosine"));
+    EXPECT_NE(0, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "cosine"));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     int pipefd[2];
     ASSERT_EQ(0, pipe(pipefd));
@@ -248,7 +249,7 @@ TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
     ASSERT_GE(pid, 0);
     if (pid == 0) {
         close(pipefd[0]);
-        sk_handle_t* child = sk_connect(root.string().c_str());
+        sk_handle_t* child = sk_new_handler(root.string().c_str());
         if (child == nullptr) {
             _exit(10);
         }
@@ -266,7 +267,7 @@ TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
         if (sk_close(child, "ds") != 0) {
             _exit(14);
         }
-        sk_disconnect(child);
+        sk_release_handler(child);
         close(pipefd[1]);
         _exit(0);
     }
@@ -287,44 +288,44 @@ TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
     ASSERT_TRUE(WIFEXITED(status));
     EXPECT_EQ(0, WEXITSTATUS(status));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, get_rejects_null_output_parameter) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     EXPECT_NE(0, sk_get(handle, 1, nullptr));
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, knn_rejects_null_output_parameters) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     EXPECT_NE(0, sk_knn(handle, "0.0, 0.0, 0.0, 0.0", 1, nullptr, nullptr));
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_write_creates_data_and_removes_input_file) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     const std::filesystem::path input_path = root / "ds" / "sketch2.owner.input";
     ASSERT_OK(handle, sk_start_writing(handle));
@@ -344,16 +345,16 @@ TEST(sketch2api, staged_write_creates_data_and_removes_input_file) {
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_write_delete_hides_existing_item) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     ASSERT_OK(handle, sk_start_writing(handle));
     ASSERT_OK(handle, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
@@ -369,16 +370,16 @@ TEST(sketch2api, staged_write_delete_hides_existing_item) {
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_write_rejects_invalid_call_order) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     EXPECT_NE(0, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
     EXPECT_NE(0, sk_write_deleted(handle, 10));
@@ -390,16 +391,16 @@ TEST(sketch2api, staged_write_rejects_invalid_call_order) {
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_abort_removes_input_file_and_allows_restart) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     const std::filesystem::path input_path = root / "ds" / "sketch2.owner.input";
 
@@ -420,16 +421,16 @@ TEST(sketch2api, staged_abort_removes_input_file_and_allows_restart) {
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_write_many_vectors_then_knn) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     ASSERT_OK(handle, sk_start_writing(handle));
     for (uint64_t id = 0; id < 100; ++id) {
@@ -449,16 +450,16 @@ TEST(sketch2api, staged_write_many_vectors_then_knn) {
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_write_mixed_vectors_and_deletes) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     // First session: create all vectors
     ASSERT_OK(handle, sk_start_writing(handle));
@@ -483,16 +484,16 @@ TEST(sketch2api, staged_write_mixed_vectors_and_deletes) {
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_write_multiple_sessions_accumulate) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     ASSERT_OK(handle, sk_start_writing(handle));
     ASSERT_OK(handle, sk_write_vector(handle, 10, "10.0, 10.0, 10.0, 10.0"));
@@ -516,16 +517,16 @@ TEST(sketch2api, staged_write_multiple_sessions_accumulate) {
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_write_rejects_null_and_empty_vector) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", 4, "f32", 1000, "l1"));
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
     ASSERT_OK(handle, sk_start_writing(handle));
     EXPECT_NE(0, sk_write_vector(handle, 1, nullptr));
@@ -533,14 +534,14 @@ TEST(sketch2api, staged_write_rejects_null_and_empty_vector) {
 
     EXPECT_OK(handle, sk_close(handle, "ds"));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
 TEST(sketch2api, staged_write_without_open_dataset_fails) {
     const std::filesystem::path root = make_temp_dir();
 
-    sk_handle_t* handle = sk_connect(root.string().c_str());
+    sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
     EXPECT_NE(0, sk_start_writing(handle));
@@ -548,6 +549,6 @@ TEST(sketch2api, staged_write_without_open_dataset_fails) {
     EXPECT_NE(0, sk_write_deleted(handle, 1));
     EXPECT_NE(0, sk_complete_writing(handle));
 
-    sk_disconnect(handle);
+    sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }

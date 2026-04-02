@@ -14,49 +14,42 @@ BENCH_TMPDIR ?= /tmp
 all: build
 
 # --- Build directory initialization ---
-# These are real-file targets keyed on CMakeCache.txt so cmake only runs once.
-# Use 'make initdbg / initrel / initsan' to re-run configuration explicitly.
+# Always re-run configuration so the directory matches the requested build type.
 
 # Install required dependencies on Ubuntu
 .PHONY: install
 install:
 	sudo apt update && sudo apt install -y build-essential cmake ninja-build -y
 
-$(BUILD_DBG)/CMakeCache.txt:
+.PHONY: initdbg
+initdbg:
 	cmake -S . -B $(BUILD_DBG) -DCMAKE_BUILD_TYPE=Debug
 
-$(BUILD_REL)/CMakeCache.txt:
+.PHONY: initrel
+initrel:
 	cmake -S . -B $(BUILD_REL) -DCMAKE_BUILD_TYPE=Release
 
-$(BUILD_SAN)/CMakeCache.txt:
-	cmake -S . -B $(BUILD_SAN) -DCMAKE_BUILD_TYPE=Sanitizer
-
-.PHONY: initdbg
-initdbg: $(BUILD_DBG)/CMakeCache.txt
-
-.PHONY: initrel
-initrel: $(BUILD_REL)/CMakeCache.txt
-
 .PHONY: initsan
-initsan: $(BUILD_SAN)/CMakeCache.txt
+initsan:
+	cmake -S . -B $(BUILD_SAN) -DCMAKE_BUILD_TYPE=Sanitizer
 
 # Compiles the project in debug build (initializes build-dbg if needed)
 .PHONY: build
-build: $(BUILD_DBG)/CMakeCache.txt
+build: initdbg
 	@test -d bin-dbg || mkdir -p bin-dbg
 	@test -d "$(BUILD_DBG)" || mkdir -p "$(BUILD_DBG)"
 	cmake --build $(BUILD_DBG) --parallel $(JOBS)
 
 # Compiles the project in release build (initializes build if needed)
 .PHONY: rel
-rel: $(BUILD_REL)/CMakeCache.txt
+rel: initrel
 	@test -d bin || mkdir -p bin
 	@test -d "$(BUILD_REL)" || mkdir -p "$(BUILD_REL)"
 	cmake --build $(BUILD_REL) --parallel $(JOBS)
 
 # Compiles the project in sanitizer build (initializes build-san if needed)
 .PHONY: san
-san: $(BUILD_SAN)/CMakeCache.txt
+san: initsan
 	@test -d "$(BUILD_SAN)" || mkdir -p "$(BUILD_SAN)"
 	cmake --build $(BUILD_SAN) --parallel $(JOBS)
 

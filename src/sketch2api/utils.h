@@ -37,7 +37,7 @@ struct sk_handle {
 
 namespace sketch2api::detail {
 
-SKETCH2API_HIDDEN void set_error(sk_handle_t* handle, const char* message);
+SKETCH2API_HIDDEN void set_error(sk_handle_t* handle, const std::string& message);
 SKETCH2API_HIDDEN bool is_valid_dataset_name(const char* name);
 SKETCH2API_HIDDEN std::filesystem::path dataset_dir_path(const sk_handle_t* handle, const char* name);
 SKETCH2API_HIDDEN std::filesystem::path dataset_ini_path(const sk_handle_t* handle, const char* name);

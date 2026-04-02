@@ -141,7 +141,7 @@ def default_extension_path() -> Path:
 
 
 def dataset_ini_path(root: Path, dataset_name: str) -> Path:
-    return root / f"{dataset_name}.ini"
+    return root / dataset_name / f"{dataset_name}.ini"
 
 
 def load_dataset_with_binary_generator(ps: Sketch2, from_id: int, count: int) -> tuple[float, float]:

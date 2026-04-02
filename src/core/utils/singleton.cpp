@@ -173,6 +173,7 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
     }
 
     if (!config_path.empty()) {
+        LOG_INFO << "Initialize from file " << config_path;
         IniReader reader;
         const Ret ret = reader.init(config_path);
         if (ret.code() == 0) {
@@ -187,17 +188,20 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
 
     const char* env_level = std::getenv("SKETCH2_LOG_LEVEL");
     if (env_level != nullptr && env_level[0] != '\0') {
+        LOG_INFO << "Log level is set in env var: " << env_level;
         merged.level = env_level;
-    }
-
-    const char* env_thread_pool_size = std::getenv("SKETCH2_THREAD_POOL_SIZE");
-    if (env_thread_pool_size != nullptr && env_thread_pool_size[0] != '\0') {
-        merged.thread_pool_size = env_thread_pool_size;
     }
 
     const char* env_log_file = std::getenv("SKETCH2_LOG_FILE");
     if (env_log_file != nullptr && env_log_file[0] != '\0') {
+        LOG_INFO << "Log file is set in env var: " << env_log_file;
         merged.log_file = env_log_file;
+    }
+
+    const char* env_thread_pool_size = std::getenv("SKETCH2_THREAD_POOL_SIZE");
+    if (env_thread_pool_size != nullptr && env_thread_pool_size[0] != '\0') {
+        LOG_INFO << "Thread pool size is set in env var: " << env_thread_pool_size;
+        merged.thread_pool_size = env_thread_pool_size;
     }
 
     *values = std::move(merged);

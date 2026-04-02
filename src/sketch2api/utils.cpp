@@ -12,12 +12,12 @@ namespace sketch2api::detail {
 
 using namespace sketch2;
 
-void set_error(sk_handle_t* handle, const char* message) {
+void set_error(sk_handle_t* handle, const std::string& message) {
     if (handle == nullptr) {
         return;
     }
     handle->error = -1;
-    std::strncpy(handle->message, message, sizeof(handle->message) - 1);
+    std::strncpy(handle->message, message.c_str(), sizeof(handle->message) - 1);
     handle->message[sizeof(handle->message) - 1] = '\0';
 }
 
@@ -46,11 +46,13 @@ std::filesystem::path dataset_dir_path(const sk_handle_t* handle, const char* na
 }
 
 std::filesystem::path dataset_ini_path(const sk_handle_t* handle, const char* name) {
-    return std::filesystem::path(handle->db_root) / (std::string(name) + ".ini");
+    const auto dataset_path = dataset_dir_path(handle, name);
+    return dataset_path / (std::string(name) + ".ini");
 }
 
 std::filesystem::path dataset_lock_path(const sk_handle_t* handle, const char* name) {
-    return std::filesystem::path(handle->db_root) / (std::string(name) + ".lock");
+    const auto dataset_path = dataset_dir_path(handle, name);
+    return dataset_path / (std::string(name) + ".lock");
 }
 
 void clear_cached_results(sk_handle_t* handle) {
