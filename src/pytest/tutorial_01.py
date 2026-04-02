@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from sketch2_utils import get_connect_path, get_lib_paths, load_sketch2_types
+from sketch2_utils import get_db_path, get_lib_paths, load_sketch2_types
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,10 +18,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def create_dataset(sketch2, connect_path: Path, dataset_name: str) -> None:
-    dataset_dir = connect_path / dataset_name
+def create_dataset(sketch2, db_path: Path, dataset_name: str) -> None:
+    dataset_dir = db_path / dataset_name
 
-    dirs_count = 4
+    dirs_count = 1
     dirs: list[Path] = []
     for index in range(dirs_count):
         dir = dataset_dir / f"part_{index:02d}"
@@ -31,30 +31,28 @@ def create_dataset(sketch2, connect_path: Path, dataset_name: str) -> None:
         dataset_name,
         dirs=dirs,
         type_name="f16",
-        dim=1536,
+        dim=8,
         range_size=10000,
         dist_func="l1",
     )
 
 def main() -> None:
-    args = parse_args()
     lib_dir, lib_path = get_lib_paths()
-    connect_path = get_connect_path()
-
-    dataset_name = args.dataset
-
     Sketch2, Sketch2Error = load_sketch2_types(lib_dir)
 
+    args = parse_args()
+    db_path = get_db_path()
+    dataset_name = args.dataset
+
     try:
-        with Sketch2(lib_path=lib_path) as sketch2:
-            sketch2.connect(connect_path)
-            print(f"Connected Sketch2 in {connect_path}")
+        with Sketch2(db_path, lib_path=lib_path) as sketch2:
+            print(f"Opened Sketch2 database in {db_path}")
 
             try:
                 sketch2.open(dataset_name)
                 print(f"Opened dataset '{dataset_name}' successfully")
             except Sketch2Error:
-                create_dataset(sketch2, connect_path, dataset_name)
+                create_dataset(sketch2, db_path, dataset_name)
                 print(f"Created dataset '{dataset_name}'")
 
             sketch2.close(dataset_name)
@@ -63,8 +61,6 @@ def main() -> None:
             sketch2.drop(dataset_name)
             print(f"Dropped dataset '{dataset_name}' successfully")
 
-            sketch2.disconnect()
-            print(f"Disconnected Sketch2 in {connect_path}")
     except Sketch2Error as exc:
         raise SystemExit(exc) from exc
 

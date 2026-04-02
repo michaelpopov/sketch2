@@ -26,7 +26,7 @@ def get_lib_paths() -> Tuple[Path, Path]:
     return lib_dir, lib_path
 
 
-def get_connect_path() -> Path:
+def get_db_path() -> Path:
     raw = os.environ.get("SKETCH2_CONFIG")
     if not raw:
         raise SystemExit("SKETCH2_CONFIG must point to the config file used by Sketch2")

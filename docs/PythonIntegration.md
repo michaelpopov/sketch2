@@ -26,9 +26,9 @@ At startup, the `Sketch2` class:
 1. locates `libsketch2.so`
 2. loads it with `ctypes.CDLL(...)`
 3. configures the C function signatures
-4. opens a Sketch2 handle with `sk_connect()`
+4. opens a Sketch2 handle with `sk_new_handler()`
 
-`sk_connect()` performs native runtime initialization automatically before the
+`sk_new_handler()` performs native runtime initialization automatically before the
 handle is created.
 
 After that, Python methods such as `create()`, `knn()`, `start_writing()`,
@@ -148,7 +148,7 @@ There is no separate Python `connect()` method in the wrapper.
 Connection happens inside `Sketch2(db_path, lib_path=None)`:
 
 - the wrapper loads `libsketch2.so`
-- connects to the database root with `sk_connect()`
+- connects to the database root with `sk_new_handler()`
 
 So, in Python, object construction is the connect step.
 

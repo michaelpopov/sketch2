@@ -77,8 +77,7 @@ class IntegTestBase(unittest.TestCase):
 
     def tearDown(self) -> None:
         try:
-            with Sketch2() as ps:
-                ps.connect(self.root)
+            with Sketch2(self.root) as ps:
                 ps.drop(self.dataset_name)
         except Exception:
             pass

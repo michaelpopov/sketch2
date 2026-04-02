@@ -9,8 +9,7 @@ from sketch2_wrapper import Sketch2
 class Sketch2StagedWriteIntegTest(IntegTestBase):
     def test_staged_write_then_knn(self) -> None:
         self.progress("creating dataset and writing staged vectors")
-        with Sketch2(lib_path=lib_path()) as ps:
-            ps.connect(self.root)
+        with Sketch2(self.root, lib_path=lib_path()) as ps:
             ps.create(self.dataset_name, type_name="f32", dim=4, range_size=1000, dist_func="l1")
             ps.start_writing()
             ps.write_vector(10, "0.0, 0.0, 0.0, 0.0")
@@ -24,8 +23,7 @@ class Sketch2StagedWriteIntegTest(IntegTestBase):
 
     def test_staged_delete_updates_knn_visibility(self) -> None:
         self.progress("writing initial vectors and deleting one via staged API")
-        with Sketch2(lib_path=lib_path()) as ps:
-            ps.connect(self.root)
+        with Sketch2(self.root, lib_path=lib_path()) as ps:
             ps.create(self.dataset_name, type_name="f32", dim=4, range_size=1000, dist_func="l1")
             ps.start_writing()
             ps.write_vector(10, "0.0, 0.0, 0.0, 0.0")
@@ -43,8 +41,7 @@ class Sketch2StagedWriteIntegTest(IntegTestBase):
 
     def test_staged_abort_discards_session_and_allows_restart(self) -> None:
         self.progress("writing staged data and aborting the session")
-        with Sketch2(lib_path=lib_path()) as ps:
-            ps.connect(self.root)
+        with Sketch2(self.root, lib_path=lib_path()) as ps:
             ps.create(self.dataset_name, type_name="f32", dim=4, range_size=1000, dist_func="l1")
             ps.start_writing()
             ps.write_vector(10, "0.0, 0.0, 0.0, 0.0")

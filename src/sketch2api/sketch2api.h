@@ -15,12 +15,12 @@ typedef struct sk_handle sk_handle_t;
 /*
  * Initialize a handler for a database root directory.
  */
-sk_handle_t* sk_connect(const char* db_path);
+sk_handle_t* sk_new_handler(const char* db_path);
 
 /*
  * Release resources associated with a handler.
  */
-void sk_disconnect(sk_handle_t* handle);
+void sk_release_handler(sk_handle_t* handle);
 
 /*
  * Create dataset metadata, lock file, and data directory under the handler root.

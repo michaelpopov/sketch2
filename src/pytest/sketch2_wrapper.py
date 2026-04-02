@@ -24,15 +24,17 @@ class Sketch2:
     The class exists to hide the raw ctypes configuration and expose the
     dataset lifecycle, mutation, query, and diagnostic operations as Python methods.
     """
-    def __init__(self, lib_path: str | Path | None = None):
+    def __init__(self, db_path: str | Path, lib_path: str | Path | None = None):
         self.lib_path = Path(lib_path) if lib_path else self._default_lib_path()
         if not self.lib_path.exists():
             raise FileNotFoundError(f"libsketch2.so not found at: {self.lib_path}")
 
-        self.db_path: Path | None = None
+        self.db_path = Path(db_path)
         self.lib = ctypes.CDLL(str(self.lib_path))
         self._configure()
-        self.handle = None
+        self.handle = self.lib.sk_new_handler(str(self.db_path).encode("utf-8"))
+        if not self.handle:
+            raise RuntimeError("sk_new_handler() returned null handle")
         self._open_datasets: list[str] = []
 
     # Temporary setting for the shared library search path.
@@ -50,11 +52,11 @@ class Sketch2:
         return candidates[0]
 
     def _configure(self) -> None:
-        self.lib.sk_connect.argtypes = [c_char_p]
-        self.lib.sk_connect.restype = c_void_p
+        self.lib.sk_new_handler.argtypes = [c_char_p]
+        self.lib.sk_new_handler.restype = c_void_p
 
-        self.lib.sk_disconnect.argtypes = [c_void_p]
-        self.lib.sk_disconnect.restype = None
+        self.lib.sk_release_handler.argtypes = [c_void_p]
+        self.lib.sk_release_handler.restype = None
 
         self.lib.sk_create.argtypes = [
             c_void_p,
@@ -150,19 +152,8 @@ class Sketch2:
                 except Exception:
                     pass
             self._open_datasets.clear()
-            self.lib.sk_disconnect(self.handle)
+            self.lib.sk_release_handler(self.handle)
             self.handle = None
-
-    def connect(self, db_path: str | Path) -> None:
-        if self.handle:
-            raise RuntimeError("Sketch2 handle is already connected")
-        self.db_path = Path(db_path)
-        self.handle = self.lib.sk_connect(str(self.db_path).encode("utf-8"))
-        if not self.handle:
-            raise RuntimeError("sk_connect() returned null handle")
-
-    def disconnect(self) -> None:
-        self.close_handle()
 
     def __enter__(self) -> "Sketch2":
         return self
@@ -172,7 +163,7 @@ class Sketch2:
 
     def _require_connected(self) -> None:
         if not self.handle:
-            raise RuntimeError("Sketch2 handle is not connected. Call connect() first.")
+            raise RuntimeError("Sketch2 handle is not connected.")
 
     def _check(self, operation: str, rc: int) -> None:
         self._require_connected()

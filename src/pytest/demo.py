@@ -326,8 +326,7 @@ def run_demo(
         if sketch2_lib is not None:
             log_step(f"using Sketch2 library override: {sketch2_lib}")
         log_step(f"using SQLite extension: {extension_path}")
-        with Sketch2(lib_path=sketch2_lib) as ps:
-            ps.connect(root)
+        with Sketch2(root, lib_path=sketch2_lib) as ps:
             log_step(f"connected to libsketch2: {ps.lib_path}")
             log_step(
                 f"creating dataset '{dataset_name}' "
