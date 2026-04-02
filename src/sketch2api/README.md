@@ -32,8 +32,8 @@ The API follows a simple status-code pattern:
 The main entry points are:
 
 ```c
-sk_handle_t* sk_new_handler(const char* db_path);
-void sk_release_handler(sk_handle_t* handle);
+sk_handle_t* sk_new_handle(const char* db_path);
+void sk_release_handle(sk_handle_t* handle);
 
 int sk_create(sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim,
               const char* type, unsigned int range_size, const char* dist_func);
@@ -107,7 +107,7 @@ if (sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1") != 0) {
 
 ## Startup Initialization
 
-Sketch2 runtime initialization happens automatically from `sk_new_handler()`.
+Sketch2 runtime initialization happens automatically from `sk_new_handle()`.
 
 That call applies process-wide runtime configuration before the handle is
 created, so callers do not need a separate startup step.
@@ -134,20 +134,20 @@ This prevents process-wide behavior from mutating halfway through execution.
 
 ## Python Wrapper Behavior
 
-The Python wrapper in `src/pytest/sketch2_wrapper.py` relies on `sk_new_handler()`
+The Python wrapper in `src/pytest/sketch2_wrapper.py` relies on `sk_new_handle()`
 to perform runtime initialization automatically.
 
 If you are using the C API directly from another host, setting environment
-variables before `sk_new_handler()` is enough:
+variables before `sk_new_handle()` is enough:
 
 ```c
 setenv("SKETCH2_LOG_LEVEL", "DEBUG", 1);
 setenv("SKETCH2_THREAD_POOL_SIZE", "8", 1);
 
-sk_handle_t* handle = sk_new_handler("/tmp/my_db");
+sk_handle_t* handle = sk_new_handle("/tmp/my_db");
 ```
 
-If `sk_new_handler()` returns `NULL`, handle creation failed before a handle-local
+If `sk_new_handle()` returns `NULL`, handle creation failed before a handle-local
 error object existed, so the caller should treat that as a connection/setup
 failure rather than trying to read `sk_error_message()`.
 

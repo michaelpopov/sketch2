@@ -24,8 +24,8 @@ def create_dataset(sketch2, db_path: Path, dataset_name: str) -> None:
     dirs_count = 1
     dirs: list[Path] = []
     for index in range(dirs_count):
-        dir = dataset_dir / f"part_{index:02d}"
-        dirs.append(dir)
+        dir_path = dataset_dir / f"part_{index:02d}"
+        dirs.append(dir_path)
 
     sketch2.create(
         dataset_name,

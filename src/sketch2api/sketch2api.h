@@ -13,17 +13,17 @@ extern "C" {
 typedef struct sk_handle sk_handle_t;
 
 /*
- * Initialize a handler for a database root directory.
+ * Initialize a handle for a database root directory.
  */
-sk_handle_t* sk_new_handler(const char* db_path);
+sk_handle_t* sk_new_handle(const char* db_path);
 
 /*
- * Release resources associated with a handler.
+ * Release resources associated with a handle.
  */
-void sk_release_handler(sk_handle_t* handle);
+void sk_release_handle(sk_handle_t* handle);
 
 /*
- * Create dataset metadata, lock file, and data directory under the handler root.
+ * Create dataset metadata, lock file, and data directory under the handle root.
  */
 int sk_create(sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim,
     const char* type, unsigned int range_size, const char* dist_func);

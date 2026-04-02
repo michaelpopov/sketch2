@@ -32,9 +32,9 @@ class Sketch2:
         self.db_path = Path(db_path)
         self.lib = ctypes.CDLL(str(self.lib_path))
         self._configure()
-        self.handle = self.lib.sk_new_handler(str(self.db_path).encode("utf-8"))
+        self.handle = self.lib.sk_new_handle(str(self.db_path).encode("utf-8"))
         if not self.handle:
-            raise RuntimeError("sk_new_handler() returned null handle")
+            raise RuntimeError("sk_new_handle() returned null handle")
 
     # Temporary setting for the shared library search path.
     # TODO: Think about a better way to set it.
@@ -51,11 +51,11 @@ class Sketch2:
         return candidates[0]
 
     def _configure(self) -> None:
-        self.lib.sk_new_handler.argtypes = [c_char_p]
-        self.lib.sk_new_handler.restype = c_void_p
+        self.lib.sk_new_handle.argtypes = [c_char_p]
+        self.lib.sk_new_handle.restype = c_void_p
 
-        self.lib.sk_release_handler.argtypes = [c_void_p]
-        self.lib.sk_release_handler.restype = None
+        self.lib.sk_release_handle.argtypes = [c_void_p]
+        self.lib.sk_release_handle.restype = None
 
         self.lib.sk_create.argtypes = [
             c_void_p,
@@ -145,7 +145,7 @@ class Sketch2:
 
     def close_handle(self) -> None:
         if self.handle:
-            self.lib.sk_release_handler(self.handle)
+            self.lib.sk_release_handle(self.handle)
             self.handle = None
 
     def __enter__(self) -> "Sketch2":

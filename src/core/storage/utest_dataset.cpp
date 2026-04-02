@@ -281,7 +281,7 @@ TEST_F(DatasetTest, StoreFailsOnBadInputPath) {
 TEST_F(DatasetTest, StoreFailsOnBadOutputDir) {
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
     DatasetNode sc;
-    ASSERT_EQ(0, sc.init_for_test({"/nonexistent/output/dir"}, 100, DataType::f32, 4).code());
+    ASSERT_NE(0, sc.init_for_test({"/nonexistent/output/dir"}, 100, DataType::f32, 4).code());
     EXPECT_NE(0, sc.store(input_path_).code());
 }
 

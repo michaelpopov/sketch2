@@ -28,7 +28,7 @@ namespace {
 
 } // namespace
 
-sk_handle_t* sk_new_handler(const char* db_path) {
+sk_handle_t* sk_new_handle(const char* db_path) {
     try {
         if (db_path == nullptr || db_path[0] == '\0') {
             return nullptr;
@@ -47,7 +47,7 @@ sk_handle_t* sk_new_handler(const char* db_path) {
     }
 }
 
-void sk_release_handler(sk_handle_t* handle) {
+void sk_release_handle(sk_handle_t* handle) {
     delete handle;
 }
 

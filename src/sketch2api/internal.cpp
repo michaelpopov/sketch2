@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
+#include <experimental/scope>
 #include <filesystem>
 #include <limits>
 #include <string>
@@ -139,10 +140,23 @@ int sk_create_(sk_handle_t* handle, const char* name, const char* dirs, unsigned
         ERR(log_prefix + "Dataset already exists")
     }
 
+    const std::vector<std::filesystem::path> data_dirs = resolve_data_dirs(dirs, dir_path);
+    const std::string dirs_value = join_dirs(data_dirs);
+
+    // Roll back all created filesystem artifacts on any failure below.
+    bool success = false;
+    std::experimental::scope_exit cleanup([&]() {
+        if (success) return;
+        std::error_code ec;
+        for (const auto& dd : data_dirs) {
+            std::filesystem::remove_all(dd, ec);
+        }
+        std::filesystem::remove_all(dir_path, ec);
+    });
+
     LOG_TRACE << log_prefix << "Create directory " << dir_path;
     std::filesystem::create_directories(dir_path);
 
-    const std::vector<std::filesystem::path> data_dirs = resolve_data_dirs(dirs, dir_path);
     for (const auto& data_dir : data_dirs) {
         std::error_code ec;
         LOG_TRACE << log_prefix << "Create directory " << data_dir;
@@ -151,7 +165,6 @@ int sk_create_(sk_handle_t* handle, const char* name, const char* dirs, unsigned
             ERR(log_prefix + "Failed to create dataset directories " + data_dir.string())
         }
     }
-    const std::string dirs_value = join_dirs(data_dirs);
 
     LOG_TRACE << log_prefix << "Write config file " << ini_path;
     FILE* ini = std::fopen(ini_path.c_str(), "w");
@@ -189,6 +202,7 @@ int sk_create_(sk_handle_t* handle, const char* name, const char* dirs, unsigned
         ERR(log_prefix + "Failed to write dataset lock file " + lock_path.string())
     }
 
+    success = true;
     LOG_TRACE << log_prefix << "Completed successfully.";
     return sk_open(handle, name);
 }

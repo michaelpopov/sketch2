@@ -308,19 +308,13 @@ std::pair<std::string, Ret> DatasetReader::get_vector_string(uint64_t id, size_t
     const DataType type = metadata_.type;
 
     size_t buf_size = std::max<size_t>(64, static_cast<size_t>(dim) * 32);
-    for (;;) {
-        std::vector<char> buf(buf_size);
-        Ret ret_print = print_vector(
-            const_cast<uint8_t*>(vec_data), type, dim, buf.data(), buf.size(), digits);
-        if (ret_print.code() == 0) {
-            return { std::string(buf.data()), Ret(0) };
-        }
-        if (ret_print.message().find("buffer is too small") != std::string::npos) {
-            buf_size *= 2;
-            continue;
-        }
+    std::vector<char> buf(buf_size);
+    Ret ret_print = print_vector(const_cast<uint8_t*>(vec_data), type, dim, buf.data(), buf.size(), digits);
+    if (ret_print.code() != 0) {
         return { std::string{}, ret_print };
     }
+
+    return { std::string(buf.data()), Ret(0) };
 }
 
 /***********************************************************

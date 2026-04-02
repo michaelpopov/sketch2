@@ -24,19 +24,12 @@ Ret DatasetNode::init_for_test(const DatasetMetadata& metadata) {
         return Ret("DatasetNode: dirs must not be empty.");
     }
 
-    // Write the ini either alongside the dataset (if the dir exists) or in a
-    // temporary directory with a stable filename to preserve the dataset name
-    // for locking paths even when dirs are invalid (used by negative tests).
-    std::string ini_path;
-    if (std::filesystem::exists(metadata.dirs.front())) {
-        ini_path = metadata.dirs.front() + "/dataset.ini";
-    } else {
-        char tmpdir[] = "/tmp/sketch2_dataset_node_XXXXXX";
-        if (mkdtemp(tmpdir) == nullptr) {
-            return Ret("DatasetNode: failed to create temporary directory");
-        }
-        ini_path = std::string(tmpdir) + "/dataset.ini";
+    if (!std::filesystem::exists(metadata.dirs.front())) {
+        return Ret("DatasetNode: dir must exist.");
     }
+
+    // Write the ini either alongside the dataset.
+    std::string ini_path = metadata.dirs.front() + "/dataset.ini";
 
     CHECK(write_dataset_ini(metadata, ini_path));
 
@@ -137,7 +130,7 @@ std::pair<const uint8_t*, Ret> DatasetNode::get_vector(uint64_t id) const {
 std::pair<std::string, Ret> DatasetNode::get_vector_string(uint64_t id, size_t digits) const {
     const Ret ret = ensure_initialized_();
     if (ret.code() != 0) {
-        return {nullptr, ret};
+        return {std::string{}, ret};
     }
     return reader_->get_vector_string(id, digits);
 }

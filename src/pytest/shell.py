@@ -12,7 +12,7 @@ from sketch2_wrapper import Sketch2
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Start an interactive Sketch2 Python shell")
-    parser.add_argument("--db-root", required=True, help="Database root directory passed to sk_new_handler")
+    parser.add_argument("--db-root", required=True, help="Database root directory passed to sk_new_handle")
     parser.add_argument("--dataset", help="Dataset name to create/open before entering the shell")
     parser.add_argument("--create", action="store_true", help="Create the dataset before opening it")
     parser.add_argument("--type", default="f32", help="Dataset type for --create")

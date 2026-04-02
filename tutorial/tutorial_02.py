@@ -30,8 +30,8 @@ def create_dataset(sketch2, db_path: Path, dataset_name: str) -> None:
     dirs_count = 1
     dirs: list[Path] = []
     for index in range(dirs_count):
-        dir = dataset_dir / f"part_{index:02d}"
-        dirs.append(dir)
+        dir_path = dataset_dir / f"part_{index:02d}"
+        dirs.append(dir_path)
 
     sketch2.create(
         dataset_name,
@@ -47,8 +47,6 @@ def create_dataset(sketch2, db_path: Path, dataset_name: str) -> None:
 
 # Example of writing to the dataset.
 def write_dataset(sketch2, vectors_count) -> None:
-    vectors_count = 100
-
     # Before writing actual data, function start_writing() must be called.
     # It prepares a local file <dataset_name>.input and accumulates all 
     # the following data writes before storing them into the data files.
@@ -185,7 +183,7 @@ def main() -> None:
             sketch2.merge_delta()
             print("Merged delta file into data file in the dataset")
 
-            # After calling merge_data(), there is a single file part_00/0.data
+            # After calling merge_delta(), there is a single file part_00/0.data
             # All the reads will be done from this file now.
             read_updated_dataset(sketch2)
 
