@@ -8,42 +8,6 @@
 
 namespace sketch2 {
 
-namespace {
-
-Ret init_reader_from_metadata_(DatasetReader* reader, const DatasetMetadata& metadata) {
-    char tmp_path[] = "/tmp/sketch2_dataset_node_XXXXXX.ini";
-    const int fd = mkstemps(tmp_path, 4);
-    if (fd < 0) {
-        return Ret("DatasetNode: failed to create temporary ini file");
-    }
-    close(fd);
-
-    const std::string ini_path = tmp_path;
-    CHECK(write_dataset_ini(metadata, ini_path));
-    const Ret ret = reader->init(ini_path);
-    std::error_code ec;
-    std::filesystem::remove(ini_path, ec);
-    return ret;
-}
-
-Ret init_writer_from_metadata_(DatasetWriter* writer, const DatasetMetadata& metadata) {
-    char tmp_path[] = "/tmp/sketch2_dataset_node_XXXXXX.ini";
-    const int fd = mkstemps(tmp_path, 4);
-    if (fd < 0) {
-        return Ret("DatasetNode: failed to create temporary ini file");
-    }
-    close(fd);
-
-    const std::string ini_path = tmp_path;
-    CHECK(write_dataset_ini(metadata, ini_path));
-    const Ret ret = writer->init(ini_path);
-    std::error_code ec;
-    std::filesystem::remove(ini_path, ec);
-    return ret;
-}
-
-} // namespace
-
 Ret DatasetNode::ensure_initialized_() const {
     if (!reader_ || !writer_) {
         return Ret("DatasetNode: not initialized.");
@@ -56,10 +20,30 @@ Ret DatasetNode::init_for_test(const DatasetMetadata& metadata) {
         return Ret("DatasetNode is already initialized.");
     }
 
+    if (metadata.dirs.empty()) {
+        return Ret("DatasetNode: dirs must not be empty.");
+    }
+
+    // Write the ini either alongside the dataset (if the dir exists) or in a
+    // temporary directory with a stable filename to preserve the dataset name
+    // for locking paths even when dirs are invalid (used by negative tests).
+    std::string ini_path;
+    if (std::filesystem::exists(metadata.dirs.front())) {
+        ini_path = metadata.dirs.front() + "/dataset.ini";
+    } else {
+        char tmpdir[] = "/tmp/sketch2_dataset_node_XXXXXX";
+        if (mkdtemp(tmpdir) == nullptr) {
+            return Ret("DatasetNode: failed to create temporary directory");
+        }
+        ini_path = std::string(tmpdir) + "/dataset.ini";
+    }
+
+    CHECK(write_dataset_ini(metadata, ini_path));
+
     auto reader = std::make_unique<DatasetReader>();
     auto writer = std::make_unique<DatasetWriter>();
-    CHECK(init_reader_from_metadata_(reader.get(), metadata));
-    CHECK(init_writer_from_metadata_(writer.get(), metadata));
+    CHECK(reader->init(ini_path));
+    CHECK(writer->init(ini_path));
 
     reader_ = std::move(reader);
     writer_ = std::move(writer);
@@ -148,6 +132,14 @@ std::pair<const uint8_t*, Ret> DatasetNode::get_vector(uint64_t id) const {
         return {nullptr, ret};
     }
     return reader_->get_vector(id);
+}
+
+std::pair<std::string, Ret> DatasetNode::get_vector_string(uint64_t id, size_t digits) const {
+    const Ret ret = ensure_initialized_();
+    if (ret.code() != 0) {
+        return {nullptr, ret};
+    }
+    return reader_->get_vector_string(id, digits);
 }
 
 DataType DatasetNode::type() const {

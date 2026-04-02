@@ -76,9 +76,9 @@ int sk_open(sk_handle_t* handle, const char* name) {
     }
 }
 
-int sk_close(sk_handle_t* handle, const char* name) {
+int sk_close(sk_handle_t* handle) {
     try {
-        return sk_close_(handle, name);
+        return sk_close_(handle);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
@@ -93,9 +93,9 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
     }
 }
 
-int sk_mdelta(sk_handle_t* handle) {
+int sk_merge_delta(sk_handle_t* handle) {
     try {
-        return sk_mdelta_(handle);
+        return sk_merge_delta_(handle);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }

@@ -39,7 +39,7 @@ int sk_create(sk_handle_t* handle, const char* name, const char* dirs, unsigned 
               const char* type, unsigned int range_size, const char* dist_func);
 int sk_drop(sk_handle_t* handle, const char* name);
 int sk_open(sk_handle_t* handle, const char* name);
-int sk_close(sk_handle_t* handle, const char* name);
+int sk_close(sk_handle_t* handle);
 
 int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
            uint64_t** ids_out, size_t* count_out);

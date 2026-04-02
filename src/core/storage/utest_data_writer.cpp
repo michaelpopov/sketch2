@@ -31,7 +31,7 @@ protected:
         input_path_  = base + ".txt";
         output_path_ = base + ".bin";
         dataset_dir_ = base + "_dataset";
-        dataset_ini_path_ = base + "_dataset.ini";
+        dataset_ini_path_ = dataset_dir_ + "/dataset.ini";
         fs::create_directories(dataset_dir_);
     }
 
@@ -425,16 +425,18 @@ TEST_F(DataWriterTest, DatasetWriterStagedWriteCreatesDataFileAndRemovesInputFil
     DatasetWriter writer;
     ASSERT_EQ(0, init_dataset_writer(&writer).code());
 
-    const fs::path input_path = fs::path(dataset_dir_) / "sketch2.owner.input";
+    const fs::path input_path = fs::path(dataset_dir_) / "dataset.lock";
+    const fs::path staged_input = fs::path(dataset_dir_) / "dataset.input";
     const fs::path data_path = fs::path(dataset_dir_) / "0.data";
 
     ASSERT_EQ(0, writer.start_writing().code());
     ASSERT_TRUE(fs::exists(input_path));
+    ASSERT_TRUE(fs::exists(staged_input));
     ASSERT_EQ(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
     ASSERT_EQ(0, writer.write_vector(11, "11.1 11.1 11.1 11.1").code());
     ASSERT_EQ(0, writer.complete_writing().code());
 
-    EXPECT_FALSE(fs::exists(input_path));
+    EXPECT_FALSE(fs::exists(staged_input));
     ASSERT_TRUE(fs::exists(data_path));
 
     DataReader reader;
@@ -461,15 +463,17 @@ TEST_F(DataWriterTest, DatasetWriterAbortWritingRemovesInputFileAndDiscardsSessi
     DatasetWriter writer;
     ASSERT_EQ(0, init_dataset_writer(&writer).code());
 
-    const fs::path input_path = fs::path(dataset_dir_) / "sketch2.owner.input";
+    const fs::path input_path = fs::path(dataset_dir_) / "dataset.lock";
+    const fs::path staged_input = fs::path(dataset_dir_) / "dataset.input";
     const fs::path data_path = fs::path(dataset_dir_) / "0.data";
 
     ASSERT_EQ(0, writer.start_writing().code());
     ASSERT_TRUE(fs::exists(input_path));
+    ASSERT_TRUE(fs::exists(staged_input));
     ASSERT_EQ(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
     ASSERT_EQ(0, writer.abort_writing().code());
 
-    EXPECT_FALSE(fs::exists(input_path));
+    EXPECT_FALSE(fs::exists(staged_input));
     EXPECT_FALSE(fs::exists(data_path));
 
     ASSERT_EQ(0, writer.start_writing().code());

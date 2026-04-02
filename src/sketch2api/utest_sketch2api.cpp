@@ -85,7 +85,7 @@ TEST(sketch2api, create_open_close_drop_lifecycle) {
     EXPECT_NE(ini.find("type=f32\n"), std::string::npos);
     EXPECT_NE(ini.find("dist_func=l1\n"), std::string::npos);
 
-    EXPECT_OK(handle, sk_close(handle, "dataset"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "dataset"));
 
     sk_release_handler(handle);
@@ -107,18 +107,18 @@ TEST(sketch2api, reopen_restores_pending_wal_for_get_and_knn) {
         out << "2 : [ 10.0, 10.0, 10.0, 10.0 ]\n";
     }
     ASSERT_OK(handle, sk_load_file(handle, input_path.string().c_str()));
-    ASSERT_OK(handle, sk_close(handle, "ds"));
+    ASSERT_OK(handle, sk_close(handle));
 
     ASSERT_OK(handle, sk_open(handle, "ds"));
 
-    EXPECT_EQ("[ 0, 0, 0, 0 ]", api_get(handle, 1));
+    EXPECT_EQ("[ 0.00, 0.00, 0.00, 0.00 ]", api_get(handle, 1));
 
     const std::vector<uint64_t> ids = api_knn(handle, "0.0, 0.0, 0.0, 0.0", 2);
     ASSERT_EQ(2u, ids.size());
     EXPECT_EQ(1u, ids[0]);
     EXPECT_EQ(2u, ids[1]);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
     sk_release_handler(handle);
@@ -150,7 +150,7 @@ TEST(sketch2api, generate_stats_and_print_smoke) {
     const std::string print_out = testing::internal::GetCapturedStdout();
     EXPECT_NE(print_out.find("10 : ["), std::string::npos);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
     sk_release_handler(handle);
@@ -172,7 +172,7 @@ TEST(sketch2api, generate_bin_creates_and_loads_binary_input) {
     ASSERT_EQ(1u, ids.size());
     EXPECT_EQ(10u, ids[0]);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
     sk_release_handler(handle);
@@ -201,22 +201,23 @@ TEST(sketch2api, load_file_accepts_binary_input) {
 
     EXPECT_NE(api_get(handle, 20).find("[ 20.1"), std::string::npos);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
 }
 
-TEST(sketch2api, close_requires_matching_name) {
+TEST(sketch2api, close_requires_open_dataset) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_new_handler(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
-    EXPECT_NE(0, sk_close(handle, "other"));
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle)); // sk_create() creates AND opens a dataset
+    ASSERT_OK(handle, sk_open(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
     sk_release_handler(handle);
@@ -264,7 +265,7 @@ TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
             _exit(13);
         }
         usleep(300000);
-        if (sk_close(child, "ds") != 0) {
+        if (sk_close(child) != 0) {
             _exit(14);
         }
         sk_release_handler(child);
@@ -300,7 +301,7 @@ TEST(sketch2api, get_rejects_null_output_parameter) {
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     EXPECT_NE(0, sk_get(handle, 1, nullptr));
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -314,7 +315,7 @@ TEST(sketch2api, knn_rejects_null_output_parameters) {
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
     EXPECT_NE(0, sk_knn(handle, "0.0, 0.0, 0.0, 0.0", 1, nullptr, nullptr));
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -327,7 +328,7 @@ TEST(sketch2api, staged_write_creates_data_and_removes_input_file) {
     ASSERT_NE(handle, nullptr);
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
-    const std::filesystem::path input_path = root / "ds" / "sketch2.owner.input";
+    const std::filesystem::path input_path = root / "ds" / "ds.input";
     ASSERT_OK(handle, sk_start_writing(handle));
     EXPECT_TRUE(std::filesystem::exists(input_path));
     ASSERT_OK(handle, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
@@ -343,7 +344,7 @@ TEST(sketch2api, staged_write_creates_data_and_removes_input_file) {
     EXPECT_EQ(10u, ids[0]);
     EXPECT_EQ(11u, ids[1]);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -368,7 +369,7 @@ TEST(sketch2api, staged_write_delete_hides_existing_item) {
     EXPECT_NE(0, sk_get(handle, 10, &value));
     EXPECT_EQ(nullptr, value);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -389,7 +390,7 @@ TEST(sketch2api, staged_write_rejects_invalid_call_order) {
     ASSERT_OK(handle, sk_start_writing(handle));
     EXPECT_NE(0, sk_start_writing(handle));
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -402,7 +403,7 @@ TEST(sketch2api, staged_abort_removes_input_file_and_allows_restart) {
     ASSERT_NE(handle, nullptr);
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
-    const std::filesystem::path input_path = root / "ds" / "sketch2.owner.input";
+    const std::filesystem::path input_path = root / "ds" / "ds.input";
 
     ASSERT_OK(handle, sk_start_writing(handle));
     ASSERT_OK(handle, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
@@ -419,7 +420,7 @@ TEST(sketch2api, staged_abort_removes_input_file_and_allows_restart) {
     EXPECT_EQ(nullptr, value);
     EXPECT_NE(api_get(handle, 11).find("[ 11.1"), std::string::npos);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -448,7 +449,7 @@ TEST(sketch2api, staged_write_many_vectors_then_knn) {
     EXPECT_EQ(1u, ids[1]);
     EXPECT_EQ(2u, ids[2]);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -482,7 +483,7 @@ TEST(sketch2api, staged_write_mixed_vectors_and_deletes) {
     EXPECT_NE(0, sk_get(handle, 40, &value));
     EXPECT_EQ(nullptr, value);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -515,7 +516,7 @@ TEST(sketch2api, staged_write_multiple_sessions_accumulate) {
     ASSERT_EQ(3u, ids.size());
     EXPECT_EQ(10u, ids[0]);
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);
@@ -532,7 +533,7 @@ TEST(sketch2api, staged_write_rejects_null_and_empty_vector) {
     EXPECT_NE(0, sk_write_vector(handle, 1, nullptr));
     EXPECT_NE(0, sk_write_vector(handle, 1, ""));
 
-    EXPECT_OK(handle, sk_close(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handler(handle);
     std::filesystem::remove_all(root);

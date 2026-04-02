@@ -41,7 +41,7 @@ int sk_open(sk_handle_t* handle, const char* name);
 /*
  * Close the currently open dataset. The name must match the open dataset.
  */
-int sk_close(sk_handle_t* handle, const char* name);
+int sk_close(sk_handle_t* handle);
 
 /*
  * Run KNN and return an allocated result array. The caller owns *ids_out and
@@ -53,7 +53,7 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
 /*
  * Merge delta files into data files.
  */
-int sk_mdelta(sk_handle_t* handle);
+int sk_merge_delta(sk_handle_t* handle);
 
 /*
  * Fetch a vector by id and return an allocated text representation. The caller

@@ -256,8 +256,8 @@ Ret load_vector(const char* file_path, std::string& vec) {
 
 // Formats a binary vector back into "[ ... ]" text while checking buffer
 // capacity after every append so callers can grow the output buffer and retry.
-Ret print_vector(uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size_t buf_size) {
-    if (vec_data == nullptr || buf == nullptr || buf_size == 0) {
+Ret print_vector(uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size_t buf_size, size_t digits) {
+    if (vec_data == nullptr || buf == nullptr || buf_size == 0 || digits > 6) {
         return Ret("print_vector: invalid arguments");
     }
     int n = snprintf(buf, buf_size, "[ ");
@@ -270,16 +270,27 @@ Ret print_vector(uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size
 
     size_t used = static_cast<size_t>(n);
 
+    char fmt_digits[16] = {};
+    if (digits != 0) {
+        // Build format like "%s%.3f" where digits controls precision.
+        n = snprintf(fmt_digits, sizeof(fmt_digits), "%%s%%.%zuf", digits);
+        if (n <= 0 || static_cast<size_t>(n) >= sizeof(fmt_digits)) {
+            return Ret("print_vector: failed to build format string");
+        }
+    }
+
+    const char* fmt = digits == 0 ? "%s%.9g" : fmt_digits;
+
     for (size_t i = 0; i < dim; ++i) {
         const char* sep = (i == 0) ? "" : ", ";
         n = 0;
 
         if (type == DataType::f32) {
             const float* p = reinterpret_cast<const float*>(vec_data);
-            n = snprintf(buf + used, buf_size - used, "%s%.9g", sep, p[i]);
+            n = snprintf(buf + used, buf_size - used, fmt, sep, p[i]);
         } else if (type == DataType::f16) {
             const float16* p = reinterpret_cast<const float16*>(vec_data);
-            n = snprintf(buf + used, buf_size - used, "%s%.9g", sep, static_cast<float>(p[i]));
+            n = snprintf(buf + used, buf_size - used, fmt, sep, static_cast<float>(p[i]));
         } else if (type == DataType::i16) {
             const int16_t* p = reinterpret_cast<const int16_t*>(vec_data);
             n = snprintf(buf + used, buf_size - used, "%s%d", sep, static_cast<int>(p[i]));

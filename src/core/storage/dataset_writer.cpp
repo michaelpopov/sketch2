@@ -34,8 +34,9 @@ struct StoreRangeTask {
     uint64_t range_end;
 };
 
-std::string dataset_input_path(const DatasetMetadata& metadata) {
-    std::filesystem::path path = dataset_owner_lock_path(metadata);
+std::string dataset_input_path(const DatasetMetadata& metadata, const std::string& dataset_name) {
+    // Use the per-dataset lock file as the base for the staged input filename.
+    std::filesystem::path path = dataset_owner_lock_path(metadata, dataset_name);
     path.replace_extension(".input");
     return path.string();
 }
@@ -48,7 +49,7 @@ std::string dataset_input_path(const DatasetMetadata& metadata) {
 
 DatasetWriter::~DatasetWriter() {
     if (owner_path_registered_ && !metadata_.dirs.empty()) {
-        const std::string lock_path = dataset_owner_lock_path(metadata_);
+        const std::string lock_path = dataset_owner_lock_path(metadata_, name_);
         const bool ok = Singleton::instance().release_file_path(lock_path);
         if (!ok) {
             LOG_ERROR << "DatasetWriter destructor failed to release locked file path";
@@ -67,7 +68,7 @@ Ret DatasetWriter::init_writer_() {
     // Replay WAL only if no other process currently owns this dataset.
     // Use a temporary lock that is released immediately after replay so that
     // ownership is still acquired lazily when first write happens.
-    const std::string lock_path = dataset_owner_lock_path(metadata_);
+    const std::string lock_path = dataset_owner_lock_path(metadata_, name_);
     {
         FileLockGuard temp_lock;
         if (!temp_lock.try_lock(lock_path)) {
@@ -132,7 +133,7 @@ Ret DatasetWriter::start_writing() {
         }
 
         input_writer_ = std::make_unique<InputWriter>();
-        const Ret ret = input_writer_->init(metadata_.type, metadata_.dim, dataset_input_path(metadata_));
+        const Ret ret = input_writer_->init(metadata_.type, metadata_.dim, dataset_input_path(metadata_, name_));
         if (ret.code() != 0) {
             input_writer_.reset();
             return ret;
@@ -177,7 +178,7 @@ Ret DatasetWriter::abort_writing() {
             return Ret("DatasetWriter::abort_writing: input writer is not active");
         }
 
-        const std::string input_path = dataset_input_path(metadata_);
+        const std::string input_path = dataset_input_path(metadata_, name_);
         CHECK(input_writer_->abort_writing());
         input_writer_.reset();
 
@@ -202,7 +203,7 @@ Ret DatasetWriter::complete_writing() {
             return Ret("DatasetWriter::complete_writing: input writer is not active");
         }
 
-        const std::string input_path = dataset_input_path(metadata_);
+        const std::string input_path = dataset_input_path(metadata_, name_);
         std::experimental::scope_exit cleanup([&input_path]() {
             std::error_code ec;
             std::filesystem::remove(input_path, ec);
@@ -234,7 +235,7 @@ Ret DatasetWriter::ensure_owner_lock_() {
     }
 
     owner_lock_ = std::make_unique<FileLockGuard>();
-    const std::string lock_path = dataset_owner_lock_path(metadata_);
+    const std::string lock_path = dataset_owner_lock_path(metadata_, name_);
     CHECK(owner_lock_->lock(lock_path));
     if (!Singleton::instance().check_file_path(lock_path)) {
         owner_lock_.reset();
@@ -282,7 +283,7 @@ Ret DatasetWriter::ensure_update_notifier_() {
         return Ret(0);
     }
     update_notifier_ = std::make_unique<UpdateNotifier>();
-    return update_notifier_->init_updater(dataset_owner_lock_path(metadata_));
+    return update_notifier_->init_updater(dataset_owner_lock_path(metadata_, name_));
 }
 
 void DatasetWriter::notify_update_(const char* caller) {

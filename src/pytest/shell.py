@@ -59,7 +59,7 @@ def main() -> None:
     finally:
         if dataset_name:
             try:
-                ps.close(dataset_name)
+                ps.close()
             except Exception:
                 pass
         ps.close_handle()

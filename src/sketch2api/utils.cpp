@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <stdexcept>
 
 namespace sketch2api::detail {
@@ -107,8 +108,9 @@ Ret lock_dataset_owner(const std::filesystem::path& ini_path, std::unique_ptr<Fi
         return Ret("Dataset dirs are not set");
     }
 
+    const std::string dataset_name = std::filesystem::path(ini_path).stem().string();
     owner_lock->reset(new FileLockGuard());
-    return (*owner_lock)->lock(dirs.front() + "/" + kOwnerLockFileName);
+    return (*owner_lock)->lock(dirs.front() + "/" + dataset_name + ".lock");
 }
 
 std::string vector_to_string(const uint8_t* data, DataType type, uint16_t dim) {

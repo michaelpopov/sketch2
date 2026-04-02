@@ -874,13 +874,14 @@ TEST_F(DatasetTest, GuestModeAllowsQueries) {
     ASSERT_EQ(0, owner.store(input_path_).code());
 
     DatasetReader guest;
+    const std::string ini = dir + "/dataset.ini";
     write_config(
         std::string("[dataset]\n") +
         "dirs = " + dir + "\n"
         "range_size = 100\n"
         "type = f32\n"
         "dim = 4\n");
-    ASSERT_EQ(0, guest.init(config_path_).code());
+    ASSERT_EQ(0, guest.init(ini).code());
 
 
     auto [reader, ret] = guest.get(2);
@@ -898,7 +899,7 @@ TEST_F(DatasetTest, GuestModeAllowsQueries) {
 TEST_F(DatasetTest, WriterInitSucceedsAgainAfterPreviousOwnerIsDestroyed) {
     auto dir = make_dir("d_owner_release");
     generate_input_file(input_path_, cfg(3, 0, DataType::f32, 4));
-    const std::string lock_path = dir + "/" + kOwnerLockFileName;
+    const std::string lock_path = dir + "/dataset.lock";
 
     {
         DatasetNode owner;
@@ -927,7 +928,7 @@ TEST_F(DatasetTest, StoreCreatesNotifierFile) {
     generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
     ASSERT_EQ(0, sc.store(input_path_).code());
 
-    EXPECT_TRUE(fs::exists(dir + "/" + kOwnerLockFileName));
+    EXPECT_TRUE(fs::exists(dir + "/dataset.lock"));
 }
 
 
@@ -942,13 +943,14 @@ TEST_F(DatasetTest, GuestDetectsOwnerStoreAndFlushesCache) {
 
     // Guest reads data — populates its cache.
     DatasetReader guest;
+    const std::string ini = dir + "/dataset.ini";
     write_config(
         std::string("[dataset]\n") +
         "dirs = " + dir + "\n"
         "range_size = 100\n"
         "type = f32\n"
         "dim = 4\n");
-    ASSERT_EQ(0, guest.init(config_path_).code());
+    ASSERT_EQ(0, guest.init(ini).code());
 
 
     auto [reader0, ret0] = guest.get(2);
@@ -980,13 +982,14 @@ TEST_F(DatasetTest, GuestCacheStaysValidWhenNoUpdate) {
     ASSERT_EQ(0, owner.store(input_path_).code());
 
     DatasetReader guest;
+    const std::string ini = dir + "/dataset.ini";
     write_config(
         std::string("[dataset]\n") +
         "dirs = " + dir + "\n"
         "range_size = 100\n"
         "type = f32\n"
         "dim = 4\n");
-    ASSERT_EQ(0, guest.init(config_path_).code());
+    ASSERT_EQ(0, guest.init(ini).code());
 
 
     auto [reader0, ret0] = guest.get(2);
@@ -999,6 +1002,56 @@ TEST_F(DatasetTest, GuestCacheStaysValidWhenNoUpdate) {
     ASSERT_EQ(0, ret1.code()) << ret1.message();
     ASSERT_NE(nullptr, reader1);
     EXPECT_EQ(ptr0, reader1.get());
+}
+
+TEST_F(DatasetTest, GetVectorStringFormatsWithDefaultPrecision) {
+    auto dir = make_dir("d_vector_string_default");
+
+    DatasetNode owner;
+    ASSERT_EQ(0, owner.init_for_test({dir}, 100, DataType::f32, 4).code());
+    write_input("f32,4\n5 : [ 1.1, 2.2, 3.3, 4.4 ]\n");
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    DatasetReader guest;
+    const std::string ini = dir + "/dataset.ini";
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = 4\n");
+    ASSERT_EQ(0, guest.init(ini).code());
+
+    auto [vec, ret] = guest.get_vector_string(5);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ("[ 1.10, 2.20, 3.30, 4.40 ]", vec);
+}
+
+TEST_F(DatasetTest, GetVectorStringUsesRequestedDigits) {
+    auto dir = make_dir("d_vector_string_digits");
+
+    DatasetNode owner;
+    ASSERT_EQ(0, owner.init_for_test({dir}, 100, DataType::f32, 4).code());
+    write_input("f32,4\n7 : [ 0.1234, 0.1234, 0.1234, 0.1234 ]\n");
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    DatasetReader guest;
+    const std::string ini = dir + "/dataset.ini";
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dim = 4\n");
+    ASSERT_EQ(0, guest.init(ini).code());
+
+    auto [vec2, ret2] = guest.get_vector_string(7, 2);
+    ASSERT_EQ(0, ret2.code()) << ret2.message();
+    EXPECT_EQ("[ 0.12, 0.12, 0.12, 0.12 ]", vec2);
+
+    auto [vec4, ret4] = guest.get_vector_string(7, 4);
+    ASSERT_EQ(0, ret4.code()) << ret4.message();
+    EXPECT_EQ("[ 0.1234, 0.1234, 0.1234, 0.1234 ]", vec4);
 }
 
 TEST_F(DatasetTest, MergeIncrementsNotifierCounter) {
@@ -1016,7 +1069,7 @@ TEST_F(DatasetTest, MergeIncrementsNotifierCounter) {
     ASSERT_EQ(0, sc.merge().code());
 
     // Counter should be 3: two store() calls + one merge().
-    const std::string lock_path = dir + "/" + kOwnerLockFileName;
+    const std::string lock_path = dir + "/dataset.lock";
     int fd = open(lock_path.c_str(), O_RDONLY);
     ASSERT_GE(fd, 0);
     uint64_t counter = 0;
@@ -1038,13 +1091,14 @@ TEST_F(DatasetTest, GetFailsWhenDataFileDeletedAndRetryAlsoFails) {
     ASSERT_EQ(0, owner.store(input_path_).code());
 
     DatasetReader guest;
+    const std::string ini = dir + "/dataset.ini";
     write_config(
         std::string("[dataset]\n") +
         "dirs = " + dir + "\n"
         "range_size = 100\n"
         "type = f32\n"
         "dim = 4\n");
-    ASSERT_EQ(0, guest.init(config_path_).code());
+    ASSERT_EQ(0, guest.init(ini).code());
 
     auto [miss, miss_ret] = guest.get(999);
     ASSERT_EQ(0, miss_ret.code());

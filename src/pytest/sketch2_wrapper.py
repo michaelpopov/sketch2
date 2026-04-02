@@ -35,7 +35,6 @@ class Sketch2:
         self.handle = self.lib.sk_new_handler(str(self.db_path).encode("utf-8"))
         if not self.handle:
             raise RuntimeError("sk_new_handler() returned null handle")
-        self._open_datasets: list[str] = []
 
     # Temporary setting for the shared library search path.
     # TODO: Think about a better way to set it.
@@ -75,7 +74,7 @@ class Sketch2:
         self.lib.sk_open.argtypes = [c_void_p, c_char_p]
         self.lib.sk_open.restype = c_int
 
-        self.lib.sk_close.argtypes = [c_void_p, c_char_p]
+        self.lib.sk_close.argtypes = [c_void_p]
         self.lib.sk_close.restype = c_int
 
         self.lib.sk_knn.argtypes = [
@@ -87,8 +86,8 @@ class Sketch2:
         ]
         self.lib.sk_knn.restype = c_int
 
-        self.lib.sk_mdelta.argtypes = [c_void_p]
-        self.lib.sk_mdelta.restype = c_int
+        self.lib.sk_merge_delta.argtypes = [c_void_p]
+        self.lib.sk_merge_delta.restype = c_int
 
         self.lib.sk_get.argtypes = [c_void_p, c_uint64, POINTER(c_char_p)]
         self.lib.sk_get.restype = c_int
@@ -146,12 +145,6 @@ class Sketch2:
 
     def close_handle(self) -> None:
         if self.handle:
-            for name in self._open_datasets:
-                try:
-                    self.lib.sk_close(self.handle, name.encode("utf-8"))
-                except Exception:
-                    pass
-            self._open_datasets.clear()
             self.lib.sk_release_handler(self.handle)
             self.handle = None
 
@@ -198,24 +191,17 @@ class Sketch2:
                 dist_func.encode("utf-8"),
             ),
         )
-        self._open_datasets.append(name)
-
     def drop(self, name: str) -> None:
         self._check("sk_drop", self.lib.sk_drop(self.handle, name.encode("utf-8")))
 
     def open(self, name: str) -> None:
         self._check("sk_open", self.lib.sk_open(self.handle, name.encode("utf-8")))
-        self._open_datasets.append(name)
 
-    def close(self, name: str) -> None:
-        self._check("sk_close", self.lib.sk_close(self.handle, name.encode("utf-8")))
-        try:
-            self._open_datasets.remove(name)
-        except ValueError:
-            pass
+    def close(self) -> None:
+        self._check("sk_close", self.lib.sk_close(self.handle))
 
     def merge_delta(self) -> None:
-        self._check("sk_mdelta", self.lib.sk_mdelta(self.handle))
+        self._check("sk_merge_delta", self.lib.sk_merge_delta(self.handle))
 
     def knn(self, vec: str, count: int) -> list[int]:
         if count < 1:

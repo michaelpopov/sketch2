@@ -55,7 +55,7 @@ def main() -> None:
                 create_dataset(sketch2, db_path, dataset_name)
                 print(f"Created dataset '{dataset_name}'")
 
-            sketch2.close(dataset_name)
+            sketch2.close()
             print(f"Closed dataset '{dataset_name}' successfully")
 
             sketch2.drop(dataset_name)

@@ -352,7 +352,7 @@ def run_demo(
             expected = ps.knn(query_vec, k)
 
             log_step("closing the Sketch2 writer handle before opening the SQLite reader")
-            ps.close(dataset_name)
+            ps.close()
             actual, query_time = sqlite_knn(dataset_ini, extension_path, query_vec, k)
 
             print(f"generate input time: {generate_time:.3f}s")

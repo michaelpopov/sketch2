@@ -286,18 +286,12 @@ int sk_open_(sk_handle_t* handle, const char* name) {
     return 0;
 }
 
-int sk_close_(sk_handle_t* handle, const char* name) {
+int sk_close_(sk_handle_t* handle) {
     DECL
-    const std::string log_prefix = std::string("Close dataset ") + name + ": ";
+    const std::string log_prefix = std::string("Close dataset ") + handle->dataset_name + ": ";
 
     if (handle->ds == nullptr) {
         ERR(log_prefix + "No dataset is open")
-    }
-    if (!is_valid_dataset_name(name)) {
-        ERR(log_prefix + "Invalid dataset name")
-    }
-    if (handle->dataset_name != name) {
-        ERR(log_prefix + "Dataset name does not match the open dataset")
     }
 
     close_dataset(handle);
@@ -348,7 +342,7 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
     return 0;
 }
 
-int sk_mdelta_(sk_handle_t* handle) {
+int sk_merge_delta_(sk_handle_t* handle) {
     DECL
 
     if (handle->ds == nullptr) {
@@ -374,21 +368,19 @@ int sk_get_(sk_handle_t* handle, uint64_t id, char** value_out) {
     }
     *value_out = nullptr;
 
-    auto [vec_data, ret] = handle->ds->get_vector(id);
+    auto [value_str, ret] = handle->ds->get_vector_string(id, 2);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
-    if (vec_data == nullptr) {
+    if (value_str.empty()) {
         ERR("Vector not found")
     }
 
-    const std::string value = vector_to_string(
-        vec_data, handle->ds->type(), static_cast<uint16_t>(handle->ds->dim()));
-    auto* out = static_cast<char*>(std::malloc(value.size() + 1));
+    auto* out = static_cast<char*>(std::malloc(value_str.size() + 1));
     if (out == nullptr) {
         ERR("Out of memory")
     }
-    std::memcpy(out, value.c_str(), value.size() + 1);
+    std::memcpy(out, value_str.c_str(), value_str.size() + 1);
     *value_out = out;
     return 0;
 }
