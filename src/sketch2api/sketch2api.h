@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,17 +14,17 @@ extern "C" {
 typedef struct sk_handle sk_handle_t;
 
 /*
- * Initialize a handler for a database root directory.
+ * Initialize a handle for a database root directory.
  */
-sk_handle_t* sk_new_handler(const char* db_path);
+sk_handle_t* sk_new_handle(const char* db_path);
 
 /*
- * Release resources associated with a handler.
+ * Release resources associated with a handle.
  */
-void sk_release_handler(sk_handle_t* handle);
+void sk_release_handle(sk_handle_t* handle);
 
 /*
- * Create dataset metadata, lock file, and data directory under the handler root.
+ * Create dataset metadata, lock file, and data directory under the handle root.
  */
 int sk_create(sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim,
     const char* type, unsigned int range_size, const char* dist_func);
@@ -41,7 +42,7 @@ int sk_open(sk_handle_t* handle, const char* name);
 /*
  * Close the currently open dataset. The name must match the open dataset.
  */
-int sk_close(sk_handle_t* handle, const char* name);
+int sk_close(sk_handle_t* handle);
 
 /*
  * Run KNN and return an allocated result array. The caller owns *ids_out and
@@ -53,7 +54,7 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
 /*
  * Merge delta files into data files.
  */
-int sk_mdelta(sk_handle_t* handle);
+int sk_merge_delta(sk_handle_t* handle);
 
 /*
  * Fetch a vector by id and return an allocated text representation. The caller
@@ -97,14 +98,10 @@ int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
 
 /*
- * Generate test vectors and load them into the current dataset.
+ * Generate test file with vectors and load them into the current dataset.
  */
-int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
-
-/*
- * Generate test vectors in binary input format and load them into the current dataset.
- */
-int sk_generate_bin(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
+int sk_generate_test_data(sk_handle_t* handle, 
+    const char* path, uint64_t count, uint64_t start_id, bool binary);
 
 /*
  * Load vectors from a text or binary input file into the current dataset.
@@ -112,9 +109,9 @@ int sk_generate_bin(sk_handle_t* handle, uint64_t count, uint64_t start_id, int 
 int sk_load_file(sk_handle_t* handle, const char* path);
 
 /*
- * Print dataset file statistics to stdout.
+ * Print dataset file statistics to stdout or a text file.
  */
-int sk_stats(sk_handle_t* handle);
+int sk_stats(sk_handle_t* handle, const char* path);
 
 /*
  * Return the last error code.
@@ -130,6 +127,11 @@ const char* sk_error_message(sk_handle_t* handle);
  * Release memory returned by sketch2api allocation-returning functions.
  */
 void sk_free(void* ptr);
+
+/*
+ * Set global log level in Sketch2
+ */
+void sk_set_log_level(const char* log_level);
 
 #ifdef __cplusplus
 }

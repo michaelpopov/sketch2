@@ -1,4 +1,4 @@
-#include "utils.h"
+#include "sketch2api_utils.h"
 
 #include "core/utils/ini_reader.h"
 #include "core/utils/shared_consts.h"
@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <stdexcept>
 
 namespace sketch2api::detail {
@@ -107,8 +108,9 @@ Ret lock_dataset_owner(const std::filesystem::path& ini_path, std::unique_ptr<Fi
         return Ret("Dataset dirs are not set");
     }
 
+    const std::string dataset_name = std::filesystem::path(ini_path).stem().string();
     owner_lock->reset(new FileLockGuard());
-    return (*owner_lock)->lock(dirs.front() + "/" + kOwnerLockFileName);
+    return (*owner_lock)->lock(dirs.front() + "/" + dataset_name + ".lock");
 }
 
 std::string vector_to_string(const uint8_t* data, DataType type, uint16_t dim) {
@@ -151,14 +153,14 @@ std::vector<std::filesystem::path> collect_paths_with_extension(
     return paths;
 }
 
-int print_stats_block(const std::string& label, size_t vectors_count, size_t deleted_count) {
-    if (std::fprintf(stdout, "%s:\n", label.c_str()) < 0) {
+int print_stats_block(FILE* output, const std::string& label, size_t vectors_count, size_t deleted_count) {
+    if (std::fprintf(output, "%s:\n", label.c_str()) < 0) {
         return -1;
     }
-    if (std::fprintf(stdout, "    Vectors count: %zu\n", vectors_count) < 0) {
+    if (std::fprintf(output, "    Vectors count: %zu\n", vectors_count) < 0) {
         return -1;
     }
-    if (std::fprintf(stdout, "    Deleted count: %zu\n\n", deleted_count) < 0) {
+    if (std::fprintf(output, "    Deleted count: %zu\n\n", deleted_count) < 0) {
         return -1;
     }
     return 0;

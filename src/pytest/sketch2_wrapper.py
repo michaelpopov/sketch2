@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import ctypes
-from ctypes import POINTER, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
+from ctypes import POINTER, c_bool, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
 from pathlib import Path
 
 
@@ -32,10 +32,9 @@ class Sketch2:
         self.db_path = Path(db_path)
         self.lib = ctypes.CDLL(str(self.lib_path))
         self._configure()
-        self.handle = self.lib.sk_new_handler(str(self.db_path).encode("utf-8"))
+        self.handle = self.lib.sk_new_handle(str(self.db_path).encode("utf-8"))
         if not self.handle:
-            raise RuntimeError("sk_new_handler() returned null handle")
-        self._open_datasets: list[str] = []
+            raise RuntimeError("sk_new_handle() returned null handle")
 
     # Temporary setting for the shared library search path.
     # TODO: Think about a better way to set it.
@@ -52,11 +51,11 @@ class Sketch2:
         return candidates[0]
 
     def _configure(self) -> None:
-        self.lib.sk_new_handler.argtypes = [c_char_p]
-        self.lib.sk_new_handler.restype = c_void_p
+        self.lib.sk_new_handle.argtypes = [c_char_p]
+        self.lib.sk_new_handle.restype = c_void_p
 
-        self.lib.sk_release_handler.argtypes = [c_void_p]
-        self.lib.sk_release_handler.restype = None
+        self.lib.sk_release_handle.argtypes = [c_void_p]
+        self.lib.sk_release_handle.restype = None
 
         self.lib.sk_create.argtypes = [
             c_void_p,
@@ -75,7 +74,7 @@ class Sketch2:
         self.lib.sk_open.argtypes = [c_void_p, c_char_p]
         self.lib.sk_open.restype = c_int
 
-        self.lib.sk_close.argtypes = [c_void_p, c_char_p]
+        self.lib.sk_close.argtypes = [c_void_p]
         self.lib.sk_close.restype = c_int
 
         self.lib.sk_knn.argtypes = [
@@ -87,8 +86,8 @@ class Sketch2:
         ]
         self.lib.sk_knn.restype = c_int
 
-        self.lib.sk_mdelta.argtypes = [c_void_p]
-        self.lib.sk_mdelta.restype = c_int
+        self.lib.sk_merge_delta.argtypes = [c_void_p]
+        self.lib.sk_merge_delta.restype = c_int
 
         self.lib.sk_get.argtypes = [c_void_p, c_uint64, POINTER(c_char_p)]
         self.lib.sk_get.restype = c_int
@@ -114,17 +113,17 @@ class Sketch2:
         self.lib.sk_complete_writing.argtypes = [c_void_p]
         self.lib.sk_complete_writing.restype = c_int
 
-        self.lib.sk_generate.argtypes = [c_void_p, c_uint64, c_uint64, c_int]
-        self.lib.sk_generate.restype = c_int
-
-        self.lib.sk_generate_bin.argtypes = [c_void_p, c_uint64, c_uint64, c_int]
-        self.lib.sk_generate_bin.restype = c_int
+        self.lib.sk_generate_test_data.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64, c_bool]
+        self.lib.sk_generate_test_data.restype = c_int
 
         self.lib.sk_load_file.argtypes = [c_void_p, c_char_p]
         self.lib.sk_load_file.restype = c_int
 
-        self.lib.sk_stats.argtypes = [c_void_p]
+        self.lib.sk_stats.argtypes = [c_void_p, c_char_p]
         self.lib.sk_stats.restype = c_int
+
+        self.lib.sk_set_log_level.argtypes = [c_char_p]
+        self.lib.sk_set_log_level.restype = None
 
         self.lib.sk_error.argtypes = [c_void_p]
         self.lib.sk_error.restype = c_int
@@ -146,13 +145,7 @@ class Sketch2:
 
     def close_handle(self) -> None:
         if self.handle:
-            for name in self._open_datasets:
-                try:
-                    self.lib.sk_close(self.handle, name.encode("utf-8"))
-                except Exception:
-                    pass
-            self._open_datasets.clear()
-            self.lib.sk_release_handler(self.handle)
+            self.lib.sk_release_handle(self.handle)
             self.handle = None
 
     def __enter__(self) -> "Sketch2":
@@ -198,24 +191,17 @@ class Sketch2:
                 dist_func.encode("utf-8"),
             ),
         )
-        self._open_datasets.append(name)
-
     def drop(self, name: str) -> None:
         self._check("sk_drop", self.lib.sk_drop(self.handle, name.encode("utf-8")))
 
     def open(self, name: str) -> None:
         self._check("sk_open", self.lib.sk_open(self.handle, name.encode("utf-8")))
-        self._open_datasets.append(name)
 
-    def close(self, name: str) -> None:
-        self._check("sk_close", self.lib.sk_close(self.handle, name.encode("utf-8")))
-        try:
-            self._open_datasets.remove(name)
-        except ValueError:
-            pass
+    def close(self) -> None:
+        self._check("sk_close", self.lib.sk_close(self.handle))
 
     def merge_delta(self) -> None:
-        self._check("sk_mdelta", self.lib.sk_mdelta(self.handle))
+        self._check("sk_merge_delta", self.lib.sk_merge_delta(self.handle))
 
     def knn(self, vec: str, count: int) -> list[int]:
         if count < 1:
@@ -271,20 +257,32 @@ class Sketch2:
     def complete_writing(self) -> None:
         self._check("sk_complete_writing", self.lib.sk_complete_writing(self.handle))
 
-    def generate(self, count: int, start_id: int, pattern: int) -> None:
+    def generate_test_data(
+        self,
+        file_path: str | Path,
+        count: int,
+        start_id: int | None = None,
+        binary: bool = False,
+    ) -> None:
+        if start_id is None:
+            start_id = 0
         self._check(
-            "sk_generate",
-            self.lib.sk_generate(self.handle, c_uint64(count), c_uint64(start_id), c_int(pattern)),
-        )
-
-    def generate_bin(self, count: int, start_id: int, pattern: int) -> None:
-        self._check(
-            "sk_generate_bin",
-            self.lib.sk_generate_bin(self.handle, c_uint64(count), c_uint64(start_id), c_int(pattern)),
+            "generate_test_data",
+            self.lib.sk_generate_test_data(
+                self.handle,
+                str(file_path).encode("utf-8"),
+                c_uint64(count),
+                c_uint64(start_id),
+                c_bool(bool(binary)),
+            ),
         )
 
     def load_file(self, path: str | Path) -> None:
         self._check("sk_load_file", self.lib.sk_load_file(self.handle, str(path).encode("utf-8")))
 
-    def stats(self) -> None:
-        self._check("sk_stats", self.lib.sk_stats(self.handle))
+    def stats(self, path: str | Path | None = None) -> None:
+        encoded = b"" if path is None else str(path).encode("utf-8")
+        self._check("sk_stats", self.lib.sk_stats(self.handle, encoded))
+
+    def set_log_level(self, level: str) -> None:
+        self.lib.sk_set_log_level(level.encode("utf-8"))

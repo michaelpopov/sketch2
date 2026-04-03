@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
+#include <experimental/scope>
 #include <filesystem>
 #include <limits>
 #include <string>
@@ -139,10 +140,23 @@ int sk_create_(sk_handle_t* handle, const char* name, const char* dirs, unsigned
         ERR(log_prefix + "Dataset already exists")
     }
 
+    const std::vector<std::filesystem::path> data_dirs = resolve_data_dirs(dirs, dir_path);
+    const std::string dirs_value = join_dirs(data_dirs);
+
+    // Roll back all created filesystem artifacts on any failure below.
+    bool success = false;
+    std::experimental::scope_exit cleanup([&]() {
+        if (success) return;
+        std::error_code ec;
+        for (const auto& dd : data_dirs) {
+            std::filesystem::remove_all(dd, ec);
+        }
+        std::filesystem::remove_all(dir_path, ec);
+    });
+
     LOG_TRACE << log_prefix << "Create directory " << dir_path;
     std::filesystem::create_directories(dir_path);
 
-    const std::vector<std::filesystem::path> data_dirs = resolve_data_dirs(dirs, dir_path);
     for (const auto& data_dir : data_dirs) {
         std::error_code ec;
         LOG_TRACE << log_prefix << "Create directory " << data_dir;
@@ -151,7 +165,6 @@ int sk_create_(sk_handle_t* handle, const char* name, const char* dirs, unsigned
             ERR(log_prefix + "Failed to create dataset directories " + data_dir.string())
         }
     }
-    const std::string dirs_value = join_dirs(data_dirs);
 
     LOG_TRACE << log_prefix << "Write config file " << ini_path;
     FILE* ini = std::fopen(ini_path.c_str(), "w");
@@ -189,6 +202,7 @@ int sk_create_(sk_handle_t* handle, const char* name, const char* dirs, unsigned
         ERR(log_prefix + "Failed to write dataset lock file " + lock_path.string())
     }
 
+    success = true;
     LOG_TRACE << log_prefix << "Completed successfully.";
     return sk_open(handle, name);
 }
@@ -286,18 +300,12 @@ int sk_open_(sk_handle_t* handle, const char* name) {
     return 0;
 }
 
-int sk_close_(sk_handle_t* handle, const char* name) {
+int sk_close_(sk_handle_t* handle) {
     DECL
-    const std::string log_prefix = std::string("Close dataset ") + name + ": ";
+    const std::string log_prefix = std::string("Close dataset ") + handle->dataset_name + ": ";
 
     if (handle->ds == nullptr) {
         ERR(log_prefix + "No dataset is open")
-    }
-    if (!is_valid_dataset_name(name)) {
-        ERR(log_prefix + "Invalid dataset name")
-    }
-    if (handle->dataset_name != name) {
-        ERR(log_prefix + "Dataset name does not match the open dataset")
     }
 
     close_dataset(handle);
@@ -348,7 +356,7 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
     return 0;
 }
 
-int sk_mdelta_(sk_handle_t* handle) {
+int sk_merge_delta_(sk_handle_t* handle) {
     DECL
 
     if (handle->ds == nullptr) {
@@ -374,21 +382,19 @@ int sk_get_(sk_handle_t* handle, uint64_t id, char** value_out) {
     }
     *value_out = nullptr;
 
-    auto [vec_data, ret] = handle->ds->get_vector(id);
+    auto [value_str, ret] = handle->ds->get_vector_string(id, 2);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
-    if (vec_data == nullptr) {
+    if (value_str.empty()) {
         ERR("Vector not found")
     }
 
-    const std::string value = vector_to_string(
-        vec_data, handle->ds->type(), static_cast<uint16_t>(handle->ds->dim()));
-    auto* out = static_cast<char*>(std::malloc(value.size() + 1));
+    auto* out = static_cast<char*>(std::malloc(value_str.size() + 1));
     if (out == nullptr) {
         ERR("Out of memory")
     }
-    std::memcpy(out, value.c_str(), value.size() + 1);
+    std::memcpy(out, value_str.c_str(), value_str.size() + 1);
     *value_out = out;
     return 0;
 }
@@ -495,15 +501,7 @@ int sk_complete_writing_(sk_handle_t* handle) {
     return 0;
 }
 
-int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
-    return sk_generate_impl_(handle, count, start_id, pattern, false);
-}
-
-int sk_generate_bin_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
-    return sk_generate_impl_(handle, count, start_id, pattern, true);
-}
-
-int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern, bool binary) {
+int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count, uint64_t start_id, bool binary) {
     DECL
 
     if (handle->ds == nullptr) {
@@ -517,15 +515,11 @@ int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start_id, in
         handle->ds->dim() > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
         ERR("Arguments are too large")
     }
-
-    PatternType pattern_type;
-    if (pattern == 0) {
-        pattern_type = PatternType::Sequential;
-    } else if (pattern == 1) {
-        pattern_type = PatternType::Detailed;
-    } else {
-        ERR("Invalid pattern parameter")
+    if (!path) {
+        ERR("Invalid path")
     }
+
+    PatternType pattern_type = PatternType::Sequential;
 
     GeneratorConfig cfg;
     cfg.pattern_type = pattern_type;
@@ -536,16 +530,15 @@ int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start_id, in
     cfg.max_val = 1000;
     cfg.binary = binary;
 
-    const std::filesystem::path input_path = std::filesystem::path(handle->dataset_dir) / kInputFileName;
-    Timer generate_timer(binary ? "sk_generate_bin: generate input" : "sk_generate: generate input");
-    Ret ret = generate_input_file(input_path.string(), cfg);
+    Timer generate_timer("sk_generate: generate input");
+    Ret ret = generate_input_file(path, cfg);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
     LOG_DEBUG << generate_timer.str();
 
-    Timer store_timer(binary ? "sk_generate_bin: store input" : "sk_generate: store input");
-    ret = handle->ds->store(input_path.string());
+    Timer store_timer("sk_generate: store input");
+    ret = handle->ds->store(path);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
@@ -572,22 +565,37 @@ int sk_load_file_(sk_handle_t* handle, const char* path) {
     return 0;
 }
 
-int sk_stats_(sk_handle_t* handle) {
+int sk_stats_(sk_handle_t* handle, const char* path) {
     DECL
 
     if (handle->ds == nullptr) {
         ERR("No dataset is open")
     }
 
-    if (std::fprintf(stdout,
-            "dataset:\n"
-            "    Name: %s\n"
-            "    Type: %s\n"
-            "    Dist: %s\n"
-            "    Dim: %llu\n"
-            "    Range: %llu\n"
-            "    Ini path: %s\n"
-            "    Data path: %s\n\n",
+    FILE* output = nullptr;
+    if (path == nullptr || *path == '\0') {
+        output = stdout;
+    } else {
+        output = fopen(path, "w");
+        if (output == nullptr) {
+            ERR(std::string("Failed to open output file ") + path)
+        }
+    }
+
+    std::experimental::scope_exit cleanup([&]() {
+        if (output != stdout) {
+            fclose(output);
+        }
+    });
+
+    if (std::fprintf(output,
+            "Name: %s\n"
+            "Type: %s\n"
+            "Dist: %s\n"
+            "Dim: %llu\n"
+            "Range: %llu\n"
+            "Config path: %s\n"
+            "Data path: %s\n\n",
             handle->dataset_name.c_str(),
             data_type_to_string(handle->ds->type()),
             dist_func_to_string(handle->ds->dist_func()),
@@ -598,26 +606,31 @@ int sk_stats_(sk_handle_t* handle) {
         ERR("Failed to print dataset stats")
     }
 
-    const std::filesystem::path dir_path = handle->dataset_dir;
-    for (const auto& path : collect_paths_with_extension(dir_path, ".data")) {
-        DataReader reader;
-        Ret ret = reader.init(path.string());
-        if (ret.code() != 0) {
-            ERR(ret.message().c_str())
-        }
-        if (print_stats_block(path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
-            ERR("Failed to print data file stats")
-        }
-    }
+    const auto& dirs = handle->ds->dirs();
+    for (const auto& dir_str: dirs) {
+        (void)fprintf(output, "==== Data path: %s\n", dir_str.c_str());
+        const std::filesystem::path dir_path{dir_str};
 
-    for (const auto& path : collect_paths_with_extension(dir_path, ".delta")) {
-        DataReader reader;
-        Ret ret = reader.init(path.string());
-        if (ret.code() != 0) {
-            ERR(ret.message().c_str())
+        for (const auto& file_path : collect_paths_with_extension(dir_path, ".data")) {
+            DataReader reader;
+            Ret ret = reader.init(file_path);
+            if (ret.code() != 0) {
+                ERR(ret.message().c_str())
+            }
+            if (print_stats_block(output, file_path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
+                ERR("Failed to print data file stats")
+            }
         }
-        if (print_stats_block(path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
-            ERR("Failed to print delta file stats")
+
+        for (const auto& file_path : collect_paths_with_extension(dir_path, ".delta")) {
+            DataReader reader;
+            Ret ret = reader.init(file_path.string());
+            if (ret.code() != 0) {
+                ERR(ret.message().c_str())
+            }
+            if (print_stats_block(output, file_path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
+                ERR("Failed to print delta file stats")
+            }
         }
     }
 

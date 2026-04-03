@@ -144,21 +144,22 @@ def dataset_ini_path(root: Path, dataset_name: str) -> Path:
     return root / dataset_name / f"{dataset_name}.ini"
 
 
-def load_dataset_with_binary_generator(ps: Sketch2, from_id: int, count: int) -> tuple[float, float]:
+def load_dataset_with_generator(ps: Sketch2, input_path: Path, from_id: int, count: int, binary: bool) -> tuple[float, float]:
     log_step(
-        f"loading {count} generated binary vectors through libsketch2 "
-        f"(pattern=sequential, start_id={from_id})"
+        f"generating and loading {count} vectors through libsketch2 "
+        f"(sequential pattern, start_id={from_id})"
     )
     t0 = time.perf_counter()
-    ps.generate_bin(count=count, start_id=from_id, pattern=0)
+    ps.generate_test_data(str(input_path), count=count, start_id=from_id, binary=binary)
     t1 = time.perf_counter()
-    return 0.0, t1 - t0
+    # Native call performs both generation and load; report total under generate_time.
+    return t1 - t0, 0.0
 
 
 def effective_input_format(binary: bool, dist_func: str) -> str:
     if dist_func == "COS":
         return "text"
-    return "binary" if binary else "text"
+    return "binary"
 
 
 def write_input_chunk(
@@ -271,13 +272,7 @@ def fill_dataset(
             ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name
         )
 
-    if binary:
-        log_step("binary demo uses libsketch2 binary generation instead of Python-side input file generation")
-        return load_dataset_with_binary_generator(ps, from_id=from_id, count=count)
-
-    return load_dataset_from_python_input_file(
-        ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name
-    )
+    return load_dataset_with_generator(ps, input_path=input_path, from_id=from_id, count=count, binary=binary)
 
 
 def sqlite_knn(dataset_ini: Path, extension_lib: Path, query_vec: str, k: int) -> tuple[list[int], float]:
@@ -334,6 +329,9 @@ def run_demo(
             )
             ps.create(dataset_name, type_name=type_name, dim=dim, range_size=range_size, dist_func=dist_func.lower())
 
+            if binary and dist_func != "COS":
+                log_step("--binary is deprecated; using generate_test_data() instead of generate_bin()")
+
             generate_time, load_time = fill_dataset(
                 ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name, binary=binary, dist_func=dist_func
             )
@@ -352,14 +350,14 @@ def run_demo(
             expected = ps.knn(query_vec, k)
 
             log_step("closing the Sketch2 writer handle before opening the SQLite reader")
-            ps.close(dataset_name)
+            ps.close()
             actual, query_time = sqlite_knn(dataset_ini, extension_path, query_vec, k)
 
             print(f"generate input time: {generate_time:.3f}s")
             print(f"load data time: {load_time:.3f}s")
             print(f"sqlite query time: {query_time:.3f}s")
             print(f"type={type_name}")
-            print(f"input_format={effective_input_format(binary, dist_func)}")
+            print(f"input_format={effective_input_format(False, dist_func)}")
             print(f"dist_func={dist_func}")
             print(f"k={k}")
             print(f"actual   = {actual}")

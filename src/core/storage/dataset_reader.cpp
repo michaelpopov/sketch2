@@ -5,6 +5,8 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_reader.h"
 #include "core/utils/log.h"
+#include "core/utils/shared_consts.h"
+#include "core/utils/string_utils.h"
 #include "core/utils/timer.h"
 #include <algorithm>
 #include <cassert>
@@ -40,8 +42,12 @@ bool parse_dataset_file_id(const std::string& name, const std::string& ext, uint
 
 // Free function definitions declared in dataset.h.
 
-std::string dataset_owner_lock_path(const DatasetMetadata& metadata) {
-    return metadata.dirs.front() + "/" + kOwnerLockFileName;
+std::string dataset_owner_lock_path(const DatasetMetadata& metadata, const std::string& dataset_name) {
+    if (metadata.dirs.empty()) {
+        return {};
+    }
+    const std::string name = dataset_name.empty() ? "dataset" : dataset_name;
+    return metadata.dirs.front() + "/" + name + kLockExt;
 }
 
 // Scans every dataset directory, groups matching .data/.delta files by numeric
@@ -131,7 +137,7 @@ Ret DatasetReader::ensure_update_notifier_() const {
     }
 
     update_notifier_ = std::make_unique<UpdateNotifier>();
-    const std::string path = dataset_owner_lock_path(metadata_);
+    const std::string path = dataset_owner_lock_path(metadata_, name_);
     return update_notifier_->init_checker(path);
 }
 
@@ -290,6 +296,25 @@ std::pair<const uint8_t*, Ret> DatasetReader::get_vector(uint64_t id) const {
         return {nullptr, Ret(0)};
     }
     return {reader->get(id), Ret(0)};
+}
+
+std::pair<std::string, Ret> DatasetReader::get_vector_string(uint64_t id, size_t digits) const {
+    auto [vec_data, ret] = get_vector(id);
+    if (ret.code() != 0 || vec_data == nullptr) {
+        return { std::string{}, ret };
+    }
+
+    const uint16_t dim = static_cast<uint16_t>(metadata_.dim);
+    const DataType type = metadata_.type;
+
+    size_t buf_size = std::max<size_t>(64, static_cast<size_t>(dim) * 32);
+    std::vector<char> buf(buf_size);
+    Ret ret_print = print_vector(const_cast<uint8_t*>(vec_data), type, dim, buf.data(), buf.size(), digits);
+    if (ret_print.code() != 0) {
+        return { std::string{}, ret_print };
+    }
+
+    return { std::string(buf.data()), Ret(0) };
 }
 
 /***********************************************************

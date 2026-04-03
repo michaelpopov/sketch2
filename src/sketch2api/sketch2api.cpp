@@ -2,14 +2,16 @@
 
 #include "sketch2api.h"
 #include "internal.h"
-#include "utils.h"
+#include "sketch2api_utils.h"
 
 #include "core/utils/singleton.h"
+#include "core/utils/log.h"
 
 #include <cstdlib>
 #include <filesystem>
 
 using namespace sketch2;
+using namespace sketch2::log;
 using namespace sketch2api::detail;
 
 namespace {
@@ -28,7 +30,7 @@ namespace {
 
 } // namespace
 
-sk_handle_t* sk_new_handler(const char* db_path) {
+sk_handle_t* sk_new_handle(const char* db_path) {
     try {
         if (db_path == nullptr || db_path[0] == '\0') {
             return nullptr;
@@ -47,7 +49,7 @@ sk_handle_t* sk_new_handler(const char* db_path) {
     }
 }
 
-void sk_release_handler(sk_handle_t* handle) {
+void sk_release_handle(sk_handle_t* handle) {
     delete handle;
 }
 
@@ -76,9 +78,9 @@ int sk_open(sk_handle_t* handle, const char* name) {
     }
 }
 
-int sk_close(sk_handle_t* handle, const char* name) {
+int sk_close(sk_handle_t* handle) {
     try {
-        return sk_close_(handle, name);
+        return sk_close_(handle);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
@@ -93,9 +95,9 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
     }
 }
 
-int sk_mdelta(sk_handle_t* handle) {
+int sk_merge_delta(sk_handle_t* handle) {
     try {
-        return sk_mdelta_(handle);
+        return sk_merge_delta_(handle);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
@@ -157,17 +159,10 @@ int sk_complete_writing(sk_handle_t* handle) {
     }
 }
 
-int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
+int sk_generate_test_data(sk_handle_t* handle, 
+    const char* path, uint64_t count, uint64_t start_id, bool binary) {
     try {
-        return sk_generate_(handle, count, start_id, pattern);
-    } catch (const std::exception& ex) {
-        ERR(ex.what())
-    }
-}
-
-int sk_generate_bin(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
-    try {
-        return sk_generate_bin_(handle, count, start_id, pattern);
+        return sk_generate_test_data_(handle, path, count, start_id, binary);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
@@ -181,9 +176,9 @@ int sk_load_file(sk_handle_t* handle, const char* path) {
     }
 }
 
-int sk_stats(sk_handle_t* handle) {
+int sk_stats(sk_handle_t* handle, const char* path) {
     try {
-        return sk_stats_(handle);
+        return sk_stats_(handle, path);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
@@ -205,4 +200,12 @@ const char* sk_error_message(sk_handle_t* handle) {
 
 void sk_free(void* ptr) {
     std::free(ptr);
+}
+
+void sk_set_log_level(const char* log_level) {
+    if (!log_level) {
+        return;
+    }
+    LogLevel level = parse_log_level(log_level);
+    set_current_log_level(level);
 }

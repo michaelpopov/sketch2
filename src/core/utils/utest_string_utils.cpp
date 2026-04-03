@@ -120,7 +120,7 @@ TEST(string_utils, parse_vector_end_pointer_cut_mid_token_fails) {
 TEST(string_utils, print_vector_f32_success) {
     std::array<float, 4> vec {1.0f, 2.5f, -3.0f, 4.25f};
     char out[128] {};
-    const Ret ret = print_vector(reinterpret_cast<uint8_t*>(vec.data()), DataType::f32, vec.size(), out, sizeof(out));
+    const Ret ret = print_vector(reinterpret_cast<uint8_t*>(vec.data()), DataType::f32, vec.size(), out, sizeof(out), 0);
     ASSERT_EQ(0, ret.code()) << ret.message();
     EXPECT_STREQ("[ 1, 2.5, -3, 4.25 ]", out);
 }

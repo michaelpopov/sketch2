@@ -88,7 +88,7 @@ bool UpdateNotifier::check_updated() {
         }
 
         counter_ = value;
-        return true; // first observation is always treated as "updated"
+        return true; // first observation counts as updated for callers
     }
 
     // Subsequent calls: re-read and compare.
