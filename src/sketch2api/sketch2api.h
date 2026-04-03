@@ -97,14 +97,10 @@ int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
 
 /*
- * Generate test vectors and load them into the current dataset.
+ * Generate test file with vectors and load them into the current dataset.
  */
-int sk_generate(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
-
-/*
- * Generate test vectors in binary input format and load them into the current dataset.
- */
-int sk_generate_bin(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
+int sk_generate_test_data(sk_handle_t* handle, 
+    const char* path, uint64_t count, uint64_t start_id, bool binary);
 
 /*
  * Load vectors from a text or binary input file into the current dataset.
@@ -114,7 +110,7 @@ int sk_load_file(sk_handle_t* handle, const char* path);
 /*
  * Print dataset file statistics to stdout.
  */
-int sk_stats(sk_handle_t* handle);
+int sk_stats(sk_handle_t* handle, const char* path);
 
 /*
  * Return the last error code.
@@ -130,6 +126,11 @@ const char* sk_error_message(sk_handle_t* handle);
  * Release memory returned by sketch2api allocation-returning functions.
  */
 void sk_free(void* ptr);
+
+/*
+ * Set global log level in Sketch2
+ */
+void sk_set_log_level(const char* log_level);
 
 #ifdef __cplusplus
 }

@@ -1,6 +1,4 @@
-#ifndef SKETCH2API_UTILS_H
-#define SKETCH2API_UTILS_H
-
+#pragma once
 #include "sketch2api.h"
 
 #include "core/storage/data_reader.h"
@@ -14,6 +12,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <stdio.h>
 
 #if defined(__GNUC__) || defined(__clang__)
 #define SKETCH2API_HIDDEN __attribute__((visibility("hidden")))
@@ -53,9 +53,7 @@ SKETCH2API_HIDDEN std::string vector_to_string(
 SKETCH2API_HIDDEN int print_reader_vectors(const sketch2::DataReader& reader);
 SKETCH2API_HIDDEN std::vector<std::filesystem::path> collect_paths_with_extension(
     const std::filesystem::path& dir_path, const char* ext);
-SKETCH2API_HIDDEN int print_stats_block(
+SKETCH2API_HIDDEN int print_stats_block(FILE* output,
     const std::string& label, size_t vectors_count, size_t deleted_count);
 
 } // namespace sketch2api::detail
-
-#endif // SKETCH2API_UTILS_H

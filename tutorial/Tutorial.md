@@ -1,8 +1,10 @@
 # Sketch2 Tutorials
 
-This guide walks through the two starter scripts:
+This guide walks through the starter scripts:
 - `tutorial_00.py`: prepares a runnable Sketch2 environment on your filesystem.
 - `tutorial_01.py`: exercises the basic open/create/close/drop workflow against that environment.
+- `tutorial_02.py`: demonstrates staged writes, reads, updates, and delta merging.
+- `tutorial_03.py`: shows how dataset files evolve as data is loaded, deleted, updated, and merged.
 
 ## 0. Environment Prep (`tutorial_00.py`)
 
@@ -122,3 +124,35 @@ sketch2/
 After `merge_delta()`:
 - `0.delta` is folded back into `0.data`.
 - Reads are served from the merged data file.
+
+## 3. File Evolution and Multi-Part Layout (`tutorial_03.py`)
+
+Prereqs:
+- Run `tutorial_00.py` to prepare the environment.
+- Make sure `SKETCH2_LIB` and `SKETCH2_CONFIG` are exported.
+- Start from a clean environment or let the script create and later drop the dataset.
+
+Run:
+`python3 tutorial_03.py demods`
+
+What it demonstrates:
+- Create a dataset with two storage directories: `part_00` and `part_01`.
+- Generate test input into a local temporary file and bulk-load it into the dataset.
+- Print dataset stats after each major step to observe how `.data` and `.delta` files change.
+- Delete a regular subset of vectors through staged writes and confirm one deleted vector is no longer readable.
+- Update another regular subset of vectors and confirm one updated vector returns the expected value.
+- Generate and load another batch of vectors with ids beyond the original range.
+- Merge delte files and inspect the final file layout after pending deltas are folded into data files.
+
+Workflow notes:
+- The script uses `generate_test_data()` to build a deterministic input file.
+- Initial bulk loads use `load_file()` to store generated vectors into dataset files.
+- Deletes and updates are performed through staged write sessions.
+- Because the dataset spans two `part_*` directories, file creation and growth can be observed across multiple storage locations.
+
+Expected observations:
+- After the first load, several `.data` files appear across `part_00` and `part_01`.
+- After the delete step, matching `.delta` files appear while the original `.data` files remain unchanged.
+- After the update step, those `.delta` files continue to accumulate both deletions and replacements.
+- After loading more vectors, new files appear for new id ranges and one delta file is merged automatically because it become large enough.
+- After force merge operation, remaining `.delta` files are folded into `.data` files.

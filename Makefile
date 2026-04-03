@@ -97,7 +97,7 @@ demo: rel
 		--count 10M \
 		--dim 256 \
 		--k 10 \
-		--range-size 100K \
+		--range-size 1M \
 		--binary \
 		--dist-func L2 \
 		--sketch2-lib $(BUILD_REL)/lib/libsketch2.so \

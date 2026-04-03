@@ -1,7 +1,7 @@
 add_library(sketch2api STATIC
   internal.cpp
   sketch2api.cpp
-  utils.cpp
+  sketch2api_utils.cpp
 )
 
 set_target_properties(sketch2api PROPERTIES

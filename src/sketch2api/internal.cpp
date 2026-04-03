@@ -501,15 +501,7 @@ int sk_complete_writing_(sk_handle_t* handle) {
     return 0;
 }
 
-int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
-    return sk_generate_impl_(handle, count, start_id, pattern, false);
-}
-
-int sk_generate_bin_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern) {
-    return sk_generate_impl_(handle, count, start_id, pattern, true);
-}
-
-int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern, bool binary) {
+int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count, uint64_t start_id, bool binary) {
     DECL
 
     if (handle->ds == nullptr) {
@@ -524,14 +516,7 @@ int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start_id, in
         ERR("Arguments are too large")
     }
 
-    PatternType pattern_type;
-    if (pattern == 0) {
-        pattern_type = PatternType::Sequential;
-    } else if (pattern == 1) {
-        pattern_type = PatternType::Detailed;
-    } else {
-        ERR("Invalid pattern parameter")
-    }
+    PatternType pattern_type = PatternType::Sequential;
 
     GeneratorConfig cfg;
     cfg.pattern_type = pattern_type;
@@ -542,16 +527,15 @@ int sk_generate_impl_(sk_handle_t* handle, uint64_t count, uint64_t start_id, in
     cfg.max_val = 1000;
     cfg.binary = binary;
 
-    const std::filesystem::path input_path = std::filesystem::path(handle->dataset_dir) / kInputFileName;
-    Timer generate_timer(binary ? "sk_generate_bin: generate input" : "sk_generate: generate input");
-    Ret ret = generate_input_file(input_path.string(), cfg);
+    Timer generate_timer("sk_generate: generate input");
+    Ret ret = generate_input_file(path, cfg);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
     LOG_DEBUG << generate_timer.str();
 
-    Timer store_timer(binary ? "sk_generate_bin: store input" : "sk_generate: store input");
-    ret = handle->ds->store(input_path.string());
+    Timer store_timer("sk_generate: store input");
+    ret = handle->ds->store(path);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
@@ -578,22 +562,37 @@ int sk_load_file_(sk_handle_t* handle, const char* path) {
     return 0;
 }
 
-int sk_stats_(sk_handle_t* handle) {
+int sk_stats_(sk_handle_t* handle, const char* path) {
     DECL
 
     if (handle->ds == nullptr) {
         ERR("No dataset is open")
     }
 
-    if (std::fprintf(stdout,
-            "dataset:\n"
-            "    Name: %s\n"
-            "    Type: %s\n"
-            "    Dist: %s\n"
-            "    Dim: %llu\n"
-            "    Range: %llu\n"
-            "    Ini path: %s\n"
-            "    Data path: %s\n\n",
+    FILE* output = nullptr;
+    if (path == nullptr || *path == '\0') {
+        output = stdout;
+    } else {
+        output = fopen(path, "w");
+        if (output == nullptr) {
+            ERR(std::string("Failed to open output file ") + path)
+        }
+    }
+
+    std::experimental::scope_exit cleanup([&]() {
+        if (output != stdout) {
+            fclose(output);
+        }
+    });
+
+    if (std::fprintf(output,
+            "Name: %s\n"
+            "Type: %s\n"
+            "Dist: %s\n"
+            "Dim: %llu\n"
+            "Range: %llu\n"
+            "Config path: %s\n"
+            "Data path: %s\n\n",
             handle->dataset_name.c_str(),
             data_type_to_string(handle->ds->type()),
             dist_func_to_string(handle->ds->dist_func()),
@@ -604,26 +603,31 @@ int sk_stats_(sk_handle_t* handle) {
         ERR("Failed to print dataset stats")
     }
 
-    const std::filesystem::path dir_path = handle->dataset_dir;
-    for (const auto& path : collect_paths_with_extension(dir_path, ".data")) {
-        DataReader reader;
-        Ret ret = reader.init(path.string());
-        if (ret.code() != 0) {
-            ERR(ret.message().c_str())
-        }
-        if (print_stats_block(path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
-            ERR("Failed to print data file stats")
-        }
-    }
+    const auto& dirs = handle->ds->dirs();
+    for (const auto& dir_str: dirs) {
+        fprintf(output, "==== Data path: %s\n", dir_str.c_str());
+        const std::filesystem::path dir_path{dir_str};
 
-    for (const auto& path : collect_paths_with_extension(dir_path, ".delta")) {
-        DataReader reader;
-        Ret ret = reader.init(path.string());
-        if (ret.code() != 0) {
-            ERR(ret.message().c_str())
+        for (const auto& path : collect_paths_with_extension(dir_path, ".data")) {
+            DataReader reader;
+            Ret ret = reader.init(path.string());
+            if (ret.code() != 0) {
+                ERR(ret.message().c_str())
+            }
+            if (print_stats_block(output, path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
+                ERR("Failed to print data file stats")
+            }
         }
-        if (print_stats_block(path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
-            ERR("Failed to print delta file stats")
+
+        for (const auto& path : collect_paths_with_extension(dir_path, ".delta")) {
+            DataReader reader;
+            Ret ret = reader.init(path.string());
+            if (ret.code() != 0) {
+                ERR(ret.message().c_str())
+            }
+            if (print_stats_block(output, path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
+                ERR("Failed to print delta file stats")
+            }
         }
     }
 

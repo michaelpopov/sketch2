@@ -66,9 +66,6 @@ inline constexpr char kOwnerLockFileName[] = "sketch2.owner.lock";
 // Accumulator WAL file name used by Dataset to persist owner-side pending updates across restarts.
 inline constexpr char kAccumulatorWalFileName[] = "sketch2.accumulator.wal";
 
-// Temporary text-input file name used by parasol dataset creation/import workflows.
-inline constexpr char kInputFileName[] = "data.input";
-
 // SQLite virtual table module name registered by the vlite extension entry point.
 inline constexpr char kVliteModuleName[] = "vlite";
 

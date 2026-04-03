@@ -113,17 +113,17 @@ class Sketch2:
         self.lib.sk_complete_writing.argtypes = [c_void_p]
         self.lib.sk_complete_writing.restype = c_int
 
-        self.lib.sk_generate.argtypes = [c_void_p, c_uint64, c_uint64, c_int]
-        self.lib.sk_generate.restype = c_int
-
-        self.lib.sk_generate_bin.argtypes = [c_void_p, c_uint64, c_uint64, c_int]
-        self.lib.sk_generate_bin.restype = c_int
+        self.lib.sk_generate_test_data.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64]
+        self.lib.sk_generate_test_data.restype = c_int
 
         self.lib.sk_load_file.argtypes = [c_void_p, c_char_p]
         self.lib.sk_load_file.restype = c_int
 
-        self.lib.sk_stats.argtypes = [c_void_p]
+        self.lib.sk_stats.argtypes = [c_void_p, c_char_p]
         self.lib.sk_stats.restype = c_int
+
+        self.lib.sk_set_log_level.argtypes = [c_char_p]
+        self.lib.sk_set_log_level.restype = None
 
         self.lib.sk_error.argtypes = [c_void_p]
         self.lib.sk_error.restype = c_int
@@ -257,20 +257,32 @@ class Sketch2:
     def complete_writing(self) -> None:
         self._check("sk_complete_writing", self.lib.sk_complete_writing(self.handle))
 
-    def generate(self, count: int, start_id: int, pattern: int) -> None:
+    def generate_test_data(
+        self,
+        file_path: str | Path,
+        count: int,
+        start_id: int | None = None,
+        from_index: int | None = None,
+        binary: bool | None = False,
+    ) -> None:
+        if start_id is None:
+            start_id = 0 if from_index is None else from_index
         self._check(
-            "sk_generate",
-            self.lib.sk_generate(self.handle, c_uint64(count), c_uint64(start_id), c_int(pattern)),
-        )
-
-    def generate_bin(self, count: int, start_id: int, pattern: int) -> None:
-        self._check(
-            "sk_generate_bin",
-            self.lib.sk_generate_bin(self.handle, c_uint64(count), c_uint64(start_id), c_int(pattern)),
+            "generate_test_data",
+            self.lib.sk_generate_test_data(
+                self.handle,
+                str(file_path).encode("utf-8"),
+                c_uint64(count),
+                c_uint64(start_id),
+            ),
         )
 
     def load_file(self, path: str | Path) -> None:
         self._check("sk_load_file", self.lib.sk_load_file(self.handle, str(path).encode("utf-8")))
 
-    def stats(self) -> None:
-        self._check("sk_stats", self.lib.sk_stats(self.handle))
+    def stats(self, path: str | Path | None = None) -> None:
+        encoded = b"" if path is None else str(path).encode("utf-8")
+        self._check("sk_stats", self.lib.sk_stats(self.handle, encoded))
+
+    def set_log_level(self, level: str) -> None:
+        self.lib.sk_set_log_level(level.encode("utf-8"))

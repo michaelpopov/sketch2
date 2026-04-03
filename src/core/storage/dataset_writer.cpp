@@ -90,6 +90,7 @@ Ret DatasetWriter::store(const std::string& input_path) {
         CHECK(ensure_owner_lock_());
         should_notify = true;
         Timer timer("DatasetWriter::store");
+        LOG_TRACE << "Storing data from input file " << input_path;
         ret = store_(input_path);
         LOG_INFO << "Completed DatasetWriter::store for " << name() << " in " << timer.elapsed_ms() << " ms";
     } catch (const std::exception& ex) {
@@ -443,55 +444,85 @@ Ret DatasetWriter::merge_() {
 
 Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
         uint64_t range_start, uint64_t range_end) const {
-    const std::string output_path_base = item_path_base(file_id);
-    const std::string output_path = output_path_base + kTempExt;
+    const std::string temp_path_base = item_path_base(file_id);
+    const std::string temp_path = temp_path_base + kTempExt;
 
-    std::experimental::scope_exit file_guard([output_path]() {
+    // If anything goes wrong with processing the generated temp file,
+    // remove it before completing this function.
+    std::experimental::scope_exit file_guard([temp_path]() {
         std::error_code ec;
-        std::filesystem::remove(output_path, ec);
+        std::filesystem::remove(temp_path, ec);
     });
 
+    // Read a range from the input file and write it to the temp file with
+    // in Sketch2 data format.
     {
         InputReaderView view(reader, range_start, range_end);
         DataWriter writer;
-        CHECK(writer.load(view, output_path, metadata_.dist_func == DistFunc::COS));
+        CHECK(writer.load(view, temp_path, metadata_.dist_func == DistFunc::COS));
     }
 
-    DataReader output_reader;
-    CHECK(output_reader.init(output_path));
+    // TODO: Attention!!! This function contains a shortcut that impacts performance.
+    // We utilize existing merge functionality. We write input data into the Sketch2
+    // data file first. Then we decide what to do with it. In some cases, the file
+    // can be just renamed: if it's a first data file in the range or if it's a first
+    // delta file in the range. In other cases, the file must be merged either with
+    // the existing data file or the existing delta file. And in the later case we
+    // have double write: first we are writing the file, then we are merging it.
+    // Technically it should be possible to implement functionality without the
+    // first step, i.e. writing the temporary data file. But it is more complicated
+    // and requires more code. So, I decided to go the easy way. For now. Let's
+    // return to this point later and optimize the store procedure without the
+    // need to write a temporary file in Sketch2 data format.
 
-    const std::string data_path = output_path_base + kDataExt;
+    // Init a reader of the temp file to examine its content and make decisions
+    // about merging it.
+    DataReader temp_file_reader;
+    CHECK(temp_file_reader.init(temp_path));
+
+    // If a data file for the range doesn't exist, the temp file becomes the first data file.
+    const std::string data_path = temp_path_base + kDataExt;
     if (!std::filesystem::exists(data_path)) {
-        if (output_reader.deleted_count() != 0) {
+        if (temp_file_reader.deleted_count() != 0) {
             return Ret("DatasetWriter::store_and_merge: invalid deleted items");
         }
-        std::filesystem::rename(output_path, data_path);
+        std::filesystem::rename(temp_path, data_path);
+        LOG_TRACE << "DatasetWriter: loaded data to data file " << data_path;
         return Ret(0);
     }
 
-    const std::string delta_path = output_path_base + kDeltaExt;
+    // Data file does exist. Delta file doesn't exist.
+    const std::string delta_path = temp_path_base + kDeltaExt;
     if (!std::filesystem::exists(delta_path)) {
         {
             DataReader data_reader;
             CHECK(data_reader.init(data_path));
 
-            const bool is_merge = check_data_file_merge(data_reader, output_reader);
+            // Check is new data big enough to justify direct merging it into a data file
+            // and skip creating a delta file. In this case, merge the temporary file
+            // into data file and it's done.
+            const bool is_merge = check_data_file_merge(data_reader, temp_file_reader);
             if (is_merge) {
-                CHECK(merge_data_file(data_reader, output_reader, output_path_base, kTempExt));
+                CHECK(merge_data_file(data_reader, temp_file_reader, temp_path_base, kTempExt));
                 return Ret(0);
             }
         }
 
-        std::filesystem::rename(output_path, delta_path);
+        // The temp file becomes a delta file.
+        std::filesystem::rename(temp_path, delta_path);
+        LOG_TRACE << "DatasetWriter: loaded data to delta file " << delta_path;
         return Ret(0);
     }
 
+    // Delta file does exist. Merge data from the temp file into the delta file.
     {
         DataReader delta_reader;
         CHECK(delta_reader.init(delta_path));
-        CHECK(merge_delta_file(delta_reader, output_reader, output_path_base));
+        CHECK(merge_delta_file(delta_reader, temp_file_reader, temp_path_base));
     }
 
+    // Check the new size of the delta file. If it is large enough, merge it to the
+    // data file and remove the delta file.
     {
         DataReader data_reader;
         CHECK(data_reader.init(data_path));
@@ -500,7 +531,7 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
 
         const bool is_data_delta_merge = check_data_delta_merge(data_reader, delta_reader);
         if (is_data_delta_merge) {
-            CHECK(merge_data_file(data_reader, delta_reader, output_path_base, kDeltaExt));
+            CHECK(merge_data_file(data_reader, delta_reader, temp_path_base, kDeltaExt));
         }
     }
 

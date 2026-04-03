@@ -1,4 +1,4 @@
-#include "utils.h"
+#include "sketch2api_utils.h"
 
 #include "core/utils/ini_reader.h"
 #include "core/utils/shared_consts.h"
@@ -153,14 +153,14 @@ std::vector<std::filesystem::path> collect_paths_with_extension(
     return paths;
 }
 
-int print_stats_block(const std::string& label, size_t vectors_count, size_t deleted_count) {
-    if (std::fprintf(stdout, "%s:\n", label.c_str()) < 0) {
+int print_stats_block(FILE* output, const std::string& label, size_t vectors_count, size_t deleted_count) {
+    if (std::fprintf(output, "%s:\n", label.c_str()) < 0) {
         return -1;
     }
-    if (std::fprintf(stdout, "    Vectors count: %zu\n", vectors_count) < 0) {
+    if (std::fprintf(output, "    Vectors count: %zu\n", vectors_count) < 0) {
         return -1;
     }
-    if (std::fprintf(stdout, "    Deleted count: %zu\n\n", deleted_count) < 0) {
+    if (std::fprintf(output, "    Deleted count: %zu\n\n", deleted_count) < 0) {
         return -1;
     }
     return 0;

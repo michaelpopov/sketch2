@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <experimental/scope>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -30,6 +31,21 @@ std::filesystem::path make_temp_dir() {
     char* const dir = mkdtemp(writable.data());
     EXPECT_NE(nullptr, dir);
     return dir == nullptr ? base / "sketch2_parasol_ut_fallback" : std::filesystem::path(dir);
+}
+
+std::filesystem::path make_test_data_path() {
+    const std::filesystem::path base("/tmp");
+    std::string pattern = (base / "sketch2_test_data_XXXXXX").string();
+    std::vector<char> writable(pattern.begin(), pattern.end());
+    writable.push_back('\0');
+
+    const int fd = mkstemp(writable.data());
+    EXPECT_NE(-1, fd);
+    if (fd != -1) {
+        close(fd);
+    }
+
+    return fd == -1 ? base / "sketch2_test_data_fallback" : std::filesystem::path(writable.data());
 }
 
 std::string read_file(const std::filesystem::path& path) {
@@ -127,17 +143,21 @@ TEST(sketch2api, reopen_restores_pending_wal_for_get_and_knn) {
 
 TEST(sketch2api, generate_stats_and_print_smoke) {
     const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path test_data_path = make_test_data_path();
+    const std::filesystem::path stats_output = root / "stats.txt";
+    std::experimental::scope_exit cleanup([&]() {
+        std::filesystem::remove(test_data_path);
+        std::filesystem::remove(stats_output);
+    });
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
-    ASSERT_OK(handle, sk_generate(handle, 8, 10, 0));
+    ASSERT_OK(handle, sk_generate_test_data(handle, test_data_path.c_str(), 8, 10, false));
 
-    testing::internal::CaptureStdout();
-    ASSERT_OK(handle, sk_stats(handle));
-    const std::string stats_out = testing::internal::GetCapturedStdout();
-    EXPECT_NE(stats_out.find("dataset:"), std::string::npos);
+    ASSERT_OK(handle, sk_stats(handle, stats_output.string().c_str()));
+    const std::string stats_out = read_file(stats_output);
     EXPECT_NE(stats_out.find("Name: ds"), std::string::npos);
     EXPECT_NE(stats_out.find("Type: f32"), std::string::npos);
     EXPECT_NE(stats_out.find("Dist: l1"), std::string::npos);
@@ -157,14 +177,16 @@ TEST(sketch2api, generate_stats_and_print_smoke) {
     std::filesystem::remove_all(root);
 }
 
-TEST(sketch2api, generate_bin_creates_and_loads_binary_input) {
+TEST(sketch2api, generate_bin_creates_and_loads_input) {
     const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path test_data_path = make_test_data_path();
+    std::experimental::scope_exit cleanup([&]() { std::filesystem::remove(test_data_path); });
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
     ASSERT_NE(handle, nullptr);
 
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
-    ASSERT_OK(handle, sk_generate_bin(handle, 8, 10, 0));
+    ASSERT_OK(handle, sk_generate_test_data(handle, test_data_path.c_str(), 8, 10, true));
 
     EXPECT_NE(api_get(handle, 10).find("[ 10.1"), std::string::npos);
 
@@ -249,6 +271,9 @@ TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
     const pid_t pid = fork();
     ASSERT_GE(pid, 0);
     if (pid == 0) {
+        const std::filesystem::path test_data_path = make_test_data_path();
+        std::experimental::scope_exit cleanup([&]() { std::filesystem::remove(test_data_path); });
+
         close(pipefd[0]);
         sk_handle_t* child = sk_new_handle(root.string().c_str());
         if (child == nullptr) {
@@ -257,7 +282,7 @@ TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
         if (sk_open(child, "ds") != 0) {
             _exit(11);
         }
-        if (sk_generate(child, 1, 0, 0) != 0) {
+        if (sk_generate_test_data(child, test_data_path.c_str(), 1, 0, false) != 0) {
             _exit(12);
         }
         const char ready = '1';

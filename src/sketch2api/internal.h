@@ -1,7 +1,5 @@
-#ifndef SKETCH2API_INTERNAL_H
-#define SKETCH2API_INTERNAL_H
-
-#include "utils.h"
+#pragma once
+#include "sketch2api_utils.h"
 
 namespace sketch2api::detail {
 
@@ -21,14 +19,9 @@ SKETCH2API_HIDDEN int sk_write_vector_(sk_handle_t* handle, uint64_t id, const c
 SKETCH2API_HIDDEN int sk_write_deleted_(sk_handle_t* handle, uint64_t id);
 SKETCH2API_HIDDEN int sk_abort_writing_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_complete_writing_(sk_handle_t* handle);
-SKETCH2API_HIDDEN int sk_generate_(sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
-SKETCH2API_HIDDEN int sk_generate_bin_(
-    sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern);
-SKETCH2API_HIDDEN int sk_generate_impl_(
-    sk_handle_t* handle, uint64_t count, uint64_t start_id, int pattern, bool binary);
+SKETCH2API_HIDDEN int sk_generate_test_data_(
+    sk_handle_t* handle, const char* path, uint64_t count, uint64_t start_id, bool binary = false);
 SKETCH2API_HIDDEN int sk_load_file_(sk_handle_t* handle, const char* path);
-SKETCH2API_HIDDEN int sk_stats_(sk_handle_t* handle);
+SKETCH2API_HIDDEN int sk_stats_(sk_handle_t* handle, const char* path = nullptr);
 
 } // namespace sketch2api::detail
-
-#endif // SKETCH2API_INTERNAL_H
