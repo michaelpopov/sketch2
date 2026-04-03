@@ -51,11 +51,11 @@ def create_dataset(sketch2, db_path: Path, dataset_name: str) -> None:
 # Development of Sketch2 requires loading sets of vector embeddings. Sketch2 includes
 # functionality for generating test data that can be used for loading and testing it.
 # The test data is written into a local file that can be loaded into Sketch2 dataset
-# after that. There are two modes for input data: text and binary. Text mode is convinient
+# after that. There are two modes for input data: text and binary. Text mode is convenient
 # because it allows examining what is actually loaded into dataset. Binary mode allows
 # generating large sets of vectors in much shorter time than it can be done with text
 # mode.
-# This function creates a path to a local file for storing generated test data.
+# This function creates a path to a local directory for storing generated test data.
 def make_test_file_path(db_path) -> Path:
     # db_path is expected to be a config file; if a directory is passed, use it directly.
     resolved = Path(db_path).resolve()
@@ -125,7 +125,7 @@ def main() -> None:
             print(f"Opened dataset '{dataset_name}' successfully")
 
             print("---------- Dataset info after initial input ----------------------\n")
-            sketch2.generate_test_data(test_data_file, vectors_count, from_index = 0, binary=True)
+            sketch2.generate_test_data(test_data_file, vectors_count, start_id = 0, binary=True)
             sketch2.load_file(test_data_file)
             sketch2.stats()
             # At this point there are 3 data files: two data files in directory part_00 and one
@@ -146,7 +146,7 @@ def main() -> None:
             # and updated vectors. Data files were not touched by these updates.
 
             print("\n\n---------- Dataset info after adding more vectors ----------------------\n")
-            sketch2.generate_test_data(test_data_file, vectors_count, from_index = vectors_count, binary=True)
+            sketch2.generate_test_data(test_data_file, vectors_count, start_id = vectors_count, binary=True)
             sketch2.load_file(test_data_file)
             sketch2.stats()
             # At this point there are 2 delta files that were not touched by this operation because they cover

@@ -203,6 +203,9 @@ void sk_free(void* ptr) {
 }
 
 void sk_set_log_level(const char* log_level) {
+    if (!log_level) {
+        return;
+    }
     LogLevel level = parse_log_level(log_level);
     set_current_log_level(level);
 }

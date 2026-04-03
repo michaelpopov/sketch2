@@ -515,6 +515,9 @@ int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count
         handle->ds->dim() > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
         ERR("Arguments are too large")
     }
+    if (!path) {
+        ERR("Invalid path")
+    }
 
     PatternType pattern_type = PatternType::Sequential;
 
@@ -605,27 +608,27 @@ int sk_stats_(sk_handle_t* handle, const char* path) {
 
     const auto& dirs = handle->ds->dirs();
     for (const auto& dir_str: dirs) {
-        fprintf(output, "==== Data path: %s\n", dir_str.c_str());
+        (void)fprintf(output, "==== Data path: %s\n", dir_str.c_str());
         const std::filesystem::path dir_path{dir_str};
 
-        for (const auto& path : collect_paths_with_extension(dir_path, ".data")) {
+        for (const auto& file_path : collect_paths_with_extension(dir_path, ".data")) {
             DataReader reader;
-            Ret ret = reader.init(path.string());
+            Ret ret = reader.init(file_path);
             if (ret.code() != 0) {
                 ERR(ret.message().c_str())
             }
-            if (print_stats_block(output, path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
+            if (print_stats_block(output, file_path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
                 ERR("Failed to print data file stats")
             }
         }
 
-        for (const auto& path : collect_paths_with_extension(dir_path, ".delta")) {
+        for (const auto& file_path : collect_paths_with_extension(dir_path, ".delta")) {
             DataReader reader;
-            Ret ret = reader.init(path.string());
+            Ret ret = reader.init(file_path.string());
             if (ret.code() != 0) {
                 ERR(ret.message().c_str())
             }
-            if (print_stats_block(output, path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
+            if (print_stats_block(output, file_path.filename().string(), reader.count(), reader.deleted_count()) != 0) {
                 ERR("Failed to print delta file stats")
             }
         }

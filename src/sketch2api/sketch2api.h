@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -108,7 +109,7 @@ int sk_generate_test_data(sk_handle_t* handle,
 int sk_load_file(sk_handle_t* handle, const char* path);
 
 /*
- * Print dataset file statistics to stdout.
+ * Print dataset file statistics to stdout or a text file.
  */
 int sk_stats(sk_handle_t* handle, const char* path);
 

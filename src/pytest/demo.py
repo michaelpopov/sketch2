@@ -159,7 +159,7 @@ def load_dataset_with_generator(ps: Sketch2, input_path: Path, from_id: int, cou
 def effective_input_format(binary: bool, dist_func: str) -> str:
     if dist_func == "COS":
         return "text"
-    return "text"
+    return "binary"
 
 
 def write_input_chunk(

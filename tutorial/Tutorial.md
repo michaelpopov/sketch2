@@ -142,7 +142,7 @@ What it demonstrates:
 - Delete a regular subset of vectors through staged writes and confirm one deleted vector is no longer readable.
 - Update another regular subset of vectors and confirm one updated vector returns the expected value.
 - Generate and load another batch of vectors with ids beyond the original range.
-- Merge delte files and inspect the final file layout after pending deltas are folded into data files.
+- Merge delta files and inspect the final file layout after pending deltas are folded into data files.
 
 Workflow notes:
 - The script uses `generate_test_data()` to build a deterministic input file.

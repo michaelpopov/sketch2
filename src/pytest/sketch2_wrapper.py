@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import ctypes
-from ctypes import POINTER, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
+from ctypes import POINTER, c_bool, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
 from pathlib import Path
 
 
@@ -113,7 +113,7 @@ class Sketch2:
         self.lib.sk_complete_writing.argtypes = [c_void_p]
         self.lib.sk_complete_writing.restype = c_int
 
-        self.lib.sk_generate_test_data.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64]
+        self.lib.sk_generate_test_data.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64, c_bool]
         self.lib.sk_generate_test_data.restype = c_int
 
         self.lib.sk_load_file.argtypes = [c_void_p, c_char_p]
@@ -262,11 +262,10 @@ class Sketch2:
         file_path: str | Path,
         count: int,
         start_id: int | None = None,
-        from_index: int | None = None,
-        binary: bool | None = False,
+        binary: bool = False,
     ) -> None:
         if start_id is None:
-            start_id = 0 if from_index is None else from_index
+            start_id = 0
         self._check(
             "generate_test_data",
             self.lib.sk_generate_test_data(
@@ -274,6 +273,7 @@ class Sketch2:
                 str(file_path).encode("utf-8"),
                 c_uint64(count),
                 c_uint64(start_id),
+                c_bool(bool(binary)),
             ),
         )
 
