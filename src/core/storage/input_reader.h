@@ -35,7 +35,14 @@ public:
     uint64_t id(size_t index) const;
     Ret data(size_t index, uint8_t* buf, size_t size) const;
     bool is_binary() const;
+    // Reports whether text-mode payloads use comma separators. Callers that
+    // borrow raw text slices must pass the matching parser mode downstream.
+    bool is_comma_delimited() const;
     Ret raw_data(size_t index, const uint8_t** data) const;
+    // Returns a borrowed [begin, end) slice into the mmap-backed text payload.
+    // The returned pointers stay valid only while this InputReader remains
+    // alive and mapped.
+    Ret text_data_range(size_t index, const char** begin, const char** end) const;
     bool is_no_data(size_t index) const;
 
     bool is_range_present(uint64_t start_range, uint64_t end_range) const;
@@ -74,7 +81,11 @@ public:
     uint64_t id(size_t index) const;
     Ret data(size_t index, uint8_t* buf, size_t size) const;
     bool is_binary() const;
+    bool is_comma_delimited() const;
     Ret raw_data(size_t index, const uint8_t** data) const;
+    // Returns a borrowed [begin, end) slice into the backing InputReader mmap.
+    // The slice becomes invalid once that InputReader is destroyed or unmapped.
+    Ret text_data_range(size_t index, const char** begin, const char** end) const;
     bool is_no_data(size_t index) const;
 private:
     const InputReader& reader_;

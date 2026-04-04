@@ -283,6 +283,10 @@ bool InputReader::is_binary() const {
     return binary_;
 }
 
+bool InputReader::is_comma_delimited() const {
+    return is_comma_delimited_;
+}
+
 uint64_t InputReader::id(size_t index) const {
     if (index >= lines_.size()) {
         throw std::out_of_range("InputReader::id: index out of range");
@@ -329,6 +333,25 @@ Ret InputReader::raw_data(size_t index, const uint8_t** data) const {
     }
 
     *data = map_ + lines_[index].offset;
+    return Ret(0);
+}
+
+Ret InputReader::text_data_range(size_t index, const char** begin, const char** end) const {
+    if (index >= lines_.size()) {
+        return Ret("InputReader::text_data_range: index out of range");
+    }
+    if (begin == nullptr || end == nullptr) {
+        return Ret("InputReader::text_data_range: invalid range pointers");
+    }
+    if (binary_) {
+        return Ret("InputReader::text_data_range: text access is only available in text mode");
+    }
+    if (is_no_data(index)) {
+        return Ret("InputReader::text_data_range: vector is deleted");
+    }
+
+    *begin = reinterpret_cast<const char*>(map_) + lines_[index].offset;
+    *end = reinterpret_cast<const char*>(map_) + lines_[index].end;
     return Ret(0);
 }
 
@@ -471,6 +494,10 @@ bool InputReaderView::is_binary() const {
     return reader_.is_binary();
 }
 
+bool InputReaderView::is_comma_delimited() const {
+    return reader_.is_comma_delimited();
+}
+
 uint64_t InputReaderView::id(size_t index) const {
     if (index >= count_) {
         throw std::out_of_range("InputReaderView::id: index out of range");
@@ -490,6 +517,13 @@ Ret InputReaderView::raw_data(size_t index, const uint8_t** data) const {
         return Ret("InputReaderView::raw_data: index out of range");
     }
     return reader_.raw_data(view_index_ + index, data);
+}
+
+Ret InputReaderView::text_data_range(size_t index, const char** begin, const char** end) const {
+    if (index >= count_) {
+        return Ret("InputReaderView::text_data_range: index out of range");
+    }
+    return reader_.text_data_range(view_index_ + index, begin, end);
 }
 
 bool InputReaderView::is_no_data(size_t index) const {

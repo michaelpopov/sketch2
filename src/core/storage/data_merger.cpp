@@ -6,6 +6,7 @@
 #include "core/storage/input_reader.h"
 #include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
+#include "core/utils/string_utils.h"
 #include "core/utils/timer.h"
 #include <algorithm>
 #include <cassert>
@@ -19,26 +20,61 @@ namespace sketch2 {
 
 namespace {
 
-struct MergeItem {
-    // The merger materializes updater rows once up front so the actual merge
-    // loop can work with one uniform, sorted in-memory stream instead of
-    // repeatedly talking to an iterator with callback-driven control flow.
-    uint64_t id;
+enum class MergeItemStorage {
+    Binary,
+    Text,
+};
+
+struct MergeItemBinaryData {
     const uint8_t* data;
     float cosine_inv_norm;
 };
 
+struct MergeItemTextData {
+    const char* start;
+    const char* end;
+};
+
+struct MergeItem {
+    uint64_t id;
+    union {
+        MergeItemBinaryData binary;
+        MergeItemTextData text;
+    };
+};
+
 struct MaterializedInputUpdater {
-    // `items[i].data` points into owned_data, so the raw bytes for all live
-    // updater rows stay valid for the entire merge. This mirrors what the
-    // DataReader-backed path gets "for free" from mmap-backed file storage.
-    // Because of that, owned_data must not reallocate after any MergeItem::data
-    // pointer has been captured. materialize_input_updater() relies on
-    // reserving the full final byte count up front before the fill loop.
+    // Every MergeItem in one updater uses the same representation, so the mode
+    // and text delimiter choice live at the container level instead of being
+    // repeated in each item. `compute_cosine_inv_norms` records the caller's
+    // expectation so debug builds can assert that materialization-time and
+    // write-time cosine handling stay in sync.
+    MergeItemStorage storage = MergeItemStorage::Binary;
+    bool text_is_comma_delimited = true;
+    bool compute_cosine_inv_norms = false;
     std::vector<MergeItem> items;
     std::vector<uint64_t> deletes;
-    std::vector<uint8_t> owned_data;
 };
+
+MergeItem make_binary_merge_item(uint64_t id, const uint8_t* data, float cosine_inv_norm) {
+    MergeItem item{};
+    item.id = id;
+    item.binary = MergeItemBinaryData{
+        .data = data,
+        .cosine_inv_norm = cosine_inv_norm,
+    };
+    return item;
+}
+
+MergeItem make_text_merge_item(uint64_t id, const char* start, const char* end) {
+    MergeItem item{};
+    item.id = id;
+    item.text = MergeItemTextData{
+        .start = start,
+        .end = end,
+    };
+    return item;
+}
 
 class CosineInvNormOutput {
 public:
@@ -146,26 +182,63 @@ public:
     // stable error messages across the whole merge flow.
     MergeOutputWriter(FILE* f, const DataFileHeader& header, const char* context)
         : f_(f),
+          type_(data_type_from_int(static_cast<int>(header.type))),
+          dim_(header.dim),
+          vector_size_(compute_vector_size(type_, dim_)),
           vector_stride_(header.vector_stride),
           context_(context),
+          cosine_enabled_((header.flags & kDataFileHasCosineInvNorms) != 0u),
           cosine_inv_norms_((header.flags & kDataFileHasCosineInvNorms) != 0u) {}
 
     // The merge emits at most source.count() + updater.count() live rows.
     // Reserving once keeps the hot merge loop simple and avoids reallocations.
-    void reserve(size_t count) {
+    // The text scratch buffer is only needed for direct-input text merges.
+    void reserve(size_t count, bool needs_text_buffer) {
         output_ids_.reserve(count);
         cosine_inv_norms_.reserve(count);
+        if (needs_text_buffer) {
+            parsed_text_buffer_.resize(vector_size_);
+        }
     }
 
     // Appends one surviving row to the output in the exact order required by
     // the file format: first vector records, later the optional cosine array and
     // id array. The ids are buffered here until those trailing sections are
     // written after all vectors.
-    Ret write_record(uint64_t id, const uint8_t* data, float cosine_inv_norm, size_t size) {
+    Ret write_binary_record(uint64_t id, const uint8_t* data, float cosine_inv_norm) {
         output_ids_.push_back(id);
-        CHECK(write_vector_record(f_, data, size, vector_stride_, context_));
+        CHECK(write_vector_record(f_, data, vector_size_, vector_stride_, context_));
         cosine_inv_norms_.push(cosine_inv_norm);
         return Ret(0);
+    }
+
+    Ret write_text_record(uint64_t id, const char* start, const char* end, bool comma_delimited) {
+        if (start == nullptr || end == nullptr) {
+            return Ret("MergeOutputWriter: missing text vector range");
+        }
+        if (end < start) {
+            return Ret("MergeOutputWriter: invalid text vector range");
+        }
+        if (parsed_text_buffer_.size() != vector_size_) {
+            parsed_text_buffer_.resize(vector_size_);
+        }
+
+        const Ret parse_ret = comma_delimited
+            ? parse_vector(parsed_text_buffer_.data(), parsed_text_buffer_.size(), type_, dim_, start, end)
+            : parse_vector_spaces(parsed_text_buffer_.data(), parsed_text_buffer_.size(), type_, dim_, start, end);
+        CHECK(parse_ret);
+
+        const float cosine_inv_norm = cosine_inv_norms_enabled()
+            ? compute_cosine_inverse_norm(parsed_text_buffer_.data(), type_, dim_)
+            : 0.0f;
+        return write_binary_record(id, parsed_text_buffer_.data(), cosine_inv_norm);
+    }
+
+    Ret write_updater_record(const MergeItem& item, MergeItemStorage storage, bool text_is_comma_delimited) {
+        if (storage == MergeItemStorage::Binary) {
+            return write_binary_record(item.id, item.binary.data, item.binary.cosine_inv_norm);
+        }
+        return write_text_record(item.id, item.text.start, item.text.end, text_is_comma_delimited);
     }
 
     // Writes the trailer that follows the vector-record area in every merged
@@ -183,13 +256,19 @@ public:
     }
 
     const std::vector<uint64_t>& output_ids() const { return output_ids_; }
+    bool cosine_inv_norms_enabled() const { return cosine_enabled_; }
 
 private:
     FILE* f_ = nullptr;
+    DataType type_ = DataType::f32;
+    uint16_t dim_ = 0;
+    size_t vector_size_ = 0;
     size_t vector_stride_ = 0;
     const char* context_ = "";
+    bool cosine_enabled_ = false;
     CosineInvNormOutput cosine_inv_norms_;
     std::vector<uint64_t> output_ids_;
+    std::vector<uint8_t> parsed_text_buffer_;
 };
 
 void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer) {
@@ -213,18 +292,14 @@ Ret flush_and_close_merge_file(FILE** f, const char* context) {
     return Ret(0);
 }
 
-// Materializes visible updater rows into a sorted merge stream that keeps both
-// vector bytes and optional cosine metadata together.
+// Materializes persisted updater rows into a sorted merge stream that points
+// directly at mmap-backed binary records and their cosine metadata.
 std::vector<MergeItem> load_update_records(const DataReader& updater) {
     std::vector<MergeItem> updater_items;
     updater_items.reserve(updater.count());
     for (auto iter = updater.begin(); !iter.eof(); iter.next()) {
         assert(iter.data() != nullptr);
-        updater_items.push_back(MergeItem {
-            .id = iter.id(),
-            .data = iter.data(),
-            .cosine_inv_norm = iter.cosine_inv_norm(),
-        });
+        updater_items.push_back(make_binary_merge_item(iter.id(), iter.data(), iter.cosine_inv_norm()));
     }
 #ifndef NDEBUG
     for (size_t i = 1; i < updater_items.size(); ++i) {
@@ -243,27 +318,24 @@ std::vector<uint64_t> load_deleted_ids(const DataReader& updater) {
     return deletes;
 }
 
-// Materializes a range view from raw input into the same normalized updater
-// shape used by the DataReader-based merge path: sorted live rows plus a sorted
-// delete list. Live vector bytes are copied into one backing buffer so the merge
-// loop can keep using stable pointers regardless of whether the input came from
-// text or binary records.
+// Materializes a range view from raw input into the normalized updater shape
+// used by the merge path: sorted live rows plus a sorted delete list. Binary
+// input items borrow the mapped payload directly; text input items carry just
+// the source slice and are parsed on demand when a surviving row is written.
+//
+// Important lifetime contract: text slices in `items` point into the mmap
+// owned by the InputReader behind `updater`. Callers must keep that
+// InputReader/InputReaderView alive until the merge fully completes.
 Ret materialize_input_updater(const InputReaderView& updater,
         bool compute_cosine_inv_norms,
         MaterializedInputUpdater* materialized) {
-    // This function is the adapter that keeps the rest of DataMerger simple.
-    // After it runs, the merge core no longer needs to care whether updates
-    // originally came from:
-    // - a persisted temp/delta file (DataReader path), or
-    // - fresh parsed input records (InputReaderView path).
-    //
-    // Both are normalized into the same representation:
-    // - `items`: sorted live updater rows
-    // - `deletes`: sorted tombstones
-    // - `owned_data`: backing storage for live vector bytes
+    // This function keeps the merge core agnostic to the original source of
+    // updates while avoiding a second large buffer for text input vectors.
     materialized->items.clear();
     materialized->deletes.clear();
-    materialized->owned_data.clear();
+    materialized->storage = updater.is_binary() ? MergeItemStorage::Binary : MergeItemStorage::Text;
+    materialized->text_is_comma_delimited = updater.is_comma_delimited();
+    materialized->compute_cosine_inv_norms = compute_cosine_inv_norms;
 
     // First count and split ids into "live rows" vs "deletes". The input view
     // is already sorted by id, so both output arrays preserve sorted order.
@@ -277,50 +349,24 @@ Ret materialize_input_updater(const InputReaderView& updater,
     }
 
     materialized->items.reserve(live_count);
-    // Reserve the full backing store before capturing any pointers into it.
-    // If owned_data ever reallocates inside the loop below, every previously
-    // stored MergeItem::data pointer would become dangling.
-    materialized->owned_data.reserve(live_count * updater.size());
-
-    // Text input needs parsing into a scratch buffer, while binary input can be
-    // copied directly from the mapped source file. Either way, we copy bytes
-    // into owned_data so MergeItem can carry a stable pointer through the rest
-    // of the merge pipeline.
-    std::vector<uint8_t> parsed_vector(updater.size());
-#ifndef NDEBUG
-    const uint8_t* const owned_data_base = materialized->owned_data.data();
-#endif
     for (size_t i = 0; i < updater.count(); ++i) {
         if (updater.is_no_data(i)) {
             continue;
         }
 
-        const size_t offset = materialized->owned_data.size();
-        materialized->owned_data.resize(offset + updater.size());
-        uint8_t* stored_data = materialized->owned_data.data() + offset;
         if (updater.is_binary()) {
             const uint8_t* raw_data = nullptr;
             CHECK(updater.raw_data(i, &raw_data));
-            std::memcpy(stored_data, raw_data, updater.size());
+            materialized->items.push_back(make_binary_merge_item(
+                updater.id(i),
+                raw_data,
+                compute_cosine_inv_norms ? compute_cosine_inverse_norm(raw_data, updater.type(), updater.dim()) : 0.0f));
         } else {
-            CHECK(updater.data(i, parsed_vector.data(), parsed_vector.size()));
-            std::memcpy(stored_data, parsed_vector.data(), updater.size());
+            const char* start = nullptr;
+            const char* end = nullptr;
+            CHECK(updater.text_data_range(i, &start, &end));
+            materialized->items.push_back(make_text_merge_item(updater.id(i), start, end));
         }
-
-        // Cosine inverse norms are computed here for the direct-input path
-        // because, unlike the persisted-file path, there is no on-disk cosine
-        // section to read them from later.
-        materialized->items.push_back(MergeItem {
-            .id = updater.id(i),
-            .data = stored_data,
-            .cosine_inv_norm = compute_cosine_inv_norms
-                ? compute_cosine_inverse_norm(stored_data, updater.type(), updater.dim())
-                : 0.0f,
-        });
-
-#ifndef NDEBUG
-        assert(materialized->owned_data.data() == owned_data_base);
-#endif
     }
 
 #ifndef NDEBUG
@@ -374,6 +420,8 @@ std::vector<uint64_t> build_delta_deletes(const DataReader& source,
 // rows, and surviving records are streamed into the output writer.
 Ret merge_records(const DataReader& source,
         const std::vector<MergeItem>& updater_items,
+        MergeItemStorage updater_storage,
+        bool updater_text_is_comma_delimited,
         const std::vector<uint64_t>& deletes,
         const std::string& conflict_message,
         MergeOutputWriter* output) {
@@ -421,17 +469,17 @@ Ret merge_records(const DataReader& source,
             const uint64_t update_id = updater_items[j].id;
             if (source_id < update_id) {
                 // Source id comes first and is not shadowed by an update.
-                CHECK(output->write_record(source_id, source.at(i), source.cosine_inv_norm(i), source.size()));
+                CHECK(output->write_binary_record(source_id, source.at(i), source.cosine_inv_norm(i)));
                 ++i;
             } else if (source_id > update_id) {
                 // Updater inserted a new id before the current source id.
-                CHECK(output->write_record(
-                    update_id, updater_items[j].data, updater_items[j].cosine_inv_norm, source.size()));
+                CHECK(output->write_updater_record(
+                    updater_items[j], updater_storage, updater_text_is_comma_delimited));
                 ++j;
             } else {
                 // Same id in both streams means "replace source with updater".
-                CHECK(output->write_record(
-                    update_id, updater_items[j].data, updater_items[j].cosine_inv_norm, source.size()));
+                CHECK(output->write_updater_record(
+                    updater_items[j], updater_storage, updater_text_is_comma_delimited));
                 ++i;
                 ++j;
             }
@@ -441,13 +489,12 @@ Ret merge_records(const DataReader& source,
         if (has_source) {
             const uint64_t source_id = source.id(i);
             // No updater rows remain, so every remaining source row survives.
-            CHECK(output->write_record(source_id, source.at(i), source.cosine_inv_norm(i), source.size()));
+            CHECK(output->write_binary_record(source_id, source.at(i), source.cosine_inv_norm(i)));
             ++i;
         } else {
-            const uint64_t update_id = updater_items[j].id;
             // No source rows remain, so every remaining updater row is appended.
-            CHECK(output->write_record(
-                update_id, updater_items[j].data, updater_items[j].cosine_inv_norm, source.size()));
+            CHECK(output->write_updater_record(
+                updater_items[j], updater_storage, updater_text_is_comma_delimited));
             ++j;
         }
     }
@@ -514,10 +561,12 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     CHECK(merge_file.open(source, path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
-    output.reserve(source.count() + updater_items.size());
+    output.reserve(source.count() + updater_items.size(), false);
     CHECK(merge_records(
         source,
         updater_items,
+        MergeItemStorage::Binary,
+        true,
         deletes,
         "DataMerger::merge_data_files: updated id is also deleted",
         &output));
@@ -620,10 +669,12 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     CHECK(merge_file.open(source, path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
-    output.reserve(source.count() + updater_items.size());
+    output.reserve(source.count() + updater_items.size(), false);
     CHECK(merge_records(
         source,
         updater_items,
+        MergeItemStorage::Binary,
+        true,
         deletes,
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
@@ -657,20 +708,25 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
     }
 
     Timer timer("merge_data_file");
-    // The only extra work compared with the DataReader path is this
-    // normalization step. After materialization, the direct-input merge reuses
-    // the same record merge loop and the same file-writing code as the normal
-    // persisted-file path.
+    // The direct-input path still reuses the normal record merge loop and file
+    // writer. The normalization step now only captures updater ids, deletes,
+    // and either borrowed binary pointers or borrowed text slices; text vectors
+    // are parsed later only if the row survives to output.
     MaterializedInputUpdater materialized;
     CHECK(materialize_input_updater(updater, source.has_cosine_inv_norms(), &materialized));
     MergeFile merge_file;
     CHECK(merge_file.open(source, path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
-    output.reserve(source.count() + materialized.items.size());
+    output.reserve(source.count() + materialized.items.size(), materialized.storage == MergeItemStorage::Text);
+#ifndef NDEBUG
+    assert(materialized.compute_cosine_inv_norms == output.cosine_inv_norms_enabled());
+#endif
     CHECK(merge_records(
         source,
         materialized.items,
+        materialized.storage,
+        materialized.text_is_comma_delimited,
         materialized.deletes,
         "DataMerger::merge_data_files: updated id is also deleted",
         &output));
@@ -696,9 +752,9 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     }
 
     Timer timer("merge_delta_file");
-    // Delta merges use the same adapter, but then run the delta-specific delete
-    // reconciliation step so old tombstones survive unless the new input
-    // resurrects those ids as live rows.
+    // Delta merges use the same lightweight adapter, then run the delta-
+    // specific delete reconciliation step so old tombstones survive unless the
+    // new input resurrects those ids as live rows.
     MaterializedInputUpdater materialized;
     CHECK(materialize_input_updater(updater, source.has_cosine_inv_norms(), &materialized));
     const std::vector<uint64_t> deletes = build_delta_deletes(source, materialized.items, materialized.deletes);
@@ -706,10 +762,15 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     CHECK(merge_file.open(source, path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
-    output.reserve(source.count() + materialized.items.size());
+    output.reserve(source.count() + materialized.items.size(), materialized.storage == MergeItemStorage::Text);
+#ifndef NDEBUG
+    assert(materialized.compute_cosine_inv_norms == output.cosine_inv_norms_enabled());
+#endif
     CHECK(merge_records(
         source,
         materialized.items,
+        materialized.storage,
+        materialized.text_is_comma_delimited,
         deletes,
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));

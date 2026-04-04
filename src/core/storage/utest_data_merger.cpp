@@ -365,6 +365,36 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewWithOnlyInsertsAddsNonOverlappi
     EXPECT_FLOAT_EQ(9.0f, first_f32(out_reader, 9));
 }
 
+TEST_F(DataMergerTest, MergeDataFileFromInputViewWithSpaceSeparatedTextParsesAndMerges) {
+    const std::string source_path = p("source_spaces.data");
+    const std::string input_path = p("updates_spaces.txt");
+    const std::string out_path = p("merged_spaces.data");
+
+    write_f32_file(source_path, FileType::Data, {{2, 2.0f}, {4, 4.0f}}, {});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "1 : [ 1.0 1.0 1.0 1.0 ]\n"
+        "2 : []\n"
+        "5 : [ 5.0 5.0 5.0 5.0 ]\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(3u, out_reader.count());
+    EXPECT_FLOAT_EQ(1.0f, first_f32(out_reader, 1));
+    EXPECT_EQ(nullptr, out_reader.get(2));
+    EXPECT_FLOAT_EQ(4.0f, first_f32(out_reader, 4));
+    EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 5));
+}
+
 TEST_F(DataMergerTest, MergeDataFilePreservesCosineValuesSection) {
     const std::string source_path = p("source_cos.data");
     const std::string updater_path = p("updater_cos.data");
