@@ -113,7 +113,17 @@ Ret DatasetWriter::merge() {
         should_notify = true;
         Timer timer("DatasetWriter::merge");
         ret = merge_();
-        LOG_INFO << "Completed DatasetWriter::merge for " << name() << " in " << timer.elapsed_ms() << " ms";
+
+        if (ret.code() == 0) {
+            LOG_INFO << "Successfully completed DatasetWriter::merge for " << name() << " in " << timer.elapsed_ms() << " ms";
+            ret = garbage_collect_();
+            if (ret.code() != 0) {
+                LOG_WARN << "Failed to delete unused data files for " << name() << ": " << ret.message();
+            }
+        } else {
+            LOG_WARN << "Failed to complete DatasetWriter::merge for " << name() << ": " << ret.message();
+        }
+
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
@@ -381,6 +391,31 @@ Ret DatasetWriter::store_(const std::string& input_path) {
 
     if (first_error.code() != 0) {
         return first_error;
+    }
+
+    return Ret(0);
+}
+
+Ret DatasetWriter::garbage_collect_() {
+    std::vector<DatasetItem> all_items;
+    CHECK(collect_dataset_items(name_, metadata_, &all_items));
+
+    for (const DatasetItem& item : all_items) {
+        if (!item.delta_file_path.empty()) {
+            continue;
+        }
+
+        DataReader data_reader;
+        CHECK(data_reader.init(item.data_file_path));
+        if (data_reader.count() == 0) {
+            std::error_code ec;
+            std::filesystem::remove(item.data_file_path, ec);
+            if (ec) {
+                LOG_WARN << "Failed to remove file " << item.data_file_path;
+            } else {
+                LOG_TRACE << "Removed file " << item.data_file_path;
+            }
+        }
     }
 
     return Ret(0);

@@ -59,6 +59,7 @@ private:
         const std::string& output_path_base, const std::string& ext) const;
     Ret merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader,
         const std::string& output_path_base) const;
+    Ret garbage_collect_();
 };
 
 } // namespace sketch2
