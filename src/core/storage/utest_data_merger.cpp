@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <unistd.h>
 #include <vector>
 #include "core/compute/compute.h"
@@ -13,6 +14,7 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_merger.h"
 #include "core/storage/data_reader.h"
+#include "core/storage/input_reader.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -174,6 +176,15 @@ protected:
         EXPECT_NE(nullptr, p);
         return p ? p[0] : 0.0f;
     }
+
+    void write_input_file(const std::string& path, const std::string& contents) {
+        std::ofstream out(path);
+        ASSERT_TRUE(out.is_open());
+        out << contents;
+        ASSERT_FALSE(out.fail());
+        out.close();
+        ASSERT_FALSE(out.fail());
+    }
 };
 
 TEST_F(DataMergerTest, MergeDataFileMergesOverrideInsertAndDeletes) {
@@ -230,6 +241,128 @@ TEST_F(DataMergerTest, MergeDataFileWithEmptyUpdaterKeepsSource) {
     EXPECT_EQ(2u, out_reader.count());
     EXPECT_FLOAT_EQ(1.1f, first_f32(out_reader, 1));
     EXPECT_FLOAT_EQ(2.2f, first_f32(out_reader, 2));
+}
+
+TEST_F(DataMergerTest, MergeDataFileFromInputViewMergesAndPreservesCosineValues) {
+    const std::string source_path = p("source_cos.data");
+    const std::string input_path = p("updates.txt");
+    const std::string out_path = p("merged_from_input.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 3.0f}, {3, 4.0f}, {5, 5.0f}}, {}, kDim, true);
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "1 : []\n"
+        "2 : [ 5.0, 5.0, 5.0, 5.0 ]\n"
+        "3 : [ 8.0, 8.0, 8.0, 8.0 ]\n"
+        "6 : [ 1.0, 2.0, 3.0, 4.0 ]\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_EQ(4u, out_reader.count());
+    ASSERT_TRUE(out_reader.has_cosine_inv_norms());
+    EXPECT_EQ(nullptr, out_reader.get(1));
+    EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 2));
+    EXPECT_FLOAT_EQ(8.0f, first_f32(out_reader, 3));
+    EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 5));
+    EXPECT_FLOAT_EQ(1.0f, first_f32(out_reader, 6));
+    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(2)), 1e-6);
+    EXPECT_NEAR(1.0 / std::sqrt(30.0), static_cast<double>(out_reader.cosine_inv_norm(3)), 1e-6);
+}
+
+TEST_F(DataMergerTest, MergeDataFileFromEmptyInputViewKeepsSource) {
+    const std::string source_path = p("source.data");
+    const std::string input_path = p("updates.txt");
+    const std::string out_path = p("merged_empty_view.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 1.1f}, {3, 3.3f}}, {});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+        "11 : []\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView empty_view(input_reader, 20, 30);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, empty_view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(2u, out_reader.count());
+    EXPECT_EQ(0u, out_reader.deleted_count());
+    EXPECT_FLOAT_EQ(1.1f, first_f32(out_reader, 1));
+    EXPECT_FLOAT_EQ(3.3f, first_f32(out_reader, 3));
+}
+
+TEST_F(DataMergerTest, MergeDataFileFromInputViewWithOnlyDeletesRemovesMatchingRows) {
+    const std::string source_path = p("source.data");
+    const std::string input_path = p("deletes.txt");
+    const std::string out_path = p("merged_deletes.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 1.0f}, {2, 2.0f}, {4, 4.0f}}, {});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "1 : []\n"
+        "4 : []\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(1u, out_reader.count());
+    EXPECT_EQ(nullptr, out_reader.get(1));
+    EXPECT_FLOAT_EQ(2.0f, first_f32(out_reader, 2));
+    EXPECT_EQ(nullptr, out_reader.get(4));
+}
+
+TEST_F(DataMergerTest, MergeDataFileFromInputViewWithOnlyInsertsAddsNonOverlappingRows) {
+    const std::string source_path = p("source.data");
+    const std::string input_path = p("inserts.txt");
+    const std::string out_path = p("merged_inserts.data");
+
+    write_f32_file(source_path, FileType::Data, {{5, 5.0f}, {7, 7.0f}}, {});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+        "9 : [ 9.0, 9.0, 9.0, 9.0 ]\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(4u, out_reader.count());
+    EXPECT_FLOAT_EQ(1.0f, first_f32(out_reader, 1));
+    EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 5));
+    EXPECT_FLOAT_EQ(7.0f, first_f32(out_reader, 7));
+    EXPECT_FLOAT_EQ(9.0f, first_f32(out_reader, 9));
 }
 
 TEST_F(DataMergerTest, MergeDataFilePreservesCosineValuesSection) {
@@ -334,6 +467,29 @@ TEST_F(DataMergerTest, MergeDataFileRejectsUpdatedIdAlsoDeletedAndCleansOutput) 
     EXPECT_FALSE(fs::exists(out_path));
 }
 
+TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsIncompatibleDim) {
+    const std::string source_path = p("source.data");
+    const std::string input_path = p("updates_bad_dim.txt");
+    const std::string out_path = p("merged_bad_dim.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 1.0f}}, {}, 4);
+    write_input_file(
+        input_path,
+        "f32,8\n"
+        "2 : [ 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0 ]\n");
+
+    DataReader source_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    const auto ret = merger.merge_data_file(source_reader, view, out_path);
+    EXPECT_NE(0, ret.code());
+    EXPECT_FALSE(fs::exists(out_path));
+}
+
 TEST_F(DataMergerTest, MergeDeltaFileMergesRecordsAndDeletes) {
     const std::string source_path = p("source.delta");
     const std::string updater_path = p("updater.delta");
@@ -372,6 +528,139 @@ TEST_F(DataMergerTest, MergeDeltaFileMergesRecordsAndDeletes) {
     EXPECT_EQ(6u, hdr.max_id);
     EXPECT_EQ(4u, hdr.count);
     EXPECT_EQ(3u, hdr.deleted_count);
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileFromInputViewMergesRecordsAndDeletes) {
+    const std::string source_path = p("source.delta");
+    const std::string input_path = p("updates.txt");
+    const std::string out_path = p("merged_from_input.delta");
+
+    write_f32_file(source_path, FileType::Data, {{2, 2.0f}, {4, 4.0f}}, {1, 5});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "1 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+        "2 : []\n"
+        "3 : [ 30.0, 30.0, 30.0, 30.0 ]\n"
+        "4 : [ 40.0, 40.0, 40.0, 40.0 ]\n"
+        "6 : [ 60.0, 60.0, 60.0, 60.0 ]\n"
+        "7 : []\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(4u, out_reader.count());
+    EXPECT_EQ(3u, out_reader.deleted_count());
+    EXPECT_FLOAT_EQ(10.0f, first_f32(out_reader, 1));
+    EXPECT_FLOAT_EQ(30.0f, first_f32(out_reader, 3));
+    EXPECT_FLOAT_EQ(40.0f, first_f32(out_reader, 4));
+    EXPECT_FLOAT_EQ(60.0f, first_f32(out_reader, 6));
+    EXPECT_EQ(nullptr, out_reader.get(2));
+    EXPECT_EQ(nullptr, out_reader.get(5));
+    EXPECT_EQ(nullptr, out_reader.get(7));
+
+    std::vector<uint64_t> deleted;
+    for (size_t i = 0; i < out_reader.deleted_count(); ++i) {
+        deleted.push_back(out_reader.deleted_id(i));
+    }
+    EXPECT_EQ((std::vector<uint64_t>{2, 5, 7}), deleted);
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileFromInputViewPreservesCosineValues) {
+    const std::string source_path = p("source_cos.delta");
+    const std::string input_path = p("updates_cos.txt");
+    const std::string out_path = p("merged_from_input_cos.delta");
+
+    write_f32_file(source_path, FileType::Data, {{2, 2.0f}, {4, 4.0f}}, {1}, kDim, true);
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "3 : [ 3.0, 3.0, 3.0, 3.0 ]\n"
+        "4 : [ 1.0, 2.0, 3.0, 4.0 ]\n"
+        "5 : []\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_TRUE(out_reader.has_cosine_inv_norms());
+    ASSERT_EQ(3u, out_reader.count());
+    EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / std::sqrt(30.0), static_cast<double>(out_reader.cosine_inv_norm(2)), 1e-6);
+    EXPECT_EQ((std::vector<uint64_t>{1u, 5u}),
+        [&]() {
+            std::vector<uint64_t> ids;
+            for (size_t i = 0; i < out_reader.deleted_count(); ++i) {
+                ids.push_back(out_reader.deleted_id(i));
+            }
+            return ids;
+        }());
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileFromInputViewWithOnlyDeletesProducesNoActiveIds) {
+    const std::string source_path = p("source.delta");
+    const std::string input_path = p("deletes.txt");
+    const std::string out_path = p("merged_delete_only.delta");
+
+    write_f32_file(source_path, FileType::Data, {{1, 1.0f}}, {2});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "1 : []\n"
+        "3 : []\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(0u, out_reader.count());
+    EXPECT_EQ(3u, out_reader.deleted_count());
+    EXPECT_EQ(1u, out_reader.deleted_id(0));
+    EXPECT_EQ(2u, out_reader.deleted_id(1));
+    EXPECT_EQ(3u, out_reader.deleted_id(2));
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsIncompatibleType) {
+    const std::string source_path = p("source.delta");
+    const std::string input_path = p("updates_i16.txt");
+    const std::string out_path = p("merged_bad_type.delta");
+
+    write_f32_file(source_path, FileType::Data, {{1, 1.0f}}, {});
+    write_input_file(
+        input_path,
+        "i16,4\n"
+        "2 : [ 2, 2, 2, 2 ]\n");
+
+    DataReader source_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    const auto ret = merger.merge_delta_file(source_reader, view, out_path);
+    EXPECT_NE(0, ret.code());
+    EXPECT_FALSE(fs::exists(out_path));
 }
 
 TEST_F(DataMergerTest, MergeDeltaFilePreservesCosineValuesSection) {

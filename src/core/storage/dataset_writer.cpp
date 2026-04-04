@@ -34,11 +34,32 @@ struct StoreRangeTask {
     uint64_t range_end;
 };
 
+struct InputRangeStats {
+    uint64_t active_count = 0;
+    uint64_t deleted_count = 0;
+};
+
 std::string dataset_input_path(const DatasetMetadata& metadata, const std::string& dataset_name) {
     // Use the per-dataset lock file as the base for the staged input filename.
     std::filesystem::path path = dataset_owner_lock_path(metadata, dataset_name);
     path.replace_extension(".input");
     return path.string();
+}
+
+InputRangeStats summarize_input_view(const InputReaderView& view) {
+    // The store path only needs a coarse summary here: how many live rows and
+    // tombstones the incoming range contains. That is enough to drive the
+    // merge heuristic without first converting the whole range into a temp
+    // persisted file just to reopen it as a DataReader.
+    InputRangeStats stats;
+    for (size_t i = 0; i < view.count(); ++i) {
+        if (view.is_no_data(i)) {
+            ++stats.deleted_count;
+        } else {
+            ++stats.active_count;
+        }
+    }
+    return stats;
 }
 
 } // namespace
@@ -481,83 +502,96 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
         uint64_t range_start, uint64_t range_end) const {
     const std::string temp_path_base = item_path_base(file_id);
     const std::string temp_path = temp_path_base + kTempExt;
-
-    // If anything goes wrong with processing the generated temp file,
-    // remove it before completing this function.
-    std::experimental::scope_exit file_guard([temp_path]() {
-        std::error_code ec;
-        std::filesystem::remove(temp_path, ec);
-    });
-
-    // Read a range from the input file and write it to the temp file with
-    // in Sketch2 data format.
-    {
-        InputReaderView view(reader, range_start, range_end);
-        DataWriter writer;
-        CHECK(writer.load(view, temp_path, metadata_.dist_func == DistFunc::COS));
-    }
-
-    // TODO: Attention!!! This function contains a shortcut that impacts performance.
-    // We utilize existing merge functionality. We write input data into the Sketch2
-    // data file first. Then we decide what to do with it. In some cases, the file
-    // can be just renamed: if it's a first data file in the range or if it's a first
-    // delta file in the range. In other cases, the file must be merged either with
-    // the existing data file or the existing delta file. And in the later case we
-    // have double write: first we are writing the file, then we are merging it.
-    // Technically it should be possible to implement functionality without the
-    // first step, i.e. writing the temporary data file. But it is more complicated
-    // and requires more code. So, I decided to go the easy way. For now. Let's
-    // return to this point later and optimize the store procedure without the
-    // need to write a temporary file in Sketch2 data format.
-
-    // Init a reader of the temp file to examine its content and make decisions
-    // about merging it.
-    DataReader temp_file_reader;
-    CHECK(temp_file_reader.init(temp_path));
-
-    // If a data file for the range doesn't exist, the temp file becomes the first data file.
     const std::string data_path = temp_path_base + kDataExt;
+    const std::string delta_path = temp_path_base + kDeltaExt;
+
+    // One range of ids maps to one persisted data/delta pair on disk. The
+    // InputReaderView keeps this function focused on a single range so every
+    // decision below is purely local to that range.
+    InputReaderView view(reader, range_start, range_end);
+    const InputRangeStats stats = summarize_input_view(view);
+
+    // Writing a temp file is still the simplest way to produce a persisted
+    // object that can be renamed into place. We keep that path for "rename"
+    // cases, but avoid it for the branches that immediately merge the result.
+    auto write_temp_file = [&]() -> Ret {
+        DataWriter writer;
+        return writer.load(view, temp_path, metadata_.dist_func == DistFunc::COS);
+    };
+
+    // Execution flow:
+    // 1. No base file yet            -> create first `.data` file by temp+rename.
+    // 2. Base exists, no delta yet   -> either merge directly into `.data` or
+    //                                   create first `.delta`.
+    // 3. Base and delta both exist   -> merge incoming updates straight into the
+    //                                   existing delta, then optionally compact
+    //                                   delta back into data.
+    //
+    // The key idea is that rename paths still use a temp file because it keeps
+    // the code straightforward and atomic, while merge paths now skip the temp
+    // file to avoid writing the same logical update twice.
+
+    // If a data file for the range doesn't exist, the temp file becomes the
+    // first base file for that range. Deletes are rejected here because a brand
+    // new range cannot meaningfully "delete" ids that were never persisted.
     if (!std::filesystem::exists(data_path)) {
-        if (temp_file_reader.deleted_count() != 0) {
+        if (stats.deleted_count != 0) {
             return Ret("DatasetWriter::store_and_merge: invalid deleted items");
         }
+        std::experimental::scope_exit file_guard([temp_path]() {
+            std::error_code ec;
+            std::filesystem::remove(temp_path, ec);
+        });
+        CHECK(write_temp_file());
         std::filesystem::rename(temp_path, data_path);
         LOG_TRACE << "DatasetWriter: loaded data to data file " << data_path;
         return Ret(0);
     }
 
-    // Data file does exist. Delta file doesn't exist.
-    const std::string delta_path = temp_path_base + kDeltaExt;
+    // A base file already exists, but there is no delta yet.
     if (!std::filesystem::exists(delta_path)) {
-        {
-            DataReader data_reader;
-            CHECK(data_reader.init(data_path));
+        DataReader data_reader;
+        CHECK(data_reader.init(data_path));
 
-            // Check is new data big enough to justify direct merging it into a data file
-            // and skip creating a delta file. In this case, merge the temporary file
-            // into data file and it's done.
-            const bool is_merge = check_data_file_merge(data_reader, temp_file_reader);
-            if (is_merge) {
-                CHECK(merge_data_file(data_reader, temp_file_reader, temp_path_base, kTempExt));
-                return Ret(0);
-            }
+        // If the new batch is "large enough" relative to the base file, writing
+        // a separate delta would just postpone an inevitable full rewrite. In
+        // that case we merge the input view straight into the base file now.
+        //
+        // This is the main optimization added here: the old code first wrote
+        // `view` to `*.tmp`, reopened it as DataReader, and only then merged it.
+        // We now pass the view directly to DataMerger and skip that extra write.
+        const bool is_merge = check_data_file_merge(data_reader, stats.active_count + stats.deleted_count);
+        if (is_merge) {
+            CHECK(merge_data_file(data_reader, view, temp_path_base));
+            return Ret(0);
         }
 
-        // The temp file becomes a delta file.
+        // The incoming batch is small enough to keep as a delta. This path still
+        // uses temp+rename because it is a cheap, explicit way to create the
+        // first delta file with the normal on-disk format.
+        std::experimental::scope_exit file_guard([temp_path]() {
+            std::error_code ec;
+            std::filesystem::remove(temp_path, ec);
+        });
+        CHECK(write_temp_file());
         std::filesystem::rename(temp_path, delta_path);
         LOG_TRACE << "DatasetWriter: loaded data to delta file " << delta_path;
         return Ret(0);
     }
 
-    // Delta file does exist. Merge data from the temp file into the delta file.
+    // Both files already exist. There is no rename shortcut left here, so the
+    // best option is to merge the input view directly into the persisted delta.
+    // That keeps the existing "delta absorbs new writes" behavior while removing
+    // the old temp-file detour for this hot path.
     {
         DataReader delta_reader;
         CHECK(delta_reader.init(delta_path));
-        CHECK(merge_delta_file(delta_reader, temp_file_reader, temp_path_base));
+        CHECK(merge_delta_file(delta_reader, view, temp_path_base));
     }
 
-    // Check the new size of the delta file. If it is large enough, merge it to the
-    // data file and remove the delta file.
+    // After the delta was updated, re-evaluate the normal compaction heuristic.
+    // If the delta grew too large relative to the base file, fold it back into
+    // the base file so reads do not pay an ever-growing overlay cost forever.
     {
         DataReader data_reader;
         CHECK(data_reader.init(data_path));
@@ -575,7 +609,17 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
 
 bool DatasetWriter::check_data_file_merge(const DataReader& data_reader,
         const DataReader& output_reader) const {
+    // This overload is convenient when the candidate updater is already stored
+    // as a DataReader-backed file.
     const uint64_t output_count = output_reader.count() + output_reader.deleted_count();
+    return check_data_file_merge(data_reader, output_count);
+}
+
+bool DatasetWriter::check_data_file_merge(const DataReader& data_reader,
+        uint64_t output_count) const {
+    // The heuristic compares update volume to the size of the current base
+    // file. Large updates go straight into a rewritten base file; small updates
+    // become or remain a delta.
     return (data_reader.count() < output_count * metadata_.data_merge_ratio);
 }
 
@@ -598,7 +642,33 @@ Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const DataRead
     CHECK(processor.merge_data_file(data_reader, output_reader, merge_path));
 
     const std::string data_path = output_path_base + kDataExt;
-    std::filesystem::rename(merge_path, data_path);
+    std::error_code ec;
+    std::filesystem::rename(merge_path, data_path, ec);
+    if (ec) {
+        std::filesystem::remove(merge_path, ec);
+        return Ret("DatasetWriter::merge_data_file: failed to rename merge file to data file");
+    }
+
+    return Ret(0);
+}
+
+Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const InputReaderView& output_reader,
+        const std::string& output_path_base) const {
+    // This overload exists specifically for the direct-input fast path in
+    // store_and_merge(). It produces the same final `*.merge -> *.data`
+    // transition as the DataReader overload, but the updater comes straight
+    // from parsed input instead of a temp persisted file.
+    DataMerger processor;
+    const std::string merge_path = output_path_base + kMergeExt;
+    CHECK(processor.merge_data_file(data_reader, output_reader, merge_path));
+
+    const std::string data_path = output_path_base + kDataExt;
+    std::error_code ec;
+    std::filesystem::rename(merge_path, data_path, ec);
+    if (ec) {
+        std::filesystem::remove(merge_path, ec);
+        return Ret("DatasetWriter::merge_data_file: failed to rename merge file to data file");
+    }
 
     return Ret(0);
 }
@@ -616,7 +686,32 @@ Ret DatasetWriter::merge_delta_file(const DataReader& delta_reader, const DataRe
     CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path));
 
     const std::string delta_path = output_path_base + kDeltaExt;
-    std::filesystem::rename(merge_path, delta_path);
+    std::error_code ec;
+    std::filesystem::rename(merge_path, delta_path, ec);
+    if (ec) {
+        std::filesystem::remove(merge_path, ec);
+        return Ret("DatasetWriter::merge_delta_file: failed to rename merge file to delta file");
+    }
+
+    return Ret(0);
+}
+
+Ret DatasetWriter::merge_delta_file(const DataReader& delta_reader, const InputReaderView& output_reader,
+        const std::string& output_path_base) const {
+    // Same idea as merge_data_file(view): keep the atomic "write merge output,
+    // then rename it into place" behavior, but avoid staging the updater as a
+    // separate temp data file first.
+    DataMerger processor;
+    const std::string merge_path = output_path_base + kMergeExt;
+    CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path));
+
+    const std::string delta_path = output_path_base + kDeltaExt;
+    std::error_code ec;
+    std::filesystem::rename(merge_path, delta_path, ec);
+    if (ec) {
+        std::filesystem::remove(merge_path, ec);
+        return Ret("DatasetWriter::merge_delta_file: failed to rename merge file to delta file");
+    }
 
     return Ret(0);
 }
