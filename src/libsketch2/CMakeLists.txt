@@ -11,6 +11,7 @@ target_link_libraries(sketch2
     comp
     stor
     utils
+    hwy
 )
 
 add_custom_target(copy_sketch2_runtime ALL
