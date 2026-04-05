@@ -15,8 +15,12 @@ class DataReader;
 class InputReader;
 class InputReaderView;
 
-// DatasetWriter owns the write infrastructure: mutex, owner lock, and the updater-
-// mode UpdateNotifier for cross-process cache invalidation.
+// DatasetWriter owns the write infrastructure: mutexes, owner lock, and the
+// updater-mode UpdateNotifier for cross-process cache invalidation.
+//
+// Lifetime contract: callers must not destroy a DatasetWriter while any public
+// method is still running on another thread. Internal mutexes serialize access
+// to writer state, but they do not provide object-lifetime management.
 class DatasetWriter : public Dataset {
 public:
     ~DatasetWriter() override;
@@ -36,11 +40,25 @@ public:
     Ret complete_writing();
 
 private:
-    std::mutex write_mutex_;
+    // Locking protocol:
+    // - input_session_mutex_ guards the active InputWriter session state.
+    // - dataset_files_mutex_ guards store_/merge_ and persisted dataset files.
+    // - state_mutex_ guards shared lazy-initialized writer state such as
+    //   owner_lock_ and update_notifier_.
+    // - Never hold input_session_mutex_ and dataset_files_mutex_
+    //   simultaneously; complete_writing() hands work off between them.
+    // - state_mutex_ is always the innermost lock.
+    // - These mutexes protect state access only; they do not make destruction
+    //   safe while other threads are executing methods on this object.
+    std::mutex input_session_mutex_;
+    std::mutex dataset_files_mutex_;
+    std::mutex state_mutex_;
     std::unique_ptr<FileLockGuard> owner_lock_;
     bool owner_path_registered_ = false;
     std::unique_ptr<UpdateNotifier> update_notifier_;
     std::unique_ptr<InputWriter> input_writer_;
+    std::string active_input_path_;
+    uint64_t next_input_session_id_ = 0;
 
     Ret init_writer_();
     Ret ensure_owner_lock_();

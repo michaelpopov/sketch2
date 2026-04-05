@@ -34,7 +34,7 @@ const char* dist_func_name(DistFunc func) {
 
 void log_query(const std::string& source, DistFunc func, DataType type, size_t dim,
         size_t count, int64_t elapsed_ms) {
-    LOG_INFO << "Scanner query: runtime_backend='"
+    LOG_TRACE << "Scanner query: runtime_backend='"
              << get_singleton().compute_unit().name()
              << "' source=" << source
              << " metric=" << dist_func_name(func)
@@ -151,7 +151,14 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
                 continue;
             }
         }
+// When compiled with DUMMY_CALC enabled via the DUMMY_CALC=1 environment variable,
+// skip distance evaluation to isolate the I/O cost of scanning.
+// Warning: unit tests that depend on real scores will fail in this mode.
+#ifndef DUMMY_CALC
         push_result(heap, count, it.id(), score(it));
+#else
+        push_result(heap, count, it.id(), 0.0);
+#endif // DUMMY_CALC
     }
 }
 

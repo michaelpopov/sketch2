@@ -917,6 +917,26 @@ TEST_F(DatasetTest, WriterInitSucceedsAgainAfterPreviousOwnerIsDestroyed) {
     EXPECT_EQ(0, reopened_ret.code()) << reopened_ret.message();
 }
 
+TEST_F(DatasetTest, WriterInitRemovesStaleStagedInputFiles) {
+    auto dir = make_dir("d_stale_input_cleanup");
+    {
+        std::ofstream(dir + "/dataset.input") << "stale";
+        std::ofstream(dir + "/dataset.input.1") << "stale";
+        std::ofstream(dir + "/dataset.input.42") << "stale";
+    }
+
+    ASSERT_TRUE(fs::exists(dir + "/dataset.input"));
+    ASSERT_TRUE(fs::exists(dir + "/dataset.input.1"));
+    ASSERT_TRUE(fs::exists(dir + "/dataset.input.42"));
+
+    DatasetNode node;
+    ASSERT_EQ(0, node.init_for_test({dir}, 100, DataType::f32, 4).code());
+
+    EXPECT_FALSE(fs::exists(dir + "/dataset.input"));
+    EXPECT_FALSE(fs::exists(dir + "/dataset.input.1"));
+    EXPECT_FALSE(fs::exists(dir + "/dataset.input.42"));
+}
+
 
 // --- UpdateNotifier integration ---
 

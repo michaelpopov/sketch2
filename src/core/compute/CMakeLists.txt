@@ -1,6 +1,9 @@
 add_library(comp STATIC scanner.cpp)
 set_target_properties(comp PROPERTIES OUTPUT_NAME "comp")
 target_link_libraries(comp PUBLIC stor sketch_compile_options Threads::Threads)
+if(DEFINED ENV{DUMMY_CALC} AND NOT "$ENV{DUMMY_CALC}" STREQUAL "")
+  target_compile_definitions(comp PRIVATE DUMMY_CALC)
+endif()
 
 add_executable(bench_comp bench_compute.cpp)
 target_link_libraries(bench_comp PRIVATE comp stor Threads::Threads)

@@ -19,6 +19,30 @@
 using namespace sketch2;
 namespace fs = std::filesystem;
 
+namespace {
+
+std::vector<fs::path> find_staged_input_files(const fs::path& dataset_dir) {
+    std::vector<fs::path> paths;
+    if (!fs::exists(dataset_dir)) {
+        return paths;
+    }
+
+    for (const fs::directory_entry& entry : fs::directory_iterator(dataset_dir)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("dataset.input.", 0) == 0) {
+            paths.push_back(entry.path());
+        }
+    }
+
+    return paths;
+}
+
+} // namespace
+
 class DataWriterTest : public ::testing::Test {
 protected:
     std::string input_path_;
@@ -426,17 +450,19 @@ TEST_F(DataWriterTest, DatasetWriterStagedWriteCreatesDataFileAndRemovesInputFil
     ASSERT_EQ(0, init_dataset_writer(&writer).code());
 
     const fs::path input_path = fs::path(dataset_dir_) / "dataset.lock";
-    const fs::path staged_input = fs::path(dataset_dir_) / "dataset.input";
     const fs::path data_path = fs::path(dataset_dir_) / "0.data";
 
     ASSERT_EQ(0, writer.start_writing().code());
     ASSERT_TRUE(fs::exists(input_path));
+    const std::vector<fs::path> staged_inputs = find_staged_input_files(dataset_dir_);
+    ASSERT_EQ(1u, staged_inputs.size());
+    const fs::path staged_input = staged_inputs.front();
     ASSERT_TRUE(fs::exists(staged_input));
     ASSERT_EQ(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
     ASSERT_EQ(0, writer.write_vector(11, "11.1 11.1 11.1 11.1").code());
     ASSERT_EQ(0, writer.complete_writing().code());
 
-    EXPECT_FALSE(fs::exists(staged_input));
+    EXPECT_TRUE(find_staged_input_files(dataset_dir_).empty());
     ASSERT_TRUE(fs::exists(data_path));
 
     DataReader reader;
@@ -464,16 +490,18 @@ TEST_F(DataWriterTest, DatasetWriterAbortWritingRemovesInputFileAndDiscardsSessi
     ASSERT_EQ(0, init_dataset_writer(&writer).code());
 
     const fs::path input_path = fs::path(dataset_dir_) / "dataset.lock";
-    const fs::path staged_input = fs::path(dataset_dir_) / "dataset.input";
     const fs::path data_path = fs::path(dataset_dir_) / "0.data";
 
     ASSERT_EQ(0, writer.start_writing().code());
     ASSERT_TRUE(fs::exists(input_path));
+    const std::vector<fs::path> staged_inputs = find_staged_input_files(dataset_dir_);
+    ASSERT_EQ(1u, staged_inputs.size());
+    const fs::path staged_input = staged_inputs.front();
     ASSERT_TRUE(fs::exists(staged_input));
     ASSERT_EQ(0, writer.write_vector(10, "10.1, 10.1, 10.1, 10.1").code());
     ASSERT_EQ(0, writer.abort_writing().code());
 
-    EXPECT_FALSE(fs::exists(staged_input));
+    EXPECT_TRUE(find_staged_input_files(dataset_dir_).empty());
     EXPECT_FALSE(fs::exists(data_path));
 
     ASSERT_EQ(0, writer.start_writing().code());

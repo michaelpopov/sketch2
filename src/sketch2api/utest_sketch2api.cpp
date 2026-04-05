@@ -54,6 +54,26 @@ std::string read_file(const std::filesystem::path& path) {
         std::istreambuf_iterator<char>());
 }
 
+std::vector<std::filesystem::path> find_staged_input_files(const std::filesystem::path& dataset_dir) {
+    std::vector<std::filesystem::path> paths;
+    if (!std::filesystem::exists(dataset_dir)) {
+        return paths;
+    }
+
+    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(dataset_dir)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("ds.input.", 0) == 0) {
+            paths.push_back(entry.path());
+        }
+    }
+
+    return paths;
+}
+
 std::string api_get(sk_handle_t* handle, uint64_t id) {
     char* value = nullptr;
     EXPECT_EQ(0, sk_get(handle, id, &value)) << sk_error_message(handle);
@@ -348,19 +368,22 @@ TEST(sketch2api, knn_rejects_null_output_parameters) {
 
 TEST(sketch2api, staged_write_creates_data_and_removes_input_file) {
     const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dataset_dir = root / "ds";
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
     ASSERT_NE(handle, nullptr);
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
-    const std::filesystem::path input_path = root / "ds" / "ds.input";
     ASSERT_OK(handle, sk_start_writing(handle));
+    const std::vector<std::filesystem::path> staged_inputs = find_staged_input_files(dataset_dir);
+    ASSERT_EQ(1u, staged_inputs.size());
+    const std::filesystem::path input_path = staged_inputs.front();
     EXPECT_TRUE(std::filesystem::exists(input_path));
     ASSERT_OK(handle, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
     ASSERT_OK(handle, sk_write_vector(handle, 11, "11.1 11.1 11.1 11.1"));
     ASSERT_OK(handle, sk_complete_writing(handle));
 
-    EXPECT_FALSE(std::filesystem::exists(input_path));
+    EXPECT_TRUE(find_staged_input_files(dataset_dir).empty());
     EXPECT_NE(api_get(handle, 10).find("[ 10.1"), std::string::npos);
     EXPECT_NE(api_get(handle, 11).find("[ 11.1"), std::string::npos);
 
@@ -423,18 +446,20 @@ TEST(sketch2api, staged_write_rejects_invalid_call_order) {
 
 TEST(sketch2api, staged_abort_removes_input_file_and_allows_restart) {
     const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path dataset_dir = root / "ds";
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
     ASSERT_NE(handle, nullptr);
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "l1"));
 
-    const std::filesystem::path input_path = root / "ds" / "ds.input";
-
     ASSERT_OK(handle, sk_start_writing(handle));
     ASSERT_OK(handle, sk_write_vector(handle, 10, "10.1, 10.1, 10.1, 10.1"));
+    const std::vector<std::filesystem::path> staged_inputs = find_staged_input_files(dataset_dir);
+    ASSERT_EQ(1u, staged_inputs.size());
+    const std::filesystem::path input_path = staged_inputs.front();
     ASSERT_TRUE(std::filesystem::exists(input_path));
     ASSERT_OK(handle, sk_abort_writing(handle));
-    EXPECT_FALSE(std::filesystem::exists(input_path));
+    EXPECT_TRUE(find_staged_input_files(dataset_dir).empty());
 
     ASSERT_OK(handle, sk_start_writing(handle));
     ASSERT_OK(handle, sk_write_vector(handle, 11, "11.1, 11.1, 11.1, 11.1"));

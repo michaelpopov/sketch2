@@ -39,11 +39,12 @@ struct InputRangeStats {
     uint64_t deleted_count = 0;
 };
 
-std::string dataset_input_path(const DatasetMetadata& metadata, const std::string& dataset_name) {
+std::string dataset_input_path(const DatasetMetadata& metadata, const std::string& dataset_name,
+        uint64_t session_id) {
     // Use the per-dataset lock file as the base for the staged input filename.
     std::filesystem::path path = dataset_owner_lock_path(metadata, dataset_name);
     path.replace_extension(".input");
-    return path.string();
+    return path.string() + "." + std::to_string(session_id);
 }
 
 InputRangeStats summarize_input_view(const InputReaderView& view) {
@@ -60,6 +61,44 @@ InputRangeStats summarize_input_view(const InputReaderView& view) {
         }
     }
     return stats;
+}
+
+Ret cleanup_stale_input_files(const DatasetMetadata& metadata, const std::string& dataset_name) {
+    const std::string lock_path = dataset_owner_lock_path(metadata, dataset_name);
+    if (lock_path.empty()) {
+        return Ret(0);
+    }
+
+    std::filesystem::path input_base(lock_path);
+    input_base.replace_extension(".input");
+    const std::filesystem::path dir = input_base.parent_path();
+    const std::string input_name = input_base.filename().string();
+    const std::string numbered_prefix = input_name + ".";
+
+    std::error_code ec;
+    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec) {
+            return Ret("DatasetWriter::init: failed to iterate dataset directory for stale input cleanup");
+        }
+        if (!entry.is_regular_file(ec)) {
+            if (ec) {
+                return Ret("DatasetWriter::init: failed to inspect dataset directory entry during stale input cleanup");
+            }
+            continue;
+        }
+
+        const std::string file_name = entry.path().filename().string();
+        if (file_name != input_name && file_name.rfind(numbered_prefix, 0) != 0) {
+            continue;
+        }
+
+        std::filesystem::remove(entry.path(), ec);
+        if (ec) {
+            return Ret("DatasetWriter::init: failed to remove stale staged input file " + entry.path().string());
+        }
+    }
+
+    return Ret(0);
 }
 
 } // namespace
@@ -95,6 +134,7 @@ Ret DatasetWriter::init_writer_() {
         if (!temp_lock.try_lock(lock_path)) {
             return Ret(0);
         }
+        CHECK(cleanup_stale_input_files(metadata_, name_));
     }
     return Ret(0);
 }
@@ -107,7 +147,7 @@ Ret DatasetWriter::store(const std::string& input_path) {
     Ret ret{0};
     bool should_notify = false;
     try {
-        std::lock_guard<std::mutex> lg(write_mutex_);
+        std::lock_guard<std::mutex> lg(dataset_files_mutex_);
         CHECK(ensure_owner_lock_());
         should_notify = true;
         Timer timer("DatasetWriter::store");
@@ -129,7 +169,7 @@ Ret DatasetWriter::merge() {
     Ret ret{0};
     bool should_notify = false;
     try {
-        std::lock_guard<std::mutex> lg(write_mutex_);
+        std::lock_guard<std::mutex> lg(dataset_files_mutex_);
         CHECK(ensure_owner_lock_());
         should_notify = true;
         Timer timer("DatasetWriter::merge");
@@ -158,18 +198,20 @@ Ret DatasetWriter::merge() {
 
 Ret DatasetWriter::start_writing() {
     try {
-        std::lock_guard<std::mutex> lg(write_mutex_);
+        std::lock_guard<std::mutex> lg(input_session_mutex_);
         CHECK(ensure_owner_lock_());
         if (input_writer_) {
             return Ret("DatasetWriter::start_writing: input writer is active already");
         }
 
-        input_writer_ = std::make_unique<InputWriter>();
-        const Ret ret = input_writer_->init(metadata_.type, metadata_.dim, dataset_input_path(metadata_, name_));
+        const std::string input_path = dataset_input_path(metadata_, name_, ++next_input_session_id_);
+        auto input_writer = std::make_unique<InputWriter>();
+        const Ret ret = input_writer->init(metadata_.type, metadata_.dim, input_path);
         if (ret.code() != 0) {
-            input_writer_.reset();
             return ret;
         }
+        input_writer_ = std::move(input_writer);
+        active_input_path_ = input_path;
         return Ret(0);
     } catch (const std::exception& ex) {
         return Ret(ex.what());
@@ -178,7 +220,7 @@ Ret DatasetWriter::start_writing() {
 
 Ret DatasetWriter::write_vector(uint64_t id, const char* vector) {
     try {
-        std::lock_guard<std::mutex> lg(write_mutex_);
+        std::lock_guard<std::mutex> lg(input_session_mutex_);
         CHECK(ensure_owner_lock_());
         if (!input_writer_) {
             return Ret("DatasetWriter::write_vector: input writer is not active");
@@ -191,7 +233,7 @@ Ret DatasetWriter::write_vector(uint64_t id, const char* vector) {
 
 Ret DatasetWriter::write_deleted(uint64_t id) {
     try {
-        std::lock_guard<std::mutex> lg(write_mutex_);
+        std::lock_guard<std::mutex> lg(input_session_mutex_);
         CHECK(ensure_owner_lock_());
         if (!input_writer_) {
             return Ret("DatasetWriter::write_deleted: input writer is not active");
@@ -204,15 +246,20 @@ Ret DatasetWriter::write_deleted(uint64_t id) {
 
 Ret DatasetWriter::abort_writing() {
     try {
-        std::lock_guard<std::mutex> lg(write_mutex_);
-        CHECK(ensure_owner_lock_());
-        if (!input_writer_) {
-            return Ret("DatasetWriter::abort_writing: input writer is not active");
+        std::unique_ptr<InputWriter> staged_writer;
+        std::string input_path;
+        {
+            std::lock_guard<std::mutex> lg(input_session_mutex_);
+            CHECK(ensure_owner_lock_());
+            if (!input_writer_) {
+                return Ret("DatasetWriter::abort_writing: input writer is not active");
+            }
+
+            staged_writer = std::move(input_writer_);
+            input_path = std::move(active_input_path_);
         }
 
-        const std::string input_path = dataset_input_path(metadata_, name_);
-        CHECK(input_writer_->abort_writing());
-        input_writer_.reset();
+        CHECK(staged_writer->abort_writing());
 
         std::error_code ec;
         std::filesystem::remove(input_path, ec);
@@ -229,23 +276,31 @@ Ret DatasetWriter::complete_writing() {
     Ret ret{0};
     bool should_notify = false;
     try {
-        std::lock_guard<std::mutex> lg(write_mutex_);
-        CHECK(ensure_owner_lock_());
-        if (!input_writer_) {
-            return Ret("DatasetWriter::complete_writing: input writer is not active");
+        std::unique_ptr<InputWriter> staged_writer;
+        std::string input_path;
+        {
+            std::lock_guard<std::mutex> lg(input_session_mutex_);
+            if (!input_writer_) {
+                return Ret("DatasetWriter::complete_writing: input writer is not active");
+            }
+
+            staged_writer = std::move(input_writer_);
+            input_path = std::move(active_input_path_);
         }
 
-        const std::string input_path = dataset_input_path(metadata_, name_);
         std::experimental::scope_exit cleanup([&input_path]() {
             std::error_code ec;
             std::filesystem::remove(input_path, ec);
         });
 
-        CHECK(input_writer_->close_file());
-        input_writer_.reset();
+        CHECK(staged_writer->close_file());
 
-        should_notify = true;
-        ret = store_(input_path);
+        {
+            std::lock_guard<std::mutex> lg(dataset_files_mutex_);
+            CHECK(ensure_owner_lock_());
+            should_notify = true;
+            ret = store_(input_path);
+        }
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
@@ -262,6 +317,7 @@ Ret DatasetWriter::complete_writing() {
  */
 
 Ret DatasetWriter::ensure_owner_lock_() {
+    std::lock_guard<std::mutex> lg(state_mutex_);
     if (owner_lock_ || metadata_.dirs.empty()) {
         return Ret(0);
     }
@@ -308,6 +364,7 @@ Ret DatasetWriter::ensure_owner_lock_() {
 }
 
 Ret DatasetWriter::ensure_update_notifier_() {
+    std::lock_guard<std::mutex> lg(state_mutex_);
     if (update_notifier_) {
         return Ret(0);
     }
@@ -324,6 +381,7 @@ void DatasetWriter::notify_update_(const char* caller) {
         LOG_ERROR << caller << ": " << nr.message();
         return;
     }
+    std::lock_guard<std::mutex> lg(state_mutex_);
     if (!update_notifier_) {
         return;
     }
