@@ -9,6 +9,7 @@ target_link_libraries(sketch2
     vlite
     -Wl,--no-whole-archive
     comp
+    calc
     stor
     utils
     hwy
