@@ -9,8 +9,10 @@ target_link_libraries(sketch2
     vlite
     -Wl,--no-whole-archive
     comp
+    calc
     stor
     utils
+    hwy
 )
 
 add_custom_target(copy_sketch2_runtime ALL

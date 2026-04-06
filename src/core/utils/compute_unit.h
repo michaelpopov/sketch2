@@ -12,6 +12,8 @@ enum class ComputeBackendKind : uint8_t {
     avx512f,
     avx512_vnni,
     neon,
+    highway,
+    nk,
 };
 
 class ComputeUnit {

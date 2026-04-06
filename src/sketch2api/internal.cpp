@@ -1,8 +1,11 @@
 #include "internal.h"
 
+#include "core/calc/scanner_ex.h"
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
+#include "core/utils/compute_unit.h"
 #include "core/utils/log.h"
+#include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
 #include "core/utils/timer.h"
 
@@ -22,6 +25,27 @@ using namespace sketch2;
 namespace sketch2api::detail {
 
 namespace {
+
+bool use_calc_engine() {
+    const ComputeBackendKind kind = get_singleton().compute_unit().kind();
+    return kind == ComputeBackendKind::highway || kind == ComputeBackendKind::nk;
+}
+
+CalcEngine selected_calc_engine() {
+    const ComputeBackendKind kind = get_singleton().compute_unit().kind();
+    return kind == ComputeBackendKind::highway ? CalcEngine::highway : CalcEngine::numkong;
+}
+
+const char* calc_engine_name(CalcEngine engine) {
+    switch (engine) {
+        case CalcEngine::highway:
+            return "highway";
+        case CalcEngine::numkong:
+            return "numkong";
+        default:
+            return "unknown";
+    }
+}
 
 std::string trim_whitespace(const std::string& value) {
     size_t begin = 0;
@@ -336,10 +360,18 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
     }
 
     std::vector<DistItem> items;
-    Scanner scanner;
-    ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
+    if (use_calc_engine()) {
+        ScannerEx scanner{selected_calc_engine()};
+        ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
+        if (ret.code() != 0) {
+            ERR(ret.message().c_str())
+        }
+    } else {
+        Scanner scanner;
+        ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
+        if (ret.code() != 0) {
+            ERR(ret.message().c_str())
+        }
     }
 
     if (!items.empty()) {
@@ -354,6 +386,13 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
     }
     *count_out = items.size();
     return 0;
+}
+
+const char* sk_knn_engine_name_for_testing_() {
+    if (!use_calc_engine()) {
+        return "legacy";
+    }
+    return calc_engine_name(selected_calc_engine());
 }
 
 int sk_merge_delta_(sk_handle_t* handle) {

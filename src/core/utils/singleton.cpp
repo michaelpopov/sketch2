@@ -180,10 +180,17 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
             merged.level = reader.get_str("log.level", "");
             merged.log_file = reader.get_str("log.path", "");
             merged.thread_pool_size = reader.get_str("thread_pool.size", "");
+            merged.compute_engine = reader.get_str("compute.engine", "");
         } else {
             LOG_WARN << "Failed to read SKETCH2_CONFIG from " << config_path
                      << ": " << ret.message();
         }
+    }
+
+    const char* compute_engine = std::getenv("SKETCH2_COMPUTE_ENGINE");
+    if (compute_engine != nullptr && compute_engine[0] != '\0') {
+        LOG_INFO << "Compute engine is set in env var: " << compute_engine;
+        merged.compute_engine = compute_engine;
     }
 
     const char* env_level = std::getenv("SKETCH2_LOG_LEVEL");
@@ -225,7 +232,29 @@ bool Singleton::apply_config_values_(const ConfigValues& values) {
         applied = apply_thread_pool_size_(values.thread_pool_size) || applied;
     }
 
+    if (!values.compute_engine.empty()) {
+        applied = apply_compute_engine_(values.compute_engine) || applied;
+    }
+
     return applied;
+}
+
+bool Singleton::apply_compute_engine_(const std::string& str) {
+    if (str.empty()) {
+        return false;
+    }
+
+    ComputeBackendKind kind = ComputeBackendKind::scalar;
+    if (!ComputeUnit::parse(str.c_str(), &kind)) {
+        LOG_ERROR << "Ignoring invalid compute.engine value '" << str
+                  << "' and degrading to the default compute engine selection.";
+        return true;
+    }
+
+    compute_unit_ = ComputeUnit{kind};
+    LOG_INFO << "Compute engine set to '" << compute_unit_.name()
+             << "' because configuration explicitly requested it.";
+    return true;
 }
 
 bool Singleton::apply_log_level_(const std::string& level) {
