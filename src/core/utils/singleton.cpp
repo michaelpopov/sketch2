@@ -250,6 +250,12 @@ bool Singleton::apply_compute_engine_(const std::string& str) {
                   << "' and degrading to the default compute engine selection.";
         return true;
     }
+    if (!ComputeUnit::is_supported(kind)) {
+        LOG_ERROR << "Ignoring unsupported compute.engine value '" << str
+                  << "' because that engine/backend is not supported on this build/CPU; "
+                  << "degrading to the default compute engine selection.";
+        return true;
+    }
 
     compute_unit_ = ComputeUnit{kind};
     LOG_INFO << "Compute engine set to '" << compute_unit_.name()

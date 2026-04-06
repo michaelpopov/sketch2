@@ -2,6 +2,7 @@
 
 #include "internal.h"
 #include "sketch2api.h"
+#include "core/utils/compute_unit.h"
 
 #include <cstdlib>
 #include <experimental/scope>
@@ -22,6 +23,27 @@ namespace {
 constexpr const char* kScenarioEnv = "SKETCH2API_COMPUTE_SCENARIO";
 constexpr const char* kConfigEnv = "SKETCH2_CONFIG";
 constexpr const char* kComputeEngineEnv = "SKETCH2_COMPUTE_ENGINE";
+
+const char* unsupported_legacy_backend_name() {
+    struct Candidate {
+        const char* name;
+        sketch2::ComputeBackendKind kind;
+    };
+
+    constexpr Candidate kCandidates[] = {
+        {"avx512_vnni", sketch2::ComputeBackendKind::avx512_vnni},
+        {"avx512f", sketch2::ComputeBackendKind::avx512f},
+        {"avx2", sketch2::ComputeBackendKind::avx2},
+        {"neon", sketch2::ComputeBackendKind::neon},
+    };
+
+    for (const Candidate& candidate : kCandidates) {
+        if (!sketch2::ComputeUnit::is_supported(candidate.kind)) {
+            return candidate.name;
+        }
+    }
+    return nullptr;
+}
 
 std::filesystem::path make_temp_dir() {
     const std::filesystem::path base = std::filesystem::temp_directory_path();
@@ -123,6 +145,8 @@ void run_compute_chain_assertions() {
     bool use_missing_config_path = false;
     std::string config_engine;
     std::string env_engine;
+    const char* unsupported_backend = unsupported_legacy_backend_name();
+    ASSERT_NE(nullptr, unsupported_backend);
 
     if (std::string_view(scenario) == "config_highway") {
         write_config = true;
@@ -162,6 +186,11 @@ void run_compute_chain_assertions() {
         config_engine = "bogus";
     } else if (std::string_view(scenario) == "invalid_env_is_advisory") {
         env_engine = "bogus";
+    } else if (std::string_view(scenario) == "unsupported_config_is_advisory") {
+        write_config = true;
+        config_engine = unsupported_backend;
+    } else if (std::string_view(scenario) == "unsupported_env_is_advisory") {
+        env_engine = unsupported_backend;
     } else if (std::string_view(scenario) == "missing_config_file_defaults_legacy") {
         use_missing_config_path = true;
     } else if (std::string_view(scenario) == "env_overrides_missing_config_file") {
@@ -282,6 +311,14 @@ TEST(sketch2api_compute_chain, InvalidConfigRemainsAdvisory) {
 
 TEST(sketch2api_compute_chain, InvalidEnvRemainsAdvisory) {
     run_child_scenario("invalid_env_is_advisory");
+}
+
+TEST(sketch2api_compute_chain, UnsupportedConfigRemainsAdvisory) {
+    run_child_scenario("unsupported_config_is_advisory");
+}
+
+TEST(sketch2api_compute_chain, UnsupportedEnvRemainsAdvisory) {
+    run_child_scenario("unsupported_env_is_advisory");
 }
 
 TEST(sketch2api_compute_chain, MissingConfigFileDefaultsToLegacyScanner) {

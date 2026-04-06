@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include "dlfcn.h"
 #include "sqlite3.h"
 
 #include "core/storage/dataset_node.h"
@@ -13,6 +14,7 @@
 #include <limits>
 #include <string>
 #include <tuple>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 
@@ -30,6 +32,33 @@ struct SqliteDbCloser {
 };
 
 using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
+
+constexpr const char* kScenarioEnv = "SKETCH2API_VLITE_COMPUTE_SCENARIO";
+constexpr const char* kComputeEngineEnv = "SKETCH2_COMPUTE_ENGINE";
+
+class EnvVarGuard {
+public:
+    explicit EnvVarGuard(const char* name) : name_(name) {
+        const char* current = std::getenv(name_);
+        if (current != nullptr) {
+            had_original_ = true;
+            original_ = current;
+        }
+    }
+
+    ~EnvVarGuard() {
+        if (had_original_) {
+            (void)setenv(name_, original_.c_str(), 1);
+        } else {
+            (void)unsetenv(name_);
+        }
+    }
+
+private:
+    const char* name_;
+    bool had_original_ = false;
+    std::string original_;
+};
 
 class VliteTest : public ::testing::Test {
 protected:
@@ -192,6 +221,22 @@ protected:
         }
         return out;
     }
+
+    std::string loaded_knn_engine_name() {
+        void* handle = dlopen(VLITE_EXTENSION_PATH, RTLD_NOW | RTLD_LOCAL);
+        EXPECT_NE(nullptr, handle);
+        if (handle == nullptr) {
+            return "";
+        }
+
+        using EngineNameFn = const char* (*)();
+        auto* fn = reinterpret_cast<EngineNameFn>(dlsym(handle, "sqlite3_sketch2_knn_engine_name_for_testing"));
+        EXPECT_NE(nullptr, fn);
+        const char* name = fn == nullptr ? nullptr : fn();
+        EXPECT_NE(nullptr, name);
+        dlclose(handle);
+        return name == nullptr ? "" : std::string(name);
+    }
 };
 
 TEST_F(VliteTest, ReturnsKnnIdsAndDistancesForL1Dataset) {
@@ -241,6 +286,76 @@ TEST_F(VliteTest, UsesDatasetDistanceFunctionForCosineQueries) {
     EXPECT_EQ(30u, rows[2].first);
     EXPECT_LE(rows[0].second, rows[1].second);
     EXPECT_LE(rows[1].second, rows[2].second);
+}
+
+TEST_F(VliteTest, ChildScenario) {
+    const char* scenario = std::getenv(kScenarioEnv);
+    if (scenario == nullptr || scenario[0] == '\0') {
+        GTEST_SKIP() << "Scenario is only executed through the parent launcher.";
+    }
+
+    EnvVarGuard scenario_guard(kScenarioEnv);
+    EnvVarGuard engine_guard(kComputeEngineEnv);
+
+    write_input("f32,4\n"
+                "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+                "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+                "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::COS);
+
+    std::string expected_engine = "legacy";
+    if (std::string_view(scenario) == "env_highway") {
+        ASSERT_EQ(0, setenv(kComputeEngineEnv, "highway", 1));
+        expected_engine = "highway";
+    } else if (std::string_view(scenario) == "env_numkong") {
+        ASSERT_EQ(0, setenv(kComputeEngineEnv, "numkong", 1));
+        expected_engine = "numkong";
+    } else {
+        FAIL() << "Unknown scenario: " << scenario;
+    }
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    EXPECT_EQ(expected_engine, loaded_knn_engine_name());
+
+    const auto rows = query_results(db.get(),
+        "SELECT id, distance FROM nn "
+        "WHERE query = '1.0, 0.0, 0.0, 0.0' AND k = 3 "
+        "ORDER BY distance");
+
+    ASSERT_EQ(3u, rows.size());
+    EXPECT_EQ(10u, rows[0].first);
+    EXPECT_EQ(20u, rows[1].first);
+    EXPECT_EQ(30u, rows[2].first);
+}
+
+void run_child_scenario(const char* scenario) {
+    EnvVarGuard scenario_guard(kScenarioEnv);
+    EnvVarGuard engine_guard(kComputeEngineEnv);
+
+    ASSERT_EQ(0, setenv(kScenarioEnv, scenario, 1));
+
+    pid_t pid = fork();
+    ASSERT_NE(-1, pid);
+    if (pid == 0) {
+        execl("/proc/self/exe", "/proc/self/exe",
+            "--gtest_filter=VliteTest.ChildScenario", nullptr);
+        _exit(127);
+    }
+
+    int status = 0;
+    ASSERT_NE(-1, waitpid(pid, &status, 0));
+    ASSERT_TRUE(WIFEXITED(status));
+    ASSERT_EQ(0, WEXITSTATUS(status));
+}
+
+TEST_F(VliteTest, EnvHighwayUsesCalcEngine) {
+    run_child_scenario("env_highway");
+}
+
+TEST_F(VliteTest, EnvNumKongUsesCalcEngine) {
+    run_child_scenario("env_numkong");
 }
 
 TEST_F(VliteTest, UsesDatasetDistanceFunctionForL2Queries) {

@@ -140,6 +140,9 @@ bool ComputeUnit::is_supported(ComputeBackendKind kind) {
     switch (kind) {
         case ComputeBackendKind::scalar:
             return true;
+        case ComputeBackendKind::highway:
+        case ComputeBackendKind::nk:
+            return true;
         case ComputeBackendKind::avx512_vnni:
 #if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
 #if defined(__GNUC__) || defined(__clang__)

@@ -69,6 +69,16 @@ TEST(ComputeRuntimeTest, ForcedScalarBackendUsesScalarResolvers) {
     expect_cos_resolvers<ComputeCos>();
 }
 
+TEST(ComputeRuntimeTest, ForcedHighwayBackendIsAccepted) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::highway);
+    EXPECT_EQ(ComputeBackendKind::highway, get_singleton().compute_unit().kind());
+}
+
+TEST(ComputeRuntimeTest, ForcedNumKongBackendIsAccepted) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::nk);
+    EXPECT_EQ(ComputeBackendKind::nk, get_singleton().compute_unit().kind());
+}
+
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
 TEST(ComputeRuntimeTest, ForcedAvx2BackendUsesAvx2Resolvers) {
     if (!ComputeUnit::is_supported(ComputeBackendKind::avx2)) {

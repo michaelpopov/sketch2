@@ -10,6 +10,7 @@ extern "C" {
 
 int sqlite3_sketch2_init(sqlite3* db, char** pzErrMsg, const sqlite3_api_routines* api);
 int sqlite3_extension_init(sqlite3* db, char** pzErrMsg, const sqlite3_api_routines* api);
+const char* sqlite3_sketch2_knn_engine_name_for_testing(void);
 
 #ifdef __cplusplus
 }

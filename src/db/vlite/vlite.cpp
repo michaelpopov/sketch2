@@ -2,9 +2,11 @@
 
 #include "vlite.h"
 
+#include "core/calc/scanner_ex.h"
 #include "core/compute/compute_cos.h"
 #include "core/compute/scanner.h"
 #include "core/storage/dataset_reader.h"
+#include "core/utils/compute_unit.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
@@ -157,6 +159,23 @@ int run_column_callback(sqlite3_vtab_cursor* cursor, sqlite3_context* context, F
 
 bool is_query_constraint(int op) {
     return op == SQLITE_INDEX_CONSTRAINT_EQ || op == SQLITE_INDEX_CONSTRAINT_MATCH;
+}
+
+bool use_calc_engine() {
+    const sketch2::ComputeBackendKind kind = sketch2::get_singleton().compute_unit().kind();
+    return kind == sketch2::ComputeBackendKind::highway || kind == sketch2::ComputeBackendKind::nk;
+}
+
+sketch2::CalcEngine selected_calc_engine() {
+    const sketch2::ComputeBackendKind kind = sketch2::get_singleton().compute_unit().kind();
+    switch (kind) {
+        case sketch2::ComputeBackendKind::highway:
+            return sketch2::CalcEngine::highway;
+        case sketch2::ComputeBackendKind::nk:
+            return sketch2::CalcEngine::numkong;
+        default:
+            throw std::runtime_error("selected_calc_engine: non-calc backend selected");
+    }
 }
 
 sqlite3_int64 saturate_negative_to_zero(sqlite3_int64 value) {
@@ -637,9 +656,15 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
         };
         const sketch2::BitsetFilter* bitset_filter_ptr = !has_allowed_ids ? nullptr : &bitset_filter;
 
-        sketch2::Scanner scanner;
-        ret = scanner.find_items(dataset, static_cast<size_t>(effective_k),
-            vlite_cursor->query_buf.data(), vlite_cursor->rows, bitset_filter_ptr);
+        if (use_calc_engine()) {
+            sketch2::ScannerEx scanner{selected_calc_engine()};
+            ret = scanner.find_items(dataset, static_cast<size_t>(effective_k),
+                vlite_cursor->query_buf.data(), vlite_cursor->rows, bitset_filter_ptr);
+        } else {
+            sketch2::Scanner scanner;
+            ret = scanner.find_items(dataset, static_cast<size_t>(effective_k),
+                vlite_cursor->query_buf.data(), vlite_cursor->rows, bitset_filter_ptr);
+        }
         if (ret.code() != 0) {
             set_vtab_error(vlite_vtab, ret.message());
             return SQLITE_ERROR;
@@ -891,4 +916,11 @@ extern "C" int sqlite3_sketch2_init(sqlite3* db, char** pz_err_msg, const sqlite
 
 extern "C" int sqlite3_extension_init(sqlite3* db, char** pz_err_msg, const sqlite3_api_routines* api) {
     return sqlite3_sketch2_init(db, pz_err_msg, api);
+}
+
+extern "C" const char* sqlite3_sketch2_knn_engine_name_for_testing(void) {
+    if (!use_calc_engine()) {
+        return "legacy";
+    }
+    return sketch2::calc_engine_name(selected_calc_engine());
 }
