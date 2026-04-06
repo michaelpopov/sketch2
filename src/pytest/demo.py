@@ -13,6 +13,8 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from sketch2_test_vectors import (
+    F16_MAX,
+    I16_MAX,
     cosine_demo_query,
     cosine_demo_vector,
     demo_query_scalar,

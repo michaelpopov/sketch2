@@ -14,6 +14,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   set_source_files_properties(nk_kernels.cpp PROPERTIES
     COMPILE_DEFINITIONS "NK_TARGET_NEON=1;NK_TARGET_NEONFHM=1;NK_TARGET_SVE=1;NK_TARGET_SVEHALF=1")
+  set_source_files_properties(nk_kernels.cpp PROPERTIES
+    COMPILE_OPTIONS "-march=armv8-a+simd")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(wasm32|wasm64)$")
   set_source_files_properties(nk_kernels.cpp PROPERTIES
     COMPILE_DEFINITIONS "NK_TARGET_V128RELAXED=1")
