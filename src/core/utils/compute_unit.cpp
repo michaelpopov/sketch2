@@ -207,6 +207,14 @@ bool ComputeUnit::parse(const char* name, ComputeBackendKind* kind) {
         *kind = ComputeBackendKind::neon;
         return true;
     }
+    if (std::strcmp(name, "highway") == 0) {
+        *kind = ComputeBackendKind::highway;
+        return true;
+    }
+    if (std::strcmp(name, "numkong") == 0) {
+        *kind = ComputeBackendKind::nk;
+        return true;
+    }
     if (std::strcmp(name, "auto") == 0) {
         *kind = detect_best_backend();
         return true;
@@ -230,6 +238,10 @@ const char* ComputeUnit::name() const {
             return "avx512_vnni";
         case ComputeBackendKind::neon:
             return "neon";
+        case ComputeBackendKind::highway:
+            return "highway";
+        case ComputeBackendKind::nk:
+            return "numkong";
         default:
             return "unknown";
     }

@@ -11,6 +11,7 @@ SKETCH2API_HIDDEN int sk_open_(sk_handle_t* handle, const char* name);
 SKETCH2API_HIDDEN int sk_close_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_knn_(
     sk_handle_t* handle, const char* vec, unsigned int k, uint64_t** ids_out, size_t* count_out);
+SKETCH2API_HIDDEN const char* sk_knn_engine_name_for_testing_();
 SKETCH2API_HIDDEN int sk_merge_delta_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_get_(sk_handle_t* handle, uint64_t id, char** value_out);
 SKETCH2API_HIDDEN int sk_print_(sk_handle_t* handle);

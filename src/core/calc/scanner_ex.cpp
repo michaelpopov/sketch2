@@ -33,9 +33,18 @@ const char* dist_func_name(DistFunc func) {
     }
 }
 
+const char* calc_engine_name(CalcEngine engine) {
+    switch (engine) {
+        case CalcEngine::highway: return "highway";
+        case CalcEngine::numkong: return "numkong";
+        default: return "unknown";
+    }
+}
+
 void log_query(const std::string& source, DistFunc func, DataType type, size_t dim,
-        size_t count, int64_t elapsed_ms) {
+        size_t count, CalcEngine engine, int64_t elapsed_ms) {
     LOG_TRACE << "ScannerEx query: source=" << source
+             << " engine=" << calc_engine_name(engine)
              << " metric=" << dist_func_name(func)
              << " type=" << data_type_to_string(type)
              << " dim=" << dim
@@ -281,7 +290,7 @@ Ret ScannerEx::find_items_(const DatasetReader& dataset, size_t count, const uin
     DistHeap heap;
     Timer timer("scanner_ex::query");
     CHECK(build_heap(engine_, dataset, func, count, vec, &heap, bitset));
-    log_query(dataset.name(), func, dataset.type(), dataset.dim(), count, timer.elapsed_ms());
+    log_query(dataset.name(), func, dataset.type(), dataset.dim(), count, engine_, timer.elapsed_ms());
     extract_items(&heap, &result);
     return Ret(0);
 }

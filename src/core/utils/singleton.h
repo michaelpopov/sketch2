@@ -23,6 +23,7 @@
 // Configuration precedence is:
 // - start from built-in defaults
 // - if SKETCH2_CONFIG points to a readable ini file, read values from it
+// - if SKETCH2_COMPUTE_ENGINE is set, it overrides compute.engine
 // - if SKETCH2_LOG_LEVEL is set, it overrides log.level
 // - if SKETCH2_THREAD_POOL_SIZE is set, it overrides thread_pool.size
 // - if SKETCH2_LOG_FILE is set, it selects the log sink
@@ -84,6 +85,7 @@ private:
         std::string level;
         std::string thread_pool_size;
         std::string log_file;
+        std::string compute_engine;
     };
 
     bool runtime_init_();
@@ -95,6 +97,7 @@ private:
     bool apply_log_level_(const std::string& level);
     bool apply_thread_pool_size_(const std::string& size);
     bool apply_log_file_(const std::string& path);
+    bool apply_compute_engine_(const std::string& str);
 
     std::mutex mutex_;
     ComputeUnit compute_unit_;
