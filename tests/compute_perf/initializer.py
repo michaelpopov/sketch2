@@ -174,10 +174,14 @@ def main() -> None:
             else:
                 query_vals = generic_demo_query(config.dims, config.type_name)
             
-            expected_ids, expected_dists = get_ground_truth_knn(
-                config.count, config.dims, config.type_name, dist, query_vals, config.knn_count
-            )
-            save_ground_truth(config, dist, expected_ids, expected_dists)
+            if os.environ.get("DUMMY_CALC") == "1":
+                log("initializer", f"skipping ground truth calculation for {dist} (DUMMY_CALC=1)")
+                save_ground_truth(config, dist, [], [])
+            else:
+                expected_ids, expected_dists = get_ground_truth_knn(
+                    config.count, config.dims, config.type_name, dist, query_vals, config.knn_count
+                )
+                save_ground_truth(config, dist, expected_ids, expected_dists)
             
             log("initializer", f"dataset {dataset_name} is ready")
             sketch2.close()

@@ -41,7 +41,7 @@ The initializer prepares the database for benchmarking.
 - **Data Generation**:
     - **L1/L2**: Uses the optimized `sketch2.generate_test_data()` (native C++ generator) to create unique, non-periodic vectors.
     - **COS**: Uses a Python-based parallel generator to produce vectors with a specific value distribution (period 6545) suitable for cosine similarity testing.
-- **Ground Truth**: Calculates the exact Top-K results for each distance function and saves them as JSON files in the database root to be shared across all engine runners. For L1/L2, it uses `native_sequential_vector` to match the native generator's output.
+- **Ground Truth**: Calculates the exact Top-K results for each distance function and saves them as JSON files in the database root to be shared across all engine runners. For L1/L2, it uses `native_sequential_vector` to match the native generator's output. If `DUMMY_CALC=1` is set, this expensive calculation is skipped and an empty ground truth file is saved instead.
 
 ## 3. Runner (`runner.py`)
 
@@ -50,7 +50,7 @@ The runner performs the measurements for a single compute engine.
 - **Per-Distance Isolation**: Launches a child Python process for each distance function. This localizes native crashes so the failing engine/distance pair is explicit.
 - **Warm-up**: Executes one un-timed KNN query to ensure caches are primed and any lazy-initialization overhead is excluded from the performance report.
 - **Measurement**: Executes `COMPUTE_PERF_TEST_REPEAT` iterations of a KNN query.
-- **Validation**: Loads the pre-calculated Ground Truth from the JSON file. Every warm-up and timed result is validated. To avoid false positives due to tie-breaking differences between optimized engines, the validator requires unique IDs and compares the sorted returned-distance multiset against the expected distances.
+- **Validation**: Loads the pre-calculated Ground Truth from the JSON file. Every warm-up and timed result is validated. To avoid false positives due to tie-breaking differences between optimized engines, the validator requires unique IDs and compares the sorted returned-distance multiset against the expected distances. If `DUMMY_CALC=1` is set, validation is skipped.
 - **Reporting**: Collects timing data using `time.perf_counter()` and prints a performance report containing Min, Max, and Average execution times.
 - **Crash Diagnostics**: Writes a per-engine/per-distance JSON state file containing the last completed stage, dataset paths, query digest, expected-ID preview, PID, timing summary, and generated repro scripts. If a child process segfaults, the state file still shows the last stage reached before the crash. The runner also emits one-shot and loop-based repro shell scripts for the exact engine/distance pair.
 
@@ -91,6 +91,7 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_TEST_LOG_LEVEL` | Log level for the Sketch2 engine. | `ERROR` |
 | `COMPUTE_PERF_TEST_THREAD_POOL_SIZE` | Internal thread pool size for Sketch2. | `1` |
 | `COMPUTE_PERF_TEST_CLEANUP` | Delete the temporary database root after the run (`1`) or preserve it (`0`). | `0` |
+| `DUMMY_CALC` | If `1`, skips ground truth calculation and scan results validation. | `0` |
 | `COMPUTE_PERF_DIAG_DIR` | Directory where per-distance diagnostic JSON files and repro scripts are written. | `${SKETCH2_CONFIG_ROOT}/logs/diag` |
 
 ---

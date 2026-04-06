@@ -19,6 +19,7 @@ export COMPUTE_PERF_TEST_LOG_LEVEL="ERROR"
 export COMPUTE_PERF_TEST_THREAD_POOL_SIZE="1"
 export COMPUTE_PERF_TEST_ENGINES="scalar,auto,highway,numkong"
 export COMPUTE_PERF_TEST_CLEANUP="0"
+export DUMMY_CALC="${DUMMY_CALC:-0}"
 
 cleanup() {
     if [[ "${COMPUTE_PERF_TEST_CLEANUP}" == "1" ]]; then
@@ -53,6 +54,7 @@ echo "[driver]   dist=${COMPUTE_PERF_TEST_DIST}"
 echo "[driver]   range_size=${COMPUTE_PERF_TEST_RANGE_SIZE}"
 echo "[driver]   engines=${COMPUTE_PERF_TEST_ENGINES}"
 echo "[driver]   cleanup=${COMPUTE_PERF_TEST_CLEANUP}"
+echo "[driver]   dummy_calc=${DUMMY_CALC}"
 echo "[driver]   diag_dir=${COMPUTE_PERF_DIAG_DIR}"
 echo "[driver]   core_limit=$(ulimit -c)"
 if [[ -r /proc/sys/kernel/core_pattern ]]; then
@@ -78,6 +80,7 @@ write_run_env() {
         echo "COMPUTE_PERF_TEST_THREAD_POOL_SIZE=${COMPUTE_PERF_TEST_THREAD_POOL_SIZE}"
         echo "COMPUTE_PERF_TEST_ENGINES=${COMPUTE_PERF_TEST_ENGINES}"
         echo "COMPUTE_PERF_TEST_CLEANUP=${COMPUTE_PERF_TEST_CLEANUP}"
+        echo "DUMMY_CALC=${DUMMY_CALC}"
         echo "COMPUTE_PERF_DIAG_DIR=${COMPUTE_PERF_DIAG_DIR}"
     } > "${LOG_DIR}/run_env.txt"
 }

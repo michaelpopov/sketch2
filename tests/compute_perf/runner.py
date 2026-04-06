@@ -167,8 +167,14 @@ def run_single_distance(dist: str) -> None:
         diag_state = initial_diag_state(config, dist, query_vals, query_str)
         write_json(diag_path, diag_state)
 
-        log("runner", f"loading ground truth for {dist}...")
-        expected_ids, expected_dists = load_ground_truth(config, dist)
+        dummy_calc = os.environ.get("DUMMY_CALC") == "1"
+        if dummy_calc:
+            log("runner", f"skipping ground truth loading for {dist} (DUMMY_CALC=1)")
+            expected_ids, expected_dists = [], []
+        else:
+            log("runner", f"loading ground truth for {dist}...")
+            expected_ids, expected_dists = load_ground_truth(config, dist)
+        
         update_diag(
             diag_path,
             diag_state,
@@ -192,16 +198,19 @@ def run_single_distance(dist: str) -> None:
                 stage="after_warmup_knn",
                 warmup_ids_preview=warmup_ids[: min(5, len(warmup_ids))],
             )
-            if not validate_knn_results(
-                warmup_ids,
-                expected_ids,
-                expected_dists,
-                query_vals,
-                config.dims,
-                config.type_name,
-                dist,
-            ):
-                raise AssertionError(f"KNN warm-up mismatch for {dist} under engine={engine_label()}")
+            if not dummy_calc:
+                if not validate_knn_results(
+                    warmup_ids,
+                    expected_ids,
+                    expected_dists,
+                    query_vals,
+                    config.dims,
+                    config.type_name,
+                    dist,
+                ):
+                    raise AssertionError(f"KNN warm-up mismatch for {dist} under engine={engine_label()}")
+            else:
+                log("runner", f"skipping warm-up validation for {dist} (DUMMY_CALC=1)")
 
             log("runner", f"running {config.repeat} iterations for {dist}")
             for i in range(config.repeat):
@@ -221,14 +230,18 @@ def run_single_distance(dist: str) -> None:
                     raise AssertionError(
                         f"KNN returned no results at iteration {i} for {dist} under engine={engine_label()}"
                     )
-                if not validate_knn_results(
-                    ids, expected_ids, expected_dists, query_vals,
-                    config.dims, config.type_name, dist
-                ):
-                    log("runner", f"ERROR: result mismatch at iteration {i}")
-                    log("runner", f"  actual   = {ids}")
-                    log("runner", f"  expected = {expected_ids}")
-                    raise AssertionError(f"KNN result mismatch for {dist} under engine={engine_label()}")
+                
+                if not dummy_calc:
+                    if not validate_knn_results(
+                        ids, expected_ids, expected_dists, query_vals,
+                        config.dims, config.type_name, dist
+                    ):
+                        log("runner", f"ERROR: result mismatch at iteration {i}")
+                        log("runner", f"  actual   = {ids}")
+                        log("runner", f"  expected = {expected_ids}")
+                        raise AssertionError(f"KNN result mismatch for {dist} under engine={engine_label()}")
+                elif i == 0:
+                    log("runner", f"skipping timed validation for {dist} (DUMMY_CALC=1)")
 
                 times.append(t1 - t0)
         except Exception as exc:
