@@ -9,6 +9,16 @@
 
 #include "numkong/types.h"
 
+// GCC emits "target specific option mismatch" when always_inline helpers from
+// this header are inlined into NEON-targeted functions compiled under
+// #pragma GCC target("arch=armv8-a+simd") (see dot/neon.h). Ensure the helpers
+// themselves are compiled with the same baseline NEON target when building on
+// ARM with GCC to keep inlining valid.
+#if defined(__GNUC__) && !defined(__clang__) && defined(__ARM_NEON)
+#pragma GCC push_options
+#pragma GCC target("arch=armv8-a+simd")
+#endif
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -2328,6 +2338,10 @@ NK_PUBLIC void nk_e3m2_to_bf16(nk_e3m2_t const *src, nk_bf16_t *dest) {
 }
 
 #pragma endregion Public API
+
+#if defined(__GNUC__) && !defined(__clang__) && defined(__ARM_NEON)
+#pragma GCC pop_options
+#endif
 
 #if defined(__cplusplus)
 } // extern "C"
