@@ -3,7 +3,7 @@
 
 #include "core/calc/scanner_ex.h"
 #include "core/calc/calc_engine.h"
-#include "core/compute/compute_cos.h"  // finalize_cosine_distance_from_inverse_norms
+#include "core/calc/cosine_distance.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset_reader.h"
 #include "core/utils/log.h"

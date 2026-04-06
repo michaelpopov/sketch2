@@ -5,8 +5,8 @@
 // does not cover (L1, all i16 variants) the resolver falls back to Highway.
 
 #include "core/calc/nk_kernels.h"
+#include "core/calc/cosine_distance.h"
 #include "core/calc/hwy_kernels.h"
-#include "core/compute/compute_cos.h" // finalize_cosine_distance
 
 #include "numkong/capabilities.h"
 #include "numkong/reduce.h"

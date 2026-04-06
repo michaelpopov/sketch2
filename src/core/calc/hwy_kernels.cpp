@@ -3,6 +3,7 @@
 // and runtime dispatch.
 
 #include "core/calc/hwy_kernels.h"
+#include "core/calc/cosine_distance.h"
 
 #undef HWY_TARGET_INCLUDE
 #define HWY_TARGET_INCLUDE "core/calc/hwy_kernels.cpp"
@@ -26,6 +27,12 @@ namespace hn = hwy::HWY_NAMESPACE;
 // Helpers
 // ---------------------------------------------------------------------------
 
+template <typename T>
+HWY_INLINE const T* AsAlignedElements(const uint8_t* ptr) {
+    assert(reinterpret_cast<uintptr_t>(ptr) % alignof(T) == 0);
+    return reinterpret_cast<const T*>(ptr);
+}
+
 // Loads n float16 values (stored as raw uint16_t-compatible memory) into a
 // float vector by loading as uint16, bitcasting to float16_t, and promoting.
 // The half-lane count means we load N/2 uint16 values to fill N float lanes.
@@ -33,7 +40,7 @@ template <class DF>
 HWY_INLINE hn::VFromD<DF> LoadF16AsF32(DF df, const uint8_t* ptr) {
     const hn::Rebind<uint16_t, DF> du16;
     const hn::Rebind<hwy::float16_t, DF> df16;
-    const auto u16 = hn::Load(du16, reinterpret_cast<const uint16_t*>(ptr));
+    const auto u16 = hn::Load(du16, AsAlignedElements<uint16_t>(ptr));
     return hn::PromoteTo(df, hn::BitCast(df16, u16));
 }
 
@@ -41,7 +48,7 @@ HWY_INLINE hn::VFromD<DF> LoadF16AsF32(DF df, const uint8_t* ptr) {
 template <class DI32>
 HWY_INLINE hn::VFromD<DI32> LoadI16AsI32(DI32 di32, const uint8_t* ptr) {
     const hn::Rebind<int16_t, DI32> di16;
-    return hn::PromoteTo(di32, hn::Load(di16, reinterpret_cast<const int16_t*>(ptr)));
+    return hn::PromoteTo(di32, hn::Load(di16, AsAlignedElements<int16_t>(ptr)));
 }
 
 // ---------------------------------------------------------------------------
@@ -49,8 +56,8 @@ HWY_INLINE hn::VFromD<DI32> LoadI16AsI32(DI32 di32, const uint8_t* ptr) {
 // ---------------------------------------------------------------------------
 
 double DistL1F32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const float* va = reinterpret_cast<const float*>(a);
-    const float* vb = reinterpret_cast<const float*>(b);
+    const float* va = AsAlignedElements<float>(a);
+    const float* vb = AsAlignedElements<float>(b);
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto acc = hn::Zero(df);
@@ -79,8 +86,8 @@ double DistL1F16(const uint8_t* a, const uint8_t* b, size_t dim) {
     }
     double sum = hn::ReduceSum(df, acc);
     // Scalar tail
-    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
-    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
+    const auto* va = AsAlignedElements<hwy::float16_t>(a);
+    const auto* vb = AsAlignedElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
         sum += std::abs(static_cast<double>(va[i]) - static_cast<double>(vb[i]));
     }
@@ -88,8 +95,8 @@ double DistL1F16(const uint8_t* a, const uint8_t* b, size_t dim) {
 }
 
 double DistL1I16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const int16_t* va = reinterpret_cast<const int16_t*>(a);
-    const int16_t* vb = reinterpret_cast<const int16_t*>(b);
+    const int16_t* va = AsAlignedElements<int16_t>(a);
+    const int16_t* vb = AsAlignedElements<int16_t>(b);
     const hn::ScalableTag<int32_t> di32;
     const size_t N = hn::Lanes(di32);
     const hn::ScalableTag<float> df;
@@ -113,8 +120,8 @@ double DistL1I16(const uint8_t* a, const uint8_t* b, size_t dim) {
 // ---------------------------------------------------------------------------
 
 double DistL2F32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const float* va = reinterpret_cast<const float*>(a);
-    const float* vb = reinterpret_cast<const float*>(b);
+    const float* va = AsAlignedElements<float>(a);
+    const float* vb = AsAlignedElements<float>(b);
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto acc = hn::Zero(df);
@@ -145,8 +152,8 @@ double DistL2F16(const uint8_t* a, const uint8_t* b, size_t dim) {
         acc = hn::MulAdd(diff, diff, acc);
     }
     double sum = hn::ReduceSum(df, acc);
-    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
-    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
+    const auto* va = AsAlignedElements<hwy::float16_t>(a);
+    const auto* vb = AsAlignedElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
         sum += d * d;
@@ -155,8 +162,8 @@ double DistL2F16(const uint8_t* a, const uint8_t* b, size_t dim) {
 }
 
 double DistL2I16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const int16_t* va = reinterpret_cast<const int16_t*>(a);
-    const int16_t* vb = reinterpret_cast<const int16_t*>(b);
+    const int16_t* va = AsAlignedElements<int16_t>(a);
+    const int16_t* vb = AsAlignedElements<int16_t>(b);
     // Accumulate in double to match the existing compute kernels and avoid
     // overflow: signed int16 values can differ by up to 65535
     // (32767 - (-32768)), and squaring that exceeds int32.
@@ -185,8 +192,8 @@ double DistL2I16(const uint8_t* a, const uint8_t* b, size_t dim) {
 // ---------------------------------------------------------------------------
 
 double DotF32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const float* va = reinterpret_cast<const float*>(a);
-    const float* vb = reinterpret_cast<const float*>(b);
+    const float* va = AsAlignedElements<float>(a);
+    const float* vb = AsAlignedElements<float>(b);
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto acc = hn::Zero(df);
@@ -214,8 +221,8 @@ double DotF16(const uint8_t* a, const uint8_t* b, size_t dim) {
         acc = hn::MulAdd(av, bv, acc);
     }
     double sum = hn::ReduceSum(df, acc);
-    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
-    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
+    const auto* va = AsAlignedElements<hwy::float16_t>(a);
+    const auto* vb = AsAlignedElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
         sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
@@ -223,8 +230,8 @@ double DotF16(const uint8_t* a, const uint8_t* b, size_t dim) {
 }
 
 double DotI16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const int16_t* va = reinterpret_cast<const int16_t*>(a);
-    const int16_t* vb = reinterpret_cast<const int16_t*>(b);
+    const int16_t* va = AsAlignedElements<int16_t>(a);
+    const int16_t* vb = AsAlignedElements<int16_t>(b);
     const hn::ScalableTag<int32_t> di32;
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(di32);
@@ -248,7 +255,7 @@ double DotI16(const uint8_t* a, const uint8_t* b, size_t dim) {
 // ---------------------------------------------------------------------------
 
 double SquaredNormF32(const uint8_t* a, size_t dim) {
-    const float* va = reinterpret_cast<const float*>(a);
+    const float* va = AsAlignedElements<float>(a);
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto acc = hn::Zero(df);
@@ -275,7 +282,7 @@ double SquaredNormF16(const uint8_t* a, size_t dim) {
         acc = hn::MulAdd(av, av, acc);
     }
     double sum = hn::ReduceSum(df, acc);
-    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
+    const auto* va = AsAlignedElements<hwy::float16_t>(a);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         sum += ai * ai;
@@ -284,7 +291,7 @@ double SquaredNormF16(const uint8_t* a, size_t dim) {
 }
 
 double SquaredNormI16(const uint8_t* a, size_t dim) {
-    const int16_t* va = reinterpret_cast<const int16_t*>(a);
+    const int16_t* va = AsAlignedElements<int16_t>(a);
     const hn::ScalableTag<int32_t> di32;
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(di32);
@@ -307,16 +314,9 @@ double SquaredNormI16(const uint8_t* a, size_t dim) {
 // Cosine distance (full: computes both norms)
 // ---------------------------------------------------------------------------
 
-static inline double finalize_cos(double dot, double norm_a, double norm_b) {
-    if (norm_a == 0.0 && norm_b == 0.0) return 0.0;
-    if (norm_a == 0.0 || norm_b == 0.0) return 1.0;
-    const double cosine = std::clamp(dot / std::sqrt(norm_a * norm_b), -1.0, 1.0);
-    return 1.0 - cosine;
-}
-
 double DistCosF32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const float* va = reinterpret_cast<const float*>(a);
-    const float* vb = reinterpret_cast<const float*>(b);
+    const float* va = AsAlignedElements<float>(a);
+    const float* vb = AsAlignedElements<float>(b);
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto dot_acc = hn::Zero(df);
@@ -340,7 +340,7 @@ double DistCosF32(const uint8_t* a, const uint8_t* b, size_t dim) {
         norm_a += ai * ai;
         norm_b += bi * bi;
     }
-    return finalize_cos(dot, norm_a, norm_b);
+    return finalize_cosine_distance(dot, norm_a, norm_b);
 }
 
 double DistCosF16(const uint8_t* a, const uint8_t* b, size_t dim) {
@@ -360,8 +360,8 @@ double DistCosF16(const uint8_t* a, const uint8_t* b, size_t dim) {
     double dot = hn::ReduceSum(df, dot_acc);
     double norm_a = hn::ReduceSum(df, na_acc);
     double norm_b = hn::ReduceSum(df, nb_acc);
-    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
-    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
+    const auto* va = AsAlignedElements<hwy::float16_t>(a);
+    const auto* vb = AsAlignedElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
@@ -369,12 +369,12 @@ double DistCosF16(const uint8_t* a, const uint8_t* b, size_t dim) {
         norm_a += ai * ai;
         norm_b += bi * bi;
     }
-    return finalize_cos(dot, norm_a, norm_b);
+    return finalize_cosine_distance(dot, norm_a, norm_b);
 }
 
 double DistCosI16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const int16_t* va = reinterpret_cast<const int16_t*>(a);
-    const int16_t* vb = reinterpret_cast<const int16_t*>(b);
+    const int16_t* va = AsAlignedElements<int16_t>(a);
+    const int16_t* vb = AsAlignedElements<int16_t>(b);
     const hn::ScalableTag<int32_t> di32;
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(di32);
@@ -401,7 +401,7 @@ double DistCosI16(const uint8_t* a, const uint8_t* b, size_t dim) {
         norm_a += ai * ai;
         norm_b += bi * bi;
     }
-    return finalize_cos(dot, norm_a, norm_b);
+    return finalize_cosine_distance(dot, norm_a, norm_b);
 }
 
 // ---------------------------------------------------------------------------
@@ -409,8 +409,8 @@ double DistCosI16(const uint8_t* a, const uint8_t* b, size_t dim) {
 // ---------------------------------------------------------------------------
 
 double DistCosWithQueryNormF32(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
-    const float* va = reinterpret_cast<const float*>(a);
-    const float* vb = reinterpret_cast<const float*>(b);
+    const float* va = AsAlignedElements<float>(a);
+    const float* vb = AsAlignedElements<float>(b);
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto dot_acc = hn::Zero(df);
@@ -430,7 +430,7 @@ double DistCosWithQueryNormF32(const uint8_t* a, const uint8_t* b, size_t dim, d
         dot += ai * bi;
         norm_a += ai * ai;
     }
-    return finalize_cos(dot, norm_a, query_norm_sq);
+    return finalize_cosine_distance(dot, norm_a, query_norm_sq);
 }
 
 double DistCosWithQueryNormF16(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
@@ -447,20 +447,20 @@ double DistCosWithQueryNormF16(const uint8_t* a, const uint8_t* b, size_t dim, d
     }
     double dot = hn::ReduceSum(df, dot_acc);
     double norm_a = hn::ReduceSum(df, na_acc);
-    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
-    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
+    const auto* va = AsAlignedElements<hwy::float16_t>(a);
+    const auto* vb = AsAlignedElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
         norm_a += ai * ai;
     }
-    return finalize_cos(dot, norm_a, query_norm_sq);
+    return finalize_cosine_distance(dot, norm_a, query_norm_sq);
 }
 
 double DistCosWithQueryNormI16(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
-    const int16_t* va = reinterpret_cast<const int16_t*>(a);
-    const int16_t* vb = reinterpret_cast<const int16_t*>(b);
+    const int16_t* va = AsAlignedElements<int16_t>(a);
+    const int16_t* vb = AsAlignedElements<int16_t>(b);
     const hn::ScalableTag<int32_t> di32;
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(di32);
@@ -483,7 +483,7 @@ double DistCosWithQueryNormI16(const uint8_t* a, const uint8_t* b, size_t dim, d
         dot += ai * bi;
         norm_a += ai * ai;
     }
-    return finalize_cos(dot, norm_a, query_norm_sq);
+    return finalize_cosine_distance(dot, norm_a, query_norm_sq);
 }
 
 }  // namespace HWY_NAMESPACE

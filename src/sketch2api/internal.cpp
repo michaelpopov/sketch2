@@ -9,6 +9,7 @@
 #include "core/utils/string_utils.h"
 #include "core/utils/timer.h"
 
+#include <cassert>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -33,7 +34,15 @@ bool use_calc_engine() {
 
 CalcEngine selected_calc_engine() {
     const ComputeBackendKind kind = get_singleton().compute_unit().kind();
-    return kind == ComputeBackendKind::highway ? CalcEngine::highway : CalcEngine::numkong;
+    assert(use_calc_engine());
+    switch (kind) {
+        case ComputeBackendKind::highway:
+            return CalcEngine::highway;
+        case ComputeBackendKind::nk:
+            return CalcEngine::numkong;
+        default:
+            throw std::runtime_error("selected_calc_engine: non-calc backend selected");
+    }
 }
 
 std::string trim_whitespace(const std::string& value) {
