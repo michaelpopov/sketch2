@@ -102,7 +102,7 @@ bool Singleton::runtime_init_() {
     }
 
     ConfigValues values;
-    const bool applied = collect_config_values_(nullptr, &values) && apply_config_values_(values);
+    const bool applied = collect_config_values_(nullptr, &values) && apply_config_values_(values, /*allow_defaults=*/true);
     initialized_ = true;
     return applied;
 }
@@ -117,7 +117,7 @@ bool Singleton::apply_config_from_env_() {
     }
 
     ConfigValues values;
-    const bool applied = collect_config_values_(nullptr, &values) && apply_config_values_(values);
+    const bool applied = collect_config_values_(nullptr, &values) && apply_config_values_(values, /*allow_defaults=*/false);
     if (applied) {
         initialized_ = true;
     }
@@ -133,7 +133,7 @@ bool Singleton::apply_config_file_(const std::string& path) {
     }
 
     ConfigValues values;
-    const bool applied = collect_config_values_(&path, &values) && apply_config_values_(values);
+    const bool applied = collect_config_values_(&path, &values) && apply_config_values_(values, /*allow_defaults=*/false);
     if (applied) {
         initialized_ = true;
     }
@@ -217,7 +217,7 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
 
 // Apply sinks before log level so any warnings or info messages emitted by
 // later steps already flow to the final destination.
-bool Singleton::apply_config_values_(const ConfigValues& values) {
+bool Singleton::apply_config_values_(const ConfigValues& values, bool allow_defaults) {
     bool applied = false;
 
     if (!values.log_file.empty()) {
@@ -230,7 +230,7 @@ bool Singleton::apply_config_values_(const ConfigValues& values) {
 
     if (!values.thread_pool_size.empty()) {
         applied = apply_thread_pool_size_(values.thread_pool_size) || applied;
-    } else {
+    } else if (allow_defaults) {
         applied = apply_default_thread_pool_size_() || applied;
     }
 

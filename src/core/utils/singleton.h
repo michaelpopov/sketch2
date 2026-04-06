@@ -93,7 +93,7 @@ private:
     bool apply_config_file_(const std::string& path);
     bool force_compute_unit_for_testing_(ComputeBackendKind kind);
     bool collect_config_values_(const std::string* path, ConfigValues* values);
-    bool apply_config_values_(const ConfigValues& values);
+    bool apply_config_values_(const ConfigValues& values, bool allow_defaults);
     bool apply_log_level_(const std::string& level);
     bool apply_default_thread_pool_size_();
     bool apply_thread_pool_size_(const std::string& size);

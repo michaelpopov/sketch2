@@ -137,6 +137,7 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
 #ifndef DUMMY_CALC
         push_result(heap, count, it.id(), score(it));
 #else
+        (void)score;
         push_result(heap, count, it.id(), 0.0);
 #endif
     }
