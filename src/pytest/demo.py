@@ -7,18 +7,22 @@ import argparse
 import os
 import shutil
 import sqlite3
-import struct
 import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor
-from math import isfinite
 from pathlib import Path
 
+from sketch2_test_vectors import (
+    cosine_demo_query,
+    cosine_demo_vector,
+    demo_query_scalar,
+    find_library,
+    fmt_typed_vector,
+    quantize_value,
+    quantize_values,
+    repo_root,
+)
 from sketch2_wrapper import Sketch2
-
-F16_MAX = 65504.0
-I16_MIN = -32768
-I16_MAX = 32767
 
 
 def log_step(message: str) -> None:
@@ -47,113 +51,8 @@ def parse_size_arg(value: str) -> int:
     return int(text)
 
 
-def quantize_value(type_name: str, value: float) -> float | int:
-    if type_name == "f32":
-        return struct.unpack("f", struct.pack("f", value))[0]
-    if type_name == "f16":
-        return struct.unpack("e", struct.pack("e", value))[0]
-    if type_name == "i16":
-        return int(value)
-    raise ValueError(f"unsupported type: {type_name}")
-
-
-def quantize_values(type_name: str, values: list[float]) -> list[float | int]:
-    return [quantize_value(type_name, value) for value in values]
-
-
-def demo_query_scalar(count: int, type_name: str) -> float | int:
-    raw_value = count * 0.631 + 0.123
-    if type_name == "f32":
-        return quantize_value(type_name, raw_value)
-    if type_name == "f16":
-        bounded = max(-F16_MAX, min(F16_MAX, raw_value))
-        quantized = quantize_value(type_name, bounded)
-        if not isfinite(float(quantized)):
-            raise ValueError("demo f16 query value must remain finite")
-        return quantized
-    if type_name == "i16":
-        bounded = max(I16_MIN, min(I16_MAX, int(raw_value)))
-        return quantize_value(type_name, float(bounded))
-    raise ValueError(f"unsupported type: {type_name}")
-
-
-def fmt_typed_vector(values: list[float | int], type_name: str) -> str:
-    if type_name == "i16":
-        return ", ".join(str(int(value)) for value in values)
-    return ", ".join(f"{float(value):.3f}" for value in values)
-
-
-def cosine_distance(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = sum(x * x for x in a)
-    norm_b = sum(y * y for y in b)
-    if norm_a == 0.0 and norm_b == 0.0:
-        return 0.0
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 1.0
-    cosine = dot / ((norm_a * norm_b) ** 0.5)
-    cosine = max(-1.0, min(1.0, cosine))
-    return 1.0 - cosine
-
-
-def cosine_demo_vector(item_id: int, dim: int, type_name: str) -> list[float | int]:
-    values = [0.0] * dim
-    values[0] = float((item_id % 17) + 1)
-    values[1] = float(((item_id * 3) % 11) - 5)
-    values[2] = float(((item_id * 5) % 7) - 3)
-    for index in range(3, dim):
-        values[index] = float(((item_id + index) % 5) - 2)
-    return quantize_values(type_name, values)
-
-
-def cosine_demo_query(dim: int, type_name: str) -> list[float | int]:
-    values = [0.0] * dim
-    values[0] = 1.0
-    values[1] = -0.5
-    values[2] = 0.25
-    for index in range(3, dim):
-        values[index] = 0.1 * (1 if index % 2 == 0 else -1)
-    return quantize_values(type_name, values)
-
-
-def l1_distance(a: list[float | int], b: list[float | int]) -> float:
-    return sum(abs(float(x) - float(y)) for x, y in zip(a, b))
-
-
-def l2_distance_sq(a: list[float | int], b: list[float | int]) -> float:
-    return sum((float(x) - float(y)) ** 2 for x, y in zip(a, b))
-
-
-def default_extension_path() -> Path:
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
-        repo_root / "build" / "lib" / "libsketch2.so",
-        repo_root / "bin" / "libsketch2.so",
-        repo_root / "build-dbg" / "lib" / "libsketch2.so",
-        repo_root / "bin-dbg" / "libsketch2.so",
-        repo_root / "build-san" / "lib" / "libsketch2.so",
-        repo_root / "bin-san" / "libsketch2.so",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError("libsketch2.so not found in build or bin directories")
-
-
 def dataset_ini_path(root: Path, dataset_name: str) -> Path:
     return root / dataset_name / f"{dataset_name}.ini"
-
-
-def load_dataset_with_generator(ps: Sketch2, input_path: Path, from_id: int, count: int, binary: bool) -> tuple[float, float]:
-    log_step(
-        f"generating and loading {count} vectors through libsketch2 "
-        f"(sequential pattern, start_id={from_id})"
-    )
-    t0 = time.perf_counter()
-    ps.generate_test_data(str(input_path), count=count, start_id=from_id, binary=binary)
-    t1 = time.perf_counter()
-    # Native call performs both generation and load; report total under generate_time.
-    return t1 - t0, 0.0
 
 
 def effective_input_format(binary: bool, dist_func: str) -> str:
@@ -272,7 +171,11 @@ def fill_dataset(
             ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name
         )
 
-    return load_dataset_with_generator(ps, input_path=input_path, from_id=from_id, count=count, binary=binary)
+    log_step(f"generating and loading {count} vectors using sketch2.generate_test_data (native generator)")
+    t0 = time.perf_counter()
+    ps.generate_test_data(input_path, count=count, start_id=from_id, binary=binary)
+    t1 = time.perf_counter()
+    return t1 - t0, 0.0
 
 
 def sqlite_knn(dataset_ini: Path, extension_lib: Path, query_vec: str, k: int) -> tuple[list[int], float]:
@@ -312,7 +215,7 @@ def run_demo(
     root = Path(tempfile.mkdtemp(prefix="sketch2_py_demo_"))
     dataset_name = "dataset"
     from_id = 0
-    extension_path = extension_lib if extension_lib is not None else default_extension_path()
+    extension_path = extension_lib if extension_lib is not None else find_library()
     dataset_ini = dataset_ini_path(root, dataset_name)
     input_path = root / "demo.input"
 

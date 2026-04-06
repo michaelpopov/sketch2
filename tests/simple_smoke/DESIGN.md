@@ -10,7 +10,7 @@ A long-running soak that exercises creation, staged mutations, and reads on a Sk
 
 ## Driver
 - Exports the smoke-test environment (dataset name, dims, counts, sleep/repeat counts, etc.) and resets `SKETCH2_CONFIG` to the temp DB it creates.
-- Runs the initializer, then recreates a per-run `logs/` directory under the temp DB.
+- Runs the initializer, then creates a per-run `logs/` directory under the temp DB.
 - Starts one writer and `SIMPLE_SMOKE_TEST_READERS` reader processes; each process writes its own `stdout`/`stderr` files inside `logs/`.
 - Waits for all children and surfaces the first failing exit code.
 

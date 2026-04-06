@@ -158,7 +158,15 @@ def write_config_file(config: SmokeConfig) -> Path:
 
 def prepare_empty_db_dir(config: SmokeConfig) -> None:
     if config.db_dir.exists():
-        shutil.rmtree(config.db_dir)
+        # Only wipe if it already contains Sketch2 config or if it's explicitly under /tmp.
+        is_sketch = (config.db_dir / "config.ini").exists()
+        is_temp = str(config.db_dir.resolve()).startswith("/tmp/")
+        if is_sketch or is_temp:
+            log("initializer", f"cleaning existing db_dir: {config.db_dir}")
+            shutil.rmtree(config.db_dir)
+        else:
+            log("initializer", f"warning: db_dir {config.db_dir} exists and is not a temp dir or known Sketch2 dir; not wiping for safety")
+
     config.db_dir.mkdir(parents=True, exist_ok=True)
 
 
