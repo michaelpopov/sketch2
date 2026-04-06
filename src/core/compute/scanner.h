@@ -1,8 +1,9 @@
 // Declares the high-level nearest-neighbor scanner API.
 
 #pragma once
-#include "utils/shared_types.h"
 #include "core/compute/compute.h"
+#include "core/utils/bitset_filter.h"
+#include "utils/shared_types.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -11,11 +12,6 @@ namespace sketch2 {
 
 class DataReader;
 class DatasetReader;
-
-struct BitsetFilter {
-    const uint8_t* data;
-    const uint64_t size;
-};
 
 // Scanner exists to turn raw distance kernels into high-level top-k search over
 // readers and datasets. It handles heap-based ranking, dispatches to the right

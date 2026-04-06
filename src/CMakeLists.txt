@@ -13,5 +13,7 @@ set(HWY_WARNINGS_ARE_ERRORS OFF CACHE BOOL "" FORCE)
 add_subdirectory(third-party/google_highway)
 # Third-party code should not be subject to our -Werror / -Wpedantic flags.
 foreach(_hwy_tgt hwy hwy_test hwy_list_targets)
-  target_compile_options(${_hwy_tgt} PRIVATE -Wno-error -Wno-pedantic)
+  if(TARGET ${_hwy_tgt})
+    target_compile_options(${_hwy_tgt} PRIVATE -Wno-error -Wno-pedantic)
+  endif()
 endforeach()

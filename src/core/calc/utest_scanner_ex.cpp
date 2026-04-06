@@ -31,7 +31,7 @@ protected:
     std::vector<std::string> cleanup_files_;
 
     void SetUp() override {
-        std::string base = tmp_dir() + "/sketch2_utest_sex_" + std::to_string(getpid());
+        std::string base = tmp_dir() + "/sketch2_utest_scanner_ex_" + std::to_string(getpid());
         input_path_ = base + ".txt";
         data_path_  = base + ".bin";
         delta_input_path_ = base + ".delta.txt";
@@ -412,8 +412,8 @@ TEST_F(ScannerExTest, DeltaUsesUpdatedVectors) {
 // ---------------------------------------------------------------------------
 
 TEST_F(ScannerExTest, FindDatasetWorks) {
-    std::string d0 = tmp_dir() + "/sketch2_utest_sex_ds0_" + std::to_string(getpid());
-    std::string d1 = tmp_dir() + "/sketch2_utest_sex_ds1_" + std::to_string(getpid());
+    std::string d0 = tmp_dir() + "/sketch2_utest_scanner_ex_ds0_" + std::to_string(getpid());
+    std::string d1 = tmp_dir() + "/sketch2_utest_scanner_ex_ds1_" + std::to_string(getpid());
     fs::create_directories(d0);
     fs::create_directories(d1);
     std::experimental::scope_exit cleanup([&]() {

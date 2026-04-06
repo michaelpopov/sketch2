@@ -1,7 +1,7 @@
 // Implements top-k scanning over data readers and datasets using the calc
 // engine layer for distance computation.
 
-#include "scanner_ex.h"
+#include "core/calc/scanner_ex.h"
 #include "core/calc/calc_engine.h"
 #include "core/compute/compute_cos.h"  // finalize_cosine_distance_from_inverse_norms
 #include "core/storage/data_reader.h"
@@ -29,14 +29,6 @@ const char* dist_func_name(DistFunc func) {
         case DistFunc::L1: return "L1";
         case DistFunc::L2: return "L2";
         case DistFunc::COS: return "COS";
-        default: return "unknown";
-    }
-}
-
-const char* calc_engine_name(CalcEngine engine) {
-    switch (engine) {
-        case CalcEngine::highway: return "highway";
-        case CalcEngine::numkong: return "numkong";
         default: return "unknown";
     }
 }
@@ -256,6 +248,14 @@ Ret build_heap(CalcEngine engine, const DatasetReader& dataset, DistFunc func,
 // ---------------------------------------------------------------------------
 // ScannerEx public API
 // ---------------------------------------------------------------------------
+
+const char* calc_engine_name(CalcEngine engine) {
+    switch (engine) {
+        case CalcEngine::highway: return "highway";
+        case CalcEngine::numkong: return "numkong";
+        default: return "unknown";
+    }
+}
 
 ScannerEx::ScannerEx(CalcEngine engine) : engine_(engine) {}
 

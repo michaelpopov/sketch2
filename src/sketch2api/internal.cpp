@@ -36,17 +36,6 @@ CalcEngine selected_calc_engine() {
     return kind == ComputeBackendKind::highway ? CalcEngine::highway : CalcEngine::numkong;
 }
 
-const char* calc_engine_name(CalcEngine engine) {
-    switch (engine) {
-        case CalcEngine::highway:
-            return "highway";
-        case CalcEngine::numkong:
-            return "numkong";
-        default:
-            return "unknown";
-    }
-}
-
 std::string trim_whitespace(const std::string& value) {
     size_t begin = 0;
     size_t end = value.size();
@@ -363,15 +352,12 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
     if (use_calc_engine()) {
         ScannerEx scanner{selected_calc_engine()};
         ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
-        if (ret.code() != 0) {
-            ERR(ret.message().c_str())
-        }
     } else {
         Scanner scanner;
         ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
-        if (ret.code() != 0) {
-            ERR(ret.message().c_str())
-        }
+    }
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
     }
 
     if (!items.empty()) {

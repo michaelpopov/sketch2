@@ -9,6 +9,7 @@
 #include "core/compute/compute_cos.h" // finalize_cosine_distance
 
 #include "numkong/capabilities.h"
+#include "numkong/reduce.h"
 #include "numkong/dot/serial.h"
 #include "numkong/spatial/serial.h"
 
@@ -52,6 +53,21 @@ using NkDotF32Fn = void (*)(const nk_f32_t*, const nk_f32_t*, nk_size_t, nk_f64_
 using NkDotF16Fn = void (*)(const nk_f16_t*, const nk_f16_t*, nk_size_t, nk_f32_t*);
 using NkSpatialF32Fn = void (*)(const nk_f32_t*, const nk_f32_t*, nk_size_t, nk_f64_t*);
 using NkSpatialF16Fn = void (*)(const nk_f16_t*, const nk_f16_t*, nk_size_t, nk_f32_t*);
+using NkNormF32Fn = void (*)(const nk_f32_t*, nk_size_t, nk_size_t, nk_f64_t*, nk_f64_t*);
+using NkNormF16Fn = void (*)(const nk_f16_t*, nk_size_t, nk_size_t, nk_f32_t*, nk_f32_t*);
+
+template <typename T, typename Acc>
+inline void fused_dot_and_squared_norm(const T* a, const T* b, size_t dim, Acc* dot_out, Acc* norm_out) {
+    Acc dot = 0;
+    Acc norm = 0;
+    for (size_t i = 0; i < dim; ++i) {
+        const Acc av = static_cast<Acc>(a[i]);
+        dot += av * static_cast<Acc>(b[i]);
+        norm += av * av;
+    }
+    *dot_out = dot;
+    *norm_out = norm;
+}
 
 bool is_nk_supported(DistFunc func, DataType type) {
     return func != DistFunc::L1 && type != DataType::i16;
@@ -69,6 +85,55 @@ nk_capability_t init_thread_capabilities() {
 nk_capability_t thread_capabilities() {
     thread_local const nk_capability_t caps = init_thread_capabilities();
     return caps;
+}
+
+NkResolvedKernel<NkDotF32Fn> resolve_dot_f32_backend(nk_capability_t caps);
+NkResolvedKernel<NkDotF16Fn> resolve_dot_f16_backend(nk_capability_t caps);
+NkResolvedKernel<NkNormF32Fn> resolve_norm_f32_backend(nk_capability_t caps);
+NkResolvedKernel<NkNormF16Fn> resolve_norm_f16_backend(nk_capability_t caps);
+NkResolvedKernel<NkSpatialF32Fn> resolve_l2_f32_backend(nk_capability_t caps);
+NkResolvedKernel<NkSpatialF16Fn> resolve_l2_f16_backend(nk_capability_t caps);
+NkResolvedKernel<NkSpatialF32Fn> resolve_cos_f32_backend(nk_capability_t caps);
+NkResolvedKernel<NkSpatialF16Fn> resolve_cos_f16_backend(nk_capability_t caps);
+
+const NkResolvedKernel<NkDotF32Fn>& dot_f32_kernel() {
+    thread_local const auto kernel = resolve_dot_f32_backend(thread_capabilities());
+    return kernel;
+}
+
+const NkResolvedKernel<NkDotF16Fn>& dot_f16_kernel() {
+    thread_local const auto kernel = resolve_dot_f16_backend(thread_capabilities());
+    return kernel;
+}
+
+const NkResolvedKernel<NkNormF32Fn>& norm_f32_kernel() {
+    thread_local const auto kernel = resolve_norm_f32_backend(thread_capabilities());
+    return kernel;
+}
+
+const NkResolvedKernel<NkNormF16Fn>& norm_f16_kernel() {
+    thread_local const auto kernel = resolve_norm_f16_backend(thread_capabilities());
+    return kernel;
+}
+
+const NkResolvedKernel<NkSpatialF32Fn>& l2_f32_kernel() {
+    thread_local const auto kernel = resolve_l2_f32_backend(thread_capabilities());
+    return kernel;
+}
+
+const NkResolvedKernel<NkSpatialF16Fn>& l2_f16_kernel() {
+    thread_local const auto kernel = resolve_l2_f16_backend(thread_capabilities());
+    return kernel;
+}
+
+const NkResolvedKernel<NkSpatialF32Fn>& cos_f32_kernel() {
+    thread_local const auto kernel = resolve_cos_f32_backend(thread_capabilities());
+    return kernel;
+}
+
+const NkResolvedKernel<NkSpatialF16Fn>& cos_f16_kernel() {
+    thread_local const auto kernel = resolve_cos_f16_backend(thread_capabilities());
+    return kernel;
 }
 
 NkResolvedKernel<NkDotF32Fn> resolve_dot_f32_backend(nk_capability_t caps) {
@@ -110,6 +175,38 @@ NkResolvedKernel<NkDotF16Fn> resolve_dot_f16_backend(nk_capability_t caps) {
     if (caps & nk_cap_v128relaxed_k) return {&nk_dot_f16_v128relaxed, "v128relaxed", nk_cap_v128relaxed_k};
 #endif
     return {&nk_dot_f16_serial, "serial", nk_cap_serial_k};
+}
+
+NkResolvedKernel<NkNormF32Fn> resolve_norm_f32_backend(nk_capability_t caps) {
+#if NK_TARGET_X8664_ && NK_TARGET_SKYLAKE
+    if (caps & nk_cap_skylake_k) return {&nk_reduce_moments_f32_skylake, "skylake", nk_cap_skylake_k};
+#endif
+#if NK_TARGET_X8664_ && NK_TARGET_HASWELL
+    if (caps & nk_cap_haswell_k) return {&nk_reduce_moments_f32_haswell, "haswell", nk_cap_haswell_k};
+#endif
+#if NK_TARGET_ARM64_ && NK_TARGET_NEON
+    if (caps & nk_cap_neon_k) return {&nk_reduce_moments_f32_neon, "neon", nk_cap_neon_k};
+#endif
+#if NK_TARGET_WASM_ && NK_TARGET_V128RELAXED
+    if (caps & nk_cap_v128relaxed_k) return {&nk_reduce_moments_f32_v128relaxed, "v128relaxed", nk_cap_v128relaxed_k};
+#endif
+    return {&nk_reduce_moments_f32_serial, "serial", nk_cap_serial_k};
+}
+
+NkResolvedKernel<NkNormF16Fn> resolve_norm_f16_backend(nk_capability_t caps) {
+#if NK_TARGET_X8664_ && NK_TARGET_SKYLAKE
+    if (caps & nk_cap_skylake_k) return {&nk_reduce_moments_f16_skylake, "skylake", nk_cap_skylake_k};
+#endif
+#if NK_TARGET_X8664_ && NK_TARGET_HASWELL
+    if (caps & nk_cap_haswell_k) return {&nk_reduce_moments_f16_haswell, "haswell", nk_cap_haswell_k};
+#endif
+#if NK_TARGET_ARM64_ && NK_TARGET_NEON
+    if (caps & nk_cap_neon_k) return {&nk_reduce_moments_f16_neon, "neon", nk_cap_neon_k};
+#endif
+#if NK_TARGET_WASM_ && NK_TARGET_V128RELAXED
+    if (caps & nk_cap_v128relaxed_k) return {&nk_reduce_moments_f16_v128relaxed, "v128relaxed", nk_cap_v128relaxed_k};
+#endif
+    return {&nk_reduce_moments_f16_serial, "serial", nk_cap_serial_k};
 }
 
 NkResolvedKernel<NkSpatialF32Fn> resolve_l2_f32_backend(nk_capability_t caps) {
@@ -194,7 +291,7 @@ NkResolvedKernel<NkSpatialF16Fn> resolve_cos_f16_backend(nk_capability_t caps) {
 
 double nk_dist_l2_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
     nk_f64_t result;
-    const auto kernel = resolve_l2_f32_backend(thread_capabilities());
+    const auto& kernel = l2_f32_kernel();
     kernel.fn(reinterpret_cast<const nk_f32_t*>(a),
               reinterpret_cast<const nk_f32_t*>(b),
               static_cast<nk_size_t>(dim), &result);
@@ -203,7 +300,7 @@ double nk_dist_l2_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
 
 double nk_dist_l2_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
     nk_f32_t result;
-    const auto kernel = resolve_l2_f16_backend(thread_capabilities());
+    const auto& kernel = l2_f16_kernel();
     kernel.fn(reinterpret_cast<const nk_f16_t*>(a),
               reinterpret_cast<const nk_f16_t*>(b),
               static_cast<nk_size_t>(dim), &result);
@@ -216,7 +313,7 @@ double nk_dist_l2_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
 
 double nk_dist_cos_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
     nk_f64_t result;
-    const auto kernel = resolve_cos_f32_backend(thread_capabilities());
+    const auto& kernel = cos_f32_kernel();
     kernel.fn(reinterpret_cast<const nk_f32_t*>(a),
               reinterpret_cast<const nk_f32_t*>(b),
               static_cast<nk_size_t>(dim), &result);
@@ -225,7 +322,7 @@ double nk_dist_cos_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
 
 double nk_dist_cos_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
     nk_f32_t result;
-    const auto kernel = resolve_cos_f16_backend(thread_capabilities());
+    const auto& kernel = cos_f16_kernel();
     kernel.fn(reinterpret_cast<const nk_f16_t*>(a),
               reinterpret_cast<const nk_f16_t*>(b),
               static_cast<nk_size_t>(dim), &result);
@@ -238,7 +335,7 @@ double nk_dist_cos_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
 
 double nk_dot_product_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
     nk_f64_t result;
-    const auto kernel = resolve_dot_f32_backend(thread_capabilities());
+    const auto& kernel = dot_f32_kernel();
     kernel.fn(reinterpret_cast<const nk_f32_t*>(a),
               reinterpret_cast<const nk_f32_t*>(b),
               static_cast<nk_size_t>(dim), &result);
@@ -247,7 +344,7 @@ double nk_dot_product_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
 
 double nk_dot_product_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
     nk_f32_t result;
-    const auto kernel = resolve_dot_f16_backend(thread_capabilities());
+    const auto& kernel = dot_f16_kernel();
     kernel.fn(reinterpret_cast<const nk_f16_t*>(a),
               reinterpret_cast<const nk_f16_t*>(b),
               static_cast<nk_size_t>(dim), &result);
@@ -255,56 +352,53 @@ double nk_dot_product_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
 }
 
 // ---------------------------------------------------------------------------
-// Squared norm (self-dot)
+// Squared norm (dedicated sum-of-squares reduction)
 // ---------------------------------------------------------------------------
 
 double nk_squared_norm_f32(const uint8_t* a, size_t dim) {
-    nk_f64_t result;
-    const auto kernel = resolve_dot_f32_backend(thread_capabilities());
+    nk_f64_t sum = 0;
+    nk_f64_t sumsq = 0;
+    const auto& kernel = norm_f32_kernel();
     kernel.fn(reinterpret_cast<const nk_f32_t*>(a),
-              reinterpret_cast<const nk_f32_t*>(a),
-              static_cast<nk_size_t>(dim), &result);
-    return static_cast<double>(result);
+              static_cast<nk_size_t>(dim),
+              sizeof(nk_f32_t), &sum, &sumsq);
+    return static_cast<double>(sumsq);
 }
 
 double nk_squared_norm_f16(const uint8_t* a, size_t dim) {
-    nk_f32_t result;
-    const auto kernel = resolve_dot_f16_backend(thread_capabilities());
+    nk_f32_t sum = 0;
+    nk_f32_t sumsq = 0;
+    const auto& kernel = norm_f16_kernel();
     kernel.fn(reinterpret_cast<const nk_f16_t*>(a),
-              reinterpret_cast<const nk_f16_t*>(a),
-              static_cast<nk_size_t>(dim), &result);
-    return static_cast<double>(result);
+              static_cast<nk_size_t>(dim),
+              sizeof(nk_f16_t), &sum, &sumsq);
+    return static_cast<double>(sumsq);
 }
 
 // ---------------------------------------------------------------------------
-// Cosine distance with pre-computed query norm
-// Computes dot(a,b) and norm(a) via NumKong, then finalizes manually.
+// Cosine distance with pre-computed query norm.
+// NumKong does not expose a fused "dot(a,b) + dot(a,a)" primitive here, so we
+// accumulate both in one pass locally to avoid reading `a` twice.
 // ---------------------------------------------------------------------------
 
 double nk_dist_cos_qn_f32(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
-    nk_f64_t dot_result, a_norm_sq;
-    const auto kernel = resolve_dot_f32_backend(thread_capabilities());
-    kernel.fn(reinterpret_cast<const nk_f32_t*>(a),
-              reinterpret_cast<const nk_f32_t*>(b),
-              static_cast<nk_size_t>(dim), &dot_result);
-    kernel.fn(reinterpret_cast<const nk_f32_t*>(a),
-              reinterpret_cast<const nk_f32_t*>(a),
-              static_cast<nk_size_t>(dim), &a_norm_sq);
-    return finalize_cosine_distance(static_cast<double>(dot_result),
-                                    static_cast<double>(a_norm_sq), query_norm_sq);
+    nk_f64_t dot_result = 0;
+    nk_f64_t a_norm_sq = 0;
+    fused_dot_and_squared_norm(reinterpret_cast<const nk_f32_t*>(a),
+                               reinterpret_cast<const nk_f32_t*>(b),
+                               dim, &dot_result, &a_norm_sq);
+    return finalize_cosine_distance(static_cast<double>(dot_result), static_cast<double>(a_norm_sq),
+                                    query_norm_sq);
 }
 
 double nk_dist_cos_qn_f16(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
-    nk_f32_t dot_result, a_norm_sq;
-    const auto kernel = resolve_dot_f16_backend(thread_capabilities());
-    kernel.fn(reinterpret_cast<const nk_f16_t*>(a),
-              reinterpret_cast<const nk_f16_t*>(b),
-              static_cast<nk_size_t>(dim), &dot_result);
-    kernel.fn(reinterpret_cast<const nk_f16_t*>(a),
-              reinterpret_cast<const nk_f16_t*>(a),
-              static_cast<nk_size_t>(dim), &a_norm_sq);
-    return finalize_cosine_distance(static_cast<double>(dot_result),
-                                    static_cast<double>(a_norm_sq), query_norm_sq);
+    nk_f32_t dot_result = 0;
+    nk_f32_t a_norm_sq = 0;
+    fused_dot_and_squared_norm(reinterpret_cast<const nk_f16_t*>(a),
+                               reinterpret_cast<const nk_f16_t*>(b),
+                               dim, &dot_result, &a_norm_sq);
+    return finalize_cosine_distance(static_cast<double>(dot_result), static_cast<double>(a_norm_sq),
+                                    query_norm_sq);
 }
 
 } // namespace
@@ -366,7 +460,8 @@ CalcKernels resolve_nk_kernels(DistFunc func, DataType type) {
             switch (type) {
                 case DataType::f32: k.dist = &nk_dist_l2_f32; break;
                 case DataType::f16: k.dist = &nk_dist_l2_f16; break;
-                default: break;
+                default:
+                    throw std::runtime_error("resolve_nk_kernels: unsupported DataType for L2.");
             }
             break;
         case DistFunc::COS:
@@ -383,11 +478,12 @@ CalcKernels resolve_nk_kernels(DistFunc func, DataType type) {
                     k.squared_norm = &nk_squared_norm_f16;
                     k.dot = &nk_dot_product_f16;
                     break;
-                default: break;
+                default:
+                    throw std::runtime_error("resolve_nk_kernels: unsupported DataType for COS.");
             }
             break;
         default:
-            break;
+            throw std::runtime_error("resolve_nk_kernels: unsupported DistFunc.");
     }
     return k;
 }

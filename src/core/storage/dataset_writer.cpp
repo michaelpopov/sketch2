@@ -76,10 +76,16 @@ Ret cleanup_stale_input_files(const DatasetMetadata& metadata, const std::string
     const std::string numbered_prefix = input_name + ".";
 
     std::error_code ec;
-    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(dir, ec)) {
+    std::filesystem::directory_iterator it(dir, ec);
+    if (ec) {
+        return Ret("DatasetWriter::init: failed to iterate dataset directory for stale input cleanup");
+    }
+    const std::filesystem::directory_iterator end;
+    for (; it != end; it.increment(ec)) {
         if (ec) {
             return Ret("DatasetWriter::init: failed to iterate dataset directory for stale input cleanup");
         }
+        const std::filesystem::directory_entry& entry = *it;
         if (!entry.is_regular_file(ec)) {
             if (ec) {
                 return Ret("DatasetWriter::init: failed to inspect dataset directory entry during stale input cleanup");

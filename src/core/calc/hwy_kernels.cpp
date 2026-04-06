@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 
 HWY_BEFORE_NAMESPACE();
 namespace sketch2 {
@@ -78,8 +79,8 @@ double DistL1F16(const uint8_t* a, const uint8_t* b, size_t dim) {
     }
     double sum = hn::ReduceSum(df, acc);
     // Scalar tail
-    const auto* va = reinterpret_cast<const _Float16*>(a);
-    const auto* vb = reinterpret_cast<const _Float16*>(b);
+    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
+    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
     for (; i < dim; ++i) {
         sum += std::abs(static_cast<double>(va[i]) - static_cast<double>(vb[i]));
     }
@@ -144,8 +145,8 @@ double DistL2F16(const uint8_t* a, const uint8_t* b, size_t dim) {
         acc = hn::MulAdd(diff, diff, acc);
     }
     double sum = hn::ReduceSum(df, acc);
-    const auto* va = reinterpret_cast<const _Float16*>(a);
-    const auto* vb = reinterpret_cast<const _Float16*>(b);
+    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
+    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
     for (; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
         sum += d * d;
@@ -157,7 +158,8 @@ double DistL2I16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = reinterpret_cast<const int16_t*>(a);
     const int16_t* vb = reinterpret_cast<const int16_t*>(b);
     // Accumulate in double to match the existing compute kernels and avoid
-    // overflow: max squared diff for i16 is (65535)^2 which overflows int32.
+    // overflow: signed int16 values can differ by up to 65535
+    // (32767 - (-32768)), and squaring that exceeds int32.
     const hn::ScalableTag<int32_t> di32;
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(di32);
@@ -212,8 +214,8 @@ double DotF16(const uint8_t* a, const uint8_t* b, size_t dim) {
         acc = hn::MulAdd(av, bv, acc);
     }
     double sum = hn::ReduceSum(df, acc);
-    const auto* va = reinterpret_cast<const _Float16*>(a);
-    const auto* vb = reinterpret_cast<const _Float16*>(b);
+    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
+    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
     for (; i < dim; ++i) {
         sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
@@ -273,7 +275,7 @@ double SquaredNormF16(const uint8_t* a, size_t dim) {
         acc = hn::MulAdd(av, av, acc);
     }
     double sum = hn::ReduceSum(df, acc);
-    const auto* va = reinterpret_cast<const _Float16*>(a);
+    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         sum += ai * ai;
@@ -358,8 +360,8 @@ double DistCosF16(const uint8_t* a, const uint8_t* b, size_t dim) {
     double dot = hn::ReduceSum(df, dot_acc);
     double norm_a = hn::ReduceSum(df, na_acc);
     double norm_b = hn::ReduceSum(df, nb_acc);
-    const auto* va = reinterpret_cast<const _Float16*>(a);
-    const auto* vb = reinterpret_cast<const _Float16*>(b);
+    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
+    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
@@ -445,8 +447,8 @@ double DistCosWithQueryNormF16(const uint8_t* a, const uint8_t* b, size_t dim, d
     }
     double dot = hn::ReduceSum(df, dot_acc);
     double norm_a = hn::ReduceSum(df, na_acc);
-    const auto* va = reinterpret_cast<const _Float16*>(a);
-    const auto* vb = reinterpret_cast<const _Float16*>(b);
+    const auto* va = reinterpret_cast<const hwy::float16_t*>(a);
+    const auto* vb = reinterpret_cast<const hwy::float16_t*>(b);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
@@ -595,6 +597,8 @@ CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
                 case DataType::f32: k.dist = &hwy_dist_l1_f32; break;
                 case DataType::f16: k.dist = &hwy_dist_l1_f16; break;
                 case DataType::i16: k.dist = &hwy_dist_l1_i16; break;
+                default:
+                    throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for L1.");
             }
             break;
         case DistFunc::L2:
@@ -602,6 +606,8 @@ CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
                 case DataType::f32: k.dist = &hwy_dist_l2_f32; break;
                 case DataType::f16: k.dist = &hwy_dist_l2_f16; break;
                 case DataType::i16: k.dist = &hwy_dist_l2_i16; break;
+                default:
+                    throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for L2.");
             }
             break;
         case DistFunc::COS:
@@ -624,8 +630,12 @@ CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
                     k.squared_norm = &hwy_squared_norm_i16;
                     k.dot = &hwy_dot_i16;
                     break;
+                default:
+                    throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for COS.");
             }
             break;
+        default:
+            throw std::runtime_error("resolve_hwy_kernels: unsupported DistFunc.");
     }
     return k;
 }
