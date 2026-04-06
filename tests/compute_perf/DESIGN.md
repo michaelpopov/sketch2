@@ -21,9 +21,9 @@ The harness consists of five main components:
 The driver is a Bash script that manages the lifecycle of a performance run.
 
 - **Environment Setup**: Exports the internal defaults for all `COMPUTE_PERF_TEST_*` variables (see [Configuration](#configuration)) and a diagnostic directory path for child processes.
-- **Isolation**: Creates a unique temporary directory for the database root (`SKETCH2_CONFIG_ROOT`) to avoid interference between runs.
+- **Isolation**: By default, creates a unique temporary directory for the database root (`SKETCH2_CONFIG_ROOT`) to avoid interference between runs. If `SKETCH2_CONFIG_ROOT` is set externally, the driver will use the provided directory instead of creating a temporary one.
 - **Workflow**:
-    1.  Runs `initializer.py` once to build the dataset and ground truth.
+    1.  Runs `initializer.py` once to build the dataset and ground truth, unless `COMPUTE_PERF_SKIP_INIT=1` is set.
     2.  Verifies the existence of all generated dataset directories and ground truth JSON files.
     3.  Iterates through the list of engines in `COMPUTE_PERF_TEST_ENGINES`.
     4.  For each engine, sets `SKETCH2_COMPUTE_ENGINE` and executes `runner.py`. The special engine value `auto` leaves the environment variable unset so Sketch2 can use its default engine selection.
@@ -78,6 +78,7 @@ The harness is configured via environment variables.
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `SKETCH2_CONFIG_ROOT` | Root directory for the temporary database. | `/tmp/sketch2_COMPUTE_PERF.XXXXXX` |
+| `COMPUTE_PERF_SKIP_INIT` | Skip the initialization phase (dataset generation and ground truth calculation) if set to `1`. | `0` |
 | `COMPUTE_PERF_TEST_DATASET` | Base name for the datasets. | `perf_test` |
 | `COMPUTE_PERF_TEST_DIMS` | Number of dimensions per vector. | `256` |
 | `COMPUTE_PERF_TEST_COUNT` | Number of vectors to generate. | `100000` |

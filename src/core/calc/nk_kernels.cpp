@@ -21,6 +21,7 @@
 #endif
 
 #if NK_TARGET_ARM64_
+#include <arm_neon.h>
 #include "numkong/dot/neon.h"
 #include "numkong/dot/neonfhm.h"
 #include "numkong/dot/sve.h"
@@ -68,6 +69,39 @@ inline void fused_dot_and_squared_norm(const T* a, const T* b, size_t dim, Acc* 
     *dot_out = dot;
     *norm_out = norm;
 }
+
+#if NK_TARGET_ARM64_ && NK_TARGET_NEON
+template <>
+inline void fused_dot_and_squared_norm<nk_f32_t, nk_f64_t>(const nk_f32_t* a, const nk_f32_t* b, size_t dim,
+                                                          nk_f64_t* dot_out, nk_f64_t* norm_out) {
+    float64x2_t dot_v = vdupq_n_f64(0);
+    float64x2_t norm_v = vdupq_n_f64(0);
+    size_t i = 0;
+    for (; i + 4 <= dim; i += 4) {
+        float32x4_t av = vld1q_f32(a + i);
+        float32x4_t bv = vld1q_f32(b + i);
+
+        float64x2_t av_l = vcvt_f64_f32(vget_low_f32(av));
+        float64x2_t av_h = vcvt_high_f64_f32(av);
+        float64x2_t bv_l = vcvt_f64_f32(vget_low_f32(bv));
+        float64x2_t bv_h = vcvt_high_f64_f32(bv);
+
+        dot_v = vfmaq_f64(dot_v, av_l, bv_l);
+        dot_v = vfmaq_f64(dot_v, av_h, bv_h);
+        norm_v = vfmaq_f64(norm_v, av_l, av_l);
+        norm_v = vfmaq_f64(norm_v, av_h, av_h);
+    }
+    nk_f64_t dot = vaddvq_f64(dot_v);
+    nk_f64_t norm = vaddvq_f64(norm_v);
+    for (; i < dim; ++i) {
+        const nk_f64_t av = static_cast<nk_f64_t>(a[i]);
+        dot += av * static_cast<nk_f64_t>(b[i]);
+        norm += av * av;
+    }
+    *dot_out = dot;
+    *norm_out = norm;
+}
+#endif
 
 bool is_nk_supported(DistFunc func, DataType type) {
     return func != DistFunc::L1 && type != DataType::i16;

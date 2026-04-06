@@ -4,7 +4,8 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Internal defaults for this run. We export so child processes see them.
-export SKETCH2_CONFIG_ROOT="$(mktemp -d /tmp/sketch2_COMPUTE_PERF.XXXXXX)"
+export SKETCH2_CONFIG_ROOT="${SKETCH2_CONFIG_ROOT:-$(mktemp -d /tmp/sketch2_COMPUTE_PERF.XXXXXX)}"
+export COMPUTE_PERF_SKIP_INIT="${COMPUTE_PERF_SKIP_INIT:-0}"
 export SKETCH2_CONFIG="${SKETCH2_CONFIG_ROOT}/config.ini"
 export COMPUTE_PERF_TEST_DATASET="perf_test"
 export COMPUTE_PERF_TEST_DIMS="256"
@@ -41,6 +42,7 @@ ulimit -c unlimited 2>/dev/null || true
 
 echo "[driver] performance test configuration"
 echo "[driver]   config_root=${SKETCH2_CONFIG_ROOT}"
+echo "[driver]   skip_init=${COMPUTE_PERF_SKIP_INIT}"
 echo "[driver]   dataset=${COMPUTE_PERF_TEST_DATASET}"
 echo "[driver]   dims=${COMPUTE_PERF_TEST_DIMS}"
 echo "[driver]   count=${COMPUTE_PERF_TEST_COUNT}"
@@ -63,6 +65,7 @@ write_run_env() {
     {
         echo "SKETCH2_CONFIG_ROOT=${SKETCH2_CONFIG_ROOT}"
         echo "SKETCH2_CONFIG=${SKETCH2_CONFIG}"
+        echo "COMPUTE_PERF_SKIP_INIT=${COMPUTE_PERF_SKIP_INIT}"
         echo "COMPUTE_PERF_TEST_DATASET=${COMPUTE_PERF_TEST_DATASET}"
         echo "COMPUTE_PERF_TEST_DIMS=${COMPUTE_PERF_TEST_DIMS}"
         echo "COMPUTE_PERF_TEST_COUNT=${COMPUTE_PERF_TEST_COUNT}"
@@ -81,14 +84,22 @@ write_run_env() {
 
 write_run_env
 
-echo "[driver] running initializer..."
-set +e
-python3 initializer.py 2>&1 | tee "${LOG_DIR}/initializer.log"
-init_rc=${PIPESTATUS[0]}
-set -e
-if [[ ${init_rc} -ne 0 ]]; then
-    echo "[driver] ERROR: initializer.py failed with exit code ${init_rc}. See ${LOG_DIR}/initializer.log"
-    exit 1
+if [[ "${COMPUTE_PERF_SKIP_INIT}" == "1" ]]; then
+    echo "[driver] skipping initializer.py as requested..."
+    if [[ ! -d "${SKETCH2_CONFIG_ROOT}" ]]; then
+        echo "[driver] ERROR: SKETCH2_CONFIG_ROOT does not exist: ${SKETCH2_CONFIG_ROOT}"
+        exit 1
+    fi
+else
+    echo "[driver] running initializer..."
+    set +e
+    python3 initializer.py 2>&1 | tee "${LOG_DIR}/initializer.log"
+    init_rc=${PIPESTATUS[0]}
+    set -e
+    if [[ ${init_rc} -ne 0 ]]; then
+        echo "[driver] ERROR: initializer.py failed with exit code ${init_rc}. See ${LOG_DIR}/initializer.log"
+        exit 1
+    fi
 fi
 
 # initializer may recreate the config root from scratch, so ensure the log dir exists again.

@@ -230,6 +230,8 @@ bool Singleton::apply_config_values_(const ConfigValues& values) {
 
     if (!values.thread_pool_size.empty()) {
         applied = apply_thread_pool_size_(values.thread_pool_size) || applied;
+    } else {
+        applied = apply_default_thread_pool_size_() || applied;
     }
 
     if (!values.compute_engine.empty()) {
@@ -269,6 +271,26 @@ bool Singleton::apply_log_level_(const std::string& level) {
     }
 
     log::FILELog::set_level(log::FILELog::from_string(level.c_str()));
+    return true;
+}
+
+// Start a pool sized to the machine when no explicit configuration is given.
+// Uses hardware_concurrency() and respects the same disable semantics as the
+// explicit thread_pool.size path (<= 1 means no pool).
+bool Singleton::apply_default_thread_pool_size_() {
+    const unsigned int hardware_threads = std::thread::hardware_concurrency();
+    if (hardware_threads <= 1) {
+        LOG_INFO << "Thread pool left disabled because hardware_concurrency() returned "
+                 << hardware_threads << ".";
+        return true;  // configuration applied: stay disabled
+    }
+
+    const unsigned int effective_thread_pool_size =
+        std::min(hardware_threads, max_thread_pool_size());
+
+    thread_pool_ = std::make_shared<ThreadPool>(effective_thread_pool_size);
+    LOG_INFO << "Started thread pool with " << effective_thread_pool_size
+             << " threads (default based on hardware cores).";
     return true;
 }
 

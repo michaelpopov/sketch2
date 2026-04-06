@@ -110,9 +110,12 @@ def main() -> None:
         db_dir_str = str(config.db_dir)
         is_temp = db_dir_str.startswith("/tmp/sketch2_COMPUTE_PERF.")
         is_sketch = (config.db_dir / "config.ini").exists()
-        if is_temp or is_sketch:
+        skip_init = os.environ.get("COMPUTE_PERF_SKIP_INIT") == "1"
+        if (is_temp or is_sketch) and not skip_init:
             log("initializer", f"cleaning existing db_dir: {config.db_dir}")
             shutil.rmtree(config.db_dir)
+        elif skip_init:
+            log("initializer", f"skipping wipe of db_dir as requested: {config.db_dir}")
         else:
             log(
                 "initializer",
