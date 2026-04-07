@@ -2,6 +2,7 @@
 
 #pragma once
 #include "utils/shared_types.h"
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -21,7 +22,9 @@ inline bool smaller_score_is_better(DistFunc func) {
         case DistFunc::COS:
             return true;
         default:
-            throw std::runtime_error("smaller_score_is_better: unsupported distance function");
+            assert(false && "smaller_score_is_better: unsupported distance function");
+            // Fall back to ascending ordering to keep comparators noexcept-like.
+            return true;
     }
 }
 
@@ -33,7 +36,9 @@ inline bool dist_item_is_better(DistFunc func, const DistItem& a, const DistItem
 }
 
 struct DistItemCompare {
-    DistFunc func = DistFunc::L2;
+    explicit DistItemCompare(DistFunc func_) : func(func_) {}
+
+    DistFunc func;
 
     bool operator()(const DistItem& a, const DistItem& b) const {
         return dist_item_is_better(func, a, b);
