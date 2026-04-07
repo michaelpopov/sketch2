@@ -11,6 +11,9 @@ from common import load_config
 
 REPORT_DISTANCE_RE = re.compile(r"^Distance:\s*(\S+)\s*$")
 REPORT_AVG_RE = re.compile(r"^Avg Time:\s*([0-9]+(?:\.[0-9]+)?)s\s*$")
+KERNEL_CASE_RE = re.compile(
+    r"^Kernel Case:\s+(\S+)\s+avg=([0-9]+(?:\.[0-9]+)?)ns\s+min=([0-9]+(?:\.[0-9]+)?)ns\s+max=([0-9]+(?:\.[0-9]+)?)ns\s*$"
+)
 
 
 def log_dir(config) -> Path:
@@ -40,6 +43,26 @@ def parse_runner_log(path: Path) -> dict[str, float]:
             avg_match = REPORT_AVG_RE.match(line)
             if avg_match and pending_dist is not None:
                 results[pending_dist] = float(avg_match.group(1))
+                pending_dist = None
+
+    return results
+
+
+def parse_kernel_log(path: Path, case_name: str = "dist") -> dict[str, float]:
+    results: dict[str, float] = {}
+    pending_dist: str | None = None
+
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            dist_match = REPORT_DISTANCE_RE.match(line)
+            if dist_match:
+                pending_dist = dist_match.group(1).lower()
+                continue
+
+            case_match = KERNEL_CASE_RE.match(line)
+            if case_match and pending_dist is not None and case_match.group(1) == case_name:
+                results[pending_dist] = float(case_match.group(2))
                 pending_dist = None
 
     return results
@@ -91,6 +114,26 @@ def main() -> None:
     print("--- PERFORMANCE SUMMARY (avg time) ---")
     print(build_table(headers, rows))
     print("--------------------------------------")
+
+    kernel_rows: list[list[str]] = []
+    for engine in config.compute_engines:
+        row = [engine]
+        for dist in config.dist_funcs:
+            dist_path = runner_dist_log_path(config, engine, dist)
+            if dist_path.exists():
+                metrics = parse_kernel_log(dist_path)
+                row.append("-" if metrics.get(dist) is None else f"{metrics[dist]:.3f}ns")
+                continue
+
+            path = runner_log_path(config, engine)
+            metrics = parse_kernel_log(path) if path.exists() else {}
+            value = metrics.get(dist)
+            row.append("-" if value is None else f"{value:.3f}ns")
+        kernel_rows.append(row)
+
+    print("--- KERNEL SUMMARY (dist avg ns/call) ---")
+    print(build_table(headers, kernel_rows))
+    print("-----------------------------------------")
 
 
 if __name__ == "__main__":

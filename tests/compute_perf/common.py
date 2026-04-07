@@ -24,6 +24,10 @@ class PerfConfig:
     log_level: str
     thread_pool_size: int
     compute_engines: list[str]
+    benchmark_layers: list[str]
+    kernel_iterations: int
+    kernel_warmup_iterations: int
+    kernel_repeats: int
 
 
 def repo_root() -> Path:
@@ -53,6 +57,21 @@ from sketch2_test_vectors import (
 
 def find_lib_path() -> Path:
     return find_library()
+
+
+def find_binary(name: str) -> Path:
+    root = repo_root()
+    candidates = [
+        root / "bin" / name,
+        root / "bin-dbg" / name,
+        root / "bin-san" / name,
+        root / "build" / "bin" / name,
+        root / "build-dbg" / "bin" / name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"{name} not found in expected output directories: {candidates}")
 
 
 def wrapper_dir() -> Path:
@@ -108,6 +127,11 @@ def load_config() -> PerfConfig:
 
     engine_str = os.environ.get("COMPUTE_PERF_TEST_ENGINES", "scalar,auto,highway,numkong")
     compute_engines = [e.strip().lower() for e in engine_str.split(",") if e.strip()]
+    benchmark_str = os.environ.get("COMPUTE_PERF_TEST_BENCHMARKS", "scan,kernel")
+    benchmark_layers = [layer.strip().lower() for layer in benchmark_str.split(",") if layer.strip()]
+    kernel_iterations = _env_int("COMPUTE_PERF_KERNEL_ITERATIONS", 200000)
+    kernel_warmup_iterations = _env_int("COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS", 5000)
+    kernel_repeats = _env_int("COMPUTE_PERF_KERNEL_REPEATS", 7)
 
     return PerfConfig(
         db_dir=Path(raw_db_dir).resolve(),
@@ -122,6 +146,10 @@ def load_config() -> PerfConfig:
         log_level=log_level,
         thread_pool_size=thread_pool_size,
         compute_engines=compute_engines,
+        benchmark_layers=benchmark_layers,
+        kernel_iterations=kernel_iterations,
+        kernel_warmup_iterations=kernel_warmup_iterations,
+        kernel_repeats=kernel_repeats,
     )
 
 

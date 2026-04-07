@@ -6,13 +6,16 @@ It performs repeated K-Nearest Neighbor (KNN) queries on a large, stable dataset
 
 ## Architecture
 
-The harness consists of five main components:
+The harness consists of six main components:
 
 1.  **`driver.sh`**: The entry point. Orchestrates the test execution, manages environment variables, and collects logs. It verifies the success of the initialization phase before proceeding.
 2.  **`initializer.py`**: Sets up the test environment, including creating the temporary database, configuring Sketch2, generating the dataset, and calculating/persisting the **Ground Truth**. It uses a mix of native and Python-based data generation.
-3.  **`runner.py`**: Executes the actual benchmarks. For each compute engine, it benchmarks each distance function in its own child process, performs a **warm-up** iteration, follows with multiple timed iterations of KNN queries, and validates results against the shared ground truth.
-4.  **`common.py`**: Shared utility library containing configuration logic, ground truth calculation, and **robust validation** (handling tie-breaking via distance comparison). It imports shared vector logic from the central `sketch2_test_vectors.py` module.
-5.  **`sketch2_test_vectors.py`**: (Located in `src/pytest`) The authoritative source for all shared vector generation, quantization, formatting, and distance functions used across tests and demos.
+3.  **`runner.py`**: Executes the actual benchmarks. For each compute engine, it benchmarks each distance function in its own child process. It can run two complementary benchmark layers:
+    - a **kernel-only** layer that times direct metric kernels without scanner traversal
+    - a **scan** layer that performs full KNN queries through the existing dataset/scanner path
+4.  **`bench_calc`**: A native benchmark executable under `src/core/calc` that measures direct kernel calls for the selected engine, metric, type, and dimension. For cosine it reports not only `dist`, but also `dot`, `squared_norm`, and `dist_with_query_norm` to isolate where time is spent.
+5.  **`common.py`**: Shared utility library containing configuration logic, binary discovery, ground truth calculation, and **robust validation** (handling tie-breaking via distance comparison). It imports shared vector logic from the central `sketch2_test_vectors.py` module.
+6.  **`sketch2_test_vectors.py`**: (Located in `src/pytest`) The authoritative source for all shared vector generation, quantization, formatting, and distance functions used across tests and demos.
 
 ---
 
@@ -20,7 +23,7 @@ The harness consists of five main components:
 
 The driver is a Bash script that manages the lifecycle of a performance run.
 
-- **Environment Setup**: Exports the internal defaults for all `COMPUTE_PERF_TEST_*` variables (see [Configuration](#configuration)) and a diagnostic directory path for child processes.
+- **Environment Setup**: Applies defaults for all `COMPUTE_PERF_TEST_*` variables only when they are not already set (see [Configuration](#configuration)) and exports a diagnostic directory path for child processes.
 - **Isolation**: By default, creates a unique temporary directory for the database root (`SKETCH2_CONFIG_ROOT`) to avoid interference between runs. If `SKETCH2_CONFIG_ROOT` is set externally, the driver will use the provided directory instead of creating a temporary one.
 - **Workflow**:
     1.  Runs `initializer.py` once to build the dataset and ground truth, unless `COMPUTE_PERF_SKIP_INIT=1` is set.
@@ -48,10 +51,11 @@ The initializer prepares the database for benchmarking.
 The runner performs the measurements for a single compute engine.
 
 - **Per-Distance Isolation**: Launches a child Python process for each distance function. This localizes native crashes so the failing engine/distance pair is explicit.
+- **Kernel Benchmark Layer**: When `kernel` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, runs the native `bench_calc` executable first and records direct-kernel timings without any dataset traversal, heap maintenance, or scanner logic. This makes it much easier to distinguish kernel regressions from scan-path overhead.
 - **Warm-up**: Executes one un-timed KNN query to ensure caches are primed and any lazy-initialization overhead is excluded from the performance report.
-- **Measurement**: Executes `COMPUTE_PERF_TEST_REPEAT` iterations of a KNN query.
+- **Scan Benchmark Layer**: When `scan` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, executes `COMPUTE_PERF_TEST_REPEAT` iterations of a KNN query.
 - **Validation**: Loads the pre-calculated Ground Truth from the JSON file. Every warm-up and timed result is validated. To avoid false positives due to tie-breaking differences between optimized engines, the validator requires unique IDs and compares the sorted returned-distance multiset against the expected distances. If `DUMMY_CALC=1` is set, validation is skipped.
-- **Reporting**: Collects timing data using `time.perf_counter()` and prints a performance report containing Min, Max, and Average execution times.
+- **Reporting**: Prints a kernel performance report when kernel mode is enabled, and a scan performance report containing Min, Max, and Average query times when scan mode is enabled.
 - **Crash Diagnostics**: Writes a per-engine/per-distance JSON state file containing the last completed stage, dataset paths, query digest, expected-ID preview, PID, timing summary, and generated repro scripts. If a child process segfaults, the state file still shows the last stage reached before the crash. The runner also emits one-shot and loop-based repro shell scripts for the exact engine/distance pair.
 
 ## 4. Shared Logic (`common.py` and `sketch2_test_vectors.py`)
@@ -88,8 +92,12 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_TEST_DIST` | Comma-separated list of distance functions. | `cos,l2,l1` |
 | `COMPUTE_PERF_TEST_RANGE_SIZE` | Dataset range size used at creation time. | `10000` |
 | `COMPUTE_PERF_TEST_ENGINES` | Comma-separated list of engines to test. Use `auto` for the library default selection. | `scalar,auto,highway,numkong` |
+| `COMPUTE_PERF_TEST_BENCHMARKS` | Comma-separated benchmark layers to run. Supported values: `scan`, `kernel`. | `scan,kernel` |
 | `COMPUTE_PERF_TEST_LOG_LEVEL` | Log level for the Sketch2 engine. | `ERROR` |
 | `COMPUTE_PERF_TEST_THREAD_POOL_SIZE` | Internal thread pool size for Sketch2. | `1` |
+| `COMPUTE_PERF_KERNEL_ITERATIONS` | Calls per timing sample in the kernel-only benchmark. | `200000` |
+| `COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS` | Un-timed warm-up calls before kernel measurement. | `5000` |
+| `COMPUTE_PERF_KERNEL_REPEATS` | Number of kernel timing samples per case. | `7` |
 | `COMPUTE_PERF_TEST_CLEANUP` | Delete the temporary database root after the run (`1`) or preserve it (`0`). | `0` |
 | `DUMMY_CALC` | If `1`, skips ground truth calculation and scan results validation. | `0` |
 | `COMPUTE_PERF_DIAG_DIR` | Directory where per-distance diagnostic JSON files and repro scripts are written. | `${SKETCH2_CONFIG_ROOT}/logs/diag` |
@@ -105,6 +113,11 @@ Simply execute the driver script from the repository root:
 ```
 
 Logs and timing reports will be printed to stdout and saved in `${SKETCH2_CONFIG_ROOT}/logs`.
+
+The final reporter prints two summary tables:
+
+- **Performance Summary**: end-to-end scan average time per engine and distance
+- **Kernel Summary**: direct `dist` kernel average nanoseconds per call per engine and distance
 
 The driver also writes `${SKETCH2_CONFIG_ROOT}/logs/run_env.txt`, which captures the exported harness configuration used for the run. This file is recreated after initialization so it survives cases where `initializer.py` rebuilds the temporary root.
 

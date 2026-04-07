@@ -8,6 +8,9 @@ set_target_properties(calc PROPERTIES OUTPUT_NAME "calc")
 target_link_libraries(calc PUBLIC stor hwy sketch_compile_options Threads::Threads)
 target_include_directories(calc SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/third-party/numkong)
 
+add_executable(bench_calc bench_calc.cpp)
+target_link_libraries(bench_calc PRIVATE calc comp stor Threads::Threads)
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   set_source_files_properties(nk_kernels.cpp PROPERTIES
     COMPILE_DEFINITIONS "NK_TARGET_HASWELL=1;NK_TARGET_SKYLAKE=1")

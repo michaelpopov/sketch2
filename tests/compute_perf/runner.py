@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from common import (
+    find_binary,
     load_config,
     load_sketch2_types,
     log,
@@ -73,6 +74,10 @@ def tracked_env(config, dist: str) -> dict[str, str]:
         "COMPUTE_PERF_TEST_LOG_LEVEL": config.log_level,
         "COMPUTE_PERF_TEST_THREAD_POOL_SIZE": str(config.thread_pool_size),
         "COMPUTE_PERF_TEST_ENGINES": ",".join(config.compute_engines),
+        "COMPUTE_PERF_TEST_BENCHMARKS": ",".join(config.benchmark_layers),
+        "COMPUTE_PERF_KERNEL_ITERATIONS": str(config.kernel_iterations),
+        "COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS": str(config.kernel_warmup_iterations),
+        "COMPUTE_PERF_KERNEL_REPEATS": str(config.kernel_repeats),
         "COMPUTE_PERF_SINGLE_DIST": dist,
     }
     engine = os.environ.get("SKETCH2_COMPUTE_ENGINE")
@@ -144,6 +149,69 @@ def update_diag(path: Path, state: dict, **updates) -> None:
     write_json(path, state)
 
 
+def kernel_bench_env(engine: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("SKETCH2_COMPUTE_BACKEND", None)
+    if engine == "scalar":
+        env["SKETCH2_COMPUTE_BACKEND"] = "scalar"
+    return env
+
+
+def run_kernel_benchmark(config, dist: str) -> dict:
+    bench_path = find_binary("bench_calc")
+    cmd = [
+        str(bench_path),
+        "--engine", engine_label(),
+        "--dist", dist,
+        "--type", config.type_name,
+        "--dim", str(config.dims),
+        "--iterations", str(config.kernel_iterations),
+        "--warmup-iterations", str(config.kernel_warmup_iterations),
+        "--repeats", str(config.kernel_repeats),
+    ]
+    result = subprocess.run(
+        cmd,
+        env=kernel_bench_env(engine_label()),
+        cwd=str(bench_path.parent),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"bench_calc failed for engine={engine_label()} dist={dist} "
+            f"with exit code {result.returncode}: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    json_start = result.stdout.find("{")
+    if json_start == -1:
+        raise RuntimeError(f"bench_calc did not emit JSON: {result.stdout}")
+    try:
+        return json.loads(result.stdout[json_start:])
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"bench_calc produced invalid JSON: {result.stdout}") from exc
+
+
+def print_kernel_report(payload: dict) -> None:
+    print("--- KERNEL PERFORMANCE REPORT ---")
+    print(f"Compute Engine:    {payload['engine']}")
+    print(f"Distance:          {payload['dist']}")
+    print(f"Type:              {payload['type']}")
+    print(f"Dim:               {payload['dim']}")
+    print(f"Warmup Iterations: {payload['warmup_iterations']}")
+    print(f"Iterations:        {payload['iterations']}")
+    print(f"Repeats:           {payload['repeats']}")
+    print(f"Active Backend:    {payload['active_compute_backend']}")
+    if "numkong_backend" in payload:
+        print(f"NumKong Backend:   {payload['numkong_backend']}")
+    for entry in payload["cases"]:
+        print(
+            "Kernel Case:      "
+            f"{entry['name']} avg={entry['avg_ns_per_call']:.3f}ns "
+            f"min={entry['min_ns_per_call']:.3f}ns max={entry['max_ns_per_call']:.3f}ns"
+        )
+    print("-------------------------------")
+
+
 def run_single_distance(dist: str) -> None:
     config = load_config()
     os.environ["SKETCH2_CONFIG"] = str(config.db_dir / "config.ini")
@@ -179,9 +247,18 @@ def run_single_distance(dist: str) -> None:
             expected_dists_preview=expected_dists[: min(5, len(expected_dists))],
         )
 
+        if "kernel" in config.benchmark_layers:
+            update_diag(diag_path, diag_state, stage="kernel_benchmark")
+            kernel_payload = run_kernel_benchmark(config, dist)
+            update_diag(diag_path, diag_state, kernel_benchmark=kernel_payload)
+            print_kernel_report(kernel_payload)
+
         times = []
         opened = False
         try:
+            if "scan" not in config.benchmark_layers:
+                update_diag(diag_path, diag_state, status="ok", stage="completed")
+                return
             update_diag(diag_path, diag_state, stage="opening_dataset")
             sketch2.open(dataset_name)
             opened = True
