@@ -21,6 +21,7 @@ enum class PatternType {
     Sequential,
     Detailed,
     CosCompatible,
+    DotCompatible,
 };
 
 struct GeneratorConfig {

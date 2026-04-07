@@ -209,6 +209,15 @@ TEST_F(InputGeneratorTest, VectorLineFormat) {
     EXPECT_EQ("3 : [ 3.10, 3.10, 3.10, 3.10 ]", lines[1]);
 }
 
+TEST_F(InputGeneratorTest, DotCompatibleTextUsesMonotonicPositivePayload) {
+    GeneratorConfig cfg{PatternType::DotCompatible, 2, 3, DataType::f32, 4, 1000};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+    auto lines = read_lines();
+    ASSERT_EQ(3u, lines.size());
+    EXPECT_EQ("3 : [ 3.10, 3.10, 3.10, 3.10 ]", lines[1]);
+    EXPECT_EQ("4 : [ 4.10, 4.10, 4.10, 4.10 ]", lines[2]);
+}
+
 // i16 tests
 
 TEST_F(InputGeneratorTest, I16SuccessReturnCode) {
@@ -271,6 +280,12 @@ TEST_F(InputGeneratorTest, DetailedHeaderLineI16) {
 
 TEST_F(InputGeneratorTest, BinarySequentialHeaderAddsBinMarker) {
     GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+    EXPECT_EQ("f32,4,bin", read_binary_header());
+}
+
+TEST_F(InputGeneratorTest, BinaryDotCompatibleHeaderAddsBinMarker) {
+    GeneratorConfig cfg{PatternType::DotCompatible, 1, 7, DataType::f32, 4, 1000, 0, true};
     ASSERT_EQ(0, generate_input_file(path_, cfg).code());
     EXPECT_EQ("f32,4,bin", read_binary_header());
 }

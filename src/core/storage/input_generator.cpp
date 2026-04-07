@@ -223,9 +223,11 @@ Ret generate_sequential_input_file_binary_mmap(const std::string& path, const Ge
 static Ret generate_sequential_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_detailed_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_cos_compatible_input_file(const std::string& path, const GeneratorConfig& config);
+static Ret generate_dot_compatible_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_sequential_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_detailed_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_cos_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config);
+static Ret generate_dot_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_manual_input_file(const std::string& path, const ManualInputGenerator& gen);
 
 Ret generate_input_file(const std::string& path, const GeneratorConfig& config) {
@@ -246,6 +248,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
                 case PatternType::Sequential: return generate_sequential_input_file_binary(temp_path, config);
                 case PatternType::Detailed:   return generate_detailed_input_file_binary(temp_path, config);
                 case PatternType::CosCompatible: return generate_cos_compatible_input_file_binary(temp_path, config);
+                case PatternType::DotCompatible: return generate_dot_compatible_input_file_binary(temp_path, config);
             }
 
             return Ret("unsupported binary pattern type");
@@ -255,6 +258,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
             case PatternType::Sequential: return generate_sequential_input_file(temp_path, config);
             case PatternType::Detailed:   return generate_detailed_input_file(temp_path, config);
             case PatternType::CosCompatible: return generate_cos_compatible_input_file(temp_path, config);
+            case PatternType::DotCompatible: return generate_dot_compatible_input_file(temp_path, config);
         }
 
         return Ret("generate_input_file: invalid pattern type");
@@ -437,6 +441,12 @@ static Ret generate_cos_compatible_input_file(const std::string& path, const Gen
     return Ret(0);
 }
 
+// Writes vectors with positive monotonic magnitudes so DOT top-k ordering is
+// easy to reason about and stable across text/binary generators.
+static Ret generate_dot_compatible_input_file(const std::string& path, const GeneratorConfig& config) {
+    return generate_sequential_input_file(path, config);
+}
+
 // Writes a text header followed by binary records made of uint64_t ids and
 // packed vector payloads with a repeated scalar value per dimension.
 static Ret generate_sequential_input_file_binary(const std::string& path, const GeneratorConfig& config) {
@@ -471,6 +481,12 @@ static Ret generate_cos_compatible_input_file_binary(const std::string& path, co
     }
 
     return Ret(0);
+}
+
+// Binary DOT-compatible generation currently matches the monotonic positive
+// scalar payload used by the sequential generator.
+static Ret generate_dot_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config) {
+    return generate_sequential_input_file_binary(path, config);
 }
 
 // Writes a text header followed by binary records that use the InputVector

@@ -565,6 +565,8 @@ int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count
     cfg.binary = binary;
     if (handle->ds->dist_func() == DistFunc::COS) {
         cfg.pattern_type = PatternType::CosCompatible;
+    } else if (handle->ds->dist_func() == DistFunc::DOT) {
+        cfg.pattern_type = PatternType::DotCompatible;
     }
 
     Timer generate_timer("sk_generate: generate input");
