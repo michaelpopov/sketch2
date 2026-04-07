@@ -40,11 +40,11 @@ from sketch2_test_vectors import (
     cosine_demo_query,
     cosine_demo_vector,
     cosine_distance,
+    dot_distance,
     find_library,
     fmt_typed_vector,
     generic_demo_query,
     generic_demo_vector,
-    l1_distance,
     l2_distance_sq,
     native_sequential_vector,
     repo_root as shared_repo_root,
@@ -99,7 +99,7 @@ def load_config() -> PerfConfig:
     knn_count = _env_int("COMPUTE_PERF_TEST_K", 20)
     type_name = os.environ.get("COMPUTE_PERF_TEST_TYPE", "f32")
 
-    dist_str = os.environ.get("COMPUTE_PERF_TEST_DIST", "cos,l2,l1")
+    dist_str = os.environ.get("COMPUTE_PERF_TEST_DIST", "cos,l2,dot")
     dist_funcs = [d.strip().lower() for d in dist_str.split(",") if d.strip()]
 
     range_size = _env_int("COMPUTE_PERF_TEST_RANGE_SIZE", 10000)
@@ -175,11 +175,31 @@ def distance_helpers(
 ]:
     if dist_func == "cos":
         return cosine_distance, cosine_demo_vector
-    if dist_func == "l1":
-        return l1_distance, native_sequential_vector
     if dist_func == "l2":
         return l2_distance_sq, native_sequential_vector
+    if dist_func == "dot":
+        return dot_distance, native_sequential_vector
     raise ValueError(f"unsupported distance function: {dist_func}")
+
+
+def query_values_for_dist(dist_func: str, dim: int, type_name: str) -> list[float | int]:
+    if dist_func == "cos":
+        return cosine_demo_query(dim, type_name)
+    if dist_func in ("l2", "dot"):
+        return generic_demo_query(dim, type_name)
+    raise ValueError(f"unsupported distance function: {dist_func}")
+
+
+def smaller_score_is_better(dist_func: str) -> bool:
+    if dist_func in ("cos", "l2"):
+        return True
+    if dist_func == "dot":
+        return False
+    raise ValueError(f"unsupported distance function: {dist_func}")
+
+
+def sort_metric_values(values: list[float], dist_func: str) -> list[float]:
+    return sorted(values, reverse=not smaller_score_is_better(dist_func))
 
 
 def expected_dists_for_ids(
@@ -194,7 +214,7 @@ def expected_dists_for_ids(
     for item_id in item_ids:
         vec = vector_gen(item_id, dim, type_name)
         dists.append(dist_calc(query_vals, vec))
-    return sorted(dists)
+    return sort_metric_values(dists, dist_func)
 
 
 def get_ground_truth_knn(
@@ -233,7 +253,7 @@ def get_ground_truth_knn(
             d = dist_calc(query_vals, vec)
             candidates.append((d, item_id))
     
-    candidates.sort()
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=not smaller_score_is_better(dist_func))
     top_k = candidates[:k]
     return [item_id for _, item_id in top_k], [d for d, _ in top_k]
 
@@ -270,7 +290,7 @@ def validate_knn_results(
 
     # Compare the distance multisets so engines can break ties differently.
     eps = 1e-9
-    for a_d, e_d in zip(sorted(actual_dists), expected_dists):
+    for a_d, e_d in zip(sort_metric_values(actual_dists, dist_func), expected_dists):
         if abs(a_d - e_d) > eps:
             return False
 

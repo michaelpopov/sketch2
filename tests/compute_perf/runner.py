@@ -18,10 +18,9 @@ from common import (
     load_sketch2_types,
     log,
     find_lib_path,
-    cosine_demo_query,
-    generic_demo_query,
     fmt_typed_vector,
     load_ground_truth,
+    query_values_for_dist,
     validate_knn_results
 )
 
@@ -157,10 +156,7 @@ def run_single_distance(dist: str) -> None:
         dataset_name = f"{config.dataset}_{dist}"
         log("runner", f"benchmarking dataset {dataset_name} with engine={engine_label()}")
 
-        if dist == "cos":
-            query_vals = cosine_demo_query(config.dims, config.type_name)
-        else:
-            query_vals = generic_demo_query(config.dims, config.type_name)
+        query_vals = query_values_for_dist(dist, config.dims, config.type_name)
 
         query_str = fmt_typed_vector(query_vals, config.type_name)
         diag_path = diag_file_path(config, dist)

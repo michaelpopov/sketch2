@@ -17,6 +17,7 @@ from common import (
     cosine_demo_vector,
     generic_demo_vector,
     fmt_typed_vector,
+    query_values_for_dist,
 )
 
 def write_chunk(
@@ -133,8 +134,6 @@ def main() -> None:
     from common import (
         expected_dists_for_ids,
         save_ground_truth,
-        cosine_demo_query,
-        generic_demo_query,
         fmt_typed_vector,
     )
     
@@ -157,18 +156,15 @@ def main() -> None:
             input_path = config.db_dir / f"input_{dist}.txt"
 
             log("initializer", f"generating {config.count} vectors using sketch2.generate_test_data (native generator)")
-            # native generator both generates and loads; COS uses CosCompatible pattern
-            # inside generate_test_data(), and binary I/O accelerates generation.
+            # native generator both generates and loads; COS and DOT use metric-aware
+            # patterns inside generate_test_data(), and binary I/O accelerates generation.
             sketch2.generate_test_data(input_path, count=config.count, start_id=0, binary=True)
 
             if input_path.exists():
                 input_path.unlink()
 
             log("initializer", f"calculating ground truth for {dist}")
-            if dist == "cos":
-                query_vals = cosine_demo_query(config.dims, config.type_name)
-            else:
-                query_vals = generic_demo_query(config.dims, config.type_name)
+            query_vals = query_values_for_dist(dist, config.dims, config.type_name)
 
             if os.environ.get("DUMMY_CALC") == "1":
                 log("initializer", f"skipping ground truth calculation for {dist} (DUMMY_CALC=1)")
