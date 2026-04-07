@@ -161,5 +161,15 @@ for engine in "${ENGINES[@]}"; do
     fi
 done
 
+echo "[driver] generating summary report..."
+set +e
+python3 reporter.py 2>&1 | tee "${LOG_DIR}/reporter.log"
+reporter_rc=${PIPESTATUS[0]}
+set -e
+if [[ ${reporter_rc} -ne 0 ]]; then
+    echo "[driver] ERROR: reporter.py failed with exit code ${reporter_rc}. See ${LOG_DIR}/reporter.log"
+    exit 1
+fi
+
 echo "[driver] performance test completed"
 echo "[driver] logs available in ${LOG_DIR}"
