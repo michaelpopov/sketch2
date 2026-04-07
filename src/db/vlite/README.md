@@ -14,7 +14,7 @@ CREATE TABLE x(
     query TEXT HIDDEN,
     k INTEGER HIDDEN,
     id INTEGER,
-    distance REAL
+    score REAL
 )
 ```
 
@@ -23,9 +23,9 @@ Meaning:
 - `query`: hidden input column. This is the query vector encoded as text.
 - `k`: hidden input column. This is the requested number of nearest neighbors.
 - `id`: output column. Sketch2 vector id.
-- `distance`: output column. Distance from the query vector.
+- `score`: output column. Distance from the query vector.
 
-The distance function is not chosen in SQL. It comes from the Sketch2 dataset
+The score function is not chosen in SQL. It comes from the Sketch2 dataset
 metadata in the referenced INI file.
 
 ## Prerequisites
@@ -148,19 +148,19 @@ Use `WHERE query = ...` or `WHERE query MATCH ...` to pass the query vector.
 Example:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query = '1.0, 0.0, 0.0, 0.0' AND k = 5
-ORDER BY distance;
+ORDER BY score;
 ```
 
 Equivalent `MATCH` form:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query MATCH '1.0, 0.0, 0.0, 0.0' AND k = 5
-ORDER BY distance;
+ORDER BY score;
 ```
 
 `MATCH` here is not full-text search. It is only an alternative SQL operator for
@@ -190,10 +190,10 @@ If parsing fails, SQLite returns an error from the virtual table.
 You can specify `k` explicitly:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query MATCH '15.2, 15.2, 15.2, 15.2' AND k = 3
-ORDER BY distance;
+ORDER BY score;
 ```
 
 If `k` is omitted, `vlite` defaults to `10`.
@@ -201,10 +201,10 @@ If `k` is omitted, `vlite` defaults to `10`.
 The hidden `k` column is also readable, which can be useful for debugging:
 
 ```sql
-SELECT id, k, distance
+SELECT id, k, score
 FROM nn
 WHERE query MATCH '15.2, 15.2, 15.2, 15.2'
-ORDER BY distance
+ORDER BY score
 LIMIT 3;
 ```
 
@@ -230,10 +230,10 @@ Behavior:
 Example:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query MATCH '15.2, 15.2, 15.2, 15.2'
-ORDER BY distance
+ORDER BY score
 LIMIT 5 OFFSET 10;
 ```
 
@@ -245,7 +245,7 @@ defaulting to `10` or scanning an arbitrary larger result set.
 The natural result order is nearest-first, and `vlite` advertises support for:
 
 ```sql
-ORDER BY distance
+ORDER BY score
 ```
 
 Use explicit ordering in SQL when you care about result order.
@@ -253,10 +253,10 @@ Use explicit ordering in SQL when you care about result order.
 Recommended form:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query = '...'
-ORDER BY distance
+ORDER BY score
 LIMIT 10;
 ```
 
@@ -268,10 +268,10 @@ LIMIT 10;
 CREATE VIRTUAL TABLE nn
 USING vlite('/home/user/data/example.ini');
 
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query MATCH '0.0, 0.0, 0.0, 0.0' AND k = 3
-ORDER BY distance;
+ORDER BY score;
 ```
 
 Example output shape:
@@ -292,14 +292,14 @@ Example:
 CREATE VIRTUAL TABLE images USING vlite('/data/images.ini');
 CREATE VIRTUAL TABLE audio  USING vlite('/data/audio.ini');
 
-SELECT id, distance FROM images
+SELECT id, score FROM images
 WHERE query = '...'
-ORDER BY distance
+ORDER BY score
 LIMIT 5;
 
-SELECT id, distance FROM audio
+SELECT id, score FROM audio
 WHERE query = '...'
-ORDER BY distance
+ORDER BY score
 LIMIT 5;
 ```
 
@@ -308,8 +308,8 @@ LIMIT 5;
 - Read-only only. `INSERT`, `UPDATE`, and `DELETE` are not supported.
 - A query vector is required. Full table scans are rejected.
 - The dataset path is fixed when the virtual table is created.
-- The distance function comes from dataset metadata, not from the SQL query.
-- `vlite` returns ids and distances only. It does not expose full vector payloads.
+- The score function comes from dataset metadata, not from the SQL query.
+- `vlite` returns ids and scores only. It does not expose full vector payloads.
 - `id` is exposed as SQLite `INTEGER`, so Sketch2 ids must be `<= 9223372036854775807`.
 - `MATCH` is just an input operator for the hidden `query` column. It is not FTS.
 
@@ -326,7 +326,7 @@ Typical failures:
 Example of an invalid query:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE k = 5;
 ```

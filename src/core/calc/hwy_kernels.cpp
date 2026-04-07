@@ -74,32 +74,54 @@ double DistDOTF32(const uint8_t* a, const uint8_t* b, size_t dim) {
 }
 
 double DistDOTF16(const uint8_t* a, const uint8_t* b, size_t dim) {
+    // Scalar tail
+    const auto* va = AsElements<hwy::float16_t>(a);
+    const auto* vb = AsElements<hwy::float16_t>(b);
+#if HWY_TARGET == HWY_SCALAR
+    double sum = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
+    }
+    return sum;
+#else
     const hn::ScalableTag<float> df;
+    const hn::ScalableTag<double> dd;
     const size_t N = hn::Lanes(df);
-    auto acc = hn::Zero(df);
+    auto acc0 = hn::Zero(dd);
+    auto acc1 = hn::Zero(dd);
     size_t i = 0;
     for (; i + N <= dim; i += N) {
         const auto av = LoadF16AsF32(df, a + i * 2);
         const auto bv = LoadF16AsF32(df, b + i * 2);
-        acc = hn::MulAdd(av, bv, acc);
+        acc0 = hn::MulAdd(hn::PromoteLowerTo(dd, av), hn::PromoteLowerTo(dd, bv), acc0);
+        acc1 = hn::MulAdd(hn::PromoteUpperTo(dd, av), hn::PromoteUpperTo(dd, bv), acc1);
     }
-    double sum = hn::ReduceSum(df, acc);
-    // Scalar tail
-    const auto* va = AsElements<hwy::float16_t>(a);
-    const auto* vb = AsElements<hwy::float16_t>(b);
+    double sum = hn::ReduceSum(dd, acc0) + hn::ReduceSum(dd, acc1);
     for (; i < dim; ++i) {
         sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
+#endif
 }
 
 double DistDOTI16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = AsElements<int16_t>(a);
     const int16_t* vb = AsElements<int16_t>(b);
-    // Keep i16 DOT exact by accumulating in int64.
+    // Keep i16 DOT exact by accumulating in int64, but still vectorize.
     // Float-lane accumulation can lose precision for larger products/sums.
-    int64_t sum = 0;
-    for (size_t i = 0; i < dim; ++i) {
+    const hn::ScalableTag<int32_t> di32;
+    const hn::ScalableTag<int64_t> di64;
+    const size_t N = hn::Lanes(di32);
+    auto acc_lo = hn::Zero(di64);
+    auto acc_hi = hn::Zero(di64);
+    size_t i = 0;
+    for (; i + N <= dim; i += N) {
+        const auto av = LoadI16AsI32(di32, a + i * 2);
+        const auto bv = LoadI16AsI32(di32, b + i * 2);
+        acc_lo = hn::WidenMulAccumulate(di64, av, bv, acc_lo, acc_hi);
+    }
+    int64_t sum = hn::ReduceSum(di64, acc_lo) + hn::ReduceSum(di64, acc_hi);
+    for (; i < dim; ++i) {
         sum += static_cast<int64_t>(va[i]) * static_cast<int64_t>(vb[i]);
     }
     return static_cast<double>(sum);
@@ -201,43 +223,54 @@ double DotF32(const uint8_t* a, const uint8_t* b, size_t dim) {
 }
 
 double DotF16(const uint8_t* a, const uint8_t* b, size_t dim) {
+    const auto* va = AsElements<hwy::float16_t>(a);
+    const auto* vb = AsElements<hwy::float16_t>(b);
+#if HWY_TARGET == HWY_SCALAR
+    double sum = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
+    }
+    return sum;
+#else
     const hn::ScalableTag<float> df;
+    const hn::ScalableTag<double> dd;
     const size_t N = hn::Lanes(df);
-    auto acc = hn::Zero(df);
+    auto acc0 = hn::Zero(dd);
+    auto acc1 = hn::Zero(dd);
     size_t i = 0;
     for (; i + N <= dim; i += N) {
         const auto av = LoadF16AsF32(df, a + i * 2);
         const auto bv = LoadF16AsF32(df, b + i * 2);
-        acc = hn::MulAdd(av, bv, acc);
+        acc0 = hn::MulAdd(hn::PromoteLowerTo(dd, av), hn::PromoteLowerTo(dd, bv), acc0);
+        acc1 = hn::MulAdd(hn::PromoteUpperTo(dd, av), hn::PromoteUpperTo(dd, bv), acc1);
     }
-    double sum = hn::ReduceSum(df, acc);
-    const auto* va = AsElements<hwy::float16_t>(a);
-    const auto* vb = AsElements<hwy::float16_t>(b);
+    double sum = hn::ReduceSum(dd, acc0) + hn::ReduceSum(dd, acc1);
     for (; i < dim; ++i) {
         sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
+#endif
 }
 
 double DotI16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = AsElements<int16_t>(a);
     const int16_t* vb = AsElements<int16_t>(b);
     const hn::ScalableTag<int32_t> di32;
-    const hn::ScalableTag<float> df;
+    const hn::ScalableTag<int64_t> di64;
     const size_t N = hn::Lanes(di32);
-    auto acc = hn::Zero(df);
+    auto acc_lo = hn::Zero(di64);
+    auto acc_hi = hn::Zero(di64);
     size_t i = 0;
     for (; i + N <= dim; i += N) {
         const auto av = LoadI16AsI32(di32, a + i * 2);
         const auto bv = LoadI16AsI32(di32, b + i * 2);
-        const auto prod = hn::Mul(av, bv);
-        acc = hn::Add(acc, hn::ConvertTo(df, prod));
+        acc_lo = hn::WidenMulAccumulate(di64, av, bv, acc_lo, acc_hi);
     }
-    double sum = hn::ReduceSum(df, acc);
+    int64_t sum = hn::ReduceSum(di64, acc_lo) + hn::ReduceSum(di64, acc_hi);
     for (; i < dim; ++i) {
-        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
+        sum += static_cast<int64_t>(va[i]) * static_cast<int64_t>(vb[i]);
     }
-    return sum;
+    return static_cast<double>(sum);
 }
 
 // ---------------------------------------------------------------------------

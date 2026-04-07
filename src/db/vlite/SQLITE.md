@@ -4,7 +4,7 @@
 Sketch2 dataset.
 
 - Input: query vector (`query` or `match_expr`), optional `k`, optional `allowed_ids`
-- Output: `id`, `distance`
+- Output: `id`, `score`
 - Distance metric comes from dataset metadata (`dist_func`)
 
 ## Build And Load
@@ -46,7 +46,7 @@ CREATE TABLE x(
     k INTEGER HIDDEN,
     allowed_ids BLOB HIDDEN,
     id INTEGER,
-    distance REAL
+    score REAL
 )
 ```
 
@@ -56,9 +56,9 @@ Column notes:
 - `k` (hidden input): top-k size, default `10`
 - `allowed_ids` (hidden input): optional bitset BLOB filter
 - `id` (output): vector id
-- `distance` (output): distance according to dataset metric
+- `score` (output): score according to dataset metric
 
-`SELECT *` only returns visible output columns (`id`, `distance`).
+`SELECT *` only returns visible output columns (`id`, `score`).
 
 ## Query Formats
 
@@ -73,19 +73,19 @@ For `i16` datasets, use integer values.
 ## Basic Queries
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query = '1.0, 0.0, 0.0, 0.0' AND k = 5
-ORDER BY distance;
+ORDER BY score;
 ```
 
 `MATCH` is also supported:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE match_expr MATCH '1.0, 0.0, 0.0, 0.0' AND k = 5
-ORDER BY distance;
+ORDER BY score;
 ```
 
 `MATCH` here is not FTS; it is just an accepted operator for the hidden query
@@ -102,10 +102,10 @@ columns.
 Example:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query = '0.0, 0.0, 0.0, 0.0'
-ORDER BY distance
+ORDER BY score
 LIMIT 5 OFFSET 10;
 ```
 
@@ -120,7 +120,7 @@ LIMIT 5 OFFSET 10;
 Example with SQL-side producer:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1'
   AND k = 3
@@ -128,7 +128,7 @@ WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1'
         SELECT bitset_agg(id)
         FROM (SELECT 0 AS id)
       )
-ORDER BY distance;
+ORDER BY score;
 ```
 
 This returns only neighbors whose ids are present in the bitset.
@@ -169,9 +169,9 @@ Set before loading extension:
 
 Distance is fixed by dataset metadata.
 
-- `l1`: Manhattan distance
-- `l2`: squared Euclidean distance
-- `cos`: cosine distance (`1 - cosine_similarity`)
+- `l1`: Manhattan score
+- `l2`: squared Euclidean score
+- `cos`: cosine score (`1 - cosine_similarity`)
 
 For cosine:
 

@@ -239,7 +239,7 @@ protected:
     }
 };
 
-TEST_F(VliteTest, ReturnsKnnIdsAndDistancesForDOTDataset) {
+TEST_F(VliteTest, ReturnsKnnIdsAndScoresForDOTDataset) {
     write_input("f32,4\n"
                 "0 : [ 0.1, 0.1, 0.1, 0.1 ]\n"
                 "14 : [ 14.1, 14.1, 14.1, 14.1 ]\n"
@@ -265,7 +265,7 @@ TEST_F(VliteTest, ReturnsKnnIdsAndDistancesForDOTDataset) {
     EXPECT_NEAR(918.08, rows[2].second, 1e-4);
 }
 
-TEST_F(VliteTest, UsesDatasetDistanceFunctionForCosineQueries) {
+TEST_F(VliteTest, UsesDatasetScoreFunctionForCosineQueries) {
     write_input("f32,4\n"
                 "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
                 "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
@@ -358,7 +358,7 @@ TEST_F(VliteTest, EnvNumKongUsesCalcEngine) {
     run_child_scenario("env_numkong");
 }
 
-TEST_F(VliteTest, UsesDatasetDistanceFunctionForL2Queries) {
+TEST_F(VliteTest, UsesDatasetScoreFunctionForL2Queries) {
     write_input("f32,4\n"
                 "10 : [ 3.0, 0.0, 0.0, 0.0 ]\n"
                 "20 : [ 2.0, 2.0, 0.0, 0.0 ]\n");

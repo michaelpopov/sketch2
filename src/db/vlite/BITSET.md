@@ -33,7 +33,7 @@ SELECT bitset_agg(id) FROM some_table;
 ### Virtual-table consumer
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM vlite AS v
 WHERE v.match_expr MATCH :query
   AND v.allowed_ids = (
@@ -41,7 +41,7 @@ WHERE v.match_expr MATCH :query
         FROM labels
         WHERE label = 3
       )
-ORDER BY distance;
+ORDER BY score;
 ```
 
 `allowed_ids` contract:
