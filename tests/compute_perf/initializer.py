@@ -155,15 +155,10 @@ def main() -> None:
 
             input_path = config.db_dir / f"input_{dist}.txt"
 
-            if dist == "cos":
-                log("initializer", f"generating {config.count} vectors into {input_path} using parallel workers (Python generator)")
-                write_input_file_parallel(input_path, config.count, config.dims, config.type_name, dist)
-                log("initializer", f"bulk loading {input_path} into {dataset_name}")
-                sketch2.load_file(input_path)
-            else:
-                log("initializer", f"generating {config.count} vectors using sketch2.generate_test_data (native generator)")
-                # native generator both generates and loads
-                sketch2.generate_test_data(input_path, count=config.count, start_id=0, binary=False)
+            log("initializer", f"generating {config.count} vectors using sketch2.generate_test_data (native generator)")
+            # native generator both generates and loads; COS uses CosCompatible pattern
+            # inside generate_test_data(), and binary I/O accelerates generation.
+            sketch2.generate_test_data(input_path, count=config.count, start_id=0, binary=True)
 
             if input_path.exists():
                 input_path.unlink()

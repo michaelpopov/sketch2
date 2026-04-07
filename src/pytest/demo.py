@@ -57,12 +57,6 @@ def dataset_ini_path(root: Path, dataset_name: str) -> Path:
     return root / dataset_name / f"{dataset_name}.ini"
 
 
-def effective_input_format(binary: bool, dist_func: str) -> str:
-    if dist_func == "COS":
-        return "text"
-    return "binary"
-
-
 def write_input_chunk(
     chunk_path: str,
     from_id: int,
@@ -167,15 +161,11 @@ def fill_dataset(
     dist_func: str,
 ) -> tuple[float, float]:
     log_step(f"writing {count} vectors into the Sketch2 dataset using dist_func={dist_func}")
-    if dist_func == "COS":
-        log_step("cosine demo keeps the original Python-generated input path")
-        return load_dataset_from_python_input_file(
-            ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name
-        )
-
     log_step(f"generating and loading {count} vectors using sketch2.generate_test_data (native generator)")
     t0 = time.perf_counter()
-    ps.generate_test_data(input_path, count=count, start_id=from_id, binary=binary)
+    # Use native binary generation for speed; generate_test_data auto-selects
+    # CosCompatible pattern when the dataset dist_func is COS.
+    ps.generate_test_data(input_path, count=count, start_id=from_id, binary=True)
     t1 = time.perf_counter()
     return t1 - t0, 0.0
 
@@ -234,9 +224,6 @@ def run_demo(
             )
             ps.create(dataset_name, type_name=type_name, dim=dim, range_size=range_size, dist_func=dist_func.lower())
 
-            if binary and dist_func != "COS":
-                log_step("--binary is deprecated; using generate_test_data() instead of generate_bin()")
-
             generate_time, load_time = fill_dataset(
                 ps, input_path=input_path, from_id=from_id, count=count, dim=dim, type_name=type_name, binary=binary, dist_func=dist_func
             )
@@ -262,7 +249,7 @@ def run_demo(
             print(f"load data time: {load_time:.3f}s")
             print(f"sqlite query time: {query_time:.3f}s")
             print(f"type={type_name}")
-            print(f"input_format={effective_input_format(False, dist_func)}")
+            print(f"input_format=binary")
             print(f"dist_func={dist_func}")
             print(f"k={k}")
             print(f"actual   = {actual}")
@@ -298,10 +285,10 @@ def parse_args() -> argparse.Namespace:
         default=parse_size_arg("1000"),
         help="Dataset range size; accepts suffixes like 10K or 10M",
     )
-    parser.add_argument("--type", default="f32", choices=("f32", "f16", "i16"), help="Dataset element type")
+    parser.add_argument("--type", default="f16", choices=("f32", "f16", "i16"), help="Dataset element type")
     parser.add_argument(
         "--dist-func",
-        default="L1",
+        default="COS",
         choices=("L1", "L2", "COS"),
         help="Distance function used when creating the dataset",
     )

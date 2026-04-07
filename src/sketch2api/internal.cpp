@@ -563,6 +563,9 @@ int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count
     cfg.dim = static_cast<size_t>(handle->ds->dim());
     cfg.max_val = 1000;
     cfg.binary = binary;
+    if (handle->ds->dist_func() == DistFunc::COS) {
+        cfg.pattern_type = PatternType::CosCompatible;
+    }
 
     Timer generate_timer("sk_generate: generate input");
     Ret ret = generate_input_file(path, cfg);

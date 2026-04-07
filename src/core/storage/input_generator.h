@@ -20,6 +20,7 @@ struct ManualInputGenerator {
 enum class PatternType {
     Sequential,
     Detailed,
+    CosCompatible,
 };
 
 struct GeneratorConfig {

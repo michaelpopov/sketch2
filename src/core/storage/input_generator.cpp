@@ -31,6 +31,19 @@ Ret make_io_error(const std::string& action, const std::string& path) {
     return Ret(action + ": " + path + ": " + std::strerror(errno));
 }
 
+// Generate the same deterministic vectors used by cosine_demo_vector() in the
+// Python test helpers so COS benchmarks and readers get identical data.
+template <typename T>
+inline void fill_cos_compatible_vector(uint64_t id, size_t dim, std::vector<T>& out) {
+    out.resize(dim);
+    out[0] = static_cast<T>((id % 17) + 1);
+    out[1] = static_cast<T>(((id * 3) % 11) - 5);
+    out[2] = static_cast<T>(((id * 5) % 7) - 3);
+    for (size_t index = 3; index < dim; ++index) {
+        out[index] = static_cast<T>(((id + index) % 5) - 2);
+    }
+}
+
 Ret make_temp_output_path(const std::string& path, std::string* temp_path) {
     if (temp_path == nullptr) {
         return Ret("temporary path output is null");
@@ -207,8 +220,10 @@ Ret generate_sequential_input_file_binary_mmap(const std::string& path, const Ge
 
 static Ret generate_sequential_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_detailed_input_file(const std::string& path, const GeneratorConfig& config);
+static Ret generate_cos_compatible_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_sequential_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_detailed_input_file_binary(const std::string& path, const GeneratorConfig& config);
+static Ret generate_cos_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_manual_input_file(const std::string& path, const ManualInputGenerator& gen);
 
 Ret generate_input_file(const std::string& path, const GeneratorConfig& config) {
@@ -228,6 +243,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
             switch (config.pattern_type) {
                 case PatternType::Sequential: return generate_sequential_input_file_binary(temp_path, config);
                 case PatternType::Detailed:   return generate_detailed_input_file_binary(temp_path, config);
+                case PatternType::CosCompatible: return generate_cos_compatible_input_file_binary(temp_path, config);
             }
 
             return Ret("unsupported binary pattern type");
@@ -236,6 +252,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
         switch (config.pattern_type) {
             case PatternType::Sequential: return generate_sequential_input_file(temp_path, config);
             case PatternType::Detailed:   return generate_detailed_input_file(temp_path, config);
+            case PatternType::CosCompatible: return generate_cos_compatible_input_file(temp_path, config);
         }
 
         return Ret("generate_input_file: invalid pattern type");
@@ -320,7 +337,11 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
             print_float_line(f, id, &value, config.dim, false);
         } else if (config.type == DataType::f16) {
             const float value_f32 = static_cast<float>(id) + 0.1f;
-            const float16 value = static_cast<float16>(value_f32);
+            // Clamp to the maximum finite f16 value so large ids don't overflow
+            // to Inf and break the text loader. IEEE half max is 65504.
+            constexpr float kFloat16Max = 65504.0f;
+            const float clamped = std::min(value_f32, kFloat16Max);
+            const float16 value = static_cast<float16>(clamped);
             print_float_line(f, id, &value, config.dim, false);
         } else if (config.type == DataType::i16) {
             int16_t value = static_cast<int16_t>(id);
@@ -385,10 +406,70 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
     return Ret(0);
 }
 
+// Writes cosine-demo-compatible vectors (matches Python cosine_demo_vector()).
+static Ret generate_cos_compatible_input_file(const std::string& path, const GeneratorConfig& config) {
+    if (config.type == DataType::i16) {
+        return Ret("CosCompatible pattern does not support i16");
+    }
+
+    FILE* f = fopen(path.c_str(), "w");
+    if (!f) {
+        return Ret("Failed to open file for writing: " + path);
+    }
+    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+
+    fprintf(f, "%s,%zu\n", data_type_to_string(config.type), config.dim);
+
+    std::vector<float> buf_f32;
+    std::vector<float16> buf_f16;
+    for (size_t i = 0; i < config.count; ++i) {
+        const uint64_t id = config.min_id + i;
+        if (config.type == DataType::f32) {
+            fill_cos_compatible_vector(id, config.dim, buf_f32);
+            print_float_line(f, id, buf_f32.data(), config.dim, true);
+        } else { // f16
+            fill_cos_compatible_vector(id, config.dim, buf_f16);
+            print_float_line(f, id, buf_f16.data(), config.dim, true);
+        }
+    }
+
+    return Ret(0);
+}
+
 // Writes a text header followed by binary records made of uint64_t ids and
 // packed vector payloads with a repeated scalar value per dimension.
 static Ret generate_sequential_input_file_binary(const std::string& path, const GeneratorConfig& config) {
     return generate_sequential_input_file_binary_mmap(path, config);
+}
+
+// Writes cosine-demo-compatible vectors in binary form.
+static Ret generate_cos_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config) {
+    if (config.type == DataType::i16) {
+        return Ret("CosCompatible pattern does not support i16");
+    }
+
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) {
+        return Ret("Failed to open file for writing: " + path);
+    }
+    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+
+    fprintf(f, "%s,%zu,bin\n", data_type_to_string(config.type), config.dim);
+
+    std::vector<float> buf_f32;
+    std::vector<float16> buf_f16;
+    for (size_t i = 0; i < config.count; ++i) {
+        const uint64_t id = config.min_id + i;
+        if (config.type == DataType::f32) {
+            fill_cos_compatible_vector(id, config.dim, buf_f32);
+            CHECK(write_binary_record(f, id, buf_f32.data(), config.dim, true));
+        } else { // f16
+            fill_cos_compatible_vector(id, config.dim, buf_f16);
+            CHECK(write_binary_record(f, id, buf_f16.data(), config.dim, true));
+        }
+    }
+
+    return Ret(0);
 }
 
 // Writes a text header followed by binary records that use the InputVector
