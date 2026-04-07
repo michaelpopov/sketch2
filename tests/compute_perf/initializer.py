@@ -105,6 +105,9 @@ def write_input_file_parallel(path: Path, count: int, dim: int, type_name: str, 
 
 def main() -> None:
     config = load_config()
+    single_dist = os.environ.get("COMPUTE_PERF_SINGLE_DIST")
+    preserve_root = os.environ.get("COMPUTE_PERF_INIT_PRESERVE_ROOT") == "1"
+    dist_funcs = [single_dist] if single_dist else config.dist_funcs
 
     # Only wipe roots that look like harness-owned temp state or an existing Sketch2 dir.
     if config.db_dir.exists():
@@ -112,7 +115,9 @@ def main() -> None:
         is_temp = db_dir_str.startswith("/tmp/sketch2_COMPUTE_PERF.")
         is_sketch = (config.db_dir / "config.ini").exists()
         skip_init = os.environ.get("COMPUTE_PERF_SKIP_INIT") == "1"
-        if (is_temp or is_sketch) and not skip_init:
+        if preserve_root and single_dist and not skip_init:
+            log("initializer", f"preserving db_dir for single-distance init: {config.db_dir}")
+        elif (is_temp or is_sketch) and not skip_init:
             log("initializer", f"cleaning existing db_dir: {config.db_dir}")
             shutil.rmtree(config.db_dir)
         elif skip_init:
@@ -141,9 +146,19 @@ def main() -> None:
     Sketch2, _ = load_sketch2_types()
     
     with Sketch2(config.db_dir, lib_path=lib_path) as sketch2:
-        for dist in config.dist_funcs:
+        for dist in dist_funcs:
             dataset_name = f"{config.dataset}_{dist}"
             log("initializer", f"creating dataset {dataset_name} with dist={dist}")
+
+            if single_dist:
+                dataset_dir = config.db_dir / dataset_name
+                ground_truth = config.db_dir / f"ground_truth_{dist}.json"
+                input_path = config.db_dir / f"input_{dist}.txt"
+                shutil.rmtree(dataset_dir, ignore_errors=True)
+                if ground_truth.exists():
+                    ground_truth.unlink()
+                if input_path.exists():
+                    input_path.unlink()
 
             sketch2.create(
                 dataset_name,

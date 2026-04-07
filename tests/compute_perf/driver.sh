@@ -87,33 +87,41 @@ write_run_env() {
 
 write_run_env
 
-if [[ "${COMPUTE_PERF_SKIP_INIT}" == "1" ]]; then
-    echo "[driver] skipping initializer.py as requested..."
-    if [[ ! -d "${SKETCH2_CONFIG_ROOT}" ]]; then
-        echo "[driver] ERROR: SKETCH2_CONFIG_ROOT does not exist: ${SKETCH2_CONFIG_ROOT}"
-        exit 1
-    fi
-else
-    echo "[driver] running initializer..."
-    set +e
-    python3 initializer.py 2>&1 | tee "${LOG_DIR}/initializer.log"
-    init_rc=${PIPESTATUS[0]}
-    set -e
-    if [[ ${init_rc} -ne 0 ]]; then
-        echo "[driver] ERROR: initializer.py failed with exit code ${init_rc}. See ${LOG_DIR}/initializer.log"
-        exit 1
-    fi
-fi
-
-# initializer may recreate the config root from scratch, so ensure the log dir exists again.
-mkdir -p "${LOG_DIR}"
-mkdir -p "${DIAG_DIR}"
-write_run_env
-
-# Verify that all requested datasets and ground truth files were created
 IFS=',' read -ra DIST_FUNCS <<< "${COMPUTE_PERF_TEST_DIST}"
+IFS=',' read -ra ENGINES <<< "${COMPUTE_PERF_TEST_ENGINES}"
+dist_index=0
 for dist in "${DIST_FUNCS[@]}"; do
     dist=$(echo "${dist}" | xargs)
+    echo "[driver] preparing dataset for dist=${dist}"
+
+    if [[ "${COMPUTE_PERF_SKIP_INIT}" == "1" ]]; then
+        echo "[driver] skipping initializer.py for dist=${dist} as requested..."
+        if [[ ! -d "${SKETCH2_CONFIG_ROOT}" ]]; then
+            echo "[driver] ERROR: SKETCH2_CONFIG_ROOT does not exist: ${SKETCH2_CONFIG_ROOT}"
+            exit 1
+        fi
+    else
+        if [[ ${dist_index} -eq 0 ]]; then
+            export COMPUTE_PERF_INIT_PRESERVE_ROOT="0"
+        else
+            export COMPUTE_PERF_INIT_PRESERVE_ROOT="1"
+        fi
+        export COMPUTE_PERF_SINGLE_DIST="${dist}"
+        set +e
+        python3 initializer.py 2>&1 | tee "${LOG_DIR}/initializer_${dist}.log"
+        init_rc=${PIPESTATUS[0]}
+        set -e
+        if [[ ${init_rc} -ne 0 ]]; then
+            echo "[driver] ERROR: initializer.py failed for dist=${dist} with exit code ${init_rc}. See ${LOG_DIR}/initializer_${dist}.log"
+            exit 1
+        fi
+    fi
+
+    # initializer may recreate the config root from scratch, so ensure the log dir exists again.
+    mkdir -p "${LOG_DIR}"
+    mkdir -p "${DIAG_DIR}"
+    write_run_env
+
     dataset_path="${SKETCH2_CONFIG_ROOT}/${COMPUTE_PERF_TEST_DATASET}_${dist}"
     if [[ ! -d "${dataset_path}" ]]; then
         echo "[driver] ERROR: expected dataset directory not found: ${dataset_path}"
@@ -124,42 +132,53 @@ for dist in "${DIST_FUNCS[@]}"; do
         echo "[driver] ERROR: expected ground truth file not found: ${gt_path}"
         exit 1
     fi
-done
-echo "[driver] initializer finished successfully and verified all datasets and ground truth files"
+    echo "[driver] initializer finished successfully and verified dataset for dist=${dist}"
 
-# Iterate over each engine and run the benchmark
-IFS=',' read -ra ENGINES <<< "${COMPUTE_PERF_TEST_ENGINES}"
-for engine in "${ENGINES[@]}"; do
-    engine=$(echo "${engine}" | xargs) # trim whitespace
-    echo "[driver] benchmarks engine: ${engine}"
+    for engine in "${ENGINES[@]}"; do
+        engine=$(echo "${engine}" | xargs) # trim whitespace
+        echo "[driver] benchmarks engine=${engine} dist=${dist}"
 
-    if [[ "${engine}" == "auto" ]]; then
-        unset SKETCH2_COMPUTE_ENGINE
-    else
-        export SKETCH2_COMPUTE_ENGINE="${engine}"
+        if [[ "${engine}" == "auto" ]]; then
+            unset SKETCH2_COMPUTE_ENGINE
+        else
+            export SKETCH2_COMPUTE_ENGINE="${engine}"
+        fi
+        export COMPUTE_PERF_SINGLE_DIST="${dist}"
+        set +e
+        python3 runner.py 2>&1 | tee "${LOG_DIR}/runner_${engine}_${dist}.log"
+        runner_rc=${PIPESTATUS[0]}
+        set -e
+        if [[ ${runner_rc} -ne 0 ]]; then
+            echo "[driver] ERROR: runner.py failed for engine=${engine} dist=${dist} with exit code ${runner_rc}. See ${LOG_DIR}/runner_${engine}_${dist}.log"
+            echo "[driver] diagnostics directory: ${DIAG_DIR}"
+            if ls "${DIAG_DIR}"/diag_"${engine}"_*.json >/dev/null 2>&1; then
+                echo "[driver] diagnostic state files:"
+                ls "${DIAG_DIR}"/diag_"${engine}"_*.json
+            fi
+            if ls "${DIAG_DIR}"/repro_"${engine}"_*.sh >/dev/null 2>&1; then
+                echo "[driver] repro scripts:"
+                ls "${DIAG_DIR}"/repro_"${engine}"_*.sh
+            fi
+            if ls "${DIAG_DIR}"/repro_loop_"${engine}"_*.sh >/dev/null 2>&1; then
+                echo "[driver] repro loop scripts:"
+                ls "${DIAG_DIR}"/repro_loop_"${engine}"_*.sh
+            fi
+            exit 1
+        fi
+    done
+
+    if [[ "${COMPUTE_PERF_SKIP_INIT}" != "1" ]]; then
+        echo "[driver] removing dataset artifacts for dist=${dist}"
+        rm -rf "${dataset_path}"
+        rm -f "${gt_path}"
+        rm -f "${SKETCH2_CONFIG_ROOT}/input_${dist}.txt"
     fi
-    set +e
-    python3 runner.py 2>&1 | tee "${LOG_DIR}/runner_${engine}.log"
-    runner_rc=${PIPESTATUS[0]}
-    set -e
-    if [[ ${runner_rc} -ne 0 ]]; then
-        echo "[driver] ERROR: runner.py failed for engine=${engine} with exit code ${runner_rc}. See ${LOG_DIR}/runner_${engine}.log"
-        echo "[driver] diagnostics directory: ${DIAG_DIR}"
-        if ls "${DIAG_DIR}"/diag_"${engine}"_*.json >/dev/null 2>&1; then
-            echo "[driver] diagnostic state files:"
-            ls "${DIAG_DIR}"/diag_"${engine}"_*.json
-        fi
-        if ls "${DIAG_DIR}"/repro_"${engine}"_*.sh >/dev/null 2>&1; then
-            echo "[driver] repro scripts:"
-            ls "${DIAG_DIR}"/repro_"${engine}"_*.sh
-        fi
-        if ls "${DIAG_DIR}"/repro_loop_"${engine}"_*.sh >/dev/null 2>&1; then
-            echo "[driver] repro loop scripts:"
-            ls "${DIAG_DIR}"/repro_loop_"${engine}"_*.sh
-        fi
-        exit 1
-    fi
+
+    dist_index=$((dist_index + 1))
 done
+
+unset COMPUTE_PERF_SINGLE_DIST
+unset COMPUTE_PERF_INIT_PRESERVE_ROOT
 
 echo "[driver] generating summary report..."
 set +e

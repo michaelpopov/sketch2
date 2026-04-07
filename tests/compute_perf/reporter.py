@@ -21,6 +21,10 @@ def runner_log_path(config, engine: str) -> Path:
     return log_dir(config) / f"runner_{engine}.log"
 
 
+def runner_dist_log_path(config, engine: str, dist: str) -> Path:
+    return log_dir(config) / f"runner_{engine}_{dist}.log"
+
+
 def parse_runner_log(path: Path) -> dict[str, float]:
     results: dict[str, float] = {}
     pending_dist: str | None = None
@@ -71,10 +75,16 @@ def main() -> None:
     rows: list[list[str]] = []
 
     for engine in config.compute_engines:
-        path = runner_log_path(config, engine)
-        metrics = parse_runner_log(path) if path.exists() else {}
         row = [engine]
         for dist in config.dist_funcs:
+            dist_path = runner_dist_log_path(config, engine, dist)
+            if dist_path.exists():
+                metrics = parse_runner_log(dist_path)
+                row.append(format_cell(metrics.get(dist)))
+                continue
+
+            path = runner_log_path(config, engine)
+            metrics = parse_runner_log(path) if path.exists() else {}
             row.append(format_cell(metrics.get(dist)))
         rows.append(row)
 
