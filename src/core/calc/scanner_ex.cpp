@@ -1,5 +1,5 @@
 // Implements top-k scanning over data readers and datasets using the calc
-// engine layer for distance computation.
+// engine layer for metric score computation.
 
 #include "core/calc/scanner_ex.h"
 #include "core/calc/calc_engine.h"
@@ -44,8 +44,8 @@ void log_query(const std::string& source, DistFunc func, DataType type, size_t d
              << " time=" << elapsed_ms << " ms";
 }
 
-void push_result(DistFunc func, DistHeap* heap, size_t count, uint64_t id, double dist) {
-    const DistItem item{id, dist};
+void push_result(DistFunc func, DistHeap* heap, size_t count, uint64_t id, double score) {
+    const DistItem item{id, score};
     if (heap->size() < count) {
         heap->push(item);
     } else if (dist_item_is_better(func, item, heap->top())) {
@@ -185,7 +185,7 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
     for (auto& fut : futures) {
         DistHeap local_heap = fut.get();
         while (!local_heap.empty()) {
-            push_result(func, heap, count, local_heap.top().id, local_heap.top().dist);
+            push_result(func, heap, count, local_heap.top().id, local_heap.top().score);
             local_heap.pop();
         }
     }

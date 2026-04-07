@@ -1,4 +1,4 @@
-// Declares the high-level nearest-neighbor scanner API.
+// Declares the high-level top-k scanner API.
 
 #pragma once
 #include "core/compute/compute.h"
@@ -13,7 +13,7 @@ namespace sketch2 {
 class DataReader;
 class DatasetReader;
 
-// Scanner exists to turn raw distance kernels into high-level top-k search over
+// Scanner exists to turn raw metric kernels into high-level top-k search over
 // readers and datasets. It handles heap-based ranking, dispatches to the right
 // metric backend, and merges persisted data with pending accumulator state.
 class Scanner {

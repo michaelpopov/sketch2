@@ -225,6 +225,28 @@ TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
+TEST_F(ScannerTest, FindF32DotMonotonicPositiveReturnsHighestScoresFirst) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+        "20 : [ 2.0, 2.0, 2.0, 2.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n"
+        "40 : [ 4.0, 4.0, 4.0, 4.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
+    Scanner s;
+    auto q = f32_values({1.0f, 1.0f, 1.0f, 1.0f});
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(40u, result[0].id);
+    EXPECT_EQ(30u, result[1].id);
+    EXPECT_EQ(20u, result[2].id);
+    EXPECT_NEAR(16.0, result[0].score, 1e-5);
+    EXPECT_NEAR(12.0, result[1].score, 1e-5);
+    EXPECT_NEAR(8.0, result[2].score, 1e-5);
+}
+
 TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
     const std::string dataset_dir = data_path_ + ".dataset_dot";
     const std::string config_path = data_path_ + ".dataset_dot.ini";
@@ -258,9 +280,9 @@ TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
     EXPECT_EQ(4u, result[0].id);
     EXPECT_EQ(3u, result[1].id);
     EXPECT_EQ(2u, result[2].id);
-    EXPECT_NEAR(52.48, result[0].dist, 1e-5);
-    EXPECT_NEAR(39.68, result[1].dist, 1e-5);
-    EXPECT_NEAR(26.88, result[2].dist, 1e-5);
+    EXPECT_NEAR(52.48, result[0].score, 1e-5);
+    EXPECT_NEAR(39.68, result[1].score, 1e-5);
+    EXPECT_NEAR(26.88, result[2].score, 1e-5);
 }
 
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
@@ -346,9 +368,9 @@ TEST_F(ScannerTest, FindF32CosStoredCosineValuesHandleZeroVectors) {
     ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code());
     ASSERT_EQ(2u, result.size());
     EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].dist);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
     EXPECT_EQ(20u, result[1].id);
-    EXPECT_DOUBLE_EQ(1.0, result[1].dist);
+    EXPECT_DOUBLE_EQ(1.0, result[1].score);
 }
 
 TEST_F(ScannerTest, FindF32CosStoredAndComputedPathsMatchRanking) {
@@ -496,9 +518,9 @@ TEST_F(ScannerTest, FindDatasetItemsReturnsIdsAndDistancesInOrder) {
     EXPECT_EQ(15u, result[0].id);
     EXPECT_EQ(16u, result[1].id);
     EXPECT_EQ(14u, result[2].id);
-    EXPECT_NEAR(0.4, result[0].dist, 1e-5);
-    EXPECT_NEAR(3.6, result[1].dist, 1e-5);
-    EXPECT_NEAR(4.4, result[2].dist, 1e-5);
+    EXPECT_NEAR(0.4, result[0].score, 1e-5);
+    EXPECT_NEAR(3.6, result[1].score, 1e-5);
+    EXPECT_NEAR(4.4, result[2].score, 1e-5);
 }
 
 TEST_F(ScannerTest, FindDatasetL2Works) {
@@ -775,9 +797,9 @@ TEST_F(ScannerConcurrentTest, FindItemsSpansMultipleReaders) {
     EXPECT_EQ(15u, result[0].id);
     EXPECT_EQ(16u, result[1].id);
     EXPECT_EQ(14u, result[2].id);
-    EXPECT_NEAR(0.4, result[0].dist, 1e-5);
-    EXPECT_NEAR(3.6, result[1].dist, 1e-5);
-    EXPECT_NEAR(4.4, result[2].dist, 1e-5);
+    EXPECT_NEAR(0.4, result[0].score, 1e-5);
+    EXPECT_NEAR(3.6, result[1].score, 1e-5);
+    EXPECT_NEAR(4.4, result[2].score, 1e-5);
 }
 
 // With a pool installed but only one reader, scan_dataset_heap_custom must

@@ -235,9 +235,9 @@ TEST_F(ScannerExTest, FindItemsF32DOTReturnsIdsAndDistances) {
     EXPECT_EQ(4u, result[0].id);
     EXPECT_EQ(3u, result[1].id);
     EXPECT_EQ(2u, result[2].id);
-    EXPECT_NEAR(52.48, result[0].dist, 1e-4);
-    EXPECT_NEAR(39.68, result[1].dist, 1e-4);
-    EXPECT_NEAR(26.88, result[2].dist, 1e-4);
+    EXPECT_NEAR(52.48, result[0].score, 1e-4);
+    EXPECT_NEAR(39.68, result[1].score, 1e-4);
+    EXPECT_NEAR(26.88, result[2].score, 1e-4);
 }
 
 // ---------------------------------------------------------------------------

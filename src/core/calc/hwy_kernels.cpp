@@ -96,23 +96,13 @@ double DistDOTF16(const uint8_t* a, const uint8_t* b, size_t dim) {
 double DistDOTI16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = AsElements<int16_t>(a);
     const int16_t* vb = AsElements<int16_t>(b);
-    const hn::ScalableTag<int32_t> di32;
-    const hn::ScalableTag<float> df;
-    const size_t N = hn::Lanes(di32);
-    auto acc = hn::Zero(df);
-    size_t i = 0;
-    for (; i + N <= dim; i += N) {
-        const auto av = LoadI16AsI32(di32, a + i * 2);
-        const auto bv = LoadI16AsI32(di32, b + i * 2);
-        const auto av_f = hn::ConvertTo(df, av);
-        const auto bv_f = hn::ConvertTo(df, bv);
-        acc = hn::MulAdd(av_f, bv_f, acc);
+    // Keep i16 DOT exact by accumulating in int64.
+    // Float-lane accumulation can lose precision for larger products/sums.
+    int64_t sum = 0;
+    for (size_t i = 0; i < dim; ++i) {
+        sum += static_cast<int64_t>(va[i]) * static_cast<int64_t>(vb[i]);
     }
-    double sum = hn::ReduceSum(df, acc);
-    for (; i < dim; ++i) {
-        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
-    }
-    return sum;
+    return static_cast<double>(sum);
 }
 
 // ---------------------------------------------------------------------------

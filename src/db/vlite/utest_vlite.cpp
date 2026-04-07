@@ -252,9 +252,9 @@ TEST_F(VliteTest, ReturnsKnnIdsAndDistancesForDOTDataset) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '15.2, 15.2, 15.2, 15.2' AND k = 3 "
-        "ORDER BY distance DESC");
+        "ORDER BY score DESC");
 
     ASSERT_EQ(3u, rows.size());
     EXPECT_EQ(30u, rows[0].first);
@@ -276,9 +276,9 @@ TEST_F(VliteTest, UsesDatasetDistanceFunctionForCosineQueries) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '1.0, 0.0, 0.0, 0.0' AND k = 3 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(3u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -320,9 +320,9 @@ TEST_F(VliteTest, ChildScenario) {
     EXPECT_EQ(expected_engine, loaded_knn_engine_name());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '1.0, 0.0, 0.0, 0.0' AND k = 3 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(3u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -368,9 +368,9 @@ TEST_F(VliteTest, UsesDatasetDistanceFunctionForL2Queries) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '0.0, 0.0, 0.0, 0.0' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(20u, rows[0].first);
@@ -389,9 +389,9 @@ TEST_F(VliteTest, SupportsI16Datasets) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10, 10, 10, 10' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -410,9 +410,9 @@ TEST_F(VliteTest, SupportsF16Datasets) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -432,9 +432,9 @@ TEST_F(VliteTest, SupportsMatchOperator) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query MATCH '1.0, 0.0, 0.0, 0.0' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -458,7 +458,7 @@ TEST_F(VliteTest, PushesLimitIntoImplicitKWithoutChangingVisibleK) {
         db.get(),
         "SELECT id, k FROM nn "
         "WHERE query MATCH '15.2, 15.2, 15.2, 15.2' "
-        "ORDER BY distance DESC LIMIT 2 OFFSET 1",
+        "ORDER BY score DESC LIMIT 2 OFFSET 1",
         -1, &stmt, nullptr));
 
     std::vector<std::pair<uint64_t, sqlite3_int64>> rows;
@@ -498,7 +498,7 @@ TEST_F(VliteTest, ExplicitKRemainsVisibleWhenLimitPushdownApplies) {
         db.get(),
         "SELECT id, k FROM nn "
         "WHERE query = '15.2, 15.2, 15.2, 15.2' AND k = 100 "
-        "ORDER BY distance LIMIT 1",
+        "ORDER BY score LIMIT 1",
         -1, &stmt, nullptr));
 
     ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt));
@@ -519,9 +519,9 @@ TEST_F(VliteTest, ReusesCachedDatasetAcrossQueries) {
     create_virtual_table(db.get());
 
     const auto first_rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '11.2, 11.2, 11.2, 11.2' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
     ASSERT_EQ(2u, first_rows.size());
     EXPECT_EQ(11u, first_rows[0].first);
     EXPECT_EQ(12u, first_rows[1].first);
@@ -529,9 +529,9 @@ TEST_F(VliteTest, ReusesCachedDatasetAcrossQueries) {
     ASSERT_TRUE(fs::remove(ini_path_));
 
     const auto second_rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10.2, 10.2, 10.2, 10.2' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
     ASSERT_EQ(2u, second_rows.size());
     EXPECT_EQ(10u, second_rows[0].first);
     EXPECT_EQ(11u, second_rows[1].first);
@@ -548,9 +548,9 @@ TEST_F(VliteTest, LargeKReturnsAllAvailableRows) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 100 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(3u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -568,9 +568,9 @@ TEST_F(VliteTest, LimitZeroReturnsNoRows) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10.0, 10.0, 10.0, 10.0' "
-        "ORDER BY distance LIMIT 0");
+        "ORDER BY score LIMIT 0");
 
     EXPECT_TRUE(rows.empty());
 }
@@ -671,7 +671,7 @@ TEST_F(VliteTest, RejectsIdsOutsideSqliteIntegerRange) {
         db.get(),
         "SELECT id FROM nn "
         "WHERE query = '1.0, 1.0, 1.0, 1.0' AND k = 1 "
-        "ORDER BY distance",
+        "ORDER BY score",
         -1, &stmt, nullptr));
 
     const int rc = sqlite3_step(stmt);
@@ -690,9 +690,9 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF32L2Dataset) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '0.0 0.0 0.0 0.0' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(20u, rows[0].first);
@@ -711,9 +711,9 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10 10 10 10' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -732,9 +732,9 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF16Dataset) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10.0 10.0 10.0 10.0' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -754,9 +754,9 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksWithMatchOperator) {
     create_virtual_table(db.get());
 
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query MATCH '1.0 0.0 0.0 0.0' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -775,9 +775,9 @@ TEST_F(VliteTest, AtPrefixLoadsVectorFromCommaDelimitedFile) {
 
     const std::string query_path = "@" + (root_ / "query.txt").string();
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '" + query_path + "' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(20u, rows[0].first);
@@ -798,9 +798,9 @@ TEST_F(VliteTest, AtPrefixLoadsVectorFromSpaceDelimitedFile) {
 
     const std::string query_path = "@" + (root_ / "query.txt").string();
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '" + query_path + "' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(20u, rows[0].first);
@@ -821,9 +821,9 @@ TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
 
     const std::string query_path = "@" + (root_ / "query.txt").string();
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '" + query_path + "' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -844,9 +844,9 @@ TEST_F(VliteTest, AtPrefixWorksWithF16Dataset) {
 
     const std::string query_path = "@" + (root_ / "query.txt").string();
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '" + query_path + "' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -868,9 +868,9 @@ TEST_F(VliteTest, AtPrefixWorksWithMatchOperator) {
 
     const std::string query_path = "@" + (root_ / "query.txt").string();
     const auto rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query MATCH '" + query_path + "' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(10u, rows[0].first);
@@ -968,15 +968,15 @@ TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
     create_virtual_table(db.get());
 
     const auto baseline_rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1' AND k = 3 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     const auto filtered_rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1' AND k = 3 "
         "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 0 AS id)) "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(3u, baseline_rows.size());
     ASSERT_EQ(1u, filtered_rows.size());
@@ -993,15 +993,15 @@ TEST_F(VliteTest, AllowedIdsNullIsTreatedAsNoFilter) {
     create_virtual_table(db.get());
 
     const auto baseline_rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     const auto null_rows = query_results(db.get(),
-        "SELECT id, distance FROM nn "
+        "SELECT id, score FROM nn "
         "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
         "AND allowed_ids = (SELECT CAST(NULL AS BLOB)) "
-        "ORDER BY distance");
+        "ORDER BY score");
 
     ASSERT_EQ(baseline_rows.size(), null_rows.size());
     for (size_t i = 0; i < baseline_rows.size(); ++i) {

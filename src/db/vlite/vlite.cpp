@@ -33,7 +33,7 @@ enum VliteColumn {
     kColumnK = 2,
     kColumnAllowedIds = 3,
     kColumnId = 4,
-    kColumnDistance = 5,
+    kColumnScore = 5,
 };
 
 enum VliteConstraintBit {
@@ -51,7 +51,7 @@ constexpr const char* kVliteSchemaWithAllowedIds =
     "k INTEGER HIDDEN, "
     "allowed_ids BLOB HIDDEN, "
     "id INTEGER, "
-    "distance REAL)";
+    "score REAL)";
 
 // Removes the outer quoting syntax SQLite may preserve in module arguments so
 // the dataset path can be passed to Dataset::init verbatim.
@@ -166,12 +166,12 @@ bool use_calc_engine() {
     return kind == sketch2::ComputeBackendKind::highway || kind == sketch2::ComputeBackendKind::nk;
 }
 
-bool consumes_order_by_distance(const sketch2::DatasetReader& dataset, const sqlite3_index_info& index_info) {
-    if (index_info.nOrderBy != 1 || index_info.aOrderBy[0].iColumn != kColumnDistance) {
+bool consumes_order_by_score(const sketch2::DatasetReader& dataset, const sqlite3_index_info& index_info) {
+    if (index_info.nOrderBy != 1 || index_info.aOrderBy[0].iColumn != kColumnScore) {
         return false;
     }
     const bool desc = index_info.aOrderBy[0].desc != 0;
-    return sketch2::smaller_distance_is_better(dataset.dist_func()) ? !desc : desc;
+    return sketch2::smaller_score_is_better(dataset.dist_func()) ? !desc : desc;
 }
 
 sketch2::CalcEngine selected_calc_engine() {
@@ -486,7 +486,7 @@ int vlite_best_index(sqlite3_vtab* tab, sqlite3_index_info* index_info) {
         index_info->estimatedRows = (idx_num & (kConstraintK | kConstraintLimit)) ? 10 : 1000;
         auto* vlite_vtab = static_cast<VliteVTab*>(tab);
         if (vlite_vtab != nullptr && vlite_vtab->dataset &&
-                consumes_order_by_distance(*vlite_vtab->dataset, *index_info)) {
+                consumes_order_by_score(*vlite_vtab->dataset, *index_info)) {
             index_info->orderByConsumed = 1;
         }
         return SQLITE_OK;
@@ -740,8 +740,8 @@ int vlite_column(sqlite3_vtab_cursor* cursor, sqlite3_context* context, int colu
                 sqlite3_result_int64(context, static_cast<sqlite3_int64>(row.id));
                 break;
             }
-            case kColumnDistance:
-                sqlite3_result_double(context, row.dist);
+            case kColumnScore:
+                sqlite3_result_double(context, row.score);
                 break;
             default:
                 sqlite3_result_null(context);

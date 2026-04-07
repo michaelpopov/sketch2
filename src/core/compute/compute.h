@@ -1,4 +1,4 @@
-// Defines common distance-result types and the base compute interface.
+// Defines common ranked-result types and the base compute interface.
 
 #pragma once
 #include "utils/shared_types.h"
@@ -10,10 +10,10 @@ namespace sketch2 {
 
 struct DistItem {
     uint64_t id;
-    double   dist;
+    double   score;
 };
 
-inline bool smaller_distance_is_better(DistFunc func) {
+inline bool smaller_score_is_better(DistFunc func) {
     switch (func) {
         case DistFunc::DOT:
             return false;
@@ -21,13 +21,13 @@ inline bool smaller_distance_is_better(DistFunc func) {
         case DistFunc::COS:
             return true;
         default:
-            throw std::runtime_error("smaller_distance_is_better: unsupported distance function");
+            throw std::runtime_error("smaller_score_is_better: unsupported distance function");
     }
 }
 
 inline bool dist_item_is_better(DistFunc func, const DistItem& a, const DistItem& b) {
-    if (a.dist != b.dist) {
-        return smaller_distance_is_better(func) ? (a.dist < b.dist) : (a.dist > b.dist);
+    if (a.score != b.score) {
+        return smaller_score_is_better(func) ? (a.score < b.score) : (a.score > b.score);
     }
     return a.id < b.id;
 }

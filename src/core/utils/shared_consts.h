@@ -71,7 +71,7 @@ inline constexpr char kVliteModuleName[] = "vlite";
 
 // SQLite virtual table schema declared during vlite module connect/create.
 inline constexpr char kVliteSchema[] =
-    "CREATE TABLE x(query TEXT HIDDEN, k INTEGER HIDDEN, id INTEGER, distance REAL)";
+    "CREATE TABLE x(query TEXT HIDDEN, k INTEGER HIDDEN, id INTEGER, score REAL)";
 
 // Number of items in the input block.
 inline constexpr size_t kIndexedBinaryBlockItems = sizeof(uint64_t) * 8;

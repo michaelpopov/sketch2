@@ -1,4 +1,4 @@
-// Declares the calc-engine-backed nearest-neighbor scanner API.
+// Declares the calc-engine-backed top-k scanner API.
 
 #pragma once
 #include "core/calc/calc_engine.h"
@@ -14,8 +14,8 @@ class DatasetReader;
 
 const char* calc_engine_name(CalcEngine engine);
 
-// ScannerEx provides the same top-k nearest-neighbor search as Scanner but
-// delegates distance computation to the calc engine layer instead of the
+// ScannerEx provides the same top-k search as Scanner but delegates metric
+// score computation to the calc engine layer instead of the
 // Singleton-dispatched hand-written SIMD kernels.
 class ScannerEx {
 public:

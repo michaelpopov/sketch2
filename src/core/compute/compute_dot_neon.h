@@ -2,6 +2,7 @@
 
 #pragma once
 #include "core/compute/compute.h"
+#include "core/compute/compute_neon_utils.h"
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -23,6 +24,11 @@ public:
 };
 
 #if defined(__aarch64__)
+
+inline void accumulate_mul_i32_as_i64_dot(int32x4_t a, int32x4_t b, int64x2_t* acc0, int64x2_t* acc1) {
+    *acc0 = vaddq_s64(*acc0, vmull_s32(vget_low_s32(a), vget_low_s32(b)));
+    *acc1 = vaddq_s64(*acc1, vmull_s32(vget_high_s32(a), vget_high_s32(b)));
+}
 
 inline double ComputeDOT_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
     const float *va = reinterpret_cast<const float *>(a);
@@ -87,18 +93,26 @@ inline double ComputeDOT_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size
 inline double ComputeDOT_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size_t dim) {
     const int16_t *va = reinterpret_cast<const int16_t *>(a);
     const int16_t *vb = reinterpret_cast<const int16_t *>(b);
-    int32x4_t acc = vdupq_n_s32(0);
+    int64x2_t acc0 = vdupq_n_s64(0);
+    int64x2_t acc1 = vdupq_n_s64(0);
+    int64x2_t acc2 = vdupq_n_s64(0);
+    int64x2_t acc3 = vdupq_n_s64(0);
 
     size_t i = 0;
     const size_t simd8_end = dim & ~static_cast<size_t>(7);
     for (; i < simd8_end; i += 8) {
-        int16x8_t a8 = vld1q_s16(va + i);
-        int16x8_t b8 = vld1q_s16(vb + i);
-        acc = vmlal_s16(acc, vget_low_s16(a8), vget_low_s16(b8));
-        acc = vmlal_s16(acc, vget_high_s16(a8), vget_high_s16(b8));
+        const int16x8_t a8 = vld1q_s16(va + i);
+        const int16x8_t b8 = vld1q_s16(vb + i);
+        const int32x4_t a_lo = vmovl_s16(vget_low_s16(a8));
+        const int32x4_t a_hi = vmovl_s16(vget_high_s16(a8));
+        const int32x4_t b_lo = vmovl_s16(vget_low_s16(b8));
+        const int32x4_t b_hi = vmovl_s16(vget_high_s16(b8));
+
+        accumulate_mul_i32_as_i64_dot(a_lo, b_lo, &acc0, &acc1);
+        accumulate_mul_i32_as_i64_dot(a_hi, b_hi, &acc2, &acc3);
     }
 
-    int64_t total_sum = static_cast<int64_t>(vaddvq_s32(acc));
+    int64_t total_sum = hsum_s64x2(acc0) + hsum_s64x2(acc1) + hsum_s64x2(acc2) + hsum_s64x2(acc3);
 
     for (; i < dim; ++i) {
         total_sum += static_cast<int64_t>(va[i]) * static_cast<int64_t>(vb[i]);
