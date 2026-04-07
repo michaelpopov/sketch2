@@ -239,14 +239,14 @@ protected:
     }
 };
 
-TEST_F(VliteTest, ReturnsKnnIdsAndDistancesForL1Dataset) {
+TEST_F(VliteTest, ReturnsKnnIdsAndDistancesForDOTDataset) {
     write_input("f32,4\n"
                 "0 : [ 0.1, 0.1, 0.1, 0.1 ]\n"
                 "14 : [ 14.1, 14.1, 14.1, 14.1 ]\n"
                 "15 : [ 15.1, 15.1, 15.1, 15.1 ]\n"
                 "16 : [ 16.1, 16.1, 16.1, 16.1 ]\n"
                 "30 : [ 30.1, 30.1, 30.1, 30.1 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -383,7 +383,7 @@ TEST_F(VliteTest, SupportsI16Datasets) {
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");
-    create_dataset(DataType::i16, 4, 100, DistFunc::L1);
+    create_dataset(DataType::i16, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -404,7 +404,7 @@ TEST_F(VliteTest, SupportsF16Datasets) {
     write_input("f16,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "20 : [ 11.0, 11.0, 11.0, 11.0 ]\n");
-    create_dataset(DataType::f16, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f16, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -448,7 +448,7 @@ TEST_F(VliteTest, PushesLimitIntoImplicitKWithoutChangingVisibleK) {
                 "15 : [ 15.1, 15.1, 15.1, 15.1 ]\n"
                 "16 : [ 16.1, 16.1, 16.1, 16.1 ]\n"
                 "30 : [ 30.1, 30.1, 30.1, 30.1 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -488,7 +488,7 @@ TEST_F(VliteTest, ExplicitKRemainsVisibleWhenLimitPushdownApplies) {
                 "15 : [ 15.1, 15.1, 15.1, 15.1 ]\n"
                 "16 : [ 16.1, 16.1, 16.1, 16.1 ]\n"
                 "30 : [ 30.1, 30.1, 30.1, 30.1 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -513,7 +513,7 @@ TEST_F(VliteTest, ReusesCachedDatasetAcrossQueries) {
                 "10 : [ 10.1, 10.1, 10.1, 10.1 ]\n"
                 "11 : [ 11.1, 11.1, 11.1, 11.1 ]\n"
                 "12 : [ 12.1, 12.1, 12.1, 12.1 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -542,7 +542,7 @@ TEST_F(VliteTest, LargeKReturnsAllAvailableRows) {
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n"
                 "12 : [ 12.0, 12.0, 12.0, 12.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -562,7 +562,7 @@ TEST_F(VliteTest, LimitZeroReturnsNoRows) {
     write_input("f32,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -578,7 +578,7 @@ TEST_F(VliteTest, LimitZeroReturnsNoRows) {
 TEST_F(VliteTest, FailsWithoutQueryConstraint) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -596,7 +596,7 @@ TEST_F(VliteTest, FailsWithoutQueryConstraint) {
 TEST_F(VliteTest, RejectsZeroK) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -609,7 +609,7 @@ TEST_F(VliteTest, RejectsZeroK) {
 TEST_F(VliteTest, RejectsNegativeK) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -622,7 +622,7 @@ TEST_F(VliteTest, RejectsNegativeK) {
 TEST_F(VliteTest, RejectsEmptyQueryString) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -635,7 +635,7 @@ TEST_F(VliteTest, RejectsEmptyQueryString) {
 TEST_F(VliteTest, RejectsWrongDimensionQueryVector) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -648,7 +648,7 @@ TEST_F(VliteTest, RejectsWrongDimensionQueryVector) {
 TEST_F(VliteTest, RejectsMalformedQueryVectorText) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -661,7 +661,7 @@ TEST_F(VliteTest, RejectsMalformedQueryVectorText) {
 TEST_F(VliteTest, RejectsIdsOutsideSqliteIntegerRange) {
     const uint64_t large_id = static_cast<uint64_t>(std::numeric_limits<sqlite3_int64>::max()) + 1u;
     write_input("f32,4\n" + std::to_string(large_id) + " : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -705,7 +705,7 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");
-    create_dataset(DataType::i16, 4, 100, DistFunc::L1);
+    create_dataset(DataType::i16, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -726,7 +726,7 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF16Dataset) {
     write_input("f16,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "20 : [ 11.0, 11.0, 11.0, 11.0 ]\n");
-    create_dataset(DataType::f16, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f16, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -813,7 +813,7 @@ TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");
-    create_dataset(DataType::i16, 4, 100, DistFunc::L1);
+    create_dataset(DataType::i16, 4, 100, DistFunc::DOT);
     write_query_file("query.txt", "10, 10, 10, 10\n");
 
     SqliteDbPtr db = open_db_with_extension();
@@ -836,7 +836,7 @@ TEST_F(VliteTest, AtPrefixWorksWithF16Dataset) {
     write_input("f16,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "20 : [ 11.0, 11.0, 11.0, 11.0 ]\n");
-    create_dataset(DataType::f16, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f16, 4, 100, DistFunc::DOT);
     write_query_file("query.txt", "10.0, 10.0, 10.0, 10.0\n");
 
     SqliteDbPtr db = open_db_with_extension();
@@ -880,7 +880,7 @@ TEST_F(VliteTest, AtPrefixWorksWithMatchOperator) {
 TEST_F(VliteTest, AtPrefixNonExistentFileReturnsError) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -894,7 +894,7 @@ TEST_F(VliteTest, AtPrefixNonExistentFileReturnsError) {
 TEST_F(VliteTest, AtPrefixWrongDimensionFileReturnsError) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
     write_query_file("query.txt", "1.0, 1.0, 1.0\n");
 
     SqliteDbPtr db = open_db_with_extension();
@@ -909,7 +909,7 @@ TEST_F(VliteTest, AtPrefixWrongDimensionFileReturnsError) {
 TEST_F(VliteTest, AtPrefixMalformedVectorFileReturnsError) {
     write_input("f32,4\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
     write_query_file("query.txt", "1.0, nope, 1.0, 1.0\n");
 
     SqliteDbPtr db = open_db_with_extension();
@@ -962,7 +962,7 @@ TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
                 "0 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
                 "2 : [ 2.0, 2.0, 2.0, 2.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -987,7 +987,7 @@ TEST_F(VliteTest, AllowedIdsNullIsTreatedAsNoFilter) {
     write_input("f32,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "20 : [ 20.0, 20.0, 20.0, 20.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -1013,7 +1013,7 @@ TEST_F(VliteTest, AllowedIdsNullIsTreatedAsNoFilter) {
 TEST_F(VliteTest, AllowedIdsRejectsNonBlobValues) {
     write_input("f32,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n");
-    create_dataset(DataType::f32, 4, 100, DistFunc::L1);
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());

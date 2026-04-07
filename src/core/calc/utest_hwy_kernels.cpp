@@ -11,42 +11,42 @@ using namespace sketch2;
 using namespace sketch2::test;
 
 // ---------------------------------------------------------------------------
-// L1 tests
+// DOT tests
 // ---------------------------------------------------------------------------
 
-TEST(HwyKernelsTest, L1F32MatchesReference) {
+TEST(HwyKernelsTest, DOTF32MatchesReference) {
     for (size_t dim : {1, 3, 7, 15, 17, 33, 100, 128, 257}) {
         auto ba = make_buffer<float>(dim, 0);
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_dot(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::L1, DataType::f32);
+        const CalcKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::f32);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-4) << "dim=" << dim;
     }
 }
 
-TEST(HwyKernelsTest, L1F16MatchesReference) {
+TEST(HwyKernelsTest, DOTF16MatchesReference) {
     for (size_t dim : {1, 3, 7, 15, 17, 33, 100, 128, 257}) {
         auto ba = make_buffer<float16>(dim, 0);
         auto bb = make_buffer<float16>(dim, 0);
         fill_f16(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_dot(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::L1, DataType::f16);
+        const CalcKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::f16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-1) << "dim=" << dim;
     }
 }
 
-TEST(HwyKernelsTest, L1I16MatchesReference) {
+TEST(HwyKernelsTest, DOTI16MatchesReference) {
     for (size_t dim : {1, 3, 7, 15, 17, 33, 100, 128, 257}) {
         auto ba = make_buffer<int16_t>(dim, 0);
         auto bb = make_buffer<int16_t>(dim, 0);
         fill_i16(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_dot(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::L1, DataType::i16);
+        const CalcKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::i16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_DOUBLE_EQ(expected, got) << "dim=" << dim;
@@ -186,7 +186,7 @@ TEST(HwyKernelsTest, CosDistWithQueryNormF32MatchesReference) {
 // ---------------------------------------------------------------------------
 
 TEST(HwyKernelsTest, ResolveCalcKernelsReturnsNonNull) {
-    for (DistFunc func : {DistFunc::L1, DistFunc::L2, DistFunc::COS}) {
+    for (DistFunc func : {DistFunc::DOT, DistFunc::L2, DistFunc::COS}) {
         for (DataType type : {DataType::f32, DataType::f16, DataType::i16}) {
             const CalcKernels k = resolve_calc_kernels(CalcEngine::highway, func, type);
             ASSERT_NE(k.dist, nullptr) << "func=" << static_cast<int>(func)

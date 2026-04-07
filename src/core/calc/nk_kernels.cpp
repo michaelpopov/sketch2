@@ -1,8 +1,9 @@
-// NumKong-backed distance kernels for L2, Cosine, and Dot-product metrics.
+// NumKong-backed distance kernels for DOT, L2, and Cosine metrics.
 //
-// NumKong provides optimized f32 and f16 implementations for squared Euclidean,
-// angular (cosine), and dot-product distances.  For metric/type combinations it
-// does not cover (L1, all i16 variants) the resolver falls back to Highway.
+// NumKong provides optimized f32 and f16 implementations for dot-product,
+// squared Euclidean, and angular (cosine) distances.  For metric/type
+// combinations it does not cover (all i16 variants) the resolver falls back
+// to Highway.
 
 #include "core/calc/nk_kernels.h"
 #include "core/calc/cosine_distance.h"
@@ -103,8 +104,8 @@ inline void fused_dot_and_squared_norm<nk_f32_t, nk_f64_t>(const nk_f32_t* a, co
 }
 #endif
 
-bool is_nk_supported(DistFunc func, DataType type) {
-    return func != DistFunc::L1 && type != DataType::i16;
+bool is_nk_supported(DataType type) {
+    return type != DataType::i16;
 }
 
 nk_capability_t init_thread_capabilities() {
@@ -451,7 +452,7 @@ uint64_t nk_calc_available_capabilities() {
 
 const char* nk_calc_backend_name_for_capabilities(DistFunc func, DataType type, uint64_t capabilities) {
     const nk_capability_t caps = static_cast<nk_capability_t>(capabilities);
-    if (!is_nk_supported(func, type)) {
+    if (!is_nk_supported(type)) {
         return "highway";
     }
     switch (func) {
@@ -467,7 +468,12 @@ const char* nk_calc_backend_name_for_capabilities(DistFunc func, DataType type, 
                 case DataType::f16: return resolve_cos_f16_backend(caps).backend;
                 default: return "highway";
             }
-        case DistFunc::L1:
+        case DistFunc::DOT:
+            switch (type) {
+                case DataType::f32: return resolve_dot_f32_backend(caps).backend;
+                case DataType::f16: return resolve_dot_f16_backend(caps).backend;
+                default: return "highway";
+            }
         default:
             return "highway";
     }
@@ -482,14 +488,22 @@ const char* nk_calc_backend_name(DistFunc func, DataType type) {
 // ---------------------------------------------------------------------------
 
 CalcKernels resolve_nk_kernels(DistFunc func, DataType type) {
-    // NumKong covers L2 and COS for f32/f16.
-    // L1 and all i16 variants fall back to Highway.
-    if (func == DistFunc::L1 || type == DataType::i16) {
+    // NumKong covers DOT, L2, and COS for f32/f16.
+    // All i16 variants fall back to Highway.
+    if (type == DataType::i16) {
         return resolve_hwy_kernels(func, type);
     }
 
     CalcKernels k;
     switch (func) {
+        case DistFunc::DOT:
+            switch (type) {
+                case DataType::f32: k.dist = &nk_dot_product_f32; break;
+                case DataType::f16: k.dist = &nk_dot_product_f16; break;
+                default:
+                    throw std::runtime_error("resolve_nk_kernels: unsupported DataType for DOT.");
+            }
+            break;
         case DistFunc::L2:
             switch (type) {
                 case DataType::f32: k.dist = &nk_dist_l2_f32; break;

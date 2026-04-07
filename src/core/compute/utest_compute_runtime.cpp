@@ -30,9 +30,9 @@ private:
 
 template <typename Backend>
 void expect_dot_resolvers() {
-    EXPECT_EQ(&Backend::dist_f32, ComputeL1::resolve_dist(DataType::f32));
-    EXPECT_EQ(&Backend::dist_f16, ComputeL1::resolve_dist(DataType::f16));
-    EXPECT_EQ(&Backend::dist_i16, ComputeL1::resolve_dist(DataType::i16));
+    EXPECT_EQ(&Backend::dist_f32, ComputeDOT::resolve_dist(DataType::f32));
+    EXPECT_EQ(&Backend::dist_f16, ComputeDOT::resolve_dist(DataType::f16));
+    EXPECT_EQ(&Backend::dist_i16, ComputeDOT::resolve_dist(DataType::i16));
 }
 
 template <typename Backend>
@@ -64,7 +64,7 @@ void expect_cos_resolvers() {
 TEST(ComputeRuntimeTest, ForcedScalarBackendUsesScalarResolvers) {
     ComputeUnitOverrideGuard guard(ComputeBackendKind::scalar);
 
-    expect_dot_resolvers<ComputeL1>();
+    expect_dot_resolvers<ComputeDOT>();
     expect_l2_resolvers<ComputeL2>();
     expect_cos_resolvers<ComputeCos>();
 }
@@ -87,7 +87,7 @@ TEST(ComputeRuntimeTest, ForcedAvx2BackendUsesAvx2Resolvers) {
 
     ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
 
-    expect_dot_resolvers<ComputeL1_AVX2>();
+    expect_dot_resolvers<ComputeDOT_AVX2>();
     expect_l2_resolvers<ComputeL2_AVX2>();
     expect_cos_resolvers<ComputeCos_AVX2>();
 }
@@ -101,7 +101,7 @@ TEST(ComputeRuntimeTest, ForcedAvx512BackendUsesAvx512Resolvers) {
 
     ComputeUnitOverrideGuard guard(ComputeBackendKind::avx512f);
 
-    expect_dot_resolvers<ComputeL1_AVX512>();
+    expect_dot_resolvers<ComputeDOT_AVX512>();
     expect_l2_resolvers<ComputeL2_AVX512>();
     expect_cos_resolvers<ComputeCos_AVX512>();
 }
@@ -115,7 +115,7 @@ TEST(ComputeRuntimeTest, ForcedAvx512VnniBackendUsesAvx512VnniResolvers) {
 
     ComputeUnitOverrideGuard guard(ComputeBackendKind::avx512_vnni);
 
-    expect_dot_resolvers<ComputeL1_AVX512_VNNI>();
+    expect_dot_resolvers<ComputeDOT_AVX512_VNNI>();
     expect_l2_resolvers<ComputeL2_AVX512_VNNI>();
     expect_cos_resolvers<ComputeCos_AVX512_VNNI>();
 }

@@ -113,7 +113,7 @@ int main() {
               << " repeats=" << kRepeats
               << '\n';
 
-    ComputeL1 dot;
+    ComputeDOT dot;
     ComputeL2 l2;
     ComputeCos cos;
 

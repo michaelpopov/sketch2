@@ -1,4 +1,4 @@
-// Highway-backed distance kernels for L1, L2, and Cosine metrics.
+// Highway-backed distance kernels for DOT, L2, and Cosine metrics.
 // Uses the foreach_target pattern for automatic multi-target compilation
 // and runtime dispatch.
 
@@ -51,10 +51,10 @@ HWY_INLINE hn::VFromD<DI32> LoadI16AsI32(DI32 di32, const uint8_t* ptr) {
 }
 
 // ---------------------------------------------------------------------------
-// L1 distance (Manhattan)
+// DOT distance (Manhattan)
 // ---------------------------------------------------------------------------
 
-double DistL1F32(const uint8_t* a, const uint8_t* b, size_t dim) {
+double DistDOTF32(const uint8_t* a, const uint8_t* b, size_t dim) {
     const float* va = AsElements<float>(a);
     const float* vb = AsElements<float>(b);
     const hn::ScalableTag<float> df;
@@ -64,16 +64,16 @@ double DistL1F32(const uint8_t* a, const uint8_t* b, size_t dim) {
     for (; i + N <= dim; i += N) {
         const auto av = hn::LoadU(df, va + i);
         const auto bv = hn::LoadU(df, vb + i);
-        acc = hn::Add(acc, hn::Abs(hn::Sub(av, bv)));
+        acc = hn::MulAdd(av, bv, acc);
     }
     double sum = hn::ReduceSum(df, acc);
     for (; i < dim; ++i) {
-        sum += std::abs(static_cast<double>(va[i]) - static_cast<double>(vb[i]));
+        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
 }
 
-double DistL1F16(const uint8_t* a, const uint8_t* b, size_t dim) {
+double DistDOTF16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto acc = hn::Zero(df);
@@ -81,35 +81,36 @@ double DistL1F16(const uint8_t* a, const uint8_t* b, size_t dim) {
     for (; i + N <= dim; i += N) {
         const auto av = LoadF16AsF32(df, a + i * 2);
         const auto bv = LoadF16AsF32(df, b + i * 2);
-        acc = hn::Add(acc, hn::Abs(hn::Sub(av, bv)));
+        acc = hn::MulAdd(av, bv, acc);
     }
     double sum = hn::ReduceSum(df, acc);
     // Scalar tail
     const auto* va = AsElements<hwy::float16_t>(a);
     const auto* vb = AsElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
-        sum += std::abs(static_cast<double>(va[i]) - static_cast<double>(vb[i]));
+        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
 }
 
-double DistL1I16(const uint8_t* a, const uint8_t* b, size_t dim) {
+double DistDOTI16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = AsElements<int16_t>(a);
     const int16_t* vb = AsElements<int16_t>(b);
     const hn::ScalableTag<int32_t> di32;
-    const size_t N = hn::Lanes(di32);
     const hn::ScalableTag<float> df;
+    const size_t N = hn::Lanes(di32);
     auto acc = hn::Zero(df);
     size_t i = 0;
     for (; i + N <= dim; i += N) {
         const auto av = LoadI16AsI32(di32, a + i * 2);
         const auto bv = LoadI16AsI32(di32, b + i * 2);
-        const auto diff = hn::Abs(hn::Sub(av, bv));
-        acc = hn::Add(acc, hn::ConvertTo(df, diff));
+        const auto av_f = hn::ConvertTo(df, av);
+        const auto bv_f = hn::ConvertTo(df, bv);
+        acc = hn::MulAdd(av_f, bv_f, acc);
     }
     double sum = hn::ReduceSum(df, acc);
     for (; i < dim; ++i) {
-        sum += std::abs(static_cast<double>(va[i]) - static_cast<double>(vb[i]));
+        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
 }
@@ -497,10 +498,10 @@ HWY_AFTER_NAMESPACE();
 
 namespace sketch2 {
 
-// L1
-HWY_EXPORT(DistL1F32);
-HWY_EXPORT(DistL1F16);
-HWY_EXPORT(DistL1I16);
+// DOT
+HWY_EXPORT(DistDOTF32);
+HWY_EXPORT(DistDOTF16);
+HWY_EXPORT(DistDOTI16);
 // L2
 HWY_EXPORT(DistL2F32);
 HWY_EXPORT(DistL2F16);
@@ -525,13 +526,13 @@ HWY_EXPORT(DistCosWithQueryNormI16);
 // Trampolines: each calls HWY_DYNAMIC_DISPATCH to pick the best target.
 
 static double hwy_dist_dot_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistL1F32)(a, b, dim);
+    return HWY_DYNAMIC_DISPATCH(DistDOTF32)(a, b, dim);
 }
 static double hwy_dist_dot_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistL1F16)(a, b, dim);
+    return HWY_DYNAMIC_DISPATCH(DistDOTF16)(a, b, dim);
 }
 static double hwy_dist_dot_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistL1I16)(a, b, dim);
+    return HWY_DYNAMIC_DISPATCH(DistDOTI16)(a, b, dim);
 }
 
 static double hwy_dist_l2_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
@@ -591,13 +592,13 @@ static double hwy_dist_cos_qn_i16(const uint8_t* a, const uint8_t* b, size_t dim
 CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
     CalcKernels k;
     switch (func) {
-        case DistFunc::L1:
+        case DistFunc::DOT:
             switch (type) {
                 case DataType::f32: k.dist = &hwy_dist_dot_f32; break;
                 case DataType::f16: k.dist = &hwy_dist_dot_f16; break;
                 case DataType::i16: k.dist = &hwy_dist_dot_i16; break;
                 default:
-                    throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for L1.");
+                    throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for DOT.");
             }
             break;
         case DistFunc::L2:

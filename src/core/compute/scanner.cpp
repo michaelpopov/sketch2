@@ -25,7 +25,7 @@ using DistHeap = std::priority_queue<DistItem, std::vector<DistItem>, DistItem::
 
 const char* dist_func_name(DistFunc func) {
     switch (func) {
-        case DistFunc::L1: return "L1";
+        case DistFunc::DOT: return "DOT";
         case DistFunc::L2: return "L2";
         case DistFunc::COS: return "COS";
         default: return "unknown";
@@ -376,15 +376,15 @@ Ret dispatch_reader_cos(DataType type, const DataReader& reader, size_t count, c
 }
 
 // Backend dispatch stays at this outer layer so scanner hot loops execute
-// entirely within one concrete L1/L2/cosine implementation family.
+// entirely within one concrete DOT/L2/cosine implementation family.
 // Overloads on Dataset vs DataReader select the right metric dispatch path
 // (dataset path handles accumulator shadowing; reader path scans files directly).
-template <typename L1Target, typename L2Target, typename CosTarget>
+template <typename DOTTarget, typename L2Target, typename CosTarget>
 Ret dispatch_with_backend(DataType type, DistFunc func, const DatasetReader& dataset, size_t count,
         const uint8_t* vec, DistHeap* heap, const BitsetFilter* bitset = nullptr) {
     switch (func) {
-        case DistFunc::L1:
-            return dispatch_dataset<L1Target>(type, dataset, count, vec, heap, bitset);
+        case DistFunc::DOT:
+            return dispatch_dataset<DOTTarget>(type, dataset, count, vec, heap, bitset);
         case DistFunc::L2:
             return dispatch_dataset<L2Target>(type, dataset, count, vec, heap, bitset);
         case DistFunc::COS:
@@ -394,13 +394,13 @@ Ret dispatch_with_backend(DataType type, DistFunc func, const DatasetReader& dat
     }
 }
 
-template <typename L1Target, typename L2Target, typename CosTarget>
+template <typename DOTTarget, typename L2Target, typename CosTarget>
 Ret dispatch_with_backend(DataType type, DistFunc func, const DataReader& reader, size_t count,
         const uint8_t* vec, DistHeap* heap, const BitsetFilter* bitset = nullptr) {
     (void)bitset;
     switch (func) {
-        case DistFunc::L1:
-            return dispatch_reader<L1Target>(type, reader, count, vec, heap);
+        case DistFunc::DOT:
+            return dispatch_reader<DOTTarget>(type, reader, count, vec, heap);
         case DistFunc::L2:
             return dispatch_reader<L2Target>(type, reader, count, vec, heap);
         case DistFunc::COS:
@@ -420,27 +420,27 @@ Ret build_heap(const Source& source, DistFunc func, size_t count,
     switch (get_singleton().compute_unit().kind()) {
 #if defined(SKETCH_ENABLE_AVX512VNNI) && SKETCH_ENABLE_AVX512VNNI && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx512_vnni:
-            return dispatch_with_backend<ComputeL1_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
+            return dispatch_with_backend<ComputeDOT_AVX512_VNNI, ComputeL2_AVX512_VNNI, ComputeCos_AVX512_VNNI>(
                 type, func, source, count, vec, heap, bitset);
 #endif
 #if defined(SKETCH_ENABLE_AVX512F) && SKETCH_ENABLE_AVX512F && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx512f:
-            return dispatch_with_backend<ComputeL1_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
+            return dispatch_with_backend<ComputeDOT_AVX512, ComputeL2_AVX512, ComputeCos_AVX512>(
                 type, func, source, count, vec, heap, bitset);
 #endif
 #if defined(SKETCH_ENABLE_AVX2) && SKETCH_ENABLE_AVX2 && (defined(__x86_64__) || defined(__i386__))
         case ComputeBackendKind::avx2:
-            return dispatch_with_backend<ComputeL1_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
+            return dispatch_with_backend<ComputeDOT_AVX2, ComputeL2_AVX2, ComputeCos_AVX2>(
                 type, func, source, count, vec, heap, bitset);
 #endif
 #if defined(__aarch64__)
         case ComputeBackendKind::neon:
-            return dispatch_with_backend<ComputeL1_Neon, ComputeL2_Neon, ComputeCos_Neon>(
+            return dispatch_with_backend<ComputeDOT_Neon, ComputeL2_Neon, ComputeCos_Neon>(
                 type, func, source, count, vec, heap, bitset);
 #endif
         case ComputeBackendKind::scalar:
         default:
-            return dispatch_with_backend<ComputeL1, ComputeL2, ComputeCos>(
+            return dispatch_with_backend<ComputeDOT, ComputeL2, ComputeCos>(
                 type, func, source, count, vec, heap, bitset);
     }
 }

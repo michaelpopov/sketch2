@@ -164,7 +164,7 @@ protected:
 
 TEST_F(ScannerExTest, FindFailsOnCountZero) {
     generate(3, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
@@ -173,19 +173,19 @@ TEST_F(ScannerExTest, FindFailsOnCountZero) {
 
 TEST_F(ScannerExTest, FindFailsOnNullQueryPointer) {
     generate(3, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
     std::vector<uint64_t> result;
     EXPECT_NE(0, s.find(*reader, 1, nullptr, result).code());
 }
 
 // ---------------------------------------------------------------------------
-// L1 metric
+// DOT metric
 // ---------------------------------------------------------------------------
 
-TEST_F(ScannerExTest, FindF32L1K3ReturnsInOrder) {
+TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrder) {
     generate(5, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
@@ -199,7 +199,7 @@ TEST_F(ScannerExTest, FindF32L1K3ReturnsInOrder) {
 TEST_F(ScannerExTest, FindCountExceedsTotalReturnsCapped) {
     const size_t total = 3;
     generate(total, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
@@ -209,7 +209,7 @@ TEST_F(ScannerExTest, FindCountExceedsTotalReturnsCapped) {
 
 TEST_F(ScannerExTest, FindResultSizeMatchesRequest) {
     generate(5, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
@@ -224,9 +224,9 @@ TEST_F(ScannerExTest, FindResultSizeMatchesRequest) {
     EXPECT_EQ(5u, result.size());
 }
 
-TEST_F(ScannerExTest, FindItemsF32L1ReturnsIdsAndDistances) {
+TEST_F(ScannerExTest, FindItemsF32DOTReturnsIdsAndDistances) {
     generate(5, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
     auto q = f32_vec(3.2f, 4);
     std::vector<DistItem> result;
@@ -316,7 +316,7 @@ TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithNumKong) {
 
 TEST_F(ScannerExTest, FindI16AllSortedByDistance) {
     generate(3, 0, DataType::i16, 4);
-    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
@@ -329,7 +329,7 @@ TEST_F(ScannerExTest, FindI16AllSortedByDistance) {
 
 TEST_F(ScannerExTest, FindI16FallsBackToHighwayWhenNumKongRequested) {
     generate(3, 0, DataType::i16, 4);
-    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     ScannerEx s(CalcEngine::numkong);
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
@@ -342,7 +342,7 @@ TEST_F(ScannerExTest, FindI16FallsBackToHighwayWhenNumKongRequested) {
 
 TEST_F(ScannerExTest, FindF16Works) {
     generate(3, 0, DataType::f16, 4);
-    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
     auto q = f16_vec(1.1f, 4);
     std::vector<uint64_t> result;
@@ -378,7 +378,7 @@ TEST_F(ScannerExTest, DeltaSkipsDeletedIds) {
     generate(6, 0, DataType::f32, 4);
     generate_delta(6, 0, DataType::f32, 4, 2);
 
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_, delta_input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_, delta_input_path_});
 
     ScannerEx s;
     auto q = f32_vec(3.2f, 4);
@@ -397,7 +397,7 @@ TEST_F(ScannerExTest, DeltaUsesUpdatedVectors) {
         "f32,4\n"
         "11 : [ 20.0, 20.0, 20.0, 20.0 ]\n");
 
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_, delta_input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_, delta_input_path_});
 
     ScannerEx s;
     auto q = f32_vec(20.0f, 4);

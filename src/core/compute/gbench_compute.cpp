@@ -93,7 +93,7 @@ const char* backend_name(ComputeBackendKind kind) {
 
 const char* metric_name(DistFunc func) {
     switch (func) {
-        case DistFunc::L1: return "L1";
+        case DistFunc::DOT: return "DOT";
         case DistFunc::L2: return "L2";
         case DistFunc::COS: return "COS";
         default: return "unknown";
@@ -196,7 +196,7 @@ ComputeBackendKind backend_from_arg(int64_t arg) {
 
 DistFunc metric_from_arg(int64_t arg) {
     switch (arg) {
-        case 0: return DistFunc::L1;
+        case 0: return DistFunc::DOT;
         case 1: return DistFunc::L2;
         case 2: return DistFunc::COS;
         default: throw std::runtime_error("invalid metric benchmark argument");
@@ -302,7 +302,7 @@ std::vector<uint8_t> make_vector(DataType type, size_t dim, uint64_t seed) {
 
 std::unique_ptr<ICompute> make_compute(DistFunc func) {
     switch (func) {
-        case DistFunc::L1: return std::make_unique<ComputeL1>();
+        case DistFunc::DOT: return std::make_unique<ComputeDOT>();
         case DistFunc::L2: return std::make_unique<ComputeL2>();
         case DistFunc::COS: return std::make_unique<ComputeCos>();
         default: throw std::runtime_error("unsupported metric");

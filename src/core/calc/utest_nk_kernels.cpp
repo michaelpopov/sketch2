@@ -88,19 +88,24 @@ TEST(NumKongKernelsTest, CosHelpersF32MatchReference) {
     }
 }
 
-TEST(NumKongKernelsTest, L1FallsBackToHighway) {
-    for (DataType type : {DataType::f32, DataType::f16, DataType::i16}) {
-        const CalcKernels nk = resolve_nk_kernels(DistFunc::L1, type);
-        const CalcKernels hwy = resolve_hwy_kernels(DistFunc::L1, type);
-        EXPECT_EQ(hwy.dist, nk.dist) << "type=" << static_cast<int>(type);
+TEST(NumKongKernelsTest, DOTUsesNumKongForF32AndF16) {
+    for (DataType type : {DataType::f32, DataType::f16}) {
+        const CalcKernels nk = resolve_nk_kernels(DistFunc::DOT, type);
+        const CalcKernels hwy = resolve_hwy_kernels(DistFunc::DOT, type);
+        EXPECT_NE(nullptr, nk.dist) << "type=" << static_cast<int>(type);
+        EXPECT_NE(hwy.dist, nk.dist) << "type=" << static_cast<int>(type);
         EXPECT_EQ(nullptr, nk.dot);
         EXPECT_EQ(nullptr, nk.squared_norm);
         EXPECT_EQ(nullptr, nk.dist_with_query_norm);
     }
+    // i16 still falls back to Highway
+    const CalcKernels nk_i16 = resolve_nk_kernels(DistFunc::DOT, DataType::i16);
+    const CalcKernels hwy_i16 = resolve_hwy_kernels(DistFunc::DOT, DataType::i16);
+    EXPECT_EQ(hwy_i16.dist, nk_i16.dist);
 }
 
 TEST(NumKongKernelsTest, I16FallsBackToHighwayForAllMetrics) {
-    for (DistFunc func : {DistFunc::L1, DistFunc::L2, DistFunc::COS}) {
+    for (DistFunc func : {DistFunc::DOT, DistFunc::L2, DistFunc::COS}) {
         const CalcKernels nk = resolve_nk_kernels(func, DataType::i16);
         const CalcKernels hwy = resolve_hwy_kernels(func, DataType::i16);
         EXPECT_EQ(hwy.dist, nk.dist) << "func=" << static_cast<int>(func);

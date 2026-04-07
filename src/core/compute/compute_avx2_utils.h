@@ -28,6 +28,13 @@ SKETCH_AVX2_TARGET inline double hsum_epi64_256(__m256i v) {
     return static_cast<double>(lanes[0]) + static_cast<double>(lanes[1]);
 }
 
+// Signed 32-bit values need sign extension before merging into 64-bit accumulators.
+SKETCH_AVX2_TARGET inline void accumulate_i32_as_i64(__m256i v32, __m256i *acc_lo, __m256i *acc_hi) {
+    const __m256i sign = _mm256_srai_epi32(v32, 31);
+    *acc_lo = _mm256_add_epi64(*acc_lo, _mm256_unpacklo_epi32(v32, sign));
+    *acc_hi = _mm256_add_epi64(*acc_hi, _mm256_unpackhi_epi32(v32, sign));
+}
+
 // AVX2 kernels are targeted with FMA, so use fused multiply-add directly.
 SKETCH_AVX2_TARGET inline __m256 fmadd_ps(__m256 a, __m256 b, __m256 acc) {
     return _mm256_fmadd_ps(a, b, acc);

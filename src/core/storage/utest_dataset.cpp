@@ -128,7 +128,7 @@ TEST_F(DatasetTest, StoreProcessesIndependentRangesThroughConfiguredThreadPool) 
     EXPECT_NE(nullptr, get_singleton().thread_pool());
 }
 
-TEST_F(DatasetTest, InitDefaultsDistFuncToL1WhenMissingFromIni) {
+TEST_F(DatasetTest, InitDefaultsDistFuncToDOTWhenMissingFromIni) {
     auto dir = make_dir("d_default_dist");
     write_config(
         std::string("[dataset]\n") +
@@ -139,7 +139,7 @@ TEST_F(DatasetTest, InitDefaultsDistFuncToL1WhenMissingFromIni) {
 
     DatasetNode sc;
     ASSERT_EQ(0, sc.init(config_path_).code());
-    EXPECT_EQ(DistFunc::L1, sc.dist_func());
+    EXPECT_EQ(DistFunc::DOT, sc.dist_func());
 }
 
 TEST_F(DatasetTest, InitFromIniAcceptsCosDistanceFunction) {

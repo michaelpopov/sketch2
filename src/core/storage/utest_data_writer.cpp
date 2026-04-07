@@ -176,7 +176,7 @@ protected:
     }
 
     Ret init_dataset_writer(DatasetWriter* writer, DataType type = DataType::f32, uint64_t dim = 4,
-            uint64_t range_size = 1000, DistFunc dist_func = DistFunc::L1) {
+            uint64_t range_size = 1000, DistFunc dist_func = DistFunc::DOT) {
         DatasetMetadata metadata;
         metadata.dirs = {dataset_dir_};
         metadata.type = type;

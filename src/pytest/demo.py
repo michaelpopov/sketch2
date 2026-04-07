@@ -289,7 +289,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dist-func",
         default="COS",
-        choices=("L1", "L2", "COS"),
+        choices=("DOT", "L2", "COS"),
         help="Distance function used when creating the dataset",
     )
     parser.add_argument(

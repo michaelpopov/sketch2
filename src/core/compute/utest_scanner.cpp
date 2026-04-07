@@ -161,7 +161,7 @@ protected:
 
 TEST_F(ScannerTest, FindFailsOnCountZero) {
     generate(3, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     Scanner s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
@@ -170,7 +170,7 @@ TEST_F(ScannerTest, FindFailsOnCountZero) {
 
 TEST_F(ScannerTest, FindFailsOnNullQueryPointer) {
     generate(3, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     Scanner s;
     std::vector<uint64_t> result;
     EXPECT_NE(0, s.find(*reader, 1, nullptr, result).code());
@@ -187,7 +187,7 @@ TEST_F(ScannerTest, FindFailsOnUnknownFunction) {
 TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {
     const size_t total = 3;
     generate(total, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     Scanner s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
@@ -197,7 +197,7 @@ TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {
 
 TEST_F(ScannerTest, FindResultSizeMatchesRequest) {
     generate(5, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
@@ -214,7 +214,7 @@ TEST_F(ScannerTest, FindResultSizeMatchesRequest) {
 
 TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
     generate(5, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
@@ -236,7 +236,7 @@ TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
 
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 5, 0, DataType::f32, 4, 1000});
     DatasetNode ds;
-    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 1000, DataType::f32, 4, DistFunc::L1).code());
+    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 1000, DataType::f32, 4, DistFunc::DOT).code());
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     write_input_raw(
@@ -377,7 +377,7 @@ TEST_F(ScannerTest, FindF32CosStoredAndComputedPathsMatchRanking) {
 
 TEST_F(ScannerTest, FindI16AllSortedByDistance) {
     generate(3, 0, DataType::i16, 4);
-    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     Scanner s;
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
@@ -390,7 +390,7 @@ TEST_F(ScannerTest, FindI16AllSortedByDistance) {
 
 TEST_F(ScannerTest, FindF16Works) {
     generate(3, 0, DataType::f16, 4);
-    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L1, {input_path_});
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::DOT, {input_path_});
     Scanner s;
     auto q = f16_vec(1.1f, 4);
     std::vector<uint64_t> result;
@@ -403,7 +403,7 @@ TEST_F(ScannerTest, DeltaSkipsDeletedIds) {
     generate(6, 0, DataType::f32, 4);
     generate_delta(6, 0, DataType::f32, 4, 2); // deleted ids: 2,4
 
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_, delta_input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_, delta_input_path_});
 
     Scanner s;
     auto q = f32_vec(3.2f, 4);
@@ -424,7 +424,7 @@ TEST_F(ScannerTest, DeltaDeletingAllVectorsReturnsEmptyResult) {
         "1 : []\n"
         "2 : []\n");
 
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_, delta_input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_, delta_input_path_});
 
     Scanner s;
     auto q = f32_vec(1.1f, 4);
@@ -439,7 +439,7 @@ TEST_F(ScannerTest, DeltaUsesUpdatedVectors) {
         "f32,4\n"
         "11 : [ 20.0, 20.0, 20.0, 20.0 ]\n");
 
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L1, {input_path_, delta_input_path_});
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_, delta_input_path_});
 
     Scanner s;
     auto q = f32_vec(20.0f, 4);
@@ -707,7 +707,7 @@ protected:
     // 1.data in d1, 2.data in d0. That guarantees readers.size() >= 2 so the
     // parallel code path is taken.
     void make_multi_reader_dataset(const std::string& d0, const std::string& d1,
-            DatasetNode& ds, DataType type = DataType::f32, DistFunc func = DistFunc::L1) {
+            DatasetNode& ds, DataType type = DataType::f32, DistFunc func = DistFunc::DOT) {
         fs::create_directories(d0);
         fs::create_directories(d1);
         ASSERT_EQ(0, ds.init_for_test({d0, d1}, 10, type, 4, func).code());
@@ -726,7 +726,7 @@ private:
 
 // Query near the boundary between reader files (id 9 in file 0, id 10 in file 1)
 // so the top-k merge step must combine results from two different workers.
-TEST_F(ScannerConcurrentTest, L1TopKSpansMultipleReaders) {
+TEST_F(ScannerConcurrentTest, DOTTopKSpansMultipleReaders) {
     auto d0 = dir("dot_0"), d1 = dir("dot_1");
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
 

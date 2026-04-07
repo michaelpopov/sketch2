@@ -12,7 +12,7 @@ namespace sketch2 {
 struct DatasetMetadata {
     std::vector<std::string> dirs;
     DataType type = DataType::f32;
-    DistFunc dist_func = DistFunc::L1;
+    DistFunc dist_func = DistFunc::DOT;
     uint64_t dim = 4;
     uint64_t range_size = kRangeSize;
     uint64_t data_merge_ratio = 2; // merge data files when the new file is less than
@@ -57,7 +57,7 @@ protected:
 
     Ret init(const std::vector<std::string>& dirs, uint64_t range_size,
         DataType type = DataType::f32, uint64_t dim = 4,
-        DistFunc dist_func = DistFunc::L1);
+        DistFunc dist_func = DistFunc::DOT);
 
 private:
     Ret init_(const std::string& path);

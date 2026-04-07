@@ -26,7 +26,7 @@ using DistHeap = std::priority_queue<DistItem, std::vector<DistItem>, DistItem::
 
 const char* dist_func_name(DistFunc func) {
     switch (func) {
-        case DistFunc::L1: return "L1";
+        case DistFunc::DOT: return "DOT";
         case DistFunc::L2: return "L2";
         case DistFunc::COS: return "COS";
         default: return "unknown";

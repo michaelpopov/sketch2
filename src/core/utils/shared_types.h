@@ -24,7 +24,7 @@ enum class DataType {
 };
 
 enum class DistFunc {
-    L1,
+    DOT,
     L2,
     COS,
 };
@@ -83,7 +83,7 @@ inline int data_type_to_int(DataType type)
 
 inline const char* dist_func_to_string(DistFunc func) {
     switch (func) {
-        case DistFunc::L1: return "dot";
+        case DistFunc::DOT: return "dot";
         case DistFunc::L2: return "l2";
         case DistFunc::COS: return "cos";
         default: throw std::runtime_error("Invalid distance function.");
@@ -91,7 +91,7 @@ inline const char* dist_func_to_string(DistFunc func) {
 }
 
 inline DistFunc dist_func_from_string(const std::string& func_str) {
-    if (func_str == "dot") return DistFunc::L1;
+    if (func_str == "dot") return DistFunc::DOT;
     if (func_str == "l2") return DistFunc::L2;
     if (func_str == "cos") return DistFunc::COS;
     throw std::runtime_error("Invalid distance function string.");

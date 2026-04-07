@@ -1,4 +1,4 @@
-// Implements the portable L1-distance primitives.
+// Implements the portable DOT-distance primitives.
 
 #pragma once
 #include "core/compute/compute.h"
@@ -22,11 +22,11 @@
 
 namespace sketch2 {
 
-// Computes L1 (Manhattan) distance between two vectors.
-// ComputeL1 exists to group the portable L1-distance implementation and the
+// Computes DOT (Manhattan) distance between two vectors.
+// ComputeDOT exists to group the portable DOT-distance implementation and the
 // typed dispatch helpers used by the scanner. It serves as the scalar fallback
 // when no architecture-specific implementation is selected.
-class ComputeL1 : public ICompute {
+class ComputeDOT : public ICompute {
 public:
     using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);
 
@@ -44,19 +44,19 @@ public:
     static double dist_i16(const uint8_t *a, const uint8_t *b, size_t dim);
 };
 
-inline double ComputeL1::dist(const uint8_t *a, const uint8_t *b, DataType type, size_t dim) {
+inline double ComputeDOT::dist(const uint8_t *a, const uint8_t *b, DataType type, size_t dim) {
     DistFn fn = resolve_dist(type);
     return fn(a, b, dim);
 }
 
-inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
+inline ComputeDOT::DistFn ComputeDOT::resolve_dist(DataType type) {
     switch (get_singleton().compute_unit().kind()) {
 #if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:
             switch (type) {
-                case DataType::f32: return &ComputeL1_AVX512_VNNI::dist_f32;
-                case DataType::f16: return &ComputeL1_AVX512_VNNI::dist_f16;
-                case DataType::i16: return &ComputeL1_AVX512_VNNI::dist_i16;
+                case DataType::f32: return &ComputeDOT_AVX512_VNNI::dist_f32;
+                case DataType::f16: return &ComputeDOT_AVX512_VNNI::dist_f16;
+                case DataType::i16: return &ComputeDOT_AVX512_VNNI::dist_i16;
                 default: break;
             }
             break;
@@ -64,9 +64,9 @@ inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
 #if SKETCH_HAS_AVX512F
         case ComputeBackendKind::avx512f:
             switch (type) {
-                case DataType::f32: return &ComputeL1_AVX512::dist_f32;
-                case DataType::f16: return &ComputeL1_AVX512::dist_f16;
-                case DataType::i16: return &ComputeL1_AVX512::dist_i16;
+                case DataType::f32: return &ComputeDOT_AVX512::dist_f32;
+                case DataType::f16: return &ComputeDOT_AVX512::dist_f16;
+                case DataType::i16: return &ComputeDOT_AVX512::dist_i16;
                 default: break;
             }
             break;
@@ -74,9 +74,9 @@ inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
 #if SKETCH_HAS_AVX2
         case ComputeBackendKind::avx2:
             switch (type) {
-                case DataType::f32: return &ComputeL1_AVX2::dist_f32;
-                case DataType::f16: return &ComputeL1_AVX2::dist_f16;
-                case DataType::i16: return &ComputeL1_AVX2::dist_i16;
+                case DataType::f32: return &ComputeDOT_AVX2::dist_f32;
+                case DataType::f16: return &ComputeDOT_AVX2::dist_f16;
+                case DataType::i16: return &ComputeDOT_AVX2::dist_i16;
                 default: break;
             }
             break;
@@ -84,9 +84,9 @@ inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
 #if SKETCH_HAS_NEON
         case ComputeBackendKind::neon:
             switch (type) {
-                case DataType::f32: return &ComputeL1_Neon::dist_f32;
-                case DataType::f16: return &ComputeL1_Neon::dist_f16;
-                case DataType::i16: return &ComputeL1_Neon::dist_i16;
+                case DataType::f32: return &ComputeDOT_Neon::dist_f32;
+                case DataType::f16: return &ComputeDOT_Neon::dist_f16;
+                case DataType::i16: return &ComputeDOT_Neon::dist_i16;
                 default: break;
             }
             break;
@@ -102,37 +102,36 @@ inline ComputeL1::DistFn ComputeL1::resolve_dist(DataType type) {
         case DataType::i16: return &dist_i16;
         default:
             assert(false);
-            throw std::runtime_error("ComputeL1::resolve_dist: unsupported data type");
+            throw std::runtime_error("ComputeDOT::resolve_dist: unsupported data type");
     }
 }
 
-inline double ComputeL1::dist_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
+inline double ComputeDOT::dist_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
     const float* va = reinterpret_cast<const float*>(a);
     const float* vb = reinterpret_cast<const float*>(b);
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
-        sum += std::abs(va[i] - vb[i]);
+        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
 }
 
-inline double ComputeL1::dist_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
+inline double ComputeDOT::dist_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const float16* va = reinterpret_cast<const float16*>(a);
     const float16* vb = reinterpret_cast<const float16*>(b);
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
-        sum += std::abs(static_cast<double>(va[i]) - static_cast<double>(vb[i]));
+        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
 }
 
-inline double ComputeL1::dist_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
+inline double ComputeDOT::dist_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = reinterpret_cast<const int16_t*>(a);
     const int16_t* vb = reinterpret_cast<const int16_t*>(b);
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
-        const int diff = static_cast<int>(va[i]) - static_cast<int>(vb[i]);
-        sum += std::abs(diff);
+        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
 }
