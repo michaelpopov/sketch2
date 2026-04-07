@@ -131,10 +131,11 @@ def main() -> None:
     os.environ["SKETCH2_CONFIG"] = str(config.db_dir / "config.ini")
     
     from common import (
-        get_ground_truth_knn,
+        expected_dists_for_ids,
         save_ground_truth,
         cosine_demo_query,
-        generic_demo_query
+        generic_demo_query,
+        fmt_typed_vector,
     )
     
     lib_path = find_lib_path()
@@ -168,13 +169,23 @@ def main() -> None:
                 query_vals = cosine_demo_query(config.dims, config.type_name)
             else:
                 query_vals = generic_demo_query(config.dims, config.type_name)
-            
+
             if os.environ.get("DUMMY_CALC") == "1":
                 log("initializer", f"skipping ground truth calculation for {dist} (DUMMY_CALC=1)")
                 save_ground_truth(config, dist, [], [])
             else:
-                expected_ids, expected_dists = get_ground_truth_knn(
-                    config.count, config.dims, config.type_name, dist, query_vals, config.knn_count
+                # Ground truth comes from the library's default engine selection.
+                # We then compute only the returned distances in Python so tie-aware
+                # validation can still compare distance multisets cheaply.
+                os.environ.pop("SKETCH2_COMPUTE_ENGINE", None)
+                query_str = fmt_typed_vector(query_vals, config.type_name)
+                expected_ids = sketch2.knn(query_str, config.knn_count)
+                expected_dists = expected_dists_for_ids(
+                    expected_ids,
+                    config.dims,
+                    config.type_name,
+                    dist,
+                    query_vals,
                 )
                 save_ground_truth(config, dist, expected_ids, expected_dists)
             

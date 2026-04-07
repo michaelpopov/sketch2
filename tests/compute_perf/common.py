@@ -167,12 +167,42 @@ def load_ground_truth(config: PerfConfig, dist_func: str) -> tuple[list[int], li
     return data["ids"], data["dists"]
 
 
+def distance_helpers(
+    dist_func: str,
+) -> tuple[
+    callable[[list[float | int], list[float | int]], float],
+    callable[[int, int, str], list[float | int]],
+]:
+    if dist_func == "cos":
+        return cosine_distance, cosine_demo_vector
+    if dist_func == "l1":
+        return l1_distance, native_sequential_vector
+    if dist_func == "l2":
+        return l2_distance_sq, native_sequential_vector
+    raise ValueError(f"unsupported distance function: {dist_func}")
+
+
+def expected_dists_for_ids(
+    item_ids: list[int],
+    dim: int,
+    type_name: str,
+    dist_func: str,
+    query_vals: list[float | int],
+) -> list[float]:
+    dist_calc, vector_gen = distance_helpers(dist_func)
+    dists = []
+    for item_id in item_ids:
+        vec = vector_gen(item_id, dim, type_name)
+        dists.append(dist_calc(query_vals, vec))
+    return sorted(dists)
+
+
 def get_ground_truth_knn(
     count: int, dim: int, type_name: str, dist_func: str, query_vals: list[float | int], k: int
 ) -> tuple[list[int], list[float]]:
     # cosine_demo_vector: LCM(17, 11, 7, 5) = 6545
     # native_sequential_vector: not periodic
-    
+
     dist_calc = None
     vector_gen = None
     period = 1  # 1 means no period optimization
@@ -180,14 +210,8 @@ def get_ground_truth_knn(
         dist_calc = cosine_distance
         vector_gen = cosine_demo_vector
         period = 6545
-    elif dist_func == "l1":
-        dist_calc = l1_distance
-        vector_gen = native_sequential_vector
-    elif dist_func == "l2":
-        dist_calc = l2_distance_sq
-        vector_gen = native_sequential_vector
     else:
-        raise ValueError(f"unsupported distance function for ground truth: {dist_func}")
+        dist_calc, vector_gen = distance_helpers(dist_func)
 
     # Calculate distances
     if period > 1:
@@ -234,19 +258,9 @@ def validate_knn_results(
 
     # If IDs differ, check if it's just a tie-breaking difference.
     # We calculate distances for the actual IDs and compare them with expected distances.
-    dist_calc = None
-    vector_gen = None
-    if dist_func == "cos":
-        dist_calc = cosine_distance
-        vector_gen = cosine_demo_vector
-    elif dist_func == "l1":
-        dist_calc = l1_distance
-        vector_gen = native_sequential_vector
-    elif dist_func == "l2":
-        dist_calc = l2_distance_sq
-        vector_gen = native_sequential_vector
-    
-    if dist_calc is None or vector_gen is None:
+    try:
+        dist_calc, vector_gen = distance_helpers(dist_func)
+    except ValueError:
         return False
 
     actual_dists = []
