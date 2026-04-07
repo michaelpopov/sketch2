@@ -37,7 +37,8 @@ def quantize_value(type_name: str, value: float) -> float | int:
     if type_name == "f32":
         return struct.unpack("f", struct.pack("f", value))[0]
     if type_name == "f16":
-        return struct.unpack("e", struct.pack("e", value))[0]
+        bounded = max(-F16_MAX, min(F16_MAX, value))
+        return struct.unpack("e", struct.pack("e", bounded))[0]
     if type_name == "i16":
         return int(max(I16_MIN, min(I16_MAX, value)))
     raise ValueError(f"unsupported type: {type_name}")

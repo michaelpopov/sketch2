@@ -26,6 +26,7 @@ namespace sketch2 {
 namespace {
 
 constexpr size_t kBinarySequentialChunkSize = 10000;
+constexpr float kFloat16Max = 65504.0f;
 
 Ret make_io_error(const std::string& action, const std::string& path) {
     return Ret(action + ": " + path + ": " + std::strerror(errno));
@@ -35,12 +36,13 @@ Ret make_io_error(const std::string& action, const std::string& path) {
 // Python test helpers so COS benchmarks and readers get identical data.
 template <typename T>
 inline void fill_cos_compatible_vector(uint64_t id, size_t dim, std::vector<T>& out) {
+    const int64_t sid = static_cast<int64_t>(id);
     out.resize(dim);
-    out[0] = static_cast<T>((id % 17) + 1);
-    out[1] = static_cast<T>(((id * 3) % 11) - 5);
-    out[2] = static_cast<T>(((id * 5) % 7) - 3);
+    out[0] = static_cast<T>((sid % 17) + 1);
+    out[1] = static_cast<T>(((sid * 3) % 11) - 5);
+    out[2] = static_cast<T>(((sid * 5) % 7) - 3);
     for (size_t index = 3; index < dim; ++index) {
-        out[index] = static_cast<T>(((id + index) % 5) - 2);
+        out[index] = static_cast<T>(((sid + static_cast<int64_t>(index)) % 5) - 2);
     }
 }
 
@@ -338,8 +340,7 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
         } else if (config.type == DataType::f16) {
             const float value_f32 = static_cast<float>(id) + 0.1f;
             // Clamp to the maximum finite f16 value so large ids don't overflow
-            // to Inf and break the text loader. IEEE half max is 65504.
-            constexpr float kFloat16Max = 65504.0f;
+            // to Inf and break the text loader.
             const float clamped = std::min(value_f32, kFloat16Max);
             const float16 value = static_cast<float16>(clamped);
             print_float_line(f, id, &value, config.dim, false);
@@ -533,7 +534,8 @@ static Ret generate_manual_input_file(const std::string& path, const ManualInput
             print_float_line(f, id, &value, gen.dim, false);
         } else if (gen.type == DataType::f16) {
             const float value_f32 = static_cast<float>(id) + 0.1f;
-            const float16 value = static_cast<float16>(value_f32);
+            const float clamped = std::min(value_f32, kFloat16Max);
+            const float16 value = static_cast<float16>(clamped);
             print_float_line(f, id, &value, gen.dim, false);
         } else if (gen.type == DataType::i16) {
             int16_t value = static_cast<int16_t>(id);
