@@ -220,8 +220,8 @@ TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(3u, result[0]);
-    EXPECT_EQ(4u, result[1]);
+    EXPECT_EQ(4u, result[0]);
+    EXPECT_EQ(3u, result[1]);
     EXPECT_EQ(2u, result[2]);
 }
 
@@ -255,12 +255,12 @@ TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
     std::vector<DistItem> result;
     ASSERT_EQ(0, s.find_items(reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(3u, result[0].id);
-    EXPECT_EQ(4u, result[1].id);
+    EXPECT_EQ(4u, result[0].id);
+    EXPECT_EQ(3u, result[1].id);
     EXPECT_EQ(2u, result[2].id);
-    EXPECT_NEAR(0.4, result[0].dist, 1e-5);
-    EXPECT_NEAR(3.6, result[1].dist, 1e-5);
-    EXPECT_NEAR(4.4, result[2].dist, 1e-5);
+    EXPECT_NEAR(52.48, result[0].dist, 1e-5);
+    EXPECT_NEAR(39.68, result[1].dist, 1e-5);
+    EXPECT_NEAR(26.88, result[2].dist, 1e-5);
 }
 
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {

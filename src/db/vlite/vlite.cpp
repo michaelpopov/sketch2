@@ -166,6 +166,14 @@ bool use_calc_engine() {
     return kind == sketch2::ComputeBackendKind::highway || kind == sketch2::ComputeBackendKind::nk;
 }
 
+bool consumes_order_by_distance(const sketch2::DatasetReader& dataset, const sqlite3_index_info& index_info) {
+    if (index_info.nOrderBy != 1 || index_info.aOrderBy[0].iColumn != kColumnDistance) {
+        return false;
+    }
+    const bool desc = index_info.aOrderBy[0].desc != 0;
+    return sketch2::smaller_distance_is_better(dataset.dist_func()) ? !desc : desc;
+}
+
 sketch2::CalcEngine selected_calc_engine() {
     const sketch2::ComputeBackendKind kind = sketch2::get_singleton().compute_unit().kind();
     switch (kind) {
@@ -476,9 +484,9 @@ int vlite_best_index(sqlite3_vtab* tab, sqlite3_index_info* index_info) {
         index_info->idxNum = idx_num;
         index_info->estimatedCost = (idx_num & kConstraintQuery) ? 10.0 : 1.0e12;
         index_info->estimatedRows = (idx_num & (kConstraintK | kConstraintLimit)) ? 10 : 1000;
-        if (index_info->nOrderBy == 1 &&
-                index_info->aOrderBy[0].iColumn == kColumnDistance &&
-                index_info->aOrderBy[0].desc == 0) {
+        auto* vlite_vtab = static_cast<VliteVTab*>(tab);
+        if (vlite_vtab != nullptr && vlite_vtab->dataset &&
+                consumes_order_by_distance(*vlite_vtab->dataset, *index_info)) {
             index_info->orderByConsumed = 1;
         }
         return SQLITE_OK;

@@ -22,7 +22,7 @@ namespace sketch2 {
 
 namespace {
 
-using DistHeap = std::priority_queue<DistItem, std::vector<DistItem>, DistItem::Compare>;
+using DistHeap = std::priority_queue<DistItem, std::vector<DistItem>, DistItemCompare>;
 
 const char* dist_func_name(DistFunc func) {
     switch (func) {
@@ -44,12 +44,11 @@ void log_query(const std::string& source, DistFunc func, DataType type, size_t d
              << " time=" << elapsed_ms << " ms";
 }
 
-void push_result(DistHeap* heap, size_t count, uint64_t id, double dist) {
+void push_result(DistFunc func, DistHeap* heap, size_t count, uint64_t id, double dist) {
     const DistItem item{id, dist};
-    DistItem::Compare is_better;
     if (heap->size() < count) {
         heap->push(item);
-    } else if (is_better(item, heap->top())) {
+    } else if (dist_item_is_better(func, item, heap->top())) {
         heap->pop();
         heap->push(item);
     }
@@ -124,7 +123,7 @@ struct FnPtrInvNormScore {
 
 template <typename Iterator, typename ScoreFn>
 void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const ScoreFn& score,
-        const BitsetFilter* bitset = nullptr) {
+        DistFunc func, const BitsetFilter* bitset = nullptr) {
     for (; !it.eof(); it.next()) {
         if (bitset != nullptr) {
             assert(bitset->data != nullptr);
@@ -135,24 +134,25 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
             if ((bitset->data[byte_index] & mask) == 0u) continue;
         }
 #ifndef DUMMY_CALC
-        push_result(heap, count, it.id(), score(it));
+        push_result(func, heap, count, it.id(), score(it));
 #else
         (void)score;
-        push_result(heap, count, it.id(), 0.0);
+        push_result(func, heap, count, it.id(), 0.0);
 #endif
     }
 }
 
 template <typename ScoreFn>
 void scan_data_reader_scored(const DataReader& reader,
-        size_t count, DistHeap* heap, const ScoreFn& score, const BitsetFilter* bitset = nullptr) {
-    scan_iterator_scored(reader.base_begin(), count, heap, score, bitset);
-    scan_iterator_scored(reader.delta_begin(), count, heap, score, bitset);
+        size_t count, DistHeap* heap, const ScoreFn& score, DistFunc func,
+        const BitsetFilter* bitset = nullptr) {
+    scan_iterator_scored(reader.base_begin(), count, heap, score, func, bitset);
+    scan_iterator_scored(reader.delta_begin(), count, heap, score, func, bitset);
 }
 
 template <typename ReaderScanFn>
 Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHeap* heap,
-        const ReaderScanFn& scan_reader, const BitsetFilter* bitset = nullptr) {
+        const ReaderScanFn& scan_reader, DistFunc func, const BitsetFilter* bitset = nullptr) {
     auto drs = dataset.reader();
     std::vector<DataReaderPtr> readers;
     while (true) {
@@ -175,8 +175,8 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
     std::vector<std::future<DistHeap>> futures;
     futures.reserve(readers.size());
     for (const auto& reader : readers) {
-        futures.push_back(pool->submit([scan_reader_shared, count, reader, bitset]() {
-            DistHeap local_heap;
+        futures.push_back(pool->submit([scan_reader_shared, count, reader, func, bitset]() {
+            DistHeap local_heap(DistItemCompare{func});
             (*scan_reader_shared)(*reader, count, &local_heap, bitset);
             return local_heap;
         }));
@@ -185,7 +185,7 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
     for (auto& fut : futures) {
         DistHeap local_heap = fut.get();
         while (!local_heap.empty()) {
-            push_result(heap, count, local_heap.top().id, local_heap.top().dist);
+            push_result(func, heap, count, local_heap.top().id, local_heap.top().dist);
             local_heap.pop();
         }
     }
@@ -195,28 +195,30 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
 
 template <typename ScoreFn>
 Ret build_dataset_heap_with_score(const DatasetReader& dataset, size_t count, const ScoreFn& score,
-        DistHeap* heap, const BitsetFilter* bitset = nullptr) {
+        DistFunc func, DistHeap* heap, const BitsetFilter* bitset = nullptr) {
     return scan_dataset_heap_custom(
         dataset, count, heap,
         [&](const DataReader& reader, size_t local_count, DistHeap* local_heap, const BitsetFilter* bitset) {
-            scan_data_reader_scored(reader, local_count, local_heap, score, bitset);
+            scan_data_reader_scored(reader, local_count, local_heap, score, func, bitset);
         },
+        func,
         bitset);
 }
 
 template <typename InvScoreFn, typename QueryScoreFn>
 Ret build_dataset_heap_with_cos_scores(const DatasetReader& dataset, size_t count,
-        const InvScoreFn& inv_score, const QueryScoreFn& query_score, DistHeap* heap,
+        const InvScoreFn& inv_score, const QueryScoreFn& query_score, DistFunc func, DistHeap* heap,
         const BitsetFilter* bitset = nullptr) {
     return scan_dataset_heap_custom(
         dataset, count, heap,
         [&](const DataReader& reader, size_t local_count, DistHeap* local_heap, const BitsetFilter* bitset) {
             if (reader.has_cosine_inv_norms()) {
-                scan_data_reader_scored(reader, local_count, local_heap, inv_score, bitset);
+                scan_data_reader_scored(reader, local_count, local_heap, inv_score, func, bitset);
             } else {
-                scan_data_reader_scored(reader, local_count, local_heap, query_score, bitset);
+                scan_data_reader_scored(reader, local_count, local_heap, query_score, func, bitset);
             }
         },
+        func,
         bitset);
 }
 
@@ -236,12 +238,12 @@ Ret build_heap(CalcEngine engine, const DatasetReader& dataset, DistFunc func,
         const double query_inv = query_inverse_norm(query_norm_sq);
         const FnPtrInvNormScore inv_score{k.dot, vec, dim, query_inv};
         const FnPtrQueryNormScore query_score{k.dist_with_query_norm, vec, dim, query_norm_sq};
-        return build_dataset_heap_with_cos_scores(dataset, count, inv_score, query_score, heap, bitset);
+        return build_dataset_heap_with_cos_scores(dataset, count, inv_score, query_score, func, heap, bitset);
     }
 
     assert(k.dist);
     const FnPtrDistScore score{k.dist, vec, dim};
-    return build_dataset_heap_with_score(dataset, count, score, heap, bitset);
+    return build_dataset_heap_with_score(dataset, count, score, func, heap, bitset);
 }
 
 } // namespace
@@ -288,7 +290,7 @@ Ret ScannerEx::find_items_(const DatasetReader& dataset, size_t count, const uin
     }
     result.clear();
     const DistFunc func = dataset.dist_func();
-    DistHeap heap;
+    DistHeap heap(DistItemCompare{func});
     Timer timer("scanner_ex::query");
     CHECK(build_heap(engine_, dataset, func, count, vec, &heap, bitset));
     log_query(dataset.name(), func, dataset.type(), dataset.dim(), count, engine_, timer.elapsed_ms());

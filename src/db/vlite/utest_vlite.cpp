@@ -254,15 +254,15 @@ TEST_F(VliteTest, ReturnsKnnIdsAndDistancesForDOTDataset) {
     const auto rows = query_results(db.get(),
         "SELECT id, distance FROM nn "
         "WHERE query = '15.2, 15.2, 15.2, 15.2' AND k = 3 "
-        "ORDER BY distance");
+        "ORDER BY distance DESC");
 
     ASSERT_EQ(3u, rows.size());
-    EXPECT_EQ(15u, rows[0].first);
+    EXPECT_EQ(30u, rows[0].first);
     EXPECT_EQ(16u, rows[1].first);
-    EXPECT_EQ(14u, rows[2].first);
-    EXPECT_NEAR(0.4, rows[0].second, 1e-5);
-    EXPECT_NEAR(3.6, rows[1].second, 1e-5);
-    EXPECT_NEAR(4.4, rows[2].second, 1e-5);
+    EXPECT_EQ(15u, rows[2].first);
+    EXPECT_NEAR(1830.08, rows[0].second, 1e-4);
+    EXPECT_NEAR(978.88, rows[1].second, 1e-4);
+    EXPECT_NEAR(918.08, rows[2].second, 1e-4);
 }
 
 TEST_F(VliteTest, UsesDatasetDistanceFunctionForCosineQueries) {
@@ -458,7 +458,7 @@ TEST_F(VliteTest, PushesLimitIntoImplicitKWithoutChangingVisibleK) {
         db.get(),
         "SELECT id, k FROM nn "
         "WHERE query MATCH '15.2, 15.2, 15.2, 15.2' "
-        "ORDER BY distance LIMIT 2 OFFSET 1",
+        "ORDER BY distance DESC LIMIT 2 OFFSET 1",
         -1, &stmt, nullptr));
 
     std::vector<std::pair<uint64_t, sqlite3_int64>> rows;
@@ -476,7 +476,7 @@ TEST_F(VliteTest, PushesLimitIntoImplicitKWithoutChangingVisibleK) {
 
     ASSERT_EQ(2u, rows.size());
     EXPECT_EQ(16u, rows[0].first);
-    EXPECT_EQ(14u, rows[1].first);
+    EXPECT_EQ(15u, rows[1].first);
     EXPECT_EQ(10, rows[0].second);
     EXPECT_EQ(10, rows[1].second);
 }

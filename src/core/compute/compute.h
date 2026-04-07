@@ -4,21 +4,40 @@
 #include "utils/shared_types.h"
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
 
 namespace sketch2 {
 
 struct DistItem {
     uint64_t id;
     double   dist;
+};
 
-    struct Compare {
-        bool operator()(const DistItem& a, const DistItem& b) const {
-            if (a.dist != b.dist) {
-                return a.dist < b.dist;
-            }
-            return a.id < b.id;
-        }
-    };
+inline bool smaller_distance_is_better(DistFunc func) {
+    switch (func) {
+        case DistFunc::DOT:
+            return false;
+        case DistFunc::L2:
+        case DistFunc::COS:
+            return true;
+        default:
+            throw std::runtime_error("smaller_distance_is_better: unsupported distance function");
+    }
+}
+
+inline bool dist_item_is_better(DistFunc func, const DistItem& a, const DistItem& b) {
+    if (a.dist != b.dist) {
+        return smaller_distance_is_better(func) ? (a.dist < b.dist) : (a.dist > b.dist);
+    }
+    return a.id < b.id;
+}
+
+struct DistItemCompare {
+    DistFunc func = DistFunc::L2;
+
+    bool operator()(const DistItem& a, const DistItem& b) const {
+        return dist_item_is_better(func, a, b);
+    }
 };
 
 // ICompute exists as the common interface for distance calculators so higher
