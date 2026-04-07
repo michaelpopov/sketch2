@@ -77,7 +77,7 @@ Ret Dataset::init_(const std::string& path) {
 
     std::string type_str = cfg.get_str("dataset.type", "f32");
     metadata.type = data_type_from_string(type_str);
-    metadata.dist_func = dist_func_from_string(cfg.get_str("dataset.dist_func", "l1"));
+    metadata.dist_func = dist_func_from_string(cfg.get_str("dataset.dist_func", "dot"));
 
     const Ret ret = init(metadata);
     if (ret.code() != 0) {

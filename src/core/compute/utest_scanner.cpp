@@ -226,8 +226,8 @@ TEST_F(ScannerTest, FindF32K3ReturnsInOrder) {
 }
 
 TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
-    const std::string dataset_dir = data_path_ + ".dataset_l1";
-    const std::string config_path = data_path_ + ".dataset_l1.ini";
+    const std::string dataset_dir = data_path_ + ".dataset_dot";
+    const std::string config_path = data_path_ + ".dataset_dot.ini";
     std::experimental::scope_exit cleanup([&]() {
         fs::remove_all(dataset_dir);
         std::remove(config_path.c_str());
@@ -245,7 +245,7 @@ TEST_F(ScannerTest, FindItemsF32ReturnsIdsAndDistancesInOrder) {
         "dirs = " + dataset_dir + "\n"
         "range_size = 1000\n"
         "type = f32\n"
-        "dist_func = l1\n"
+        "dist_func = dot\n"
         "dim = 4\n");
 
     DatasetReader reader;
@@ -727,7 +727,7 @@ private:
 // Query near the boundary between reader files (id 9 in file 0, id 10 in file 1)
 // so the top-k merge step must combine results from two different workers.
 TEST_F(ScannerConcurrentTest, L1TopKSpansMultipleReaders) {
-    auto d0 = dir("l1_0"), d1 = dir("l1_1");
+    auto d0 = dir("dot_0"), d1 = dir("dot_1");
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
 
     DatasetNode ds;

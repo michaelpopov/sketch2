@@ -16,7 +16,7 @@ endif()
 add_executable(utest_comp
   ${SHARED_UTEST_MAIN}
   utest_scanner.cpp
-  utest_compute_l1.cpp
+  utest_compute_dot.cpp
   utest_compute_l2.cpp
   utest_compute_cos.cpp
   utest_compute_runtime.cpp

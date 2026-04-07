@@ -524,13 +524,13 @@ HWY_EXPORT(DistCosWithQueryNormI16);
 
 // Trampolines: each calls HWY_DYNAMIC_DISPATCH to pick the best target.
 
-static double hwy_dist_l1_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
+static double hwy_dist_dot_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
     return HWY_DYNAMIC_DISPATCH(DistL1F32)(a, b, dim);
 }
-static double hwy_dist_l1_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
+static double hwy_dist_dot_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
     return HWY_DYNAMIC_DISPATCH(DistL1F16)(a, b, dim);
 }
-static double hwy_dist_l1_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
+static double hwy_dist_dot_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
     return HWY_DYNAMIC_DISPATCH(DistL1I16)(a, b, dim);
 }
 
@@ -593,9 +593,9 @@ CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
     switch (func) {
         case DistFunc::L1:
             switch (type) {
-                case DataType::f32: k.dist = &hwy_dist_l1_f32; break;
-                case DataType::f16: k.dist = &hwy_dist_l1_f16; break;
-                case DataType::i16: k.dist = &hwy_dist_l1_i16; break;
+                case DataType::f32: k.dist = &hwy_dist_dot_f32; break;
+                case DataType::f16: k.dist = &hwy_dist_dot_f16; break;
+                case DataType::i16: k.dist = &hwy_dist_dot_i16; break;
                 default:
                     throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for L1.");
             }

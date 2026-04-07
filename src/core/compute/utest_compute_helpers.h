@@ -33,15 +33,6 @@ TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
 // --- Reference Implementations ---
 
 template <typename T>
-double reference_l1(const T *a, const T *b, size_t dim) {
-    double sum = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        sum += std::abs(static_cast<double>(a[i]) - static_cast<double>(b[i]));
-    }
-    return sum;
-}
-
-template <typename T>
 double reference_l2(const T *a, const T *b, size_t dim) {
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {

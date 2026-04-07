@@ -19,7 +19,7 @@ TEST(HwyKernelsTest, L1F32MatchesReference) {
         auto ba = make_buffer<float>(dim, 0);
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
-        const double expected = reference_l1(ba.ptr, bb.ptr, dim);
+        const double expected = reference_dot(ba.ptr, bb.ptr, dim);
         const CalcKernels k = resolve_hwy_kernels(DistFunc::L1, DataType::f32);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
@@ -32,7 +32,7 @@ TEST(HwyKernelsTest, L1F16MatchesReference) {
         auto ba = make_buffer<float16>(dim, 0);
         auto bb = make_buffer<float16>(dim, 0);
         fill_f16(ba.ptr, bb.ptr, dim, 42);
-        const double expected = reference_l1(ba.ptr, bb.ptr, dim);
+        const double expected = reference_dot(ba.ptr, bb.ptr, dim);
         const CalcKernels k = resolve_hwy_kernels(DistFunc::L1, DataType::f16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
@@ -45,7 +45,7 @@ TEST(HwyKernelsTest, L1I16MatchesReference) {
         auto ba = make_buffer<int16_t>(dim, 0);
         auto bb = make_buffer<int16_t>(dim, 0);
         fill_i16(ba.ptr, bb.ptr, dim, 42);
-        const double expected = reference_l1(ba.ptr, bb.ptr, dim);
+        const double expected = reference_dot(ba.ptr, bb.ptr, dim);
         const CalcKernels k = resolve_hwy_kernels(DistFunc::L1, DataType::i16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);

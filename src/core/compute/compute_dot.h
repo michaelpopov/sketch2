@@ -10,14 +10,14 @@
 #include <stdexcept>
 
 #if SKETCH_HAS_AVX2
-#include "compute_l1_avx2.h"
+#include "compute_dot_avx2.h"
 #endif
 #if SKETCH_HAS_AVX512
-#include "compute_l1_avx512.h"
+#include "compute_dot_avx512.h"
 #endif
 
 #if SKETCH_HAS_NEON
-#include "compute_l1_neon.h"
+#include "compute_dot_neon.h"
 #endif
 
 namespace sketch2 {

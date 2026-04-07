@@ -3,7 +3,7 @@
 #include <benchmark/benchmark.h>
 
 #include "core/compute/compute_cos.h"
-#include "core/compute/compute_l1.h"
+#include "core/compute/compute_dot.h"
 #include "core/compute/compute_l2.h"
 #include "core/compute/scanner.h"
 #include "core/storage/data_reader.h"

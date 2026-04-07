@@ -1,7 +1,7 @@
 // Simple throughput benchmark for the public compute APIs under a forced backend.
 
 #include "core/compute/compute_cos.h"
-#include "core/compute/compute_l1.h"
+#include "core/compute/compute_dot.h"
 #include "core/compute/compute_l2.h"
 #include "core/utils/singleton.h"
 
@@ -113,7 +113,7 @@ int main() {
               << " repeats=" << kRepeats
               << '\n';
 
-    ComputeL1 l1;
+    ComputeL1 dot;
     ComputeL2 l2;
     ComputeCos cos;
 
@@ -121,8 +121,8 @@ int main() {
     std::vector<float> b_f32;
     fill_pair(&a_f32, &b_f32, 11);
 
-    run_case("l1-f32", [&] {
-        return l1.dist(reinterpret_cast<const uint8_t *>(a_f32.data()),
+    run_case("dot-f32", [&] {
+        return dot.dist(reinterpret_cast<const uint8_t *>(a_f32.data()),
                        reinterpret_cast<const uint8_t *>(b_f32.data()),
                        DataType::f32, a_f32.size());
     });
@@ -141,8 +141,8 @@ int main() {
     std::vector<float16> b_f16;
     fill_pair(&a_f16, &b_f16, 17);
 
-    run_case("l1-f16", [&] {
-        return l1.dist(reinterpret_cast<const uint8_t *>(a_f16.data()),
+    run_case("dot-f16", [&] {
+        return dot.dist(reinterpret_cast<const uint8_t *>(a_f16.data()),
                        reinterpret_cast<const uint8_t *>(b_f16.data()),
                        DataType::f16, a_f16.size());
     });
@@ -161,8 +161,8 @@ int main() {
     std::vector<int16_t> b_i16;
     fill_pair(&a_i16, &b_i16, 23);
 
-    run_case("l1-i16", [&] {
-        return l1.dist(reinterpret_cast<const uint8_t *>(a_i16.data()),
+    run_case("dot-i16", [&] {
+        return dot.dist(reinterpret_cast<const uint8_t *>(a_i16.data()),
                        reinterpret_cast<const uint8_t *>(b_i16.data()),
                        DataType::i16, a_i16.size());
     });

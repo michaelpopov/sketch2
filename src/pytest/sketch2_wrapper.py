@@ -176,7 +176,7 @@ class Sketch2:
         return msg.decode("utf-8", errors="replace")
 
     def create(self, name: str, type_name: str = "f32", dim: int = 4,
-               range_size: int = 1000, dist_func: str = "l1",
+               range_size: int = 1000, dist_func: str = "dot",
                dirs: str | Iterable[str] | None = None) -> None:
         dirs_arg = self._format_dirs_arg(dirs)
         self._check(

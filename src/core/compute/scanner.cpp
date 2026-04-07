@@ -2,7 +2,7 @@
 
 #include "scanner.h"
 #include "core/compute/compute_cos.h"
-#include "core/compute/compute_l1.h"
+#include "core/compute/compute_dot.h"
 #include "core/compute/compute_l2.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset_reader.h"
