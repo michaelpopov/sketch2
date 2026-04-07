@@ -418,7 +418,7 @@ TEST_F(ScannerTest, FindF16Works) {
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(1u, result[0]);
+    EXPECT_EQ(2u, result[0]);
 }
 
 TEST_F(ScannerTest, DeltaSkipsDeletedIds) {
@@ -490,14 +490,14 @@ TEST_F(ScannerTest, FindDatasetWorks) {
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     Scanner s;
-    auto q = f32_vec(15.2f, 4); // nearest to id 15
+    auto q = f32_vec(15.2f, 4); // DOT is higher-is-better: top-3 are ids 29, 28, 27
     std::vector<uint64_t> result;
     const auto ret = s.find(ds, 3, q.data(), result);
     ASSERT_EQ(0, ret.code()) << "\n\nfind failed: " << ret.message() << "\n\n";
     ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(15u, result[0]);
-    EXPECT_EQ(16u, result[1]);
-    EXPECT_EQ(14u, result[2]);
+    EXPECT_EQ(29u, result[0]);
+    EXPECT_EQ(28u, result[1]);
+    EXPECT_EQ(27u, result[2]);
 }
 
 TEST_F(ScannerTest, FindDatasetItemsReturnsIdsAndDistancesInOrder) {
@@ -515,12 +515,12 @@ TEST_F(ScannerTest, FindDatasetItemsReturnsIdsAndDistancesInOrder) {
     std::vector<DistItem> result;
     ASSERT_EQ(0, s.find_items(ds, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(15u, result[0].id);
-    EXPECT_EQ(16u, result[1].id);
-    EXPECT_EQ(14u, result[2].id);
-    EXPECT_NEAR(0.4, result[0].score, 1e-5);
-    EXPECT_NEAR(3.6, result[1].score, 1e-5);
-    EXPECT_NEAR(4.4, result[2].score, 1e-5);
+    EXPECT_EQ(29u, result[0].id);
+    EXPECT_EQ(28u, result[1].id);
+    EXPECT_EQ(27u, result[2].id);
+    EXPECT_NEAR(1769.28, result[0].score, 1e-2);
+    EXPECT_NEAR(1708.48, result[1].score, 1e-2);
+    EXPECT_NEAR(1647.68, result[2].score, 1e-2);
 }
 
 TEST_F(ScannerTest, FindDatasetL2Works) {
@@ -746,8 +746,8 @@ private:
     std::shared_ptr<ThreadPool> prior_pool_;
 };
 
-// Query near the boundary between reader files (id 9 in file 0, id 10 in file 1)
-// so the top-k merge step must combine results from two different workers.
+// DOT is higher-is-better: top-k must merge across workers and pick the
+// highest-scoring ids regardless of which reader file they came from.
 TEST_F(ScannerConcurrentTest, DOTTopKSpansMultipleReaders) {
     auto d0 = dir("dot_0"), d1 = dir("dot_1");
     std::experimental::scope_exit cleanup([&]() { fs::remove_all(d0); fs::remove_all(d1); });
@@ -755,15 +755,14 @@ TEST_F(ScannerConcurrentTest, DOTTopKSpansMultipleReaders) {
     DatasetNode ds;
     make_multi_reader_dataset(d0, d1, ds);
     Scanner s;
-    auto q = f32_vec(9.5f, 4); // equidistant from id=9 and id=10
+    auto q = f32_vec(9.5f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(ds, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
-    // id=9 (dist=0.1*4*|9-9.5|=2) and id=10 (same dist) — tie broken by lower id first.
-    EXPECT_EQ(9u,  result[0]);
-    EXPECT_EQ(10u, result[1]);
-    // id=8 or id=11 both at distance 6; tie broken by lower id.
-    EXPECT_EQ(8u,  result[2]);
+    // DOT(id n, q) = 4*(n+0.1)*9.5, monotonically increasing — top-3 are ids 29, 28, 27.
+    EXPECT_EQ(29u, result[0]);
+    EXPECT_EQ(28u, result[1]);
+    EXPECT_EQ(27u, result[2]);
 }
 
 TEST_F(ScannerConcurrentTest, L2TopKSpansMultipleReaders) {
@@ -794,12 +793,12 @@ TEST_F(ScannerConcurrentTest, FindItemsSpansMultipleReaders) {
     std::vector<DistItem> result;
     ASSERT_EQ(0, s.find_items(ds, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(15u, result[0].id);
-    EXPECT_EQ(16u, result[1].id);
-    EXPECT_EQ(14u, result[2].id);
-    EXPECT_NEAR(0.4, result[0].score, 1e-5);
-    EXPECT_NEAR(3.6, result[1].score, 1e-5);
-    EXPECT_NEAR(4.4, result[2].score, 1e-5);
+    EXPECT_EQ(29u, result[0].id);
+    EXPECT_EQ(28u, result[1].id);
+    EXPECT_EQ(27u, result[2].id);
+    EXPECT_NEAR(1769.28, result[0].score, 1e-2);
+    EXPECT_NEAR(1708.48, result[1].score, 1e-2);
+    EXPECT_NEAR(1647.68, result[2].score, 1e-2);
 }
 
 // With a pool installed but only one reader, scan_dataset_heap_custom must
@@ -821,9 +820,9 @@ TEST_F(ScannerConcurrentTest, SingleReaderWithPoolFallsBackToSequential) {
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(ds, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(2u, result[0]);
+    EXPECT_EQ(4u, result[0]);
     EXPECT_EQ(3u, result[1]);
-    EXPECT_EQ(1u, result[2]);
+    EXPECT_EQ(2u, result[2]);
 }
 
 // Cosine scan across multiple readers with the pool active. Each reader file

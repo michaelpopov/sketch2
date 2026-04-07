@@ -178,7 +178,7 @@ def sqlite_knn(dataset_ini: Path, extension_lib: Path, query_vec: str, k: int) -
         con.load_extension(str(extension_lib))
         ini_sql = str(dataset_ini).replace("'", "''")
         create_sql = f"CREATE VIRTUAL TABLE nn USING vlite('{ini_sql}')"
-        query_sql = "SELECT id FROM nn WHERE query = ? AND k = ? ORDER BY distance"
+        query_sql = "SELECT id FROM nn WHERE query = ? AND k = ? ORDER BY score"
 
         log_step(f"executing SQL: {create_sql}")
         con.execute(create_sql)
@@ -244,6 +244,9 @@ def run_demo(
             log_step("closing the Sketch2 writer handle before opening the SQLite reader")
             ps.close()
             actual, query_time = sqlite_knn(dataset_ini, extension_path, query_vec, k)
+            if dist_func == "DOT":
+                # DOT is similarity: larger score is better.
+                actual = list(reversed(actual))
 
             print(f"generate input time: {generate_time:.3f}s")
             print(f"load data time: {load_time:.3f}s")

@@ -348,7 +348,7 @@ TEST_F(ScannerExTest, FindF16Works) {
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(1u, result[0]);
+    EXPECT_EQ(2u, result[0]);
 }
 
 TEST_F(ScannerExTest, FindF16CosWorksWithNumKong) {
@@ -433,7 +433,7 @@ TEST_F(ScannerExTest, FindDatasetWorks) {
     const auto ret = s.find(ds, 3, q.data(), result);
     ASSERT_EQ(0, ret.code()) << "\n\nfind failed: " << ret.message() << "\n\n";
     ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(15u, result[0]);
-    EXPECT_EQ(16u, result[1]);
-    EXPECT_EQ(14u, result[2]);
+    EXPECT_EQ(29u, result[0]);
+    EXPECT_EQ(28u, result[1]);
+    EXPECT_EQ(27u, result[2]);
 }

@@ -123,7 +123,7 @@ def cosine_distance(a: list[float], b: list[float]) -> float:
 
 
 def dot_distance(a: list[float | int], b: list[float | int]) -> float:
-    return sum(abs(float(x) - float(y)) for x, y in zip(a, b))
+    return sum(float(x) * float(y) for x, y in zip(a, b))
 
 
 def l2_distance_sq(a: list[float | int], b: list[float | int]) -> float:

@@ -18,7 +18,7 @@ class Sketch2StagedWriteIntegTest(IntegTestBase):
             ps.complete_writing()
 
             self.progress("querying nearest neighbors from staged data")
-            self.assertEqual([10, 20], ps.knn("1.0, 1.0, 1.0, 1.0", 2))
+            self.assertEqual([30, 20], ps.knn("1.0, 1.0, 1.0, 1.0", 2))
             self.assertEqual("[ 5.00, 5.00, 5.00, 5.00 ]", ps.get(20))
 
     def test_staged_delete_updates_knn_visibility(self) -> None:

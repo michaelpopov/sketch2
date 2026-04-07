@@ -212,7 +212,7 @@ TEST(sketch2api, generate_bin_creates_and_loads_input) {
 
     const std::vector<uint64_t> ids = api_knn(handle, "10.0, 10.0, 10.0, 10.0", 1);
     ASSERT_EQ(1u, ids.size());
-    EXPECT_EQ(10u, ids[0]);
+    EXPECT_EQ(17u, ids[0]);
 
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
@@ -389,8 +389,8 @@ TEST(sketch2api, staged_write_creates_data_and_removes_input_file) {
 
     const std::vector<uint64_t> ids = api_knn(handle, "10.0, 10.0, 10.0, 10.0", 2);
     ASSERT_EQ(2u, ids.size());
-    EXPECT_EQ(10u, ids[0]);
-    EXPECT_EQ(11u, ids[1]);
+    EXPECT_EQ(11u, ids[0]);
+    EXPECT_EQ(10u, ids[1]);
 
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
@@ -564,7 +564,7 @@ TEST(sketch2api, staged_write_multiple_sessions_accumulate) {
 
     const std::vector<uint64_t> ids = api_knn(handle, "10.0, 10.0, 10.0, 10.0", 3);
     ASSERT_EQ(3u, ids.size());
-    EXPECT_EQ(10u, ids[0]);
+    EXPECT_EQ(30u, ids[0]);
 
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));

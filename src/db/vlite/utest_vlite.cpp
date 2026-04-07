@@ -391,13 +391,13 @@ TEST_F(VliteTest, SupportsI16Datasets) {
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '10, 10, 10, 10' AND k = 2 "
-        "ORDER BY score");
+        "ORDER BY score DESC");
 
     ASSERT_EQ(2u, rows.size());
-    EXPECT_EQ(10u, rows[0].first);
-    EXPECT_EQ(20u, rows[1].first);
-    EXPECT_NEAR(0.0, rows[0].second, 1e-9);
-    EXPECT_NEAR(4.0, rows[1].second, 1e-9);
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(440.0, rows[0].second, 1e-9);
+    EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
 
 TEST_F(VliteTest, SupportsF16Datasets) {
@@ -412,13 +412,13 @@ TEST_F(VliteTest, SupportsF16Datasets) {
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
-        "ORDER BY score");
+        "ORDER BY score DESC");
 
     ASSERT_EQ(2u, rows.size());
-    EXPECT_EQ(10u, rows[0].first);
-    EXPECT_EQ(20u, rows[1].first);
-    EXPECT_NEAR(0.0, rows[0].second, 1e-6);
-    EXPECT_NEAR(4.0, rows[1].second, 1e-6);
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(440.0, rows[0].second, 1e-6);
+    EXPECT_NEAR(400.0, rows[1].second, 1e-6);
 }
 
 TEST_F(VliteTest, SupportsMatchOperator) {
@@ -498,11 +498,11 @@ TEST_F(VliteTest, ExplicitKRemainsVisibleWhenLimitPushdownApplies) {
         db.get(),
         "SELECT id, k FROM nn "
         "WHERE query = '15.2, 15.2, 15.2, 15.2' AND k = 100 "
-        "ORDER BY score LIMIT 1",
+        "ORDER BY score DESC LIMIT 1",
         -1, &stmt, nullptr));
 
     ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt));
-    EXPECT_EQ(15, sqlite3_column_int64(stmt, 0));
+    EXPECT_EQ(30, sqlite3_column_int64(stmt, 0));
     EXPECT_EQ(100, sqlite3_column_int64(stmt, 1));
     ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
     ASSERT_EQ(SQLITE_OK, sqlite3_finalize(stmt));
@@ -521,19 +521,19 @@ TEST_F(VliteTest, ReusesCachedDatasetAcrossQueries) {
     const auto first_rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '11.2, 11.2, 11.2, 11.2' AND k = 2 "
-        "ORDER BY score");
+        "ORDER BY score DESC");
     ASSERT_EQ(2u, first_rows.size());
-    EXPECT_EQ(11u, first_rows[0].first);
-    EXPECT_EQ(12u, first_rows[1].first);
+    EXPECT_EQ(12u, first_rows[0].first);
+    EXPECT_EQ(11u, first_rows[1].first);
 
     ASSERT_TRUE(fs::remove(ini_path_));
 
     const auto second_rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '10.2, 10.2, 10.2, 10.2' AND k = 2 "
-        "ORDER BY score");
+        "ORDER BY score DESC");
     ASSERT_EQ(2u, second_rows.size());
-    EXPECT_EQ(10u, second_rows[0].first);
+    EXPECT_EQ(12u, second_rows[0].first);
     EXPECT_EQ(11u, second_rows[1].first);
 }
 
@@ -713,13 +713,13 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '10 10 10 10' AND k = 2 "
-        "ORDER BY score");
+        "ORDER BY score DESC");
 
     ASSERT_EQ(2u, rows.size());
-    EXPECT_EQ(10u, rows[0].first);
-    EXPECT_EQ(20u, rows[1].first);
-    EXPECT_NEAR(0.0, rows[0].second, 1e-9);
-    EXPECT_NEAR(4.0, rows[1].second, 1e-9);
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(440.0, rows[0].second, 1e-9);
+    EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
 
 TEST_F(VliteTest, SpaceDelimitedQueryWorksForF16Dataset) {
@@ -734,13 +734,13 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF16Dataset) {
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '10.0 10.0 10.0 10.0' AND k = 2 "
-        "ORDER BY score");
+        "ORDER BY score DESC");
 
     ASSERT_EQ(2u, rows.size());
-    EXPECT_EQ(10u, rows[0].first);
-    EXPECT_EQ(20u, rows[1].first);
-    EXPECT_NEAR(0.0, rows[0].second, 1e-6);
-    EXPECT_NEAR(4.0, rows[1].second, 1e-6);
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(440.0, rows[0].second, 1e-6);
+    EXPECT_NEAR(400.0, rows[1].second, 1e-6);
 }
 
 TEST_F(VliteTest, SpaceDelimitedQueryWorksWithMatchOperator) {
@@ -823,13 +823,13 @@ TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '" + query_path + "' AND k = 2 "
-        "ORDER BY score");
+        "ORDER BY score DESC");
 
     ASSERT_EQ(2u, rows.size());
-    EXPECT_EQ(10u, rows[0].first);
-    EXPECT_EQ(20u, rows[1].first);
-    EXPECT_NEAR(0.0, rows[0].second, 1e-9);
-    EXPECT_NEAR(4.0, rows[1].second, 1e-9);
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(440.0, rows[0].second, 1e-9);
+    EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
 
 TEST_F(VliteTest, AtPrefixWorksWithF16Dataset) {
@@ -846,13 +846,13 @@ TEST_F(VliteTest, AtPrefixWorksWithF16Dataset) {
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '" + query_path + "' AND k = 2 "
-        "ORDER BY score");
+        "ORDER BY score DESC");
 
     ASSERT_EQ(2u, rows.size());
-    EXPECT_EQ(10u, rows[0].first);
-    EXPECT_EQ(20u, rows[1].first);
-    EXPECT_NEAR(0.0, rows[0].second, 1e-6);
-    EXPECT_NEAR(4.0, rows[1].second, 1e-6);
+    EXPECT_EQ(20u, rows[0].first);
+    EXPECT_EQ(10u, rows[1].first);
+    EXPECT_NEAR(440.0, rows[0].second, 1e-6);
+    EXPECT_NEAR(400.0, rows[1].second, 1e-6);
 }
 
 TEST_F(VliteTest, AtPrefixWorksWithMatchOperator) {
