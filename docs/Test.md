@@ -114,7 +114,7 @@ Representative coverage includes:
 
 - basic dataset lifecycle and wrapper behavior
 - error handling
-- distance-function behavior
+- score-function behavior
 - bulk load and incremental compaction
 - delete-heavy workloads
 - update-notifier visibility
@@ -139,8 +139,8 @@ table, and run SQL queries against it.
 These tests validate:
 
 - extension loading and virtual table creation
-- KNN result ids and distances returned through SQL
-- correct use of dataset-configured distance functions such as `l1`, `l2`, and
+- KNN result ids and scores returned through SQL
+- correct use of dataset-configured score functions such as `l1`, `l2`, and
   `cos`
 - SQL constraint handling and error reporting
 - SQLite-facing helper functionality such as the bitset-related interfaces

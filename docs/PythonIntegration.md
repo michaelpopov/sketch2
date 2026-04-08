@@ -177,7 +177,7 @@ Arguments:
 - `type_name`: vector element type, such as `f32`, `f16`, or `i16`
 - `dim`: vector dimension
 - `range_size`: id-range partition size
-- `dist_func`: distance function, such as `l1`, `l2`, or `cos`
+- `dist_func`: score function, such as `l1`, `l2`, or `cos`
 
 ### `drop(name)`
 

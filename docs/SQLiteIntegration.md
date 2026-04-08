@@ -134,7 +134,7 @@ CREATE TABLE x(
     k INTEGER HIDDEN,
     allowed_ids BLOB HIDDEN,
     id INTEGER,
-    distance REAL
+    score REAL
 )
 ```
 
@@ -145,9 +145,9 @@ Meaning:
 - `k`: hidden input top-k count
 - `allowed_ids`: optional hidden input bitset filter
 - `id`: output vector id
-- `distance`: output distance
+- `score`: output score
 
-The visible output columns are `id` and `distance`.
+The visible output columns are `id` and `score`.
 
 ## Supported Query Functionality
 
@@ -160,8 +160,8 @@ SQLite integration supports:
 - optional candidate filtering through `allowed_ids`
 - SQL-side bitset generation through `bitset_agg(id)`
 
-The distance function is not selected in SQL. It comes from the Sketch2
-dataset metadata.
+The score function is not selected in SQL. It comes from the Sketch2 dataset
+metadata.
 
 ## Query Vector Format
 
@@ -188,19 +188,19 @@ For `i16` datasets, use integer query values.
 Use `query`:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query = '1.0, 2.0, 3.0, 4.0' AND k = 5
-ORDER BY distance;
+ORDER BY score;
 ```
 
 Use `MATCH`:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE match_expr MATCH '1.0, 2.0, 3.0, 4.0' AND k = 5
-ORDER BY distance;
+ORDER BY score;
 ```
 
 `MATCH` here is only an accepted operator for passing the query vector. It is
@@ -213,10 +213,10 @@ If `k` is omitted, `vlite` defaults to `10`.
 Example:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE query = '0.0, 0.0, 0.0, 0.0'
-ORDER BY distance
+ORDER BY score
 LIMIT 10;
 ```
 
@@ -242,34 +242,34 @@ CREATE TABLE items_meta (
 Join KNN results with metadata:
 
 ```sql
-SELECT m.title, m.category, n.distance
+SELECT m.title, m.category, n.score
 FROM nn AS n
 JOIN items_meta AS m ON m.id = n.id
 WHERE n.query = '1.0, 2.0, 3.0, 4.0' AND n.k = 5
-ORDER BY n.distance;
+ORDER BY n.score;
 ```
 
 Return ids together with metadata:
 
 ```sql
-SELECT m.id, m.title, m.author, n.distance
+SELECT m.id, m.title, m.author, n.score
 FROM nn AS n
 JOIN items_meta AS m ON m.id = n.id
 WHERE n.match_expr MATCH '0.1, 0.2, 0.3, 0.4'
   AND n.k = 10
-ORDER BY n.distance;
+ORDER BY n.score;
 ```
 
 Apply relational filtering together with KNN:
 
 ```sql
-SELECT m.id, m.title, n.distance
+SELECT m.id, m.title, n.score
 FROM nn AS n
 JOIN items_meta AS m ON m.id = n.id
 WHERE n.match_expr MATCH '0.1, 0.2, 0.3, 0.4'
   AND n.k = 20
   AND m.category = 'books'
-ORDER BY n.distance
+ORDER BY n.score
 LIMIT 10;
 ```
 
@@ -313,7 +313,7 @@ FROM (
 Filter candidates to a fixed SQL-generated set:
 
 ```sql
-SELECT n.id, n.distance
+SELECT n.id, n.score
 FROM nn AS n
 WHERE n.match_expr MATCH '2.1, 2.1, 2.1, 2.1'
   AND n.k = 3
@@ -321,13 +321,13 @@ WHERE n.match_expr MATCH '2.1, 2.1, 2.1, 2.1'
         SELECT bitset_agg(id)
         FROM (SELECT 0 AS id)
       )
-ORDER BY n.distance;
+ORDER BY n.score;
 ```
 
 Build the bitset from a metadata table:
 
 ```sql
-SELECT n.id, n.distance
+SELECT n.id, n.score
 FROM nn AS n
 WHERE n.match_expr MATCH '2.1, 2.1, 2.1, 2.1'
   AND n.k = 10
@@ -336,24 +336,24 @@ WHERE n.match_expr MATCH '2.1, 2.1, 2.1, 2.1'
         FROM items_meta
         WHERE category = 'books'
       )
-ORDER BY n.distance;
+ORDER BY n.score;
 ```
 
 Keep normal behavior explicitly:
 
 ```sql
-SELECT n.id, n.distance
+SELECT n.id, n.score
 FROM nn AS n
 WHERE n.query = '10.0, 10.0, 10.0, 10.0'
   AND n.k = 5
   AND n.allowed_ids = CAST(NULL AS BLOB)
-ORDER BY n.distance;
+ORDER BY n.score;
 ```
 
 Combine metadata filtering and result joins:
 
 ```sql
-SELECT m.id, m.title, n.distance
+SELECT m.id, m.title, n.score
 FROM nn AS n
 JOIN items_meta AS m ON m.id = n.id
 WHERE n.match_expr MATCH '0.5, 0.5, 0.5, 0.5'
@@ -363,7 +363,7 @@ WHERE n.match_expr MATCH '0.5, 0.5, 0.5, 0.5'
         FROM items_meta
         WHERE author = 'Alice'
       )
-ORDER BY n.distance;
+ORDER BY n.score;
 ```
 
 This pattern is useful when the SQL layer knows a prefiltered candidate set
@@ -383,7 +383,7 @@ Typical failures include:
 Example of an invalid query:
 
 ```sql
-SELECT id, distance
+SELECT id, score
 FROM nn
 WHERE k = 5;
 ```
@@ -405,8 +405,8 @@ Current limits include:
 - read-only virtual table
 - query vector is required
 - dataset path is fixed at virtual-table creation time
-- distance function comes from dataset metadata
-- output columns are limited to `id` and `distance`
+- score function comes from dataset metadata
+- output columns are limited to `id` and `score`
 - ids must fit SQLite `INTEGER`
 
 ## Notes

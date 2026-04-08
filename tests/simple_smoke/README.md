@@ -39,7 +39,7 @@ A long-running soak that exercises creation, staged mutations, and reads on a Sk
 - `SIMPLE_SMOKE_TEST_READERS` — number of reader processes.
 - `SIMPLE_SMOKE_TEST_K` — KNN result size.
 - `SIMPLE_SMOKE_TEST_TYPE` — vector type (e.g., `f16`).
-- `SIMPLE_SMOKE_TEST_DIST` — distance metric (e.g., `l2`).
+- `SIMPLE_SMOKE_TEST_DIST` — score metric (e.g., `l2`).
 - `SIMPLE_SMOKE_TEST_RANGE_SIZE` — range size for dataset creation.
 - `SIMPLE_SMOKE_TEST_LOG_LEVEL` — log level written to `config.ini`.
 - `SIMPLE_SMOKE_TEST_THREAD_POOL_SIZE` — thread-pool size in `config.ini`.

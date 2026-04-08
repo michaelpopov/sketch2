@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared vector generation and distance helpers for Sketch2 tests and demos."""
+"""Shared vector generation and metric-scoring helpers for Sketch2 tests and demos."""
 
 from __future__ import annotations
 

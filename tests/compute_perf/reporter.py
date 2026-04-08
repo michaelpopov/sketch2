@@ -9,7 +9,7 @@ from pathlib import Path
 from common import load_config
 
 
-REPORT_DISTANCE_RE = re.compile(r"^Distance:\s*(\S+)\s*$")
+REPORT_METRIC_RE = re.compile(r"^Metric:\s*(\S+)\s*$")
 REPORT_AVG_RE = re.compile(r"^Avg Time:\s*([0-9]+(?:\.[0-9]+)?)s\s*$")
 KERNEL_CASE_RE = re.compile(
     r"^Kernel Case:\s+(\S+)\s+avg=([0-9]+(?:\.[0-9]+)?)ns\s+min=([0-9]+(?:\.[0-9]+)?)ns\s+max=([0-9]+(?:\.[0-9]+)?)ns\s*$"
@@ -35,7 +35,7 @@ def parse_runner_log(path: Path) -> dict[str, float]:
     with path.open("r", encoding="utf-8") as handle:
         for raw_line in handle:
             line = raw_line.strip()
-            dist_match = REPORT_DISTANCE_RE.match(line)
+            dist_match = REPORT_METRIC_RE.match(line)
             if dist_match:
                 pending_dist = dist_match.group(1).lower()
                 continue
@@ -55,7 +55,7 @@ def parse_kernel_log(path: Path, case_name: str = "dist") -> dict[str, float]:
     with path.open("r", encoding="utf-8") as handle:
         for raw_line in handle:
             line = raw_line.strip()
-            dist_match = REPORT_DISTANCE_RE.match(line)
+            dist_match = REPORT_METRIC_RE.match(line)
             if dist_match:
                 pending_dist = dist_match.group(1).lower()
                 continue
@@ -131,7 +131,7 @@ def main() -> None:
             row.append("-" if value is None else f"{value:.3f}ns")
         kernel_rows.append(row)
 
-    print("--- KERNEL SUMMARY (dist avg ns/call) ---")
+    print("--- KERNEL SUMMARY (metric avg ns/call) ---")
     print(build_table(headers, kernel_rows))
     print("-----------------------------------------")
 

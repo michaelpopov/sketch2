@@ -116,7 +116,7 @@ def main() -> None:
         is_sketch = (config.db_dir / "config.ini").exists()
         skip_init = os.environ.get("COMPUTE_PERF_SKIP_INIT") == "1"
         if preserve_root and single_dist and not skip_init:
-            log("initializer", f"preserving db_dir for single-distance init: {config.db_dir}")
+            log("initializer", f"preserving db_dir for single-metric init: {config.db_dir}")
         elif (is_temp or is_sketch) and not skip_init:
             log("initializer", f"cleaning existing db_dir: {config.db_dir}")
             shutil.rmtree(config.db_dir)
@@ -186,19 +186,19 @@ def main() -> None:
                 save_ground_truth(config, dist, [], [])
             else:
                 # Ground truth comes from the library's default engine selection.
-                # We then compute only the returned distances in Python so tie-aware
-                # validation can still compare distance multisets cheaply.
+                # We then compute only the returned scores in Python so tie-aware
+                # validation can still compare score multisets cheaply.
                 os.environ.pop("SKETCH2_COMPUTE_ENGINE", None)
                 query_str = fmt_typed_vector(query_vals, config.type_name)
                 expected_ids = sketch2.knn(query_str, config.knn_count)
-                expected_dists = expected_dists_for_ids(
+                expected_scores = expected_dists_for_ids(
                     expected_ids,
                     config.dims,
                     config.type_name,
                     dist,
                     query_vals,
                 )
-                save_ground_truth(config, dist, expected_ids, expected_dists)
+                save_ground_truth(config, dist, expected_ids, expected_scores)
             
             log("initializer", f"dataset {dataset_name} is ready")
             sketch2.close()

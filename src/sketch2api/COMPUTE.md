@@ -4,7 +4,7 @@ This document describes the three primary compute options available in `sketch2a
 
 ## Overview
 
-The `sketch2` compute layer is responsible for high-speed distance calculations. It supports three distinct implementations (engines) that can be selected at runtime to optimize performance for different hardware and use cases.
+The `sketch2` compute layer is responsible for high-speed score calculations. It supports three distinct implementations (engines) that can be selected at runtime to optimize performance for different hardware and use cases.
 
 ## The Three Compute Options
 

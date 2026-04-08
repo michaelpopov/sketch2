@@ -124,7 +124,7 @@ def initial_diag_state(config, dist: str, query_vals: list[float | int], query_s
         "status": "running",
         "stage": "initialized",
         "engine": engine_label(),
-        "distance": dist,
+        "metric": dist,
         "pid": os.getpid(),
         "db_dir": str(config.db_dir),
         "config_path": str(config.db_dir / "config.ini"),
@@ -194,7 +194,7 @@ def run_kernel_benchmark(config, dist: str) -> dict:
 def print_kernel_report(payload: dict) -> None:
     print("--- KERNEL PERFORMANCE REPORT ---")
     print(f"Compute Engine:    {payload['engine']}")
-    print(f"Distance:          {payload['dist']}")
+    print(f"Metric:            {payload['dist']}")
     print(f"Type:              {payload['type']}")
     print(f"Dim:               {payload['dim']}")
     print(f"Warmup Iterations: {payload['warmup_iterations']}")
@@ -234,17 +234,17 @@ def run_single_distance(dist: str) -> None:
         dummy_calc = os.environ.get("DUMMY_CALC") == "1"
         if dummy_calc:
             log("runner", f"skipping ground truth loading for {dist} (DUMMY_CALC=1)")
-            expected_ids, expected_dists = [], []
+            expected_ids, expected_scores = [], []
         else:
             log("runner", f"loading ground truth for {dist}...")
-            expected_ids, expected_dists = load_ground_truth(config, dist)
+            expected_ids, expected_scores = load_ground_truth(config, dist)
         
         update_diag(
             diag_path,
             diag_state,
             stage="ground_truth_loaded",
             expected_ids_preview=expected_ids[: min(5, len(expected_ids))],
-            expected_dists_preview=expected_dists[: min(5, len(expected_dists))],
+            expected_scores_preview=expected_scores[: min(5, len(expected_scores))],
         )
 
         if "kernel" in config.benchmark_layers:
@@ -275,7 +275,7 @@ def run_single_distance(dist: str) -> None:
                 if not validate_knn_results(
                     warmup_ids,
                     expected_ids,
-                    expected_dists,
+                    expected_scores,
                     query_vals,
                     config.dims,
                     config.type_name,
@@ -306,7 +306,7 @@ def run_single_distance(dist: str) -> None:
                 
                 if not dummy_calc:
                     if not validate_knn_results(
-                        ids, expected_ids, expected_dists, query_vals,
+                        ids, expected_ids, expected_scores, query_vals,
                         config.dims, config.type_name, dist
                     ):
                         log("runner", f"ERROR: result mismatch at iteration {i}")
@@ -347,7 +347,7 @@ def run_single_distance(dist: str) -> None:
 
             print(f"--- PERFORMANCE REPORT ---")
             print(f"Compute Engine: {engine_label()}")
-            print(f"Distance:       {dist}")
+            print(f"Metric:         {dist}")
             print(f"Iterations:     {config.repeat}")
             print(f"Min Time:       {min_t:.6f}s")
             print(f"Max Time:       {max_t:.6f}s")

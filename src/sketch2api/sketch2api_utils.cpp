@@ -84,7 +84,7 @@ Ret validate_dataset_type(const char* type) {
 
 Ret validate_dataset_dist_func(const char* dist_func) {
     if (dist_func == nullptr || dist_func[0] == '\0') {
-        return Ret("Invalid distance function parameter");
+        return Ret("Invalid score function parameter");
     }
 
     try {

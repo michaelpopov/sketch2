@@ -23,7 +23,7 @@ Meaning:
 - `query`: hidden input column. This is the query vector encoded as text.
 - `k`: hidden input column. This is the requested number of nearest neighbors.
 - `id`: output column. Sketch2 vector id.
-- `score`: output column. Distance from the query vector.
+- `score`: output column. Score returned by the dataset metric for the query vector.
 
 The score function is not chosen in SQL. It comes from the Sketch2 dataset
 metadata in the referenced INI file.

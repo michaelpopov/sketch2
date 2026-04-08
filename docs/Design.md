@@ -3,7 +3,7 @@
 Sketch2 is designed as a vector storage and compute engine, not as a general
 purpose database. The project is opinionated about where it should compete:
 layout of vector data on disk, how that data is moved through memory, and how
-distance calculations run on modern CPUs. Metadata management, relational
+score calculations run on modern CPUs. Metadata management, relational
 queries, and application-specific workflows are expected to live in host
 systems that integrate Sketch2.
 
@@ -39,7 +39,7 @@ should be shaped around the actual hardware:
   current CPU without requiring separate binaries
 
 The design goal is to reduce unnecessary translation layers between persisted
-bytes, CPU caches, and the hot distance-calculation loop.
+bytes, CPU caches, and the hot score-calculation loop.
 
 ## Storage Model
 
@@ -196,17 +196,17 @@ and KNN behavior with inputs that are both large and easy to reason about.
 
 ## Compute Architecture
 
-Sketch2 keeps compute specialization explicit. Distance computation is not a
+Sketch2 keeps compute specialization explicit. Score computation is not a
 generic callback invoked inside the innermost loop. Instead, the scanner
 dispatches once per query across three axes:
 
 - backend
-- distance function
+- score function
 - vector element type
 
 After that, the search runs on one specialized path.
 
-Supported distance functions today:
+Supported score functions today:
 
 - `l1`
 - `l2`

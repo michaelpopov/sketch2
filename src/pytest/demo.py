@@ -293,7 +293,7 @@ def parse_args() -> argparse.Namespace:
         "--dist-func",
         default="COS",
         choices=("DOT", "L2", "COS"),
-        help="Distance function used when creating the dataset",
+        help="Score function used when creating the dataset",
     )
     parser.add_argument(
         "--sketch2-lib",

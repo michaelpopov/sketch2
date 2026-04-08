@@ -5,7 +5,7 @@ Sketch2 dataset.
 
 - Input: query vector (`query` or `match_expr`), optional `k`, optional `allowed_ids`
 - Output: `id`, `score`
-- Distance metric comes from dataset metadata (`dist_func`)
+- Score metric comes from dataset metadata (`dist_func`)
 
 ## Build And Load
 
@@ -165,9 +165,9 @@ Set before loading extension:
 - `SKETCH2_THREAD_POOL_SIZE`
 - `SKETCH2_LOG_FILE`
 
-## Distance Functions
+## Score Functions
 
-Distance is fixed by dataset metadata.
+The score function is fixed by dataset metadata.
 
 - `l1`: Manhattan score
 - `l2`: squared Euclidean score
@@ -193,4 +193,4 @@ For cosine:
 - Read-only virtual table (`INSERT/UPDATE/DELETE` not supported)
 - Query constraint required (`query` or `match_expr`)
 - Result ids must fit SQLite `INTEGER` range
-- Distance metric cannot be overridden in SQL
+- Score metric cannot be overridden in SQL

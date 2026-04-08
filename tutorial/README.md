@@ -125,7 +125,7 @@ After `merge_delta()`:
 - `0.delta` is folded back into `0.data`.
 - Reads are served from the merged data file.
 
-## 3. File Evolution and Multi-Part Layout (`tutorial_03.py`)
+## 3. Storage Layout (`tutorial_03.py`)
 
 Prereqs:
 - Run `tutorial_00.py` to prepare the environment.
@@ -156,3 +156,70 @@ Expected observations:
 - After the update step, those `.delta` files continue to accumulate both deletions and replacements.
 - After loading more vectors, new files appear for new id ranges and one delta file is merged automatically because it become large enough.
 - After force merge operation, remaining `.delta` files are folded into `.data` files.
+
+## 4. KNN Search Using Python API (`tutorial_04.py`)
+
+Run:
+`python3 tutorial_04.py demods`
+
+This tutorial demonstrates how to run K Nearest Neighbors search on a dataset with vector embeddings.
+The previous tutorials showed how to insert data into Sketch2 storage. They used get() function
+to retrieve vectors to validate write operation. Retrieving vectors with get() function is intended
+only for testing purposes. The real usage of the vector storage engine consists in finding "nearest"
+vectors to the query vector. Sketch2 provides function knn() for this purpose.
+
+The tutorial script demonstrates how to:
+- Create a new dataset.
+- Inserts test data into the dataset.
+- Run KNN search on the dataset.
+
+## 5. Query database with SQL to get KNN (`tutorial_05.py`)
+
+Run:
+`python3 tutorial_05.py demods`
+
+The key feature of Sketch2 storage engine is integration into existing databases that provides
+users a convenient way to query data using regular SQL statements. This tutorial demonstrates
+how to run find nearest neighbors of a vector by querying SQLite database.
+
+The tutorial script demonstrates how to:
+- Create a new dataset.
+- Insert test data into the dataset.
+- Run SQL statement on SQLite database to retrieve ids of nearest neighbors of a query vector.
+
+
+## 6. Database query that joins KNN search and metadata conditions  (`tutorial_06.py`)
+
+Run:
+`python3 tutorial_06.py demods`
+
+Integrating Sketch2 into database allows joining results of KNN search and other data
+in the database.
+
+The tutorial script demonstrates how to:
+- Create a new dataset.
+- Insert test data into the dataset.
+- Insert metadata into SQLite table.
+- Run SQL statement on SQLite database that joins results of KNN search and
+  data from a "metadata" table.
+
+
+## 7. Pushing filter into KNN search  (`tutorial_07.py`)
+
+Run:
+`python3 tutorial_07.py demods`
+
+In some cases it is more efficient to limit the subset of vectors that is used during
+the search of Nearest Neighbors. Integration with databases allows pushing this filter
+into Sketch2. This tutorial demonstrates how to generate a list of "valid ids" using
+SQL query, pass it into Sketch2 and get vectors that match the condition.
+
+The tutorial script demonstrates how to:
+- Create a new dataset.
+- Insert test data into the dataset.
+- Insert metadata into SQLite table.
+- Run SQL statement on SQLite database that generates a list of valid ids and
+  passes it to Sketch2 KNN search so only vectors with these ids are checked.
+
+
+  

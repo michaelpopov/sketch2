@@ -176,11 +176,11 @@ def ground_truth_path(config: PerfConfig, dist_func: str) -> Path:
     return config.db_dir / f"ground_truth_{dist_func}.json"
 
 
-def save_ground_truth(config: PerfConfig, dist_func: str, ids: list[int], dists: list[float]) -> None:
+def save_ground_truth(config: PerfConfig, dist_func: str, ids: list[int], scores: list[float]) -> None:
     path = ground_truth_path(config, dist_func)
     data = {
         "ids": ids,
-        "dists": dists
+        "scores": scores
     }
     with path.open("w", encoding="utf-8") as out:
         json.dump(data, out)
@@ -192,7 +192,10 @@ def load_ground_truth(config: PerfConfig, dist_func: str) -> tuple[list[int], li
         raise FileNotFoundError(f"ground truth file not found: {path}")
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    return data["ids"], data["dists"]
+    score_values = data.get("scores")
+    if score_values is None:
+        score_values = data["dists"]
+    return data["ids"], score_values
 
 
 def distance_helpers(
@@ -207,7 +210,7 @@ def distance_helpers(
         return l2_distance_sq, native_sequential_vector
     if dist_func == "dot":
         return dot_distance, native_sequential_vector
-    raise ValueError(f"unsupported distance function: {dist_func}")
+    raise ValueError(f"unsupported score function: {dist_func}")
 
 
 def query_values_for_dist(dist_func: str, dim: int, type_name: str) -> list[float | int]:
@@ -215,7 +218,7 @@ def query_values_for_dist(dist_func: str, dim: int, type_name: str) -> list[floa
         return cosine_demo_query(dim, type_name)
     if dist_func in ("l2", "dot"):
         return generic_demo_query(dim, type_name)
-    raise ValueError(f"unsupported distance function: {dist_func}")
+    raise ValueError(f"unsupported score function: {dist_func}")
 
 
 def smaller_score_is_better(dist_func: str) -> bool:
@@ -223,7 +226,7 @@ def smaller_score_is_better(dist_func: str) -> bool:
         return True
     if dist_func == "dot":
         return False
-    raise ValueError(f"unsupported distance function: {dist_func}")
+    raise ValueError(f"unsupported score function: {dist_func}")
 
 
 def sort_metric_values(values: list[float], dist_func: str) -> list[float]:
@@ -238,11 +241,11 @@ def expected_dists_for_ids(
     query_vals: list[float | int],
 ) -> list[float]:
     dist_calc, vector_gen = distance_helpers(dist_func)
-    dists = []
+    scores = []
     for item_id in item_ids:
         vec = vector_gen(item_id, dim, type_name)
-        dists.append(dist_calc(query_vals, vec))
-    return sort_metric_values(dists, dist_func)
+        scores.append(dist_calc(query_vals, vec))
+    return sort_metric_values(scores, dist_func)
 
 
 def get_ground_truth_knn(
@@ -261,7 +264,7 @@ def get_ground_truth_knn(
     else:
         dist_calc, vector_gen = distance_helpers(dist_func)
 
-    # Calculate distances
+    # Calculate scores
     if period > 1:
         period_distances = []
         for m in range(min(period, count)):
@@ -289,7 +292,7 @@ def get_ground_truth_knn(
 def validate_knn_results(
     actual_ids: list[int],
     expected_ids: list[int],
-    expected_dists: list[float],
+    expected_scores: list[float],
     query_vals: list[float | int],
     dim: int,
     type_name: str,
@@ -305,21 +308,21 @@ def validate_knn_results(
         return True
 
     # If IDs differ, check if it's just a tie-breaking difference.
-    # We calculate distances for the actual IDs and compare them with expected distances.
+    # We calculate scores for the actual IDs and compare them with expected scores.
     try:
         dist_calc, vector_gen = distance_helpers(dist_func)
     except ValueError:
         return False
 
-    actual_dists = []
+    actual_scores = []
     for aid in actual_ids:
         vec = vector_gen(aid, dim, type_name)
-        actual_dists.append(dist_calc(query_vals, vec))
+        actual_scores.append(dist_calc(query_vals, vec))
 
-    # Compare the distance multisets so engines can break ties differently.
+    # Compare the score multisets so engines can break ties differently.
     eps = 1e-9
-    for a_d, e_d in zip(sort_metric_values(actual_dists, dist_func), expected_dists):
-        if abs(a_d - e_d) > eps:
+    for actual_score, expected_score in zip(sort_metric_values(actual_scores, dist_func), expected_scores):
+        if abs(actual_score - expected_score) > eps:
             return False
 
     return True
