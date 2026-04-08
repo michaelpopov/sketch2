@@ -131,6 +131,7 @@ struct FnPtrInvNormScore {
 
 template <typename Iterator, typename ScoreFn>
 void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const ScoreFn& score,
+        size_t vector_size_bytes,
         const BitsetFilter* bitset = nullptr) {
     for (; !it.eof(); it.next()) {
         if (bitset != nullptr) {
@@ -142,10 +143,19 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
             if ((bitset->data[byte_index] & mask) == 0u) continue;
         }
 #ifndef DUMMY_CALC
+        (void)vector_size_bytes;
         push_result(heap, count, it.id(), score(it));
 #else
         (void)score;
-        push_result(heap, count, it.id(), 0.0);
+        // Access vector's data and use it as a dummy to prevent
+        // optimizer removing this code. It is required for measuring
+        // I/O performance.
+        const uint8_t* vec_data = it.data();
+        uint64_t byte_sum = 0;
+        for (size_t i = 0; i < vector_size_bytes; ++i) {
+            byte_sum += vec_data[i];
+        }
+        push_result(heap, count, it.id(), static_cast<double>(byte_sum));
 #endif
     }
 }
@@ -154,8 +164,9 @@ template <typename ScoreFn>
 void scan_data_reader_scored(const DataReader& reader,
         size_t count, DistHeap* heap, const ScoreFn& score,
         const BitsetFilter* bitset = nullptr) {
-    scan_iterator_scored(reader.base_begin(), count, heap, score, bitset);
-    scan_iterator_scored(reader.delta_begin(), count, heap, score, bitset);
+    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+    scan_iterator_scored(reader.base_begin(), count, heap, score, vector_size_bytes, bitset);
+    scan_iterator_scored(reader.delta_begin(), count, heap, score, vector_size_bytes, bitset);
 }
 
 template <typename ReaderScanFn>
