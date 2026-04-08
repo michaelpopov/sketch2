@@ -140,7 +140,7 @@ void run_compute_chain_assertions() {
         unsetenv(kComputeEngineEnv);
     });
 
-    std::string expected_engine = "legacy";
+    std::string expected_engine = "compute";
     bool write_config = false;
     bool use_missing_config_path = false;
     std::string config_engine;
@@ -180,7 +180,7 @@ void run_compute_chain_assertions() {
         write_config = true;
         config_engine = "numkong";
         env_engine = "auto";
-    } else if (std::string_view(scenario) == "missing_defaults_legacy") {
+    } else if (std::string_view(scenario) == "missing_defaults_compute") {
     } else if (std::string_view(scenario) == "invalid_is_advisory") {
         write_config = true;
         config_engine = "bogus";
@@ -191,7 +191,7 @@ void run_compute_chain_assertions() {
         config_engine = unsupported_backend;
     } else if (std::string_view(scenario) == "unsupported_env_is_advisory") {
         env_engine = unsupported_backend;
-    } else if (std::string_view(scenario) == "missing_config_file_defaults_legacy") {
+    } else if (std::string_view(scenario) == "missing_config_file_defaults_compute") {
         use_missing_config_path = true;
     } else if (std::string_view(scenario) == "env_overrides_missing_config_file") {
         use_missing_config_path = true;
@@ -285,11 +285,11 @@ TEST(sketch2api_compute_chain, EnvOverridesConfig) {
     run_child_scenario("env_overrides_config");
 }
 
-TEST(sketch2api_compute_chain, ConfigAutoUsesLegacyScanner) {
+TEST(sketch2api_compute_chain, ConfigAutoUsesComputeScanner) {
     run_child_scenario("config_auto");
 }
 
-TEST(sketch2api_compute_chain, EnvAutoUsesLegacyScanner) {
+TEST(sketch2api_compute_chain, EnvAutoUsesComputeScanner) {
     run_child_scenario("env_auto");
 }
 
@@ -301,8 +301,8 @@ TEST(sketch2api_compute_chain, EnvAutoOverridesConfigNumKong) {
     run_child_scenario("env_auto_overrides_config_numkong");
 }
 
-TEST(sketch2api_compute_chain, MissingConfigDefaultsToLegacyScanner) {
-    run_child_scenario("missing_defaults_legacy");
+TEST(sketch2api_compute_chain, MissingConfigDefaultsToComputeScanner) {
+    run_child_scenario("missing_defaults_compute");
 }
 
 TEST(sketch2api_compute_chain, InvalidConfigRemainsAdvisory) {
@@ -321,8 +321,8 @@ TEST(sketch2api_compute_chain, UnsupportedEnvRemainsAdvisory) {
     run_child_scenario("unsupported_env_is_advisory");
 }
 
-TEST(sketch2api_compute_chain, MissingConfigFileDefaultsToLegacyScanner) {
-    run_child_scenario("missing_config_file_defaults_legacy");
+TEST(sketch2api_compute_chain, MissingConfigFileDefaultsToComputeScanner) {
+    run_child_scenario("missing_config_file_defaults_compute");
 }
 
 TEST(sketch2api_compute_chain, EnvOverridesMissingConfigFile) {

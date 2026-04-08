@@ -196,6 +196,19 @@ TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
+TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrderWithComputeEngine) {
+    generate(5, 0, DataType::f32, 4);
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
+    ScannerEx s(CalcEngine::compute);
+    auto q = f32_vec(3.2f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(4u, result[0]);
+    EXPECT_EQ(3u, result[1]);
+    EXPECT_EQ(2u, result[2]);
+}
+
 TEST_F(ScannerExTest, FindCountExceedsTotalReturnsCapped) {
     const size_t total = 3;
     generate(total, 0, DataType::f32, 4);
@@ -270,6 +283,19 @@ TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithNumKong) {
     EXPECT_EQ(2u, result[2]);
 }
 
+TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithComputeEngine) {
+    generate(5, 0, DataType::f32, 4);
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
+    ScannerEx s(CalcEngine::compute);
+    auto q = f32_vec(3.2f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(3u, result[0]);
+    EXPECT_EQ(4u, result[1]);
+    EXPECT_EQ(2u, result[2]);
+}
+
 // ---------------------------------------------------------------------------
 // Cosine metric
 // ---------------------------------------------------------------------------
@@ -301,6 +327,24 @@ TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithNumKong) {
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
     ScannerEx s(CalcEngine::numkong);
+    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(10u, result[0]);
+    EXPECT_EQ(20u, result[1]);
+    EXPECT_EQ(30u, result[2]);
+}
+
+TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithComputeEngine) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
+    ScannerEx s(CalcEngine::compute);
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -351,6 +395,17 @@ TEST_F(ScannerExTest, FindF16Works) {
     EXPECT_EQ(2u, result[0]);
 }
 
+TEST_F(ScannerExTest, FindF16WorksWithComputeEngine) {
+    generate(3, 0, DataType::f16, 4);
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::DOT, {input_path_});
+    ScannerEx s(CalcEngine::compute);
+    auto q = f16_vec(1.1f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(2u, result[0]);
+}
+
 TEST_F(ScannerExTest, FindF16CosWorksWithNumKong) {
     write_input_raw(
         input_path_,
@@ -360,6 +415,25 @@ TEST_F(ScannerExTest, FindF16CosWorksWithNumKong) {
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::COS, {input_path_});
     ScannerEx s(CalcEngine::numkong);
+    auto q = f16_vec(0.0f, 4);
+    reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16(1.0f);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(10u, result[0]);
+    EXPECT_EQ(20u, result[1]);
+    EXPECT_EQ(30u, result[2]);
+}
+
+TEST_F(ScannerExTest, FindF16CosWorksWithComputeEngine) {
+    write_input_raw(
+        input_path_,
+        "f16,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::COS, {input_path_});
+    ScannerEx s(CalcEngine::compute);
     auto q = f16_vec(0.0f, 4);
     reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16(1.0f);
     std::vector<uint64_t> result;

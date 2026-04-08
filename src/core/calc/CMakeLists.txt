@@ -1,5 +1,6 @@
 add_library(calc STATIC
   calc_engine.cpp
+  compute_kernels.cpp
   hwy_kernels.cpp
   nk_kernels.cpp
   scanner_ex.cpp
@@ -9,7 +10,7 @@ target_link_libraries(calc PUBLIC stor hwy sketch_compile_options Threads::Threa
 target_include_directories(calc SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/third-party/numkong)
 
 add_executable(bench_calc bench_calc.cpp)
-target_link_libraries(bench_calc PRIVATE calc comp stor Threads::Threads)
+target_link_libraries(bench_calc PRIVATE calc stor Threads::Threads)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   set_source_files_properties(nk_kernels.cpp PROPERTIES

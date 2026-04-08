@@ -261,6 +261,7 @@ Ret build_heap(CalcEngine engine, const DatasetReader& dataset, DistFunc func,
 
 const char* calc_engine_name(CalcEngine engine) {
     switch (engine) {
+        case CalcEngine::compute: return "compute";
         case CalcEngine::highway: return "highway";
         case CalcEngine::numkong: return "numkong";
         default: return "unknown";

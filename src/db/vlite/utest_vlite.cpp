@@ -303,7 +303,7 @@ TEST_F(VliteTest, ChildScenario) {
                 "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     create_dataset(DataType::f32, 4, 100, DistFunc::COS);
 
-    std::string expected_engine = "legacy";
+    std::string expected_engine = "compute";
     if (std::string_view(scenario) == "env_highway") {
         ASSERT_EQ(0, setenv(kComputeEngineEnv, "highway", 1));
         expected_engine = "highway";

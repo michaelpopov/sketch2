@@ -4,6 +4,7 @@
 // SIMD library backend.
 
 #pragma once
+#include "core/utils/compute_unit.h"
 #include "utils/shared_types.h"
 #include <cstdint>
 #include <stdexcept>
@@ -11,6 +12,7 @@
 namespace sketch2 {
 
 enum class CalcEngine : uint8_t {
+    compute,
     highway,
     numkong,
 };
@@ -33,5 +35,8 @@ struct CalcKernels {
 
 // Resolves the kernel set for a given engine, metric, and data type.
 CalcKernels resolve_calc_kernels(CalcEngine engine, DistFunc func, DataType type);
+
+// Maps the active compute backend family to the corresponding CalcEngine.
+CalcEngine selected_calc_engine(ComputeBackendKind kind);
 
 } // namespace sketch2

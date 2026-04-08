@@ -1,7 +1,6 @@
 #include "internal.h"
 
 #include "core/calc/scanner_ex.h"
-#include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
 #include "core/utils/compute_unit.h"
 #include "core/utils/log.h"
@@ -26,24 +25,6 @@ using namespace sketch2;
 namespace sketch2api::detail {
 
 namespace {
-
-bool use_calc_engine() {
-    const ComputeBackendKind kind = get_singleton().compute_unit().kind();
-    return kind == ComputeBackendKind::highway || kind == ComputeBackendKind::nk;
-}
-
-CalcEngine selected_calc_engine() {
-    const ComputeBackendKind kind = get_singleton().compute_unit().kind();
-    assert(use_calc_engine());
-    switch (kind) {
-        case ComputeBackendKind::highway:
-            return CalcEngine::highway;
-        case ComputeBackendKind::nk:
-            return CalcEngine::numkong;
-        default:
-            throw std::runtime_error("selected_calc_engine: non-calc backend selected");
-    }
-}
 
 std::string trim_whitespace(const std::string& value) {
     size_t begin = 0;
@@ -358,13 +339,8 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
     }
 
     std::vector<DistItem> items;
-    if (use_calc_engine()) {
-        ScannerEx scanner{selected_calc_engine()};
-        ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
-    } else {
-        Scanner scanner;
-        ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
-    }
+    ScannerEx scanner{selected_calc_engine(get_singleton().compute_unit().kind())};
+    ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
@@ -384,10 +360,7 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
 }
 
 const char* sk_knn_engine_name_for_testing_() {
-    if (!use_calc_engine()) {
-        return "legacy";
-    }
-    return calc_engine_name(selected_calc_engine());
+    return calc_engine_name(selected_calc_engine(get_singleton().compute_unit().kind()));
 }
 
 int sk_merge_delta_(sk_handle_t* handle) {
