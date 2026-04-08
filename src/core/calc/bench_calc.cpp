@@ -1,4 +1,4 @@
-// Direct kernel benchmark for calc engines and the legacy compute path.
+// Direct kernel benchmark for calc engines, including CalcEngine::compute.
 
 #include "core/calc/calc_engine.h"
 #include "core/calc/nk_kernels.h"

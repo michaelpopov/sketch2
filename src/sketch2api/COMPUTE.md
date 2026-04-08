@@ -27,7 +27,7 @@ Hand-written, project-specific kernels optimized for various CPU architectures. 
     *   `avx2`: Intel/AMD AVX2 with FMA and F16C support.
     *   `neon`: ARM NEON for AArch64 (Apple Silicon, AWS Graviton).
     *   `scalar`: Standard non-vectorized implementation (fallback).
-*   **Configuration**: Set the engine to the specific backend name (e.g., `avx2`, `neon`). This keeps `sketch2api` on the legacy `Scanner` path and selects the matching `libcompute.a` backend.
+*   **Configuration**: Set the engine to the specific backend name (e.g., `avx2`, `neon`). This selects `ScannerEx(CalcEngine::compute)`, which then uses the matching custom SIMD backend at runtime.
 
 ---
 
@@ -54,7 +54,7 @@ Environment variables take the highest precedence and override settings in the I
 
 *   **`SKETCH2_COMPUTE_ENGINE`**: Set this to one of the engine or backend names.
     ```bash
-    # Example: Select the legacy AVX2 compute backend
+    # Example: Select the AVX2 custom SIMD backend
     export SKETCH2_COMPUTE_ENGINE=avx2
 
     # Example: Select Google Highway
@@ -62,7 +62,7 @@ Environment variables take the highest precedence and override settings in the I
     ```
 
 ### 3. Automatic Selection (`auto`)
-If set to `auto`, `sketch2` probes the host CPU and selects the highest-performing supported backend among the **Custom SIMD functions**. In `sketch2api`, `auto` means the legacy `Scanner` path is used with automatic `libcompute.a` backend selection.
+If set to `auto`, `sketch2` probes the host CPU and selects the highest-performing supported backend among the **Custom SIMD functions**. In `sketch2api`, `auto` means `ScannerEx(CalcEngine::compute)` is used with automatic backend selection inside the custom SIMD runtime.
 
 ## Summary of Configuration Precedence
 1.  **`SKETCH2_COMPUTE_ENGINE`** environment variable.
@@ -73,8 +73,8 @@ If set to `auto`, `sketch2` probes the host CPU and selects the highest-performi
 
 - `highway` selects `ScannerEx(CalcEngine::highway)`.
 - `numkong` selects `ScannerEx(CalcEngine::numkong)`.
-- `auto`, `avx2`, `avx512f`, `avx512_vnni`, `neon`, and `scalar` select the legacy `Scanner` path backed by `libcompute.a`.
-- Invalid values log an `ERROR` message and degrade to the default legacy path instead of terminating the host process.
+- `auto`, `avx2`, `avx512f`, `avx512_vnni`, `neon`, and `scalar` select `ScannerEx(CalcEngine::compute)`.
+- Invalid values log an `ERROR` message and degrade to the default compute path instead of terminating the host process.
 
 ## Verifying the Active Engine
 Set the `SKETCH2_LOG_LEVEL` environment variable to `INFO` to see which engine was selected during initialization:

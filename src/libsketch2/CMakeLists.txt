@@ -8,7 +8,6 @@ target_link_libraries(sketch2
     sketch2api
     vlite
     -Wl,--no-whole-archive
-    comp
     calc
     stor
     utils

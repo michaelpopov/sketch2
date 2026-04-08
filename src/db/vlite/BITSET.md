@@ -85,7 +85,7 @@ FROM (SELECT 0 AS id UNION ALL SELECT 1 UNION ALL SELECT 8);
 - `int allowed_ids_blob_size`
 - `bool has_allowed_ids`
 
-These are passed into `Scanner::find_items(...)` as `BitsetFilter`.
+These are passed into `ScannerEx::find_items(...)` as `BitsetFilter`.
 Filtering is applied during scan loops, so disallowed ids are skipped before
 heap insertion.
 

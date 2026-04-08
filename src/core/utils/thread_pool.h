@@ -13,7 +13,8 @@
 // - shutdown() permanently stops the pool. After shutdown starts, submit()
 //   throws std::runtime_error and the pool cannot be reused.
 // - wait_all() only drains currently submitted work; it does not stop workers
-//   or reject future submissions.
+//   or reject future submissions. It is a pool-wide barrier, so unrelated work
+//   that shares the same pool also participates in the wait.
 // - The task queue currently stores std::function<void()> wrappers, so submit()
 //   is convenient but not allocation-free.
 // - Worker tasks execute on background threads with no built-in cancellation,

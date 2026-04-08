@@ -2,10 +2,11 @@
 
 #include <benchmark/benchmark.h>
 
+#include "core/calc/scanner_ex.h"
 #include "core/compute/compute_cos.h"
 #include "core/compute/compute_dot.h"
 #include "core/compute/compute_l2.h"
-#include "core/compute/scanner.h"
+#include "core/storage/dataset_reader.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/dataset_node.h"
@@ -18,6 +19,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -36,7 +38,6 @@ constexpr size_t kScannerVectorCountExtended = 16384;
 constexpr size_t kScannerRangeSize = 2048;
 
 enum class ScannerMode : int64_t {
-    reader = 0,
     dataset_persisted = 1,
     dataset_mixed = 2,
 };
@@ -102,7 +103,6 @@ const char* metric_name(DistFunc func) {
 
 const char* scanner_mode_name(ScannerMode mode) {
     switch (mode) {
-        case ScannerMode::reader: return "reader";
         case ScannerMode::dataset_persisted: return "dataset_persisted";
         case ScannerMode::dataset_mixed: return "dataset_mixed";
         default: return "unknown";
@@ -214,7 +214,6 @@ DataType type_from_arg(int64_t arg) {
 
 ScannerMode scanner_mode_from_arg(int64_t arg) {
     switch (arg) {
-        case 0: return ScannerMode::reader;
         case 1: return ScannerMode::dataset_persisted;
         case 2: return ScannerMode::dataset_mixed;
         default: throw std::runtime_error("invalid scanner mode benchmark argument");
@@ -332,6 +331,7 @@ struct [[maybe_unused]] ReaderBenchmarkData {
 struct DatasetBenchmarkData {
     TempDir temp{"sketch2_bench_dataset"};
     DatasetNode dataset;
+    DatasetReader reader;
     std::vector<uint8_t> query;
     size_t visible_count = 0;
 
@@ -358,6 +358,22 @@ struct DatasetBenchmarkData {
             require_ok(dataset.store(extra_path.string()), "store extra dataset");
             visible_count += extra;
         }
+
+        const fs::path config_path = temp.path / "dataset.ini";
+        std::ostringstream config;
+        config << "[dataset]\n"
+               << "dirs = " << temp.path.string() << "\n"
+               << "range_size = " << kScannerRangeSize << "\n"
+               << "type = " << data_type_to_string(type) << "\n"
+               << "dist_func = " << dist_func_to_string(func) << "\n"
+               << "dim = " << dim << "\n";
+        std::ofstream config_out(config_path);
+        if (!config_out) {
+            throw std::runtime_error("failed to open dataset benchmark config");
+        }
+        config_out << config.str();
+        config_out.close();
+        require_ok(reader.init(config_path.string()), "init dataset reader");
 
         query = make_vector(type, dim, count + 31);
     }
@@ -442,7 +458,6 @@ void ApplyDatasetScannerArgs(benchmark::internal::Benchmark* benchmark) {
         for (int metric = 0; metric <= 2; ++metric) {
             for (int type = 0; type <= 2; ++type) {
                 for (int mode : modes) {
-                    if (mode == 0) continue;
                     benchmark->Args({backend, metric, type, 128, 10, mode});
                     benchmark->Args({backend, metric, type, 256, 10, mode});
                     benchmark->Args({backend, metric, type, 256, 100, mode});
@@ -502,7 +517,7 @@ void BM_ScannerFindIds(benchmark::State& state) {
         return;
     }
 
-    Scanner scanner;
+    ScannerEx scanner(CalcEngine::compute);
     std::vector<uint64_t> result;
     result.reserve(k);
     size_t visible_count = 0;
@@ -524,7 +539,7 @@ void BM_ScannerFindIds(benchmark::State& state) {
     }
 
     for (auto _ : state) {
-        const Ret ret = scanner.find(dataset_data->dataset, k, dataset_data->query.data(), result);
+        const Ret ret = scanner.find(dataset_data->reader, k, dataset_data->query.data(), result);
         if (ret.code() != 0) {
             state.SkipWithError(ret.message().c_str());
             break;
@@ -556,11 +571,6 @@ void BM_ScannerFindItems(benchmark::State& state) {
         return;
     }
 
-    if (mode == ScannerMode::reader) {
-        state.SkipWithError("BM_ScannerFindItems only supports dataset benchmark modes");
-        return;
-    }
-
     BackendScope backend_scope;
     if (!backend_scope.force(backend)) {
         state.SkipWithError("failed to force benchmark backend");
@@ -571,13 +581,13 @@ void BM_ScannerFindItems(benchmark::State& state) {
     std::shared_ptr<DatasetBenchmarkData> dataset_data = get_dataset_benchmark_data(
         func, type, dim, vector_count, mode == ScannerMode::dataset_mixed);
 
-    Scanner scanner;
+    ScannerEx scanner(CalcEngine::compute);
     std::vector<DistItem> result;
     result.reserve(k);
     const size_t visible_count = dataset_data->visible_count;
 
     for (auto _ : state) {
-        const Ret ret = scanner.find_items(dataset_data->dataset, k, dataset_data->query.data(), result);
+        const Ret ret = scanner.find_items(dataset_data->reader, k, dataset_data->query.data(), result);
         if (ret.code() != 0) {
             state.SkipWithError(ret.message().c_str());
             break;

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <exception>
 #include <future>
 #include <memory>
 #include <queue>
@@ -189,12 +190,26 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
         }));
     }
 
+    std::exception_ptr first_error;
     for (auto& fut : futures) {
-        DistHeap local_heap = fut.get();
-        while (!local_heap.empty()) {
-            push_result(heap, count, local_heap.top().id, local_heap.top().score);
-            local_heap.pop();
+        try {
+            DistHeap local_heap = fut.get();
+            if (first_error != nullptr) {
+                continue;
+            }
+            while (!local_heap.empty()) {
+                push_result(heap, count, local_heap.top().id, local_heap.top().score);
+                local_heap.pop();
+            }
+        } catch (...) {
+            if (first_error == nullptr) {
+                first_error = std::current_exception();
+            }
         }
+    }
+
+    if (first_error != nullptr) {
+        std::rethrow_exception(first_error);
     }
 
     return Ret(0);
@@ -205,7 +220,8 @@ Ret build_dataset_heap_with_score(const DatasetReader& dataset, size_t count, co
         DistFunc func, DistHeap* heap, const BitsetFilter* bitset = nullptr) {
     return scan_dataset_heap_custom(
         dataset, count, heap,
-        [&](const DataReader& reader, size_t local_count, DistHeap* local_heap, const BitsetFilter* bitset) {
+        [score](const DataReader& reader, size_t local_count, DistHeap* local_heap,
+                const BitsetFilter* bitset) {
             scan_data_reader_scored(reader, local_count, local_heap, score, bitset);
         },
         func,
@@ -218,7 +234,8 @@ Ret build_dataset_heap_with_cos_scores(const DatasetReader& dataset, size_t coun
         const BitsetFilter* bitset = nullptr) {
     return scan_dataset_heap_custom(
         dataset, count, heap,
-        [&](const DataReader& reader, size_t local_count, DistHeap* local_heap, const BitsetFilter* bitset) {
+        [inv_score, query_score](const DataReader& reader, size_t local_count, DistHeap* local_heap,
+                const BitsetFilter* bitset) {
             if (reader.has_cosine_inv_norms()) {
                 scan_data_reader_scored(reader, local_count, local_heap, inv_score, bitset);
             } else {

@@ -1,25 +1,17 @@
-add_library(comp STATIC scanner.cpp)
-set_target_properties(comp PROPERTIES OUTPUT_NAME "comp")
-target_link_libraries(comp PUBLIC stor sketch_compile_options Threads::Threads)
-if(DEFINED ENV{DUMMY_CALC} AND NOT "$ENV{DUMMY_CALC}" STREQUAL "")
-  target_compile_definitions(comp PRIVATE DUMMY_CALC)
-endif()
-
 add_executable(bench_comp bench_compute.cpp)
-target_link_libraries(bench_comp PRIVATE comp stor Threads::Threads)
+target_link_libraries(bench_comp PRIVATE stor Threads::Threads)
 
 if(TARGET benchmark::benchmark)
   add_executable(gbench_comp gbench_compute.cpp)
-  target_link_libraries(gbench_comp PRIVATE benchmark::benchmark comp stor Threads::Threads)
+  target_link_libraries(gbench_comp PRIVATE benchmark::benchmark calc stor Threads::Threads)
 endif()
 
 add_executable(utest_comp
   ${SHARED_UTEST_MAIN}
-  utest_scanner.cpp
   utest_compute_dot.cpp
   utest_compute_l2.cpp
   utest_compute_cos.cpp
   utest_compute_runtime.cpp
 )
-target_link_libraries(utest_comp PRIVATE comp stor GTest::gtest Threads::Threads)
+target_link_libraries(utest_comp PRIVATE stor GTest::gtest Threads::Threads)
 add_test(NAME utest_comp COMMAND utest_comp)

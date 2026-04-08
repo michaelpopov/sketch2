@@ -129,10 +129,10 @@ Compute selection values are:
 
 - `highway`: use `ScannerEx` backed by Google Highway
 - `numkong`: use `ScannerEx` backed by NumKong
-- `auto`, `avx2`, `avx512f`, `avx512_vnni`, `neon`, `scalar`: use the legacy `Scanner` from `libcompute.a`
+- `auto`, `avx2`, `avx512f`, `avx512_vnni`, `neon`, `scalar`: use `ScannerEx` backed by `CalcEngine::compute`
 
 Malformed `compute.engine` / `SKETCH2_COMPUTE_ENGINE` values log an `ERROR`
-message and degrade to the default legacy compute path instead of aborting the
+message and degrade to the default compute path instead of aborting the
 host process.
 
 After the first successful initialization, the runtime is sealed:

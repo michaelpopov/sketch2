@@ -13,7 +13,6 @@ target_include_directories(vlite
 target_link_libraries(vlite
   PRIVATE
     calc
-    comp
     stor
     utils
     sketch_compile_options

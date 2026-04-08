@@ -133,120 +133,19 @@ Conclusion:
 Let's keep "auto" compute engine implmented in src/core/compute.
 
 
+On Azure Arm machine with local NVME disk:
 ```
-===== COS ============================================
+Vectors count: 10'000'000
+Range size: 2'000'000
+Dimensions: 1536
+Data type: f16
 
-[runner] running 10 iterations for cos
---- PERFORMANCE REPORT ---
-Compute Engine: scalar
-Distance:       cos
-Iterations:     10
-Min Time:       1.843347s
-Max Time:       1.903374s
-Avg Time:       1.874914s
-
-[runner] running 10 iterations for cos
---- PERFORMANCE REPORT ---
-Compute Engine: auto
-Distance:       cos
-Iterations:     10
-Min Time:       0.710732s
-Max Time:       0.899973s
-Avg Time:       0.733400s
-
-[runner] running 10 iterations for cos
---- PERFORMANCE REPORT ---
-Compute Engine: highway
-Distance:       cos
-Iterations:     10
-Min Time:       0.825271s
-Max Time:       0.873012s
-Avg Time:       0.830884s
-
-[runner] running 10 iterations for cos
---- PERFORMANCE REPORT ---
-Compute Engine: numkong
-Distance:       cos
-Iterations:     10
-Min Time:       1.465265s
-Max Time:       1.529799s
-Avg Time:       1.484654s
-
-===== L2 ============================================
-
-[runner] running 10 iterations for l2
---- PERFORMANCE REPORT ---
-Compute Engine: scalar
-Distance:       l2
-Iterations:     10
-Min Time:       2.273663s
-Max Time:       2.295021s
-Avg Time:       2.287499s
-
---- PERFORMANCE REPORT ---
-Compute Engine: auto
-Distance:       l2
-Iterations:     10
-Min Time:       0.721202s
-Max Time:       0.725755s
-Avg Time:       0.723489s
-
-[runner] running 10 iterations for l2
---- PERFORMANCE REPORT ---
-Compute Engine: highway
-Distance:       l2
-Iterations:     10
-Min Time:       0.749104s
-Max Time:       0.759716s
-Avg Time:       0.751441s
-
-
-[runner] running 10 iterations for l2
---- PERFORMANCE REPORT ---
-Compute Engine: numkong
-Distance:       l2
-Iterations:     10
-Min Time:       1.485843s
-Max Time:       1.573914s
-Avg Time:       1.512157s
-
-===== L1 ============================================
-
-[runner] running 10 iterations for l1
---- PERFORMANCE REPORT ---
-Compute Engine: scalar
-Distance:       l1
-Iterations:     10
-Min Time:       1.785692s
-Max Time:       1.827798s
-Avg Time:       1.810127s
-
-[runner] running 10 iterations for l1
---- PERFORMANCE REPORT ---
-Compute Engine: auto
-Distance:       l1
-Iterations:     10
-Min Time:       0.615906s
-Max Time:       0.729482s
-Avg Time:       0.628406s
-
-[runner] running 10 iterations for l1
---- PERFORMANCE REPORT ---
-Compute Engine: highway
-Distance:       l1
-Iterations:     10
-Min Time:       0.745369s
-Max Time:       0.857848s
-Avg Time:       0.759219s
-
-[runner] running 10 iterations for l1
---- PERFORMANCE REPORT ---
-Compute Engine: numkong
-Distance:       l1
-Iterations:     10
-Min Time:       0.748876s
-Max Time:       0.872248s
-Avg Time:       0.767781s
-
+--- PERFORMANCE SUMMARY (avg time) ---
+engine  | cos       | l2         | dot
+--------+-----------+------------+----------
+scalar  | 9.443766s | 13.590877s | 9.342076s
+auto    | 4.953242s | 3.410262s  | 4.930582s
+highway | 5.019967s | 5.177855s  | 4.970532s
+numkong | 4.954877s | 5.077667s  | 4.927953s
 
 ```
