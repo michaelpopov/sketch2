@@ -140,6 +140,8 @@ Range size: 2'000'000
 Dimensions: 1536
 Data type: f16
 
+Single thread measurments
+
 --- PERFORMANCE SUMMARY (avg time) ---
 engine  | cos       | l2         | dot
 --------+-----------+------------+----------
@@ -147,5 +149,16 @@ scalar  | 9.443766s | 13.590877s | 9.342076s
 auto    | 4.953242s | 3.410262s  | 4.930582s
 highway | 5.019967s | 5.177855s  | 4.970532s
 numkong | 4.954877s | 5.077667s  | 4.927953s
+
+Four threads measurements
+
+--- PERFORMANCE SUMMARY (avg time) ---
+engine  | cos       | l2        | dot
+--------+-----------+-----------+----------
+scalar  | 3.784321s | 5.461211s | 3.764609s
+auto    | 1.969133s | 1.345363s | 1.963899s
+highway | 2.006224s | 2.060801s | 1.974892s
+numkong | 1.978719s | 2.023283s | 1.998383s
+
 
 ```

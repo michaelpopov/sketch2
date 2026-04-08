@@ -15,6 +15,7 @@
 #include <cmath>
 #include <exception>
 #include <future>
+#include <limits>
 #include <memory>
 #include <queue>
 #include <stdexcept>
@@ -29,6 +30,10 @@ public:
 
     const DistItemCompare& comparator() const {
         return this->comp;
+    }
+
+    void reserve(size_t capacity) {
+        this->c.reserve(capacity);
     }
 };
 
@@ -150,10 +155,10 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
         // Access vector's data and use it as a dummy to prevent
         // optimizer removing this code. It is required for measuring
         // I/O performance.
-        const uint8_t* vec_data = it.data();
+        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
         uint64_t byte_sum = 0;
-        for (size_t i = 0; i < vector_size_bytes; ++i) {
-            byte_sum += vec_data[i];
+        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
+            byte_sum ^= vec_data[i];
         }
         push_result(heap, count, it.id(), static_cast<double>(byte_sum));
 #endif
@@ -196,12 +201,17 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
     for (const auto& reader : readers) {
         futures.push_back(pool->submit([scan_reader_shared, count, reader, func, bitset]() {
             DistHeap local_heap(DistItemCompare{func});
+            local_heap.reserve(count);
             (*scan_reader_shared)(*reader, count, &local_heap, bitset);
             return local_heap;
         }));
     }
 
     std::exception_ptr first_error;
+    std::vector<DistItem> merged_candidates;
+    if (count > 0 && readers.size() <= (std::numeric_limits<size_t>::max() / count)) {
+        merged_candidates.reserve(readers.size() * count);
+    }
     for (auto& fut : futures) {
         try {
             DistHeap local_heap = fut.get();
@@ -209,7 +219,7 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
                 continue;
             }
             while (!local_heap.empty()) {
-                push_result(heap, count, local_heap.top().id, local_heap.top().score);
+                merged_candidates.push_back(local_heap.top());
                 local_heap.pop();
             }
         } catch (...) {
@@ -221,6 +231,24 @@ Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHea
 
     if (first_error != nullptr) {
         std::rethrow_exception(first_error);
+    }
+
+    if (merged_candidates.size() > count) {
+        const DistItemCompare better(func);
+        // DistItemCompare returns true when lhs is better than rhs. That is
+        // exactly the ordering nth_element expects for keeping the best K in
+        // [begin, begin + count). (priority_queue uses the same comparator but
+        // therefore keeps the current worst-at-top element for replacement.)
+        std::nth_element(
+            merged_candidates.begin(),
+            merged_candidates.begin() + count,
+            merged_candidates.end(),
+            better);
+        merged_candidates.resize(count);
+    }
+
+    for (const auto& item : merged_candidates) {
+        push_result(heap, count, item.id, item.score);
     }
 
     return Ret(0);
@@ -327,6 +355,7 @@ Ret ScannerEx::find_items_(const DatasetReader& dataset, size_t count, const uin
     result.clear();
     const DistFunc func = dataset.dist_func();
     DistHeap heap(DistItemCompare{func});
+    heap.reserve(count);
     Timer timer("scanner_ex::query");
     CHECK(build_heap(engine_, dataset, func, count, vec, &heap, bitset));
     log_query(dataset.name(), func, dataset.type(), dataset.dim(), count, engine_, timer.elapsed_ms());
