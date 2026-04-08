@@ -27,6 +27,10 @@ endif()
 # Highway's foreach_target generates code that may trigger warnings promoted to
 # errors by the project's global -Werror / -Wpedantic flags.
 set_source_files_properties(hwy_kernels.cpp PROPERTIES COMPILE_OPTIONS "-Wno-error;-Wno-pedantic")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+  set_source_files_properties(hwy_kernels.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wno-error;-Wno-pedantic;-march=armv8.2-a+sve+fp16+dotprod")
+endif()
 
 if(DEFINED ENV{DUMMY_CALC} AND NOT "$ENV{DUMMY_CALC}" STREQUAL "")
   target_compile_definitions(calc PRIVATE DUMMY_CALC)
