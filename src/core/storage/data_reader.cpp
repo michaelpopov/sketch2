@@ -189,6 +189,8 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         ids_ = nullptr;
         cosine_inv_norms_ = nullptr;
         deleted_ids_ = nullptr;
+        ids_buf_.clear();
+        cosine_inv_norms_buf_.clear();
         size_ = 0;
         stride_ = 0;
         return Ret(message);
@@ -248,11 +250,44 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         }
     }
 
-    cosine_inv_norms_ = ids_layout.cosine_inv_norms_bytes == 0
-        ? nullptr
-        : reinterpret_cast<const float*>(map_ + ids_layout.cosine_inv_norms_offset);
-    ids_ = reinterpret_cast<const uint64_t*>(map_ + ids_layout.ids_offset);
-    deleted_ids_ = ids_ + count;
+    try {
+        // Buffer IDs (active + deleted) into heap memory to avoid page faults
+        // during scans that alternate between the vector region and the IDs region.
+        const size_t total_ids = count + deleted_count;
+        if (total_ids > 0) {
+            ids_buf_.resize(total_ids);
+            std::memcpy(ids_buf_.data(), map_ + ids_layout.ids_offset, total_ids * sizeof(uint64_t));
+            ids_ = ids_buf_.data();
+            deleted_ids_ = ids_buf_.data() + count;
+        } else {
+            ids_ = reinterpret_cast<const uint64_t*>(map_ + ids_layout.ids_offset);
+            deleted_ids_ = ids_ + count;
+        }
+
+        // Buffer cosine inverse norms for the same reason: the norms section sits
+        // far from the vector data and would cause thrashing on every scan iteration.
+        if (ids_layout.cosine_inv_norms_bytes > 0) {
+            cosine_inv_norms_buf_.resize(count);
+            std::memcpy(cosine_inv_norms_buf_.data(),
+                        map_ + ids_layout.cosine_inv_norms_offset,
+                        count * sizeof(float));
+            cosine_inv_norms_ = cosine_inv_norms_buf_.data();
+        } else {
+            cosine_inv_norms_ = nullptr;
+        }
+
+        // Release mmap pages for the metadata region (norms + IDs) since the data
+        // now lives in heap buffers. Page-align the start to satisfy madvise.
+        const size_t meta_start = static_cast<size_t>(hdr_->data_offset) + ids_layout.vectors_bytes;
+        const size_t page_size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+        const size_t aligned_start = align_up<size_t>(meta_start, page_size);
+        if (aligned_start < map_len_) {
+            madvise(const_cast<uint8_t*>(map_) + aligned_start,
+                    map_len_ - aligned_start, MADV_DONTNEED);
+        }
+    } catch (const std::exception& ex) {
+        return fail(std::string("DataReader: failed to initialize metadata cache: ") + ex.what());
+    }
     delta_  = std::move(delta);
 
     if (delta_) {

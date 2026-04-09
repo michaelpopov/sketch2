@@ -98,6 +98,8 @@ private:
     const uint64_t*          ids_     = nullptr; // cached pointer to the ids section
     const float*             cosine_inv_norms_ = nullptr; // cached pointer to optional cosine inverse norms
     const uint64_t*          deleted_ids_ = nullptr; // cached pointer to the deleted ids section
+    std::vector<uint64_t>    ids_buf_;             // heap buffer for ids + deleted_ids
+    std::vector<float>       cosine_inv_norms_buf_; // heap buffer for cosine inverse norms
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
     size_t                   stride_  = 0;        // bytes between persisted vectors
