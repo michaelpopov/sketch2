@@ -1,16 +1,16 @@
-add_library(vlite STATIC vlite.cpp)
+add_library(sk2sqlite STATIC vlite.cpp)
 
-set_target_properties(vlite PROPERTIES
-  OUTPUT_NAME vlite
+set_target_properties(sk2sqlite PROPERTIES
+  OUTPUT_NAME sk2sqlite
 )
 
-target_include_directories(vlite
+target_include_directories(sk2sqlite
   PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/third-party/sqlite
 )
 
-target_link_libraries(vlite
+target_link_libraries(sk2sqlite
   PRIVATE
     calc
     stor

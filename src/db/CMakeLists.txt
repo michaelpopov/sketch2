@@ -1,1 +1,1 @@
-add_subdirectory(vlite)
+add_subdirectory(sqlite)

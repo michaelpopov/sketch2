@@ -6,7 +6,7 @@ target_link_libraries(sketch2
   PRIVATE
     -Wl,--whole-archive
     sketch2api
-    vlite
+    sk2sqlite
     -Wl,--no-whole-archive
     calc
     stor

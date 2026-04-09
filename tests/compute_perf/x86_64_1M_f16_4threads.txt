@@ -1,0 +1,413 @@
+mpopov@build-x86-64:~/projects/sketch2/tests/compute_perf$ ./driver.sh
+[driver] performance test configuration
+[driver]   config_root=/mnt/test/sketch2_COMPUTE_PERF.VezON1
+[driver]   skip_init=0
+[driver]   dataset=perf_test
+[driver]   dims=1536
+[driver]   count=1000000
+[driver]   repeat=10
+[driver]   k=20
+[driver]   type=f16
+[driver]   dist=cos,l2,dot
+[driver]   range_size=100000
+[driver]   engines=scalar,auto,highway,numkong
+[driver]   benchmarks=scan,kernel
+[driver]   kernel_iterations=200000
+[driver]   kernel_warmup_iterations=5000
+[driver]   kernel_repeats=7
+[driver]   cleanup=0
+[driver]   dummy_calc=0
+[driver]   diag_dir=/mnt/test/sketch2_COMPUTE_PERF.VezON1/logs/diag
+[driver]   core_limit=unlimited
+[driver]   core_pattern=|/usr/share/apport/apport -p%p -s%s -c%c -d%d -P%P -u%u -g%g -F%F -- %E
+[driver] preparing dataset for dist=cos
+[initializer] warning: db_dir /mnt/test/sketch2_COMPUTE_PERF.VezON1 exists but does not look like a harness temp dir or Sketch2 dir; not wiping for safety
+15131 2026-04-09 20:12:19 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15131 2026-04-09 20:12:19 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+[initializer] creating dataset perf_test_cos with dist=cos
+[initializer] generating 1000000 vectors using sketch2.generate_test_data (native generator)
+[initializer] calculating ground truth for cos
+[initializer] dataset perf_test_cos is ready
+[initializer] initialization complete
+[driver] initializer finished successfully and verified dataset for dist=cos
+[driver] benchmarks engine=scalar dist=cos
+15143 2026-04-09 20:13:08 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15143 2026-04-09 20:13:08 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15143 2026-04-09 20:13:08 INFO     Compute engine is set in env var: scalar
+[runner] benchmarking dataset perf_test_cos with engine=scalar
+[runner] loading ground truth for cos...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    scalar
+Metric:            cos
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    scalar
+Kernel Case:      dist avg=25416.541ns min=25411.240ns max=25432.800ns
+Kernel Case:      dot avg=15913.418ns min=15911.988ns max=15914.115ns
+Kernel Case:      squared_norm avg=7975.010ns min=7974.021ns max=7976.070ns
+Kernel Case:      dist_with_query_norm avg=16333.672ns min=16332.279ns max=16335.147ns
+-------------------------------
+[runner] warm-up iteration for cos
+[runner] running 10 iterations for cos
+--- PERFORMANCE REPORT ---
+Compute Engine: scalar
+Metric:         cos
+Iterations:     10
+Min Time:       5.391907s
+Max Time:       5.401426s
+Avg Time:       5.396298s
+--------------------------
+[driver] benchmarks engine=auto dist=cos
+15164 2026-04-09 20:15:40 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15164 2026-04-09 20:15:40 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+[runner] benchmarking dataset perf_test_cos with engine=auto
+[runner] loading ground truth for cos...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    auto
+Metric:            cos
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+Kernel Case:      dist avg=154.779ns min=154.498ns max=155.190ns
+Kernel Case:      dot avg=84.087ns min=84.018ns max=84.152ns
+Kernel Case:      squared_norm avg=50.657ns min=50.466ns max=50.827ns
+Kernel Case:      dist_with_query_norm avg=103.024ns min=102.807ns max=103.144ns
+-------------------------------
+[runner] warm-up iteration for cos
+[runner] running 10 iterations for cos
+--- PERFORMANCE REPORT ---
+Compute Engine: auto
+Metric:         cos
+Iterations:     10
+Min Time:       0.083440s
+Max Time:       0.094819s
+Avg Time:       0.088335s
+--------------------------
+[driver] benchmarks engine=highway dist=cos
+15175 2026-04-09 20:15:41 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15175 2026-04-09 20:15:41 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15175 2026-04-09 20:15:41 INFO     Compute engine is set in env var: highway
+[runner] benchmarking dataset perf_test_cos with engine=highway
+[runner] loading ground truth for cos...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    highway
+Metric:            cos
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+Kernel Case:      dist avg=123.001ns min=122.690ns max=123.417ns
+Kernel Case:      dot avg=92.260ns min=92.027ns max=92.465ns
+Kernel Case:      squared_norm avg=75.873ns min=75.720ns max=75.984ns
+Kernel Case:      dist_with_query_norm avg=110.985ns min=110.748ns max=111.140ns
+-------------------------------
+[runner] warm-up iteration for cos
+[runner] running 10 iterations for cos
+--- PERFORMANCE REPORT ---
+Compute Engine: highway
+Metric:         cos
+Iterations:     10
+Min Time:       0.083001s
+Max Time:       0.095510s
+Avg Time:       0.089647s
+--------------------------
+[driver] benchmarks engine=numkong dist=cos
+15186 2026-04-09 20:15:43 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15186 2026-04-09 20:15:43 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15186 2026-04-09 20:15:43 INFO     Compute engine is set in env var: numkong
+[runner] benchmarking dataset perf_test_cos with engine=numkong
+[runner] loading ground truth for cos...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    numkong
+Metric:            cos
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+NumKong Backend:   skylake
+Kernel Case:      dist avg=126.543ns min=126.191ns max=126.900ns
+Kernel Case:      dot avg=102.054ns min=101.791ns max=102.248ns
+Kernel Case:      squared_norm avg=87.052ns min=86.897ns max=87.223ns
+Kernel Case:      dist_with_query_norm avg=1761.707ns min=1758.371ns max=1763.775ns
+-------------------------------
+[runner] warm-up iteration for cos
+[runner] running 10 iterations for cos
+--- PERFORMANCE REPORT ---
+Compute Engine: numkong
+Metric:         cos
+Iterations:     10
+Min Time:       0.081597s
+Max Time:       0.095104s
+Avg Time:       0.087910s
+--------------------------
+[driver] removing dataset artifacts for dist=cos
+[driver] preparing dataset for dist=l2
+[initializer] preserving db_dir for single-metric init: /mnt/test/sketch2_COMPUTE_PERF.VezON1
+15200 2026-04-09 20:15:47 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15200 2026-04-09 20:15:47 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15200 2026-04-09 20:15:47 INFO     Compute engine is set in env var: numkong
+[initializer] creating dataset perf_test_l2 with dist=l2
+[initializer] generating 1000000 vectors using sketch2.generate_test_data (native generator)
+[initializer] calculating ground truth for l2
+[initializer] dataset perf_test_l2 is ready
+[initializer] initialization complete
+[driver] initializer finished successfully and verified dataset for dist=l2
+[driver] benchmarks engine=scalar dist=l2
+15213 2026-04-09 20:16:22 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15213 2026-04-09 20:16:22 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15213 2026-04-09 20:16:22 INFO     Compute engine is set in env var: scalar
+[runner] benchmarking dataset perf_test_l2 with engine=scalar
+[runner] loading ground truth for l2...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    scalar
+Metric:            l2
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    scalar
+Kernel Case:      dist avg=16332.375ns min=16331.076ns max=16333.545ns
+-------------------------------
+[runner] warm-up iteration for l2
+[runner] running 10 iterations for l2
+--- PERFORMANCE REPORT ---
+Compute Engine: scalar
+Metric:         l2
+Iterations:     10
+Min Time:       5.564356s
+Max Time:       5.592482s
+Avg Time:       5.576910s
+--------------------------
+[driver] benchmarks engine=auto dist=l2
+15227 2026-04-09 20:17:47 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15227 2026-04-09 20:17:47 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+[runner] benchmarking dataset perf_test_l2 with engine=auto
+[runner] loading ground truth for l2...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    auto
+Metric:            l2
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+Kernel Case:      dist avg=104.358ns min=104.205ns max=104.671ns
+-------------------------------
+[runner] warm-up iteration for l2
+[runner] running 10 iterations for l2
+--- PERFORMANCE REPORT ---
+Compute Engine: auto
+Metric:         l2
+Iterations:     10
+Min Time:       0.089145s
+Max Time:       0.097246s
+Avg Time:       0.093158s
+--------------------------
+[driver] benchmarks engine=highway dist=l2
+15238 2026-04-09 20:17:48 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15238 2026-04-09 20:17:48 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15238 2026-04-09 20:17:48 INFO     Compute engine is set in env var: highway
+[runner] benchmarking dataset perf_test_l2 with engine=highway
+[runner] loading ground truth for l2...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    highway
+Metric:            l2
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+Kernel Case:      dist avg=106.125ns min=105.882ns max=106.490ns
+-------------------------------
+[runner] warm-up iteration for l2
+[runner] running 10 iterations for l2
+--- PERFORMANCE REPORT ---
+Compute Engine: highway
+Metric:         l2
+Iterations:     10
+Min Time:       0.086342s
+Max Time:       0.094987s
+Avg Time:       0.089181s
+--------------------------
+[driver] benchmarks engine=numkong dist=l2
+15249 2026-04-09 20:17:49 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15249 2026-04-09 20:17:49 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15249 2026-04-09 20:17:49 INFO     Compute engine is set in env var: numkong
+[runner] benchmarking dataset perf_test_l2 with engine=numkong
+[runner] loading ground truth for l2...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    numkong
+Metric:            l2
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+NumKong Backend:   skylake
+Kernel Case:      dist avg=110.456ns min=110.271ns max=110.708ns
+-------------------------------
+[runner] warm-up iteration for l2
+[runner] running 10 iterations for l2
+--- PERFORMANCE REPORT ---
+Compute Engine: numkong
+Metric:         l2
+Iterations:     10
+Min Time:       0.082240s
+Max Time:       0.094514s
+Avg Time:       0.089244s
+--------------------------
+[driver] removing dataset artifacts for dist=l2
+[driver] preparing dataset for dist=dot
+[initializer] preserving db_dir for single-metric init: /mnt/test/sketch2_COMPUTE_PERF.VezON1
+15263 2026-04-09 20:17:50 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15263 2026-04-09 20:17:50 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15263 2026-04-09 20:17:50 INFO     Compute engine is set in env var: numkong
+[initializer] creating dataset perf_test_dot with dist=dot
+[initializer] generating 1000000 vectors using sketch2.generate_test_data (native generator)
+[initializer] calculating ground truth for dot
+[initializer] dataset perf_test_dot is ready
+[initializer] initialization complete
+[driver] initializer finished successfully and verified dataset for dist=dot
+[driver] benchmarks engine=scalar dist=dot
+15275 2026-04-09 20:18:26 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15275 2026-04-09 20:18:26 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15275 2026-04-09 20:18:26 INFO     Compute engine is set in env var: scalar
+[runner] benchmarking dataset perf_test_dot with engine=scalar
+[runner] loading ground truth for dot...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    scalar
+Metric:            dot
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    scalar
+Kernel Case:      dist avg=15914.676ns min=15913.122ns max=15917.937ns
+-------------------------------
+[runner] warm-up iteration for dot
+[runner] running 10 iterations for dot
+--- PERFORMANCE REPORT ---
+Compute Engine: scalar
+Metric:         dot
+Iterations:     10
+Min Time:       5.334631s
+Max Time:       5.376022s
+Avg Time:       5.363262s
+--------------------------
+[driver] benchmarks engine=auto dist=dot
+15286 2026-04-09 20:19:47 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15286 2026-04-09 20:19:47 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+[runner] benchmarking dataset perf_test_dot with engine=auto
+[runner] loading ground truth for dot...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    auto
+Metric:            dot
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+Kernel Case:      dist avg=84.000ns min=83.935ns max=84.143ns
+-------------------------------
+[runner] warm-up iteration for dot
+[runner] running 10 iterations for dot
+--- PERFORMANCE REPORT ---
+Compute Engine: auto
+Metric:         dot
+Iterations:     10
+Min Time:       0.082879s
+Max Time:       0.105641s
+Avg Time:       0.090908s
+--------------------------
+[driver] benchmarks engine=highway dist=dot
+15297 2026-04-09 20:19:48 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15297 2026-04-09 20:19:48 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15297 2026-04-09 20:19:48 INFO     Compute engine is set in env var: highway
+[runner] benchmarking dataset perf_test_dot with engine=highway
+[runner] loading ground truth for dot...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    highway
+Metric:            dot
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+Kernel Case:      dist avg=92.201ns min=92.019ns max=92.377ns
+-------------------------------
+[runner] warm-up iteration for dot
+[runner] running 10 iterations for dot
+--- PERFORMANCE REPORT ---
+Compute Engine: highway
+Metric:         dot
+Iterations:     10
+Min Time:       0.085178s
+Max Time:       0.091331s
+Avg Time:       0.087785s
+--------------------------
+[driver] benchmarks engine=numkong dist=dot
+15308 2026-04-09 20:19:50 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+15308 2026-04-09 20:19:50 INFO     Initialize from file /mnt/test/sketch2_COMPUTE_PERF.VezON1/config.ini
+15308 2026-04-09 20:19:50 INFO     Compute engine is set in env var: numkong
+[runner] benchmarking dataset perf_test_dot with engine=numkong
+[runner] loading ground truth for dot...
+--- KERNEL PERFORMANCE REPORT ---
+Compute Engine:    numkong
+Metric:            dot
+Type:              f16
+Dim:               1536
+Warmup Iterations: 5000
+Iterations:        200000
+Repeats:           7
+Active Backend:    avx512_vnni
+NumKong Backend:   skylake
+Kernel Case:      dist avg=101.757ns min=101.504ns max=102.110ns
+-------------------------------
+[runner] warm-up iteration for dot
+[runner] running 10 iterations for dot
+--- PERFORMANCE REPORT ---
+Compute Engine: numkong
+Metric:         dot
+Iterations:     10
+Min Time:       0.083056s
+Max Time:       0.097855s
+Avg Time:       0.086700s
+--------------------------
+[driver] removing dataset artifacts for dist=dot
+[driver] generating summary report...
+--- PERFORMANCE SUMMARY (avg time) ---
+engine  | cos       | l2        | dot
+--------+-----------+-----------+----------
+scalar  | 5.396298s | 5.576910s | 5.363262s
+auto    | 0.088335s | 0.093158s | 0.090908s
+highway | 0.089647s | 0.089181s | 0.087785s
+numkong | 0.087910s | 0.089244s | 0.086700s
+--------------------------------------
+--- KERNEL SUMMARY (metric avg ns/call) ---
+engine  | cos         | l2          | dot
+--------+-------------+-------------+------------
+scalar  | 25416.541ns | 16332.375ns | 15914.676ns
+auto    | 154.779ns   | 104.358ns   | 84.000ns
+highway | 123.001ns   | 106.125ns   | 92.201ns
+numkong | 126.543ns   | 110.456ns   | 101.757ns
+-----------------------------------------
+[driver] performance test completed
+[driver] logs available in /mnt/test/sketch2_COMPUTE_PERF.VezON1/logs
+[driver] preserving /mnt/test/sketch2_COMPUTE_PERF.VezON1 (set COMPUTE_PERF_TEST_CLEANUP=1 to remove it automatically)

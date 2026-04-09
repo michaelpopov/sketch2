@@ -1,0 +1,541 @@
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ python3 tutorial_00.py --root /mnt/nvme/sketch2
+Tutorial environment prepared.
+  root:      /mnt/nvme/sketch2
+  db dir:    /mnt/nvme/sketch2/db
+  config:    /mnt/nvme/sketch2/db/config.ini
+  lib dir:   /mnt/nvme/sketch2/lib
+
+Set these in your shell before running tutorial_01.py:
+  export SKETCH2_LIB=/mnt/nvme/sketch2/lib
+  export SKETCH2_CONFIG=/mnt/nvme/sketch2/db/config.ini
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ export SKETCH2_LIB=/mnt/nvme/sketch2/lib
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ export SKETCH2_CONFIG=/mnt/nvme/sketch2/db/config.ini
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ python3 tutorial_01.py demods
+7713 2026-04-09 17:52:59 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+7713 2026-04-09 17:52:59 INFO     Initialize from file /mnt/nvme/sketch2/db/config.ini
+7713 2026-04-09 17:52:59 INFO     Started thread pool with 4 threads.
+Opened Sketch2 database in /mnt/nvme/sketch2/db
+Created dataset 'demods'
+Closed dataset 'demods' successfully
+Dropped dataset 'demods' successfully
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ python3 tutorial_02.py demods
+7718 2026-04-09 17:53:06 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+7718 2026-04-09 17:53:06 INFO     Initialize from file /mnt/nvme/sketch2/db/config.ini
+7718 2026-04-09 17:53:06 INFO     Started thread pool with 4 threads.
+Opened Sketch2 database in /mnt/nvme/sketch2/db
+Created dataset 'demods'
+Opened dataset 'demods' successfully
+Generated 100 vectors
+Validated 100 vectors
+Added vector with id 111
+Updated vector with id 22
+Deleted vector with id 33
+Completed updating the dataset
+Completed validating updates in the dataset
+7718 2026-04-09 17:53:06 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_00/0.data in 4 ms
+7718 2026-04-09 17:53:06 INFO     Successfully completed DatasetWriter::merge for demods in 4 ms
+Merged delta file into data file in the dataset
+Completed validating updates in the dataset
+Closed dataset 'demods' successfully
+Dropped dataset 'demods' successfully
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ python3 tutorial_03.py demods
+7723 2026-04-09 17:53:15 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+7723 2026-04-09 17:53:15 INFO     Initialize from file /mnt/nvme/sketch2/db/config.ini
+7723 2026-04-09 17:53:15 INFO     Started thread pool with 4 threads.
+Opened Sketch2 database in /mnt/nvme/sketch2/db
+Created dataset 'demods'
+Opened dataset 'demods' successfully
+---------- Dataset info after initial input ----------------------
+
+7723 2026-04-09 17:53:15 INFO     Completed DatasetWriter::store for demods in 12 ms
+7723 2026-04-09 17:53:15 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_00/2.data in 6 ms
+7723 2026-04-09 17:53:15 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_01/1.data in 9 ms
+7723 2026-04-09 17:53:15 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_00/0.data in 9 ms
+7723 2026-04-09 17:53:15 INFO     Completed DatasetWriter::store for demods in 10 ms
+Name: demods
+Type: f32
+Dist: l2
+Dim: 8
+Range: 10000
+Config path: /mnt/nvme/sketch2/db/demods/demods.ini
+Data path: /mnt/nvme/sketch2/db/demods
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_00
+0.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+2.data:
+    Vectors count: 5000
+    Deleted count: 0
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_01
+1.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+
+
+---------- Dataset info after deleting some vectors ----------------------
+
+Name: demods
+Type: f32
+Dist: l2
+Dim: 8
+Range: 10000
+Config path: /mnt/nvme/sketch2/db/demods/demods.ini
+Data path: /mnt/nvme/sketch2/db/demods
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_00
+0.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+2.data:
+    Vectors count: 5000
+    Deleted count: 0
+
+0.delta:
+    Vectors count: 0
+    Deleted count: 400
+
+2.delta:
+    Vectors count: 0
+    Deleted count: 200
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_01
+1.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+1.delta:
+    Vectors count: 0
+    Deleted count: 400
+
+
+
+---------- Dataset info after updating some vectors ----------------------
+
+7723 2026-04-09 17:53:15 INFO     Merged delta file /mnt/nvme/sketch2/db/demods/part_00/0.delta in 4 ms
+7723 2026-04-09 17:53:15 INFO     Merged delta file /mnt/nvme/sketch2/db/demods/part_00/2.delta in 4 ms
+7723 2026-04-09 17:53:15 INFO     Merged delta file /mnt/nvme/sketch2/db/demods/part_01/1.delta in 7 ms
+Name: demods
+Type: f32
+Dist: l2
+Dim: 8
+Range: 10000
+Config path: /mnt/nvme/sketch2/db/demods/demods.ini
+Data path: /mnt/nvme/sketch2/db/demods
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_00
+0.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+2.data:
+    Vectors count: 5000
+    Deleted count: 0
+
+0.delta:
+    Vectors count: 400
+    Deleted count: 400
+
+2.delta:
+    Vectors count: 200
+    Deleted count: 200
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_01
+1.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+1.delta:
+    Vectors count: 400
+    Deleted count: 400
+
+
+
+---------- Dataset info after adding more vectors ----------------------
+
+7723 2026-04-09 17:53:15 INFO     Merged delta file /mnt/nvme/sketch2/db/demods/part_00/2.delta in 9 ms
+7723 2026-04-09 17:53:15 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_00/2.data in 6 ms
+7723 2026-04-09 17:53:15 INFO     Completed DatasetWriter::store for demods in 17 ms
+7723 2026-04-09 17:53:15 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_01/3.data in 7 ms
+7723 2026-04-09 17:53:15 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_00/2.data in 12 ms
+7723 2026-04-09 17:53:15 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_00/4.data in 12 ms
+7723 2026-04-09 17:53:15 INFO     Completed DatasetWriter::store for demods in 12 ms
+Name: demods
+Type: f32
+Dist: l2
+Dim: 8
+Range: 10000
+Config path: /mnt/nvme/sketch2/db/demods/demods.ini
+Data path: /mnt/nvme/sketch2/db/demods
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_00
+0.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+2.data:
+    Vectors count: 9800
+    Deleted count: 0
+
+4.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+0.delta:
+    Vectors count: 400
+    Deleted count: 400
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_01
+1.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+3.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+1.delta:
+    Vectors count: 400
+    Deleted count: 400
+
+
+
+---------- Dataset info after merging delta files ----------------------
+
+7723 2026-04-09 17:53:16 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_01/1.data in 8 ms
+7723 2026-04-09 17:53:16 INFO     Merged data file /mnt/nvme/sketch2/db/demods/part_00/0.data in 11 ms
+7723 2026-04-09 17:53:16 INFO     Successfully completed DatasetWriter::merge for demods in 12 ms
+Name: demods
+Type: f32
+Dist: l2
+Dim: 8
+Range: 10000
+Config path: /mnt/nvme/sketch2/db/demods/demods.ini
+Data path: /mnt/nvme/sketch2/db/demods
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_00
+0.data:
+    Vectors count: 9600
+    Deleted count: 0
+
+2.data:
+    Vectors count: 9800
+    Deleted count: 0
+
+4.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+==== Data path: /mnt/nvme/sketch2/db/demods/part_01
+1.data:
+    Vectors count: 9600
+    Deleted count: 0
+
+3.data:
+    Vectors count: 10000
+    Deleted count: 0
+
+Closed dataset 'demods' successfully
+Dropped dataset 'demods' successfully
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ python3 tutorial_04.py demods
+7728 2026-04-09 17:53:21 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+7728 2026-04-09 17:53:21 INFO     Initialize from file /mnt/nvme/sketch2/db/config.ini
+7728 2026-04-09 17:53:21 INFO     Started thread pool with 4 threads.
+Opened Sketch2 database in /mnt/nvme/sketch2/db
+Created dataset 'demods'
+Opened dataset 'demods' successfully
+Inserted vector id=10: 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00
+Inserted vector id=20: 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00
+Inserted vector id=30: 2.00, 2.00, 2.00, 2.00, 2.00, 2.00, 2.00, 2.00
+Inserted vector id=40: 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00
+Completed writing test vectors
+
+KNN rows:
+  query: [1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10]
+  k    : 3
+  #01 id= 20
+  #02 id= 30
+  #03 id= 10
+
+KNN rows:
+  query: [8.50, 8.50, 8.50, 8.50, 8.50, 8.50, 8.50, 8.50]
+  k    : 2
+  #01 id= 40
+  #02 id= 30
+
+KNN rows:
+  query: [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
+  k    : 1
+  #01 id= 10
+
+Completed validating KNN search results
+Closed dataset 'demods' successfully
+Dropped dataset 'demods' successfully
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ python3 tutorial_05.py demods
+7733 2026-04-09 17:53:28 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+7733 2026-04-09 17:53:28 INFO     Initialize from file /mnt/nvme/sketch2/db/config.ini
+7733 2026-04-09 17:53:28 INFO     Started thread pool with 4 threads.
+Opened Sketch2 database in /mnt/nvme/sketch2/db
+Created dataset 'demods'
+Opened dataset 'demods' successfully
+Inserted vector id=10: 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00
+Inserted vector id=20: 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00
+Inserted vector id=30: 2.00, 2.00, 2.00, 2.00, 2.00, 2.00, 2.00, 2.00
+Inserted vector id=40: 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00
+Completed writing test vectors
+Closed dataset 'demods' successfully
+Opening SQLite in-memory database and loading extension /mnt/nvme/sketch2/lib/libsketch2.so
+Executing SQL:
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini')
+Executing SQL:
+SELECT id, score FROM nn WHERE query = ? AND k = ? ORDER BY score
+
+KNN rows:
+  query: [1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10]
+  k    : 3
+  #01 id= 20 score=0.080000
+  #02 id= 30 score=6.480000
+  #03 id= 10 score=9.680000
+
+KNN rows:
+  query: [8.50, 8.50, 8.50, 8.50, 8.50, 8.50, 8.50, 8.50]
+  k    : 2
+  #01 id= 40 score=2.000000
+  #02 id= 30 score=338.000000
+
+KNN rows:
+  query: [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
+  k    : 1
+  #01 id= 10 score=0.000000
+
+Completed validating SQL KNN results
+Dropped dataset 'demods' successfully
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ python3 tutorial_06.py demods
+7738 2026-04-09 17:53:35 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+7738 2026-04-09 17:53:35 INFO     Initialize from file /mnt/nvme/sketch2/db/config.ini
+7738 2026-04-09 17:53:35 INFO     Started thread pool with 4 threads.
+Opened Sketch2 database in /mnt/nvme/sketch2/db
+Created dataset 'demods'
+Opened dataset 'demods' successfully
+Inserted vector id=10: 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00
+Inserted vector id=20: 0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50
+Inserted vector id=30: 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00
+Inserted vector id=40: 1.50, 1.50, 1.50, 1.50, 1.50, 1.50, 1.50, 1.50
+Inserted vector id=50: 2.00, 2.00, 2.00, 2.00, 2.00, 2.00, 2.00, 2.00
+Inserted vector id=60: 3.00, 3.00, 3.00, 3.00, 3.00, 3.00, 3.00, 3.00
+Inserted vector id=70: 6.00, 6.00, 6.00, 6.00, 6.00, 6.00, 6.00, 6.00
+Inserted vector id=80: 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00
+Completed writing test vectors
+Closed dataset 'demods' successfully
+Opening SQLite in-memory database and loading extension /mnt/nvme/sketch2/lib/libsketch2.so
+Executing SQL:
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini')
+Executing SQL:
+CREATE TABLE metadata (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            author TEXT NOT NULL
+        )
+Executing SQL:
+INSERT INTO metadata(id, title, category, author) VALUES (?, ?, ?, ?)
+Inserted 8 metadata rows
+Executing SQL:
+SELECT m.id, m.title, m.category, m.author, n.score
+            FROM nn AS n
+            JOIN metadata AS m ON m.id = n.id
+            WHERE n.query = ? AND n.k = ?
+            ORDER BY n.score
+
+
+Joined KNN rows (no metadata filter):
+  #01 id= 30 score=0.080000
+      title   : Vector Search Handbook
+      category: books
+      author  : carol
+  #02 id= 40 score=1.280000
+      title   : Embeddings in Practice
+      category: talks
+      author  : dave
+  #03 id= 20 score=2.880000
+      title   : Nearest Neighbor Notes
+      category: blog
+      author  : bob
+  #04 id= 50 score=6.480000
+      title   : ANN Benchmarks
+      category: books
+      author  : erin
+  #05 id= 10 score=9.680000
+      title   : Intro to Vectors
+      category: books
+      author  : alice
+
+
+Executing SQL:
+SELECT m.id, m.title, m.category, m.author, n.score
+            FROM nn AS n
+            JOIN metadata AS m ON m.id = n.id
+            WHERE n.query = ? AND n.k = ? AND m.category = ?
+            ORDER BY n.score
+
+
+Joined KNN rows (metadata filter category='books'):
+  #01 id= 30 score=0.080000
+      title   : Vector Search Handbook
+      category: books
+      author  : carol
+  #02 id= 50 score=6.480000
+      title   : ANN Benchmarks
+      category: books
+      author  : erin
+  #03 id= 10 score=9.680000
+      title   : Intro to Vectors
+      category: books
+      author  : alice
+
+
+Completed validating SQL joins between KNN results and metadata
+Dropped dataset 'demods' successfully
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$ python3 tutorial_07.py demods
+7743 2026-04-09 17:53:40 INFO     Compute backend set to 'avx512_vnni' because auto-detected AVX-512 VNNI because the required AVX-512F/BW/VL/VNNI CPU features are present.
+7743 2026-04-09 17:53:40 INFO     Initialize from file /mnt/nvme/sketch2/db/config.ini
+7743 2026-04-09 17:53:40 INFO     Started thread pool with 4 threads.
+Opened Sketch2 database in /mnt/nvme/sketch2/db
+Created dataset 'demods'
+Opened dataset 'demods' successfully
+Inserted vector id=10: 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00
+Inserted vector id=20: 0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50
+Inserted vector id=30: 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00
+Inserted vector id=40: 1.50, 1.50, 1.50, 1.50, 1.50, 1.50, 1.50, 1.50
+Inserted vector id=50: 2.00, 2.00, 2.00, 2.00, 2.00, 2.00, 2.00, 2.00
+Inserted vector id=60: 3.00, 3.00, 3.00, 3.00, 3.00, 3.00, 3.00, 3.00
+Inserted vector id=70: 6.00, 6.00, 6.00, 6.00, 6.00, 6.00, 6.00, 6.00
+Inserted vector id=80: 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00, 9.00
+Completed writing test vectors
+Closed dataset 'demods' successfully
+Opening SQLite in-memory database and loading extension /mnt/nvme/sketch2/lib/libsketch2.so
+Executing SQL:
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini')
+Executing SQL:
+CREATE TABLE metadata (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            author TEXT NOT NULL
+        )
+Executing SQL:
+INSERT INTO metadata(id, title, category, author) VALUES (?, ?, ?, ?)
+Inserted 8 metadata rows
+Executing SQL:
+SELECT id FROM metadata WHERE category = ? ORDER BY id
+
+Valid ids from metadata category='books': [10, 30, 50]
+Executing SQL:
+SELECT m.id, m.title, m.category, m.author, n.score
+            FROM nn AS n
+            JOIN metadata AS m ON m.id = n.id
+            WHERE n.query = ?
+              AND n.k = ?
+              AND n.allowed_ids = (
+                    SELECT bitset_agg(id)
+                    FROM metadata
+                    WHERE category = ?
+                  )
+            ORDER BY n.score
+
+KNN results with pushed-down metadata filter (allowed_ids):
+  #01 id= 30 score=0.080000
+      title   : Vector Search Handbook
+      category: books
+      author  : carol
+  #02 id= 50 score=6.480000
+      title   : ANN Benchmarks
+      category: books
+      author  : erin
+  #03 id= 10 score=9.680000
+      title   : Intro to Vectors
+      category: books
+      author  : alice
+
+Completed validating KNN search with pushed allowed_ids filter
+Dropped dataset 'demods' successfully
+mpopov@build-x86-64:~/projects/sketch2/tutorial$
+mpopov@build-x86-64:~/projects/sketch2/tutorial$

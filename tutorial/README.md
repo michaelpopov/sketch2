@@ -5,6 +5,12 @@ This guide walks through the starter scripts:
 - `tutorial_01.py`: exercises the basic open/create/close/drop workflow against that environment.
 - `tutorial_02.py`: demonstrates staged writes, reads, updates, and delta merging.
 - `tutorial_03.py`: shows how dataset files evolve as data is loaded, deleted, updated, and merged.
+- `tutorial_04.py`: demonstrates KNN search on a dataset using the Python API.
+- `tutorial_05.py`: demonstrates querying SQLite with SQL to retrieve KNN nearest-neighbor ids.
+- `tutorial_06.py`: demonstrates SQL joins between KNN results and metadata conditions.
+- `tutorial_07.py`: demonstrates pushing metadata filters into KNN search with SQL.
+
+File `output.txt` contains output of the session running all the tutorials in the terminal.
 
 ## 0. Environment Prep (`tutorial_00.py`)
 

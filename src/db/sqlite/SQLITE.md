@@ -133,7 +133,7 @@ ORDER BY score;
 
 This returns only neighbors whose ids are present in the bitset.
 
-Use `bitset_agg(id)` to build the BLOB. For format details, see `src/db/vlite/BITSET.md`.
+Use `bitset_agg(id)` to build the BLOB. For format details, see `src/db/sqlite/BITSET.md`.
 
 ## Dataset Metadata (`dataset.ini`)
 

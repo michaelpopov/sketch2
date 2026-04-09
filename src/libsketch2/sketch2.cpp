@@ -2,5 +2,4 @@
 // Consolidates the sketch2api C API and the vlite SQLite virtual table extension.
 
 #include "sketch2api/sketch2api.h"
-#include "db/vlite/vlite.h"
-
+#include "db/sqlite/vlite.h"

@@ -8,7 +8,7 @@ or "indexer" are split out.
 
 Core libraries immplementing base functionality.
 
-## vlite
+## sqlite
 
 SQLite virtual table extension shared library.
 
