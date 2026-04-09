@@ -60,6 +60,18 @@ def insert_test_data(sketch2) -> None:
     print("Completed writing test vectors")
 
 
+def print_knn_ids(title: str, query: str, k: int, ids: list[int]) -> None:
+    print("")
+    print(title)
+    print(f"  query: [{query}]")
+    print(f"  k    : {k}")
+    if not ids:
+        print("  (no rows)")
+        return
+    for rank, item_id in enumerate(ids, start=1):
+        print(f"  #{rank:02d} id={int(item_id):>3}")
+
+
 def run_knn_queries(sketch2) -> None:
     queries = [
         #  Quert vector         K (count)          Expected Ids
@@ -70,12 +82,13 @@ def run_knn_queries(sketch2) -> None:
 
     for query, count, expected in queries:
         ids = sketch2.knn(query, count)
-        print(f"knn(query=[ {query} ], k={count}) -> {ids}")
+        print_knn_ids("KNN rows:", query, count, ids)
         if ids != expected:
             raise RuntimeError(
                 f"KNN mismatch for query '{query}': expected {expected}, got {ids}"
             )
 
+    print("")
     print("Completed validating KNN search results")
 
 

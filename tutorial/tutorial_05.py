@@ -65,6 +65,19 @@ def dataset_ini_path(db_path: Path, dataset_name: str) -> Path:
     return db_path / dataset_name / f"{dataset_name}.ini"
 
 
+def print_knn_rows(title: str, query: str, k: int, rows: list[tuple]) -> None:
+    print("")
+    print(title)
+    print(f"  query: [{query}]")
+    print(f"  k    : {k}")
+    if not rows:
+        print("  (no rows)")
+        return
+    for rank, row in enumerate(rows, start=1):
+        item_id, score = row
+        print(f"  #{rank:02d} id={int(item_id):>3} score={float(score):.6f}")
+
+
 def run_sql_queries(dataset_ini: Path, extension_lib: Path) -> None:
     queries = [
         ("1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10", 3, [20, 30, 10]),
@@ -91,12 +104,13 @@ def run_sql_queries(dataset_ini: Path, extension_lib: Path) -> None:
         for query, count, expected in queries:
             rows = con.execute(query_sql, (query, count)).fetchall()
             ids = [int(row[0]) for row in rows]
-            print(f"SQL query vector=[ {query} ], k={count} -> rows={rows}")
+            print_knn_rows("KNN rows:", query, count, rows)
             if ids != expected:
                 raise RuntimeError(
                     f"SQL KNN mismatch for query '{query}': expected {expected}, got {ids}"
                 )
 
+        print("")
         print("Completed validating SQL KNN results")
     finally:
         con.close()

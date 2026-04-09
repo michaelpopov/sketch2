@@ -33,7 +33,7 @@ def create_dataset(sketch2, db_path: Path, dataset_name: str) -> None:
         type_name="f16",
         dim=8,
         range_size=10000,
-        dist_func="l1",
+        dist_func="dot",
     )
 
 def main() -> None:
