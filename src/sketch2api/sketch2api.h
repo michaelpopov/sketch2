@@ -109,6 +109,24 @@ int sk_generate_test_data(sk_handle_t* handle,
 int sk_load_file(sk_handle_t* handle, const char* path);
 
 /*
+ * Persist an allowlist bitset blob for the currently open dataset.
+ * The blob is stored in the first dataset directory as <name>.bitset.
+ */
+int sk_bitset_create(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name);
+
+/*
+ * Remove a persisted allowlist bitset blob (<name>.bitset) for the currently
+ * open dataset.
+ */
+int sk_bitset_drop(sk_handle_t* handle, const char* name);
+
+/*
+ * Load a persisted allowlist bitset blob (<name>.bitset) for the currently
+ * open dataset. The caller owns *blob_out and must release it with sk_free().
+ */
+int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
+
+/*
  * Print dataset file statistics to stdout or a text file.
  */
 int sk_stats(sk_handle_t* handle, const char* path);

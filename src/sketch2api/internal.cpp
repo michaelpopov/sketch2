@@ -91,6 +91,26 @@ std::string join_dirs(const std::vector<std::filesystem::path>& dirs) {
     return out;
 }
 
+Ret bitset_file_path(const sk_handle_t* handle, const char* name, std::filesystem::path* out) {
+    if (handle == nullptr || handle->ds == nullptr) {
+        return Ret("No dataset is open");
+    }
+    if (!is_valid_dataset_name(name)) {
+        return Ret("Invalid bitset name");
+    }
+    if (out == nullptr) {
+        return Ret("Invalid output path argument");
+    }
+
+    const std::vector<std::string>& dirs = handle->ds->dirs();
+    if (dirs.empty() || dirs.front().empty()) {
+        return Ret("Dataset dirs are not set");
+    }
+
+    *out = std::filesystem::path(dirs.front()) / (std::string(name) + ".bitset");
+    return Ret(0);
+}
+
 } // namespace
 
 #define ERR(x) { \
@@ -574,6 +594,120 @@ int sk_load_file_(sk_handle_t* handle, const char* path) {
         ERR(ret.message().c_str())
     }
 
+    return 0;
+}
+
+int sk_bitset_create_(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name) {
+    DECL
+
+    std::filesystem::path path;
+    const Ret path_ret = bitset_file_path(handle, name, &path);
+    if (path_ret.code() != 0) {
+        ERR(path_ret.message().c_str())
+    }
+    if (blob == nullptr && blob_size > 0) {
+        ERR("Invalid bitset blob argument")
+    }
+
+    std::filesystem::create_directories(path.parent_path());
+
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (f == nullptr) {
+        ERR("Failed to open bitset file for writing: " + path.string())
+    }
+
+    std::experimental::scope_exit cleanup([&]() {
+        std::fclose(f);
+    });
+
+    if (blob_size > 0) {
+        const size_t written = std::fwrite(blob, 1, blob_size, f);
+        if (written != blob_size) {
+            ERR("Failed to write bitset file: " + path.string())
+        }
+    }
+    if (std::fflush(f) != 0) {
+        ERR("Failed to flush bitset file: " + path.string())
+    }
+
+    return 0;
+}
+
+int sk_bitset_drop_(sk_handle_t* handle, const char* name) {
+    DECL
+
+    std::filesystem::path path;
+    const Ret path_ret = bitset_file_path(handle, name, &path);
+    if (path_ret.code() != 0) {
+        ERR(path_ret.message().c_str())
+    }
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    if (ec) {
+        ERR("Failed to remove bitset file: " + path.string())
+    }
+
+    return 0;
+}
+
+int sk_bitset_load_(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out) {
+    DECL
+
+    if (blob_out == nullptr || blob_size_out == nullptr) {
+        ERR("Invalid output arguments")
+    }
+    *blob_out = nullptr;
+    *blob_size_out = 0;
+
+    std::filesystem::path path;
+    const Ret path_ret = bitset_file_path(handle, name, &path);
+    if (path_ret.code() != 0) {
+        ERR(path_ret.message().c_str())
+    }
+
+    std::error_code ec;
+    const auto file_size_u64 = std::filesystem::file_size(path, ec);
+    if (ec) {
+        ERR("Failed to stat bitset file: " + path.string())
+    }
+    if (file_size_u64 > static_cast<uintmax_t>(std::numeric_limits<size_t>::max())) {
+        ERR("Bitset file is too large")
+    }
+    const size_t file_size = static_cast<size_t>(file_size_u64);
+
+    void* buffer = nullptr;
+    if (file_size > 0) {
+        buffer = std::malloc(file_size);
+        if (buffer == nullptr) {
+            ERR("Out of memory")
+        }
+    }
+
+    std::experimental::scope_exit cleanup([&]() {
+        if (*blob_out == nullptr) {
+            std::free(buffer);
+        }
+    });
+
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (f == nullptr) {
+        ERR("Failed to open bitset file for reading: " + path.string())
+    }
+
+    std::experimental::scope_exit close_file([&]() {
+        std::fclose(f);
+    });
+
+    if (file_size > 0) {
+        const size_t read = std::fread(buffer, 1, file_size, f);
+        if (read != file_size) {
+            ERR("Failed to read bitset file: " + path.string())
+        }
+    }
+
+    *blob_out = buffer;
+    *blob_size_out = file_size;
     return 0;
 }
 

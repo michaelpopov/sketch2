@@ -176,6 +176,30 @@ int sk_load_file(sk_handle_t* handle, const char* path) {
     }
 }
 
+int sk_bitset_create(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name) {
+    try {
+        return sk_bitset_create_(handle, blob, blob_size, name);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
+int sk_bitset_drop(sk_handle_t* handle, const char* name) {
+    try {
+        return sk_bitset_drop_(handle, name);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
+int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out) {
+    try {
+        return sk_bitset_load_(handle, name, blob_out, blob_size_out);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
 int sk_stats(sk_handle_t* handle, const char* path) {
     try {
         return sk_stats_(handle, path);

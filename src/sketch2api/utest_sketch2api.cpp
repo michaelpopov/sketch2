@@ -99,6 +99,20 @@ std::vector<uint64_t> api_knn(sk_handle_t* handle, const char* vec, unsigned int
     return out;
 }
 
+std::vector<uint8_t> api_load_bitset(sk_handle_t* handle, const char* name) {
+    void* blob = nullptr;
+    size_t blob_size = 0;
+    EXPECT_EQ(0, sk_bitset_load(handle, name, &blob, &blob_size)) << sk_error_message(handle);
+
+    std::vector<uint8_t> out;
+    if (blob != nullptr && blob_size > 0) {
+        const auto* ptr = static_cast<const uint8_t*>(blob);
+        out.assign(ptr, ptr + blob_size);
+    }
+    sk_free(blob);
+    return out;
+}
+
 } // namespace
 
 TEST(sketch2api, create_open_close_drop_lifecycle) {
@@ -157,6 +171,84 @@ TEST(sketch2api, reopen_restores_pending_wal_for_get_and_knn) {
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
 
+    sk_release_handle(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, bitset_create_load_drop_roundtrip) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_new_handle(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
+
+    const std::vector<uint8_t> expected = {0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01};
+    ASSERT_OK(handle, sk_bitset_create(handle, expected.data(), expected.size(), "label3"));
+
+    const std::filesystem::path bitset_path = root / "ds" / "label3.bitset";
+    EXPECT_TRUE(std::filesystem::exists(bitset_path));
+    EXPECT_EQ(expected, api_load_bitset(handle, "label3"));
+
+    ASSERT_OK(handle, sk_bitset_drop(handle, "label3"));
+    EXPECT_FALSE(std::filesystem::exists(bitset_path));
+
+    void* blob = nullptr;
+    size_t blob_size = 0;
+    EXPECT_NE(0, sk_bitset_load(handle, "label3", &blob, &blob_size));
+    EXPECT_EQ("Failed to stat bitset file: " + bitset_path.string(), std::string(sk_error_message(handle)));
+    sk_free(blob);
+
+    EXPECT_OK(handle, sk_close(handle));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_release_handle(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, bitset_operations_require_open_dataset) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_new_handle(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
+    ASSERT_OK(handle, sk_close(handle));
+
+    const uint8_t blob[] = {0x01};
+    EXPECT_NE(0, sk_bitset_create(handle, blob, sizeof(blob), "x"));
+    EXPECT_NE(0, sk_bitset_drop(handle, "x"));
+
+    void* loaded = nullptr;
+    size_t loaded_size = 0;
+    EXPECT_NE(0, sk_bitset_load(handle, "x", &loaded, &loaded_size));
+    sk_free(loaded);
+
+    EXPECT_OK(handle, sk_open(handle, "ds"));
+    EXPECT_OK(handle, sk_close(handle));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_release_handle(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, bitset_rejects_invalid_name) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_new_handle(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
+
+    const uint8_t blob[] = {0x01};
+    EXPECT_NE(0, sk_bitset_create(handle, blob, sizeof(blob), "../x"));
+    EXPECT_NE(0, sk_bitset_drop(handle, "../x"));
+
+    void* loaded = nullptr;
+    size_t loaded_size = 0;
+    EXPECT_NE(0, sk_bitset_load(handle, "../x", &loaded, &loaded_size));
+    sk_free(loaded);
+
+    EXPECT_OK(handle, sk_close(handle));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handle(handle);
     std::filesystem::remove_all(root);
 }

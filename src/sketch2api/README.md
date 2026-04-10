@@ -49,6 +49,9 @@ int sk_write_vector(sk_handle_t* handle, uint64_t id, const char* data);
 int sk_write_deleted(sk_handle_t* handle, uint64_t id);
 int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
+int sk_bitset_create(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name);
+int sk_bitset_drop(sk_handle_t* handle, const char* name);
+int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
 void sk_free(void* ptr);
 ```
 
