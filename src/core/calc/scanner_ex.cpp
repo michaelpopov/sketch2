@@ -140,11 +140,13 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
         const BitsetFilter* bitset = nullptr) {
     for (; !it.eof(); it.next()) {
         if (bitset != nullptr) {
-            assert(bitset->data != nullptr);
+            assert(bitset->data != nullptr || bitset->size == 0);
             const uint64_t id = it.id();
-            const uint64_t byte_index = id >> 3;
+            if (id < bitset->base_id) continue;
+            const uint64_t relative_id = id - bitset->base_id;
+            const uint64_t byte_index = relative_id >> 3;
             if (byte_index >= bitset->size) continue;
-            const uint8_t mask = static_cast<uint8_t>(1u << (id & 7u));
+            const uint8_t mask = static_cast<uint8_t>(1u << (relative_id & 7u));
             if ((bitset->data[byte_index] & mask) == 0u) continue;
         }
 #ifndef DUMMY_CALC

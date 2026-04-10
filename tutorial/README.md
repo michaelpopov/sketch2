@@ -193,6 +193,10 @@ The tutorial script demonstrates how to:
 - Insert test data into the dataset.
 - Run SQL statement on SQLite database to retrieve ids of nearest neighbors of a query vector.
 
+```
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini');
+SELECT id, score FROM nn WHERE query = ? AND k = ? ORDER BY score;
+```
 
 ## 6. Database query that joins KNN search and metadata conditions  (`tutorial_06.py`)
 
@@ -208,6 +212,25 @@ The tutorial script demonstrates how to:
 - Insert metadata into SQLite table.
 - Run SQL statement on SQLite database that joins results of KNN search and
   data from a "metadata" table.
+
+```
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini');
+
+CREATE TABLE metadata (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            author TEXT NOT NULL
+        );
+
+INSERT INTO metadata(id, title, category, author) VALUES (?, ?, ?, ?);
+
+SELECT m.id, m.title, m.category, m.author, n.score
+            FROM nn AS n
+            JOIN metadata AS m ON m.id = n.id
+            WHERE n.query = ? AND n.k = ?
+            ORDER BY n.score;
+```
 
 
 ## 7. Pushing filter into KNN search  (`tutorial_07.py`)
@@ -228,4 +251,31 @@ The tutorial script demonstrates how to:
   passes it to Sketch2 KNN search so only vectors with these ids are checked.
 
 
-  
+```
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini');
+
+CREATE TABLE metadata (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            author TEXT NOT NULL
+        );
+
+INSERT INTO metadata(id, title, category, author) VALUES (?, ?, ?, ?);
+
+SELECT m.id, m.title, m.category, m.author, n.score
+            FROM nn AS n
+            JOIN metadata AS m ON m.id = n.id
+            WHERE n.query = ?
+              AND n.k = ?
+              AND n.allowed_ids = (
+                    SELECT bitset_agg(id)
+                    FROM (
+                        SELECT id
+                        FROM metadata
+                        WHERE category = ?
+                        ORDER BY id
+                    )
+                  )
+            ORDER BY n.score;
+```

@@ -183,6 +183,9 @@ struct BitsetAggState {
     uint8_t* data = nullptr;
     sqlite3_uint64 size = 0;
     sqlite3_uint64 capacity = 0;
+    sqlite3_uint64 first_id = 0;
+    sqlite3_uint64 last_id = 0;
+    bool has_first_id = false;
     bool has_error = false;
     bool has_nomem = false;
     const char* error_message = nullptr;
@@ -226,29 +229,27 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
         return;
     }
 
-    constexpr sqlite3_uint64 kMaxBitsetBytes =
+    constexpr sqlite3_uint64 kHeaderBytes = sizeof(uint64_t);
+    constexpr sqlite3_uint64 kMaxBlobBytes =
         static_cast<sqlite3_uint64>(std::numeric_limits<int>::max());
-    constexpr sqlite3_uint64 kMaxSupportedId = kMaxBitsetBytes * 8u - 1u;
     const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
-    if (id_u64 > kMaxSupportedId) {
+    if (!state->has_first_id) {
+        state->first_id = id_u64;
+        state->has_first_id = true;
+    } else if (id_u64 < state->last_id) {
         state->has_error = true;
         state->error_message =
-            "bitset_agg: id exceeds supported bitset size on this build";
+            "bitset_agg: ids must be ordered in non-decreasing order";
         sqlite3_result_error(context, state->error_message, -1);
         return;
     }
+    state->last_id = id_u64;
 
-    const sqlite3_uint64 byte_index = id_u64 >> 3;
-    if (byte_index == std::numeric_limits<sqlite3_uint64>::max()) {
-        state->has_error = true;
-        state->error_message =
-            "bitset_agg: overflow while computing bitset size";
-        sqlite3_result_error(context, state->error_message, -1);
-        return;
-    }
+    const sqlite3_uint64 relative_id = id_u64 - state->first_id;
+    const sqlite3_uint64 byte_index = relative_id >> 3;
 
-    const sqlite3_uint64 needed_size = byte_index + 1;
-    if (needed_size > kMaxBitsetBytes) {
+    const sqlite3_uint64 needed_size = kHeaderBytes + byte_index + 1;
+    if (needed_size > kMaxBlobBytes) {
         state->has_error = true;
         state->error_message =
             "bitset_agg: required bitset size exceeds supported limit";
@@ -258,13 +259,13 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     if (needed_size > state->capacity) {
         sqlite3_uint64 new_capacity = state->capacity > 0 ? state->capacity : 1;
         while (new_capacity < needed_size) {
-            if (new_capacity > kMaxBitsetBytes / 2u) {
-                new_capacity = kMaxBitsetBytes;
+            if (new_capacity > kMaxBlobBytes / 2u) {
+                new_capacity = kMaxBlobBytes;
                 break;
             }
             new_capacity *= 2u;
         }
-        if (new_capacity < needed_size || new_capacity > kMaxBitsetBytes) {
+        if (new_capacity < needed_size || new_capacity > kMaxBlobBytes) {
             state->has_error = true;
             state->error_message =
                 "bitset_agg: required bitset size exceeds supported limit";
@@ -288,6 +289,9 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
         if (new_capacity > state->capacity) {
             std::memset(new_data + state->capacity, 0, static_cast<size_t>(new_capacity - state->capacity));
         }
+        if (state->data == nullptr) {
+            std::memcpy(new_data, &state->first_id, sizeof(state->first_id));
+        }
 
         state->data = new_data;
         state->capacity = new_capacity;
@@ -296,7 +300,7 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
         state->size = needed_size;
     }
 
-    state->data[byte_index] |= static_cast<uint8_t>(1u << (id & 7));
+    state->data[kHeaderBytes + byte_index] |= static_cast<uint8_t>(1u << (relative_id & 7u));
 }
 
 void bitset_agg_final(sqlite3_context* context) {
@@ -313,7 +317,7 @@ void bitset_agg_final(sqlite3_context* context) {
         return;
     }
 
-    if (state == nullptr || state->size == 0 || state->data == nullptr) {
+    if (state == nullptr || state->size == 0 || state->data == nullptr || !state->has_first_id) {
         sqlite3_result_blob(context, "", 0, SQLITE_STATIC);
         return;
     }
@@ -640,9 +644,23 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             return SQLITE_ERROR;
         }
 
+        uint64_t allowed_ids_base_id = 0;
+        const uint8_t* allowed_ids_bits = static_cast<const uint8_t*>(allowed_ids_blob);
+        uint64_t allowed_ids_bits_size = static_cast<uint64_t>(allowed_ids_blob_size);
+        if (has_allowed_ids && allowed_ids_blob_size > 0) {
+            if (allowed_ids_blob_size < static_cast<int>(sizeof(uint64_t))) {
+                set_vtab_error(vlite_vtab, "vlite allowed_ids blob is too small");
+                return SQLITE_ERROR;
+            }
+            std::memcpy(&allowed_ids_base_id, allowed_ids_bits, sizeof(uint64_t));
+            allowed_ids_bits += sizeof(uint64_t);
+            allowed_ids_bits_size -= sizeof(uint64_t);
+        }
+
         const sketch2::BitsetFilter bitset_filter {
-            .data = static_cast<const uint8_t*>(allowed_ids_blob),
-            .size = static_cast<uint64_t>(allowed_ids_blob_size),
+            .base_id = allowed_ids_base_id,
+            .data = allowed_ids_bits,
+            .size = allowed_ids_bits_size,
         };
         const sketch2::BitsetFilter* bitset_filter_ptr = !has_allowed_ids ? nullptr : &bitset_filter;
 

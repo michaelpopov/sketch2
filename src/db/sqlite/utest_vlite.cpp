@@ -9,6 +9,7 @@
 #include "utils/shared_types.h"
 
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -927,12 +928,15 @@ TEST_F(VliteTest, BitsetAggBuildsDenseBitsetBlob) {
 
     const std::vector<uint8_t> blob = query_blob_result(db.get(),
         "SELECT bitset_agg(id) "
-        "FROM (SELECT 0 AS id UNION ALL SELECT 1 UNION ALL SELECT NULL "
-        "UNION ALL SELECT 8 UNION ALL SELECT 8)");
+        "FROM (SELECT 10 AS id UNION ALL SELECT 11 UNION ALL SELECT NULL "
+        "UNION ALL SELECT 18 UNION ALL SELECT 18)");
 
-    ASSERT_EQ(2u, blob.size());
-    EXPECT_EQ(0x03u, blob[0]);
-    EXPECT_EQ(0x01u, blob[1]);
+    ASSERT_EQ(10u, blob.size());
+    uint64_t first_id = 0;
+    std::memcpy(&first_id, blob.data(), sizeof(first_id));
+    EXPECT_EQ(10u, first_id);
+    EXPECT_EQ(0x03u, blob[8]);
+    EXPECT_EQ(0x01u, blob[9]);
 }
 
 TEST_F(VliteTest, BitsetAggReturnsEmptyBlobForEmptyInput) {
@@ -955,6 +959,15 @@ TEST_F(VliteTest, BitsetAggRejectsInvalidInputValues) {
     expect_query_error(db.get(),
         "SELECT bitset_agg(id) FROM (SELECT 'oops' AS id)",
         "must be an integer");
+}
+
+TEST_F(VliteTest, BitsetAggRejectsDescendingIds) {
+    SqliteDbPtr db = open_db_with_extension();
+    ASSERT_NE(nullptr, db);
+
+    expect_query_error(db.get(),
+        "SELECT bitset_agg(id) FROM (SELECT 2 AS id UNION ALL SELECT 1)",
+        "non-decreasing order");
 }
 
 TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
@@ -981,6 +994,25 @@ TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
     ASSERT_EQ(3u, baseline_rows.size());
     ASSERT_EQ(1u, filtered_rows.size());
     EXPECT_EQ(0, filtered_rows[0].first);
+}
+
+TEST_F(VliteTest, AllowedIdsBlobConstraintSupportsNonZeroBaseId) {
+    write_input("f32,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+                "20 : [ 20.0, 20.0, 20.0, 20.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto filtered_rows = query_results(db.get(),
+        "SELECT id, score FROM nn "
+        "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 20 AS id)) "
+        "ORDER BY score");
+
+    ASSERT_EQ(1u, filtered_rows.size());
+    EXPECT_EQ(20u, filtered_rows[0].first);
 }
 
 TEST_F(VliteTest, AllowedIdsNullIsTreatedAsNoFilter) {

@@ -7,6 +7,7 @@
 namespace sketch2 {
 
 struct BitsetFilter {
+    const uint64_t base_id;
     const uint8_t* data;
     const uint64_t size;
 };

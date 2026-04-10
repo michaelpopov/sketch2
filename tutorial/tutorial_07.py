@@ -151,8 +151,12 @@ def run_sql_pushdown_query(dataset_ini: Path, extension_lib: Path) -> None:
               AND n.k = ?
               AND n.allowed_ids = (
                     SELECT bitset_agg(id)
-                    FROM metadata
-                    WHERE category = ?
+                    FROM (
+                        SELECT id
+                        FROM metadata
+                        WHERE category = ?
+                        ORDER BY id
+                    )
                   )
             ORDER BY n.score
         """

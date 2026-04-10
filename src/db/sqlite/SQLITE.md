@@ -126,12 +126,27 @@ WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1'
   AND k = 3
   AND allowed_ids = (
         SELECT bitset_agg(id)
-        FROM (SELECT 0 AS id)
+        FROM (
+            SELECT 0 AS id
+            ORDER BY id
+        )
       )
 ORDER BY score;
 ```
 
 This returns only neighbors whose ids are present in the bitset.
+
+`bitset_agg(id)` expects ids in non-decreasing order. Build it from an ordered subquery:
+
+```sql
+SELECT bitset_agg(id)
+FROM (
+    SELECT id
+    FROM labels
+    WHERE label = 3
+    ORDER BY id
+);
+```
 
 Use `bitset_agg(id)` to build the BLOB. For format details, see `src/db/sqlite/BITSET.md`.
 
