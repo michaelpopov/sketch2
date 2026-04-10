@@ -88,6 +88,11 @@ pytest:
 pydemo:
 	python3 src/pytest/demo.py
 
+# Runs all tutorial scripts end-to-end
+.PHONY: tut
+tut: build
+	python3 tutorial/run_all.py
+
 # Runs the Python demo against the release libsketch2 artifact
 .PHONY: demo
 demo: rel
@@ -156,6 +161,9 @@ cover:
 	$(MAKE) demo
 	$(MAKE) ds_bench
 	$(MAKE) ds_mix_bench
+	$(MAKE) tut
+	rm -r /tmp/sketch2_test_data_*
+	rm -r /tmp/sketch2_tutorial
 
 # Runs Python shell with Sketch2 objects ready
 .PHONY: pyshell
