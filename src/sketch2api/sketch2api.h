@@ -142,6 +142,22 @@ int sk_bitset_drop(sk_handle_t* handle, const char* name);
 int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
 
 /*
+ * Internal-facing utility used by adapters (for example SQLite) to build an
+ * in-memory allowlist bitset blob in the Sketch2 API binary format.
+ */
+int sk_bitset_builder_add(
+    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
+
+/*
+ * Finalize and release the bitset builder state. Must be called even if a
+ * prior sk_bitset_builder_add() returned an error. On success, the caller
+ * owns *blob_out and must release it with sk_free().
+ */
+int sk_bitset_builder_finish(
+    void** state, void** blob_out, size_t* blob_size_out,
+    bool* out_of_memory, const char** error_message_out);
+
+/*
  * Print dataset file statistics to stdout or a text file.
  */
 int sk_stats(sk_handle_t* handle, const char* path);

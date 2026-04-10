@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <new>
 
 using namespace sketch2;
 using namespace sketch2::log;
@@ -28,6 +29,16 @@ namespace {
     } \
     handle->error = 0; \
     handle->message[0] = '\0';
+
+void set_builder_error(bool* out_of_memory, const char** error_message_out,
+        bool is_nomem, const char* message) {
+    if (out_of_memory != nullptr) {
+        *out_of_memory = is_nomem;
+    }
+    if (error_message_out != nullptr) {
+        *error_message_out = message;
+    }
+}
 
 } // namespace
 
@@ -217,6 +228,45 @@ int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_
         return sk_bitset_load_(handle, name, blob_out, blob_size_out);
     } catch (const std::exception& ex) {
         ERR(ex.what())
+    }
+}
+
+int sk_bitset_builder_add(
+        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
+    try {
+        return sk_bitset_builder_add_(state, id, out_of_memory, error_message_out);
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
+int sk_bitset_builder_finish(
+        void** state, void** blob_out, size_t* blob_size_out,
+        bool* out_of_memory, const char** error_message_out) {
+    if (blob_out != nullptr) {
+        *blob_out = nullptr;
+    }
+    if (blob_size_out != nullptr) {
+        *blob_size_out = 0;
+    }
+    try {
+        return sk_bitset_builder_finish_(state, blob_out, blob_size_out, out_of_memory, error_message_out);
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
     }
 }
 

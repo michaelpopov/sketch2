@@ -18,9 +18,13 @@ SELECT bitset_agg(id) FROM some_table;
 - ignores `NULL`
 - accepts only SQLite `INTEGER`
 - rejects negative ids
+- rejects ids above `100000000`
 - requires ids in non-decreasing order
 - returns an empty `BLOB` for empty input
 - emits a blob in the Sketch2 API bitset format
+
+The aggregate keeps SQLite-specific type validation in `vlite.cpp`, but it now
+delegates the actual blob construction to Sketch2 API helpers.
 
 Recommended shape:
 

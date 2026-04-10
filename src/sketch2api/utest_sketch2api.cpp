@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <experimental/scope>
 #include <filesystem>
 #include <fstream>
@@ -103,6 +104,51 @@ std::vector<uint8_t> api_load_bitset(sk_handle_t* handle, const char* name) {
     void* blob = nullptr;
     size_t blob_size = 0;
     EXPECT_EQ(0, sk_bitset_load(handle, name, &blob, &blob_size)) << sk_error_message(handle);
+
+    std::vector<uint8_t> out;
+    if (blob != nullptr && blob_size > 0) {
+        const auto* ptr = static_cast<const uint8_t*>(blob);
+        out.assign(ptr, ptr + blob_size);
+    }
+    sk_free(blob);
+    return out;
+}
+
+std::vector<uint8_t> build_bitset_blob(const std::vector<uint64_t>& ids, int* rc_out = nullptr,
+        bool* out_of_memory = nullptr, std::string* error_message_out = nullptr) {
+    void* state = nullptr;
+    bool local_nomem = false;
+    const char* local_error = nullptr;
+    int rc = 0;
+    for (uint64_t id : ids) {
+        rc = sk_bitset_builder_add(&state, id, &local_nomem, &local_error);
+        if (rc != 0) {
+            break;
+        }
+    }
+
+    void* blob = nullptr;
+    size_t blob_size = 0;
+    const bool prior_nomem = local_nomem;
+    const char* const prior_error = local_error;
+    const int finish_rc = sk_bitset_builder_finish(
+        &state, &blob, &blob_size, &local_nomem, &local_error);
+    if (rc == 0) {
+        rc = finish_rc;
+    } else {
+        local_nomem = prior_nomem;
+        local_error = prior_error;
+    }
+
+    if (rc_out != nullptr) {
+        *rc_out = rc;
+    }
+    if (out_of_memory != nullptr) {
+        *out_of_memory = local_nomem;
+    }
+    if (error_message_out != nullptr) {
+        *error_message_out = local_error != nullptr ? local_error : "";
+    }
 
     std::vector<uint8_t> out;
     if (blob != nullptr && blob_size > 0) {
@@ -251,6 +297,61 @@ TEST(sketch2api, bitset_rejects_invalid_name) {
     EXPECT_OK(handle, sk_drop(handle, "ds"));
     sk_release_handle(handle);
     std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, bitset_builder_builds_dense_blob) {
+    int rc = -1;
+    bool out_of_memory = false;
+    std::string error_message;
+    const std::vector<uint8_t> blob = build_bitset_blob(
+        {10u, 11u, 18u, 18u}, &rc, &out_of_memory, &error_message);
+
+    EXPECT_EQ(0, rc);
+    EXPECT_FALSE(out_of_memory);
+    EXPECT_TRUE(error_message.empty());
+    ASSERT_EQ(10u, blob.size());
+
+    uint64_t first_id = 0;
+    std::memcpy(&first_id, blob.data(), sizeof(first_id));
+    EXPECT_EQ(10u, first_id);
+    EXPECT_EQ(0x03u, blob[8]);
+    EXPECT_EQ(0x01u, blob[9]);
+}
+
+TEST(sketch2api, bitset_builder_returns_empty_blob_for_empty_input) {
+    int rc = -1;
+    std::string error_message;
+    const std::vector<uint8_t> blob = build_bitset_blob({}, &rc, nullptr, &error_message);
+
+    EXPECT_EQ(0, rc);
+    EXPECT_TRUE(error_message.empty());
+    EXPECT_TRUE(blob.empty());
+}
+
+TEST(sketch2api, bitset_builder_rejects_descending_ids) {
+    int rc = 0;
+    bool out_of_memory = false;
+    std::string error_message;
+    const std::vector<uint8_t> blob = build_bitset_blob(
+        {2u, 1u}, &rc, &out_of_memory, &error_message);
+
+    EXPECT_NE(0, rc);
+    EXPECT_FALSE(out_of_memory);
+    EXPECT_EQ("bitset builder: ids must be ordered in non-decreasing order", error_message);
+    EXPECT_TRUE(blob.empty());
+}
+
+TEST(sketch2api, bitset_builder_rejects_ids_above_maximum) {
+    int rc = 0;
+    bool out_of_memory = false;
+    std::string error_message;
+    const std::vector<uint8_t> blob = build_bitset_blob(
+        {100000001u}, &rc, &out_of_memory, &error_message);
+
+    EXPECT_NE(0, rc);
+    EXPECT_FALSE(out_of_memory);
+    EXPECT_EQ("bitset builder: id must be <= 100000000", error_message);
+    EXPECT_TRUE(blob.empty());
 }
 
 TEST(sketch2api, generate_stats_and_print_smoke) {

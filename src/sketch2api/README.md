@@ -57,6 +57,11 @@ int sk_complete_writing(sk_handle_t* handle);
 int sk_bitset_create(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name);
 int sk_bitset_drop(sk_handle_t* handle, const char* name);
 int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
+int sk_bitset_builder_add(
+    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
+int sk_bitset_builder_finish(
+    void** state, void** blob_out, size_t* blob_size_out,
+    bool* out_of_memory, const char** error_message_out);
 void sk_free(void* ptr);
 ```
 

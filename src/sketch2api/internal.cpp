@@ -17,6 +17,7 @@
 #include <experimental/scope>
 #include <filesystem>
 #include <limits>
+#include <new>
 #include <string>
 #include <vector>
 #include <system_error>
@@ -110,6 +111,48 @@ Ret bitset_file_path(const sk_handle_t* handle, const char* name, std::filesyste
 
     *out = std::filesystem::path(dirs.front()) / (std::string(name) + ".bitset");
     return Ret(0);
+}
+
+struct BitsetBuilderState {
+    uint8_t* data = nullptr;
+    size_t size = 0;
+    size_t capacity = 0;
+    uint64_t first_id = 0;
+    uint64_t last_id = 0;
+    bool has_first_id = false;
+    bool has_error = false;
+    bool has_nomem = false;
+    const char* error_message = nullptr;
+};
+
+constexpr const char* kBitsetBuilderOrderError =
+    "bitset builder: ids must be ordered in non-decreasing order";
+constexpr uint64_t kBitsetBuilderMaxId = 100000000u;
+constexpr const char* kBitsetBuilderMaxIdError =
+    "bitset builder: id must be <= 100000000";
+constexpr const char* kBitsetBuilderSizeError =
+    "bitset builder: required bitset size exceeds supported limit";
+constexpr const char* kBitsetBuilderNomemError = "sketch2: out of memory";
+
+void set_bitset_builder_error(bool* out_of_memory, const char** error_message_out,
+    bool is_nomem, const char* message) {
+    if (out_of_memory != nullptr) {
+        *out_of_memory = is_nomem;
+    }
+    if (error_message_out != nullptr) {
+        *error_message_out = message;
+    }
+}
+
+int return_bitset_builder_error(BitsetBuilderState* builder, bool is_nomem, const char* message,
+        bool* out_of_memory, const char** error_message_out) {
+    if (builder != nullptr) {
+        builder->has_error = true;
+        builder->has_nomem = is_nomem;
+        builder->error_message = message;
+    }
+    set_bitset_builder_error(out_of_memory, error_message_out, is_nomem, message);
+    return -1;
 }
 
 } // namespace
@@ -806,6 +849,138 @@ int sk_bitset_load_(sk_handle_t* handle, const char* name, void** blob_out, size
 
     *blob_out = buffer;
     *blob_size_out = file_size;
+    return 0;
+}
+
+int sk_bitset_builder_add_(
+        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
+    set_bitset_builder_error(out_of_memory, error_message_out, false, nullptr);
+
+    if (state == nullptr) {
+        set_bitset_builder_error(out_of_memory, error_message_out, false,
+            "bitset builder: invalid builder state");
+        return -1;
+    }
+
+    auto* builder = static_cast<BitsetBuilderState*>(*state);
+    if (builder == nullptr) {
+        builder = new (std::nothrow) BitsetBuilderState();
+        if (builder == nullptr) {
+            set_bitset_builder_error(out_of_memory, error_message_out, true, kBitsetBuilderNomemError);
+            return -1;
+        }
+        *state = builder;
+    }
+    if (builder->has_error) {
+        set_bitset_builder_error(
+            out_of_memory, error_message_out, builder->has_nomem, builder->error_message);
+        return -1;
+    }
+    if (id > kBitsetBuilderMaxId) {
+        return return_bitset_builder_error(
+            builder, false, kBitsetBuilderMaxIdError, out_of_memory, error_message_out);
+    }
+
+    constexpr size_t kHeaderBytes = sizeof(uint64_t);
+    if (!builder->has_first_id) {
+        builder->first_id = id;
+        builder->has_first_id = true;
+    } else if (id < builder->last_id) {
+        return return_bitset_builder_error(
+            builder, false, kBitsetBuilderOrderError, out_of_memory, error_message_out);
+    }
+    builder->last_id = id;
+
+    const uint64_t relative_id = id - builder->first_id;
+    const uint64_t byte_index_u64 = relative_id >> 3u;
+    if (byte_index_u64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - kHeaderBytes - 1u)) {
+        return return_bitset_builder_error(
+            builder, false, kBitsetBuilderSizeError, out_of_memory, error_message_out);
+    }
+
+    const size_t byte_index = static_cast<size_t>(byte_index_u64);
+    const size_t needed_size = kHeaderBytes + byte_index + 1u;
+    if (needed_size > builder->capacity) {
+        size_t new_capacity = builder->capacity > 0 ? builder->capacity : 1u;
+        while (new_capacity < needed_size) {
+            if (new_capacity > std::numeric_limits<size_t>::max() / 2u) {
+                new_capacity = needed_size;
+                break;
+            }
+            new_capacity *= 2u;
+        }
+        if (new_capacity < needed_size) {
+            return return_bitset_builder_error(
+                builder, false, kBitsetBuilderSizeError, out_of_memory, error_message_out);
+        }
+
+        uint8_t* new_data = static_cast<uint8_t*>(std::realloc(builder->data, new_capacity));
+        if (new_data == nullptr) {
+            return return_bitset_builder_error(
+                builder, true, kBitsetBuilderNomemError, out_of_memory, error_message_out);
+        }
+
+        if (new_capacity > builder->capacity) {
+            std::memset(new_data + builder->capacity, 0, new_capacity - builder->capacity);
+        }
+        if (builder->data == nullptr) {
+            std::memcpy(new_data, &builder->first_id, sizeof(builder->first_id));
+        }
+
+        builder->data = new_data;
+        builder->capacity = new_capacity;
+    }
+    if (needed_size > builder->size) {
+        builder->size = needed_size;
+    }
+
+    builder->data[kHeaderBytes + byte_index] |= static_cast<uint8_t>(1u << (relative_id & 7u));
+    return 0;
+}
+
+int sk_bitset_builder_finish_(void** state, void** blob_out, size_t* blob_size_out,
+        bool* out_of_memory, const char** error_message_out) {
+    set_bitset_builder_error(out_of_memory, error_message_out, false, nullptr);
+
+    if (blob_out == nullptr || blob_size_out == nullptr) {
+        set_bitset_builder_error(out_of_memory, error_message_out, false,
+            "bitset builder: invalid output arguments");
+        return -1;
+    }
+    *blob_out = nullptr;
+    *blob_size_out = 0;
+
+    if (state == nullptr) {
+        set_bitset_builder_error(out_of_memory, error_message_out, false,
+            "bitset builder: invalid builder state");
+        return -1;
+    }
+
+    auto* builder = static_cast<BitsetBuilderState*>(*state);
+    *state = nullptr;
+    if (builder == nullptr) {
+        return 0;
+    }
+
+    std::experimental::scope_exit cleanup([&]() {
+        std::free(builder->data);
+        delete builder;
+    });
+
+    if (builder->has_error) {
+        set_bitset_builder_error(
+            out_of_memory, error_message_out, builder->has_nomem, builder->error_message);
+        return -1;
+    }
+    if (builder->size == 0 || builder->data == nullptr || !builder->has_first_id) {
+        return 0;
+    }
+
+    *blob_out = builder->data;
+    *blob_size_out = builder->size;
+    builder->data = nullptr;
+    builder->size = 0;
+    builder->capacity = 0;
     return 0;
 }
 

@@ -8,9 +8,13 @@ The format is currently used by:
 - `sk_knn_items(...)` through `allowed_ids_blob` and `allowed_ids_blob_size`
 - `sk_bitset_create(...)`
 - `sk_bitset_load(...)`
+- `sk_bitset_builder_add(...)` + `sk_bitset_builder_finish(...)`
 
 SQLite's `bitset_agg(id)` is one producer of this format, but the format
 itself belongs to Sketch2 API rather than to the SQLite adapter.
+
+The concrete blob-building logic now lives in `src/sketch2api/internal.cpp`,
+and SQLite's aggregate callback delegates to that implementation.
 
 ## Purpose
 
@@ -62,6 +66,7 @@ Behavior notes:
 - ids below `base_id` are not allowed
 - ids beyond the represented range are not allowed
 - a `NULL` SQL value should be translated by the caller into `nullptr, 0`
+- builder-produced blobs currently support ids only up to `100000000`
 
 ## SQLite Interop
 

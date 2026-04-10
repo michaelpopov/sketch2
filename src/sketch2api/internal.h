@@ -33,6 +33,11 @@ SKETCH2API_HIDDEN int sk_bitset_create_(
 SKETCH2API_HIDDEN int sk_bitset_drop_(sk_handle_t* handle, const char* name);
 SKETCH2API_HIDDEN int sk_bitset_load_(
     sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
+SKETCH2API_HIDDEN int sk_bitset_builder_add_(
+    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
+SKETCH2API_HIDDEN int sk_bitset_builder_finish_(
+    void** state, void** blob_out, size_t* blob_size_out,
+    bool* out_of_memory, const char** error_message_out);
 SKETCH2API_HIDDEN int sk_stats_(sk_handle_t* handle, const char* path = nullptr);
 
 } // namespace sketch2api::detail

@@ -956,6 +956,9 @@ TEST_F(VliteTest, BitsetAggRejectsInvalidInputValues) {
         "SELECT bitset_agg(id) FROM (SELECT -1 AS id)",
         "non-negative");
     expect_query_error(db.get(),
+        "SELECT bitset_agg(id) FROM (SELECT 100000001 AS id)",
+        "<= 100000000");
+    expect_query_error(db.get(),
         "SELECT bitset_agg(id) FROM (SELECT 'oops' AS id)",
         "must be an integer");
 }
