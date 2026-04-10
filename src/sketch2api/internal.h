@@ -11,6 +11,11 @@ SKETCH2API_HIDDEN int sk_open_(sk_handle_t* handle, const char* name);
 SKETCH2API_HIDDEN int sk_close_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_knn_(
     sk_handle_t* handle, const char* vec, unsigned int k, uint64_t** ids_out, size_t* count_out);
+SKETCH2API_HIDDEN int sk_knn_items_(
+    sk_handle_t* handle, const char* vec, unsigned int k,
+    const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+    uint64_t** ids_out, double** scores_out, size_t* count_out);
+SKETCH2API_HIDDEN int sk_score_ascending_is_better_(sk_handle_t* handle, bool* out);
 SKETCH2API_HIDDEN const char* sk_knn_engine_name_for_testing_();
 SKETCH2API_HIDDEN int sk_merge_delta_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_get_(sk_handle_t* handle, uint64_t id, char** value_out);

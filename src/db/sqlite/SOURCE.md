@@ -1,7 +1,7 @@
 # Source Index
 
 - `CMakeLists.txt`: Build rules for the SQLite virtual table module and tests.
-- `BITSET.md`: Bitset BLOB format and processing notes for `bitset_agg` and `allowed_ids`.
+- `BITSET.md`: SQLite-facing notes for `bitset_agg` and the `allowed_ids` hidden column.
 - `README.md`: Overview of the `vlite` SQLite integration.
 - `SQLITE.md`: Notes about SQLite extension loading and usage details for vlite.
 - `utest_main.cpp`: Shared GoogleTest entry point (`src/core/utils/utest_main.cpp`) for the vlite test binary.

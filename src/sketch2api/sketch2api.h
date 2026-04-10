@@ -52,6 +52,21 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
     uint64_t** ids_out, size_t* count_out);
 
 /*
+ * Run KNN with optional bitset filtering and return allocated id/score arrays.
+ * The caller owns *ids_out and *scores_out and must release both with sk_free().
+ * If allowed_ids_blob is nullptr and allowed_ids_blob_size is 0, no bitset
+ * filtering is applied.
+ */
+int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
+    const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+    uint64_t** ids_out, double** scores_out, size_t* count_out);
+
+/*
+ * Return true when smaller score means better match for the currently open dataset.
+ */
+int sk_score_ascending_is_better(sk_handle_t* handle, bool* out);
+
+/*
  * Merge delta files into data files.
  */
 int sk_merge_delta(sk_handle_t* handle);

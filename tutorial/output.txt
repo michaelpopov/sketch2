@@ -336,7 +336,7 @@ Completed writing test vectors
 Closed dataset 'demods' successfully
 Opening SQLite in-memory database and loading extension /mnt/nvme/sketch2/lib/libsketch2.so
 Executing SQL:
-CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini')
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db', 'demods')
 Executing SQL:
 SELECT id, score FROM nn WHERE query = ? AND k = ? ORDER BY score
 
@@ -392,7 +392,7 @@ Completed writing test vectors
 Closed dataset 'demods' successfully
 Opening SQLite in-memory database and loading extension /mnt/nvme/sketch2/lib/libsketch2.so
 Executing SQL:
-CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini')
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db', 'demods')
 Executing SQL:
 CREATE TABLE metadata (
             id INTEGER PRIMARY KEY,
@@ -493,7 +493,7 @@ Completed writing test vectors
 Closed dataset 'demods' successfully
 Opening SQLite in-memory database and loading extension /mnt/nvme/sketch2/lib/libsketch2.so
 Executing SQL:
-CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini')
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db', 'demods')
 Executing SQL:
 CREATE TABLE metadata (
             id INTEGER PRIMARY KEY,

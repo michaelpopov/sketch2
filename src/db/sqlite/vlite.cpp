@@ -1,14 +1,8 @@
 // Implements the SQLite virtual table that exposes vector search over datasets.
 
 #include "vlite.h"
-
-#include "core/calc/scanner_ex.h"
-#include "core/compute/compute_cos.h"
-#include "core/storage/dataset_reader.h"
-#include "core/utils/compute_unit.h"
-#include "core/utils/shared_consts.h"
-#include "core/utils/singleton.h"
-#include "core/utils/string_utils.h"
+#include "sketch2api/sketch2api.h"
+#include "sketch2api/sketch2api_testing.h"
 
 #include <algorithm>
 #include <cassert>
@@ -16,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <new>
@@ -51,6 +46,7 @@ constexpr const char* kVliteSchemaWithAllowedIds =
     "allowed_ids BLOB HIDDEN, "
     "id INTEGER, "
     "score REAL)";
+constexpr const char* kVliteModuleName = "vlite";
 
 // Removes the outer quoting syntax SQLite may preserve in module arguments so
 // the dataset path can be passed to Dataset::init verbatim.
@@ -160,12 +156,12 @@ bool is_query_constraint(int op) {
     return op == SQLITE_INDEX_CONSTRAINT_EQ || op == SQLITE_INDEX_CONSTRAINT_MATCH;
 }
 
-bool consumes_order_by_score(const sketch2::DatasetReader& dataset, const sqlite3_index_info& index_info) {
+bool consumes_order_by_score(bool smaller_score_is_better, const sqlite3_index_info& index_info) {
     if (index_info.nOrderBy != 1 || index_info.aOrderBy[0].iColumn != kColumnScore) {
         return false;
     }
     const bool desc = index_info.aOrderBy[0].desc != 0;
-    return sketch2::smaller_score_is_better(dataset.dist_func()) ? !desc : desc;
+    return smaller_score_is_better ? !desc : desc;
 }
 
 sqlite3_int64 saturate_negative_to_zero(sqlite3_int64 value) {
@@ -331,16 +327,22 @@ void bitset_agg_final(sqlite3_context* context) {
 // VliteVTab exists to bind SQLite's virtual-table object to the dataset state
 // needed by the extension. It stores the dataset path and the opened Dataset instance.
 struct VliteVTab : sqlite3_vtab {
-    std::string dataset_path;
-    std::unique_ptr<sketch2::DatasetReader> dataset;
+    std::string db_path;
+    std::string dataset_name;
+    sk_handle_t* handle = nullptr;
+    bool smaller_score_is_better = false;
+};
+
+struct VliteRow {
+    uint64_t id = 0;
+    double score = 0.0;
 };
 
 // VliteCursor exists to hold one materialized query result set for SQLite. It
 // keeps the parsed query buffer, result rows, and iteration state consumed by
 // the xFilter/xNext/xColumn callbacks.
 struct VliteCursor : sqlite3_vtab_cursor {
-    std::vector<sketch2::DistItem> rows;
-    std::vector<uint8_t> query_buf;
+    std::vector<VliteRow> rows;
     std::string query_text;
     sqlite3_int64 k = 0; // Requested/default SQL k, not the internal pushdown-adjusted count.
     size_t index = 0;
@@ -355,8 +357,8 @@ int vlite_connect_common(sqlite3* db, int argc, const char* const* argv,
         if (db == nullptr || pp_vtab == nullptr || argv == nullptr) {
             return SQLITE_ERROR;
         }
-        if (argc != 4) {
-            set_err_msg(err_msg, "vlite requires exactly one dataset ini path argument");
+        if (argc != 5) {
+            set_err_msg(err_msg, "vlite requires exactly two arguments: db path and dataset name");
             return SQLITE_ERROR;
         }
 
@@ -370,20 +372,43 @@ int vlite_connect_common(sqlite3* db, int argc, const char* const* argv,
             return SQLITE_NOMEM;
         }
 
-        vtab->dataset_path = dequote_sqlite_arg(argv[3]);
-        if (vtab->dataset_path.empty()) {
-            set_err_msg(err_msg, "vlite dataset ini path must not be empty");
+        vtab->db_path = dequote_sqlite_arg(argv[3]);
+        if (vtab->db_path.empty()) {
+            set_err_msg(err_msg, "vlite db path must not be empty");
             delete vtab;
             return SQLITE_ERROR;
         }
 
-        vtab->dataset = std::make_unique<sketch2::DatasetReader>();
-        const sketch2::Ret ret = vtab->dataset->init(vtab->dataset_path);
-        if (ret.code() != 0) {
-            set_err_msg(err_msg, ret.message());
+        vtab->dataset_name = dequote_sqlite_arg(argv[4]);
+        if (vtab->dataset_name.empty()) {
+            set_err_msg(err_msg, "vlite dataset name must not be empty");
             delete vtab;
             return SQLITE_ERROR;
         }
+
+        vtab->handle = sk_new_handle(vtab->db_path.c_str());
+        if (vtab->handle == nullptr) {
+            set_err_msg(err_msg, "vlite failed to create Sketch2 API handle");
+            delete vtab;
+            return SQLITE_ERROR;
+        }
+        if (sk_open(vtab->handle, vtab->dataset_name.c_str()) != 0) {
+            set_err_msg(err_msg, sk_error_message(vtab->handle));
+            sk_release_handle(vtab->handle);
+            vtab->handle = nullptr;
+            delete vtab;
+            return SQLITE_ERROR;
+        }
+
+        bool smaller_is_better = false;
+        if (sk_score_ascending_is_better(vtab->handle, &smaller_is_better) != 0) {
+            set_err_msg(err_msg, sk_error_message(vtab->handle));
+            sk_release_handle(vtab->handle);
+            vtab->handle = nullptr;
+            delete vtab;
+            return SQLITE_ERROR;
+        }
+        vtab->smaller_score_is_better = smaller_is_better;
 
         *pp_vtab = vtab;
         return SQLITE_OK;
@@ -471,8 +496,8 @@ int vlite_best_index(sqlite3_vtab* tab, sqlite3_index_info* index_info) {
         index_info->estimatedCost = (idx_num & kConstraintQuery) ? 10.0 : 1.0e12;
         index_info->estimatedRows = (idx_num & (kConstraintK | kConstraintLimit)) ? 10 : 1000;
         auto* vlite_vtab = static_cast<VliteVTab*>(tab);
-        if (vlite_vtab != nullptr && vlite_vtab->dataset &&
-                consumes_order_by_score(*vlite_vtab->dataset, *index_info)) {
+        if (vlite_vtab != nullptr &&
+                consumes_order_by_score(vlite_vtab->smaller_score_is_better, *index_info)) {
             index_info->orderByConsumed = 1;
         }
         return SQLITE_OK;
@@ -480,7 +505,12 @@ int vlite_best_index(sqlite3_vtab* tab, sqlite3_index_info* index_info) {
 }
 
 int vlite_disconnect(sqlite3_vtab* tab) {
-    delete static_cast<VliteVTab*>(tab);
+    auto* vtab = static_cast<VliteVTab*>(tab);
+    if (vtab != nullptr && vtab->handle != nullptr) {
+        sk_release_handle(vtab->handle);
+        vtab->handle = nullptr;
+    }
+    delete vtab;
     return SQLITE_OK;
 }
 
@@ -525,7 +555,6 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
         auto* vlite_cursor = static_cast<VliteCursor*>(cursor);
         auto* vlite_vtab = static_cast<VliteVTab*>(cursor->pVtab);
         vlite_cursor->rows.clear();
-        vlite_cursor->query_buf.clear();
         vlite_cursor->query_text.clear();
         vlite_cursor->k = 0;
         vlite_cursor->index = 0;
@@ -579,7 +608,6 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
 
         const void* allowed_ids_blob = nullptr;
         int allowed_ids_blob_size = 0;
-        bool has_allowed_ids = false;
         if ((idx_num & kConstraintAllowedIds) != 0) {
             if (arg_index >= argc) {
                 set_vtab_error(vlite_vtab, "vlite missing allowed_ids value");
@@ -595,7 +623,6 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             if (allowed_ids_type == SQLITE_BLOB) {
                 allowed_ids_blob = sqlite3_value_blob(allowed_ids_value);
                 allowed_ids_blob_size = sqlite3_value_bytes(allowed_ids_value);
-                has_allowed_ids = true;
             }
         }
 
@@ -609,69 +636,40 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             return SQLITE_OK;
         }
 
-        if (!vlite_vtab->dataset) {
-            set_vtab_error(vlite_vtab, "vlite dataset is not initialized");
-            return SQLITE_ERROR;
-        }
-        sketch2::DatasetReader& dataset = *vlite_vtab->dataset;
-        assert(dataset.dim() >= sketch2::kMinDimension && dataset.dim() <= sketch2::kMaxDimension);
-        const uint16_t query_dim = static_cast<uint16_t>(dataset.dim());
-
-        const size_t query_size = sketch2::data_type_size(dataset.type()) * dataset.dim();
-        vlite_cursor->query_buf.resize(query_size);
-
-        if (!vlite_cursor->query_text.empty() && vlite_cursor->query_text[0] == '@') {
-            const auto file_path = vlite_cursor->query_text;
-            sketch2::Ret ret = sketch2::load_vector(file_path.c_str()+1, vlite_cursor->query_text);
-            if (ret.code() != 0) {
-                set_vtab_error(vlite_vtab, ret.message());
-                return SQLITE_ERROR;
-            }
-        }
-
-        const char* query = vlite_cursor->query_text.c_str();
-        const char* query_end = query + vlite_cursor->query_text.size();
-        const bool is_coma_delimited = sketch2::check_comma_format(query, query_end);
-        sketch2::Ret ret = is_coma_delimited ?  sketch2::parse_vector(vlite_cursor->query_buf.data(),
-                                                    vlite_cursor->query_buf.size(), dataset.type(), query_dim,
-                                                    vlite_cursor->query_text.c_str())
-                                            : 
-                                                sketch2::parse_vector_spaces(vlite_cursor->query_buf.data(),
-                                                    vlite_cursor->query_buf.size(), dataset.type(), query_dim,
-                                                    vlite_cursor->query_text.c_str());
-        if (ret.code() != 0) {
-            set_vtab_error(vlite_vtab, ret.message());
+        if (vlite_vtab->handle == nullptr) {
+            set_vtab_error(vlite_vtab, "vlite dataset handle is not initialized");
             return SQLITE_ERROR;
         }
 
-        uint64_t allowed_ids_base_id = 0;
-        const uint8_t* allowed_ids_bits = static_cast<const uint8_t*>(allowed_ids_blob);
-        uint64_t allowed_ids_bits_size = static_cast<uint64_t>(allowed_ids_blob_size);
-        if (has_allowed_ids && allowed_ids_blob_size > 0) {
-            if (allowed_ids_blob_size < static_cast<int>(sizeof(uint64_t))) {
-                set_vtab_error(vlite_vtab, "vlite allowed_ids blob is too small");
-                return SQLITE_ERROR;
-            }
-            std::memcpy(&allowed_ids_base_id, allowed_ids_bits, sizeof(uint64_t));
-            allowed_ids_bits += sizeof(uint64_t);
-            allowed_ids_bits_size -= sizeof(uint64_t);
-        }
-
-        const sketch2::BitsetFilter bitset_filter {
-            .base_id = allowed_ids_base_id,
-            .data = allowed_ids_bits,
-            .size = allowed_ids_bits_size,
-        };
-        const sketch2::BitsetFilter* bitset_filter_ptr = !has_allowed_ids ? nullptr : &bitset_filter;
-
-        sketch2::ScannerEx scanner{
-            sketch2::selected_calc_engine(sketch2::get_singleton().compute_unit().kind())};
-        ret = scanner.find_items(dataset, static_cast<size_t>(effective_k),
-            vlite_cursor->query_buf.data(), vlite_cursor->rows, bitset_filter_ptr);
-        if (ret.code() != 0) {
-            set_vtab_error(vlite_vtab, ret.message());
+        if (effective_k > static_cast<sqlite3_int64>(std::numeric_limits<unsigned int>::max())) {
+            set_vtab_error(vlite_vtab, "vlite k is too large");
             return SQLITE_ERROR;
         }
+
+        uint64_t* ids = nullptr;
+        double* scores = nullptr;
+        size_t count = 0;
+        const int rc = sk_knn_items(
+            vlite_vtab->handle,
+            vlite_cursor->query_text.c_str(),
+            static_cast<unsigned int>(effective_k),
+            allowed_ids_blob,
+            static_cast<size_t>(std::max(allowed_ids_blob_size, 0)),
+            &ids,
+            &scores,
+            &count);
+        if (rc != 0) {
+            set_vtab_error(vlite_vtab, sk_error_message(vlite_vtab->handle));
+            sk_free(ids);
+            sk_free(scores);
+            return SQLITE_ERROR;
+        }
+        vlite_cursor->rows.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            vlite_cursor->rows.push_back(VliteRow{ids[i], scores[i]});
+        }
+        sk_free(ids);
+        sk_free(scores);
 
         return SQLITE_OK;
     });
@@ -713,7 +711,7 @@ int vlite_column(sqlite3_vtab_cursor* cursor, sqlite3_context* context, int colu
             return SQLITE_OK;
         }
 
-        const sketch2::DistItem& row = vlite_cursor->rows[vlite_cursor->index];
+        const VliteRow& row = vlite_cursor->rows[vlite_cursor->index];
         switch (column) {
             case kColumnQuery:
             case kColumnMatchExpr:
@@ -893,8 +891,7 @@ extern "C" int sqlite3_sketch2_init(sqlite3* db, char** pz_err_msg, const sqlite
         }
 
         SQLITE_EXTENSION_INIT2(api);
-        (void)sketch2::sketch2_runtime_init();
-        int rc = sqlite3_create_module_v2(db, sketch2::kVliteModuleName, &kVliteModule, nullptr, nullptr);
+        int rc = sqlite3_create_module_v2(db, kVliteModuleName, &kVliteModule, nullptr, nullptr);
         if (rc != SQLITE_OK) {
             return rc;
         }
@@ -922,6 +919,5 @@ extern "C" int sqlite3_extension_init(sqlite3* db, char** pz_err_msg, const sqli
 }
 
 extern "C" const char* sqlite3_sketch2_knn_engine_name_for_testing(void) {
-    return sketch2::calc_engine_name(
-        sketch2::selected_calc_engine(sketch2::get_singleton().compute_unit().kind()));
+    return sk_knn_engine_name_for_testing();
 }

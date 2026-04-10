@@ -1,6 +1,7 @@
 // Implements the public C API for dataset lifecycle, mutation, and query operations.
 
 #include "sketch2api.h"
+#include "sketch2api_testing.h"
 #include "internal.h"
 #include "sketch2api_utils.h"
 
@@ -90,6 +91,25 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
         uint64_t** ids_out, size_t* count_out) {
     try {
         return sk_knn_(handle, vec, k, ids_out, count_out);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
+int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
+        const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+        uint64_t** ids_out, double** scores_out, size_t* count_out) {
+    try {
+        return sk_knn_items_(handle, vec, k, allowed_ids_blob, allowed_ids_blob_size,
+            ids_out, scores_out, count_out);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
+int sk_score_ascending_is_better(sk_handle_t* handle, bool* out) {
+    try {
+        return sk_score_ascending_is_better_(handle, out);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
@@ -232,4 +252,12 @@ void sk_set_log_level(const char* log_level) {
     }
     LogLevel level = parse_log_level(log_level);
     set_current_log_level(level);
+}
+
+const char* sk_knn_engine_name_for_testing(void) {
+    try {
+        return sk_knn_engine_name_for_testing_();
+    } catch (...) {
+        return "";
+    }
 }

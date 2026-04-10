@@ -125,8 +125,11 @@ def run_sql_join_queries(dataset_ini: Path, extension_lib: Path) -> None:
         con.enable_load_extension(True)
         con.load_extension(str(extension_lib))
 
-        ini_sql = str(dataset_ini).replace("'", "''")
-        create_vtab_sql = f"CREATE VIRTUAL TABLE nn USING vlite('{ini_sql}')"
+        dataset_name = dataset_ini.stem
+        db_path = dataset_ini.parent.parent
+        db_path_sql = str(db_path).replace("'", "''")
+        dataset_name_sql = dataset_name.replace("'", "''")
+        create_vtab_sql = f"CREATE VIRTUAL TABLE nn USING vlite('{db_path_sql}', '{dataset_name_sql}')"
         print("Executing SQL:")
         print(create_vtab_sql)
         con.execute(create_vtab_sql)

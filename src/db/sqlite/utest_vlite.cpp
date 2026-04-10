@@ -5,7 +5,7 @@
 #include "dlfcn.h"
 #include "sqlite3.h"
 
-#include "core/storage/dataset_node.h"
+#include "sketch2api/sketch2api.h"
 #include "utils/shared_types.h"
 
 #include <cstdio>
@@ -64,17 +64,22 @@ private:
 class VliteTest : public ::testing::Test {
 protected:
     fs::path root_;
+    fs::path db_root_;
     fs::path dataset_dir_;
     fs::path input_path_;
     fs::path ini_path_;
     std::string table_name_ = "nn";
+    std::string dataset_name_ = "dataset";
 
     void SetUp() override {
-        root_ = fs::temp_directory_path() / ("sketch2_utest_vlite_" + std::to_string(getpid()));
-        dataset_dir_ = root_ / "dataset";
+        static uint64_t counter = 0;
+        root_ = fs::temp_directory_path() /
+            ("sketch2_utest_vlite_" + std::to_string(getpid()) + "_" + std::to_string(++counter));
+        fs::create_directories(root_);
+        db_root_ = root_ / "db";
+        dataset_dir_ = db_root_ / dataset_name_;
         input_path_ = root_ / "input.txt";
-        ini_path_ = root_ / "dataset.ini";
-        fs::create_directories(dataset_dir_);
+        ini_path_ = dataset_dir_ / (dataset_name_ + ".ini");
     }
 
     void TearDown() override {
@@ -88,22 +93,15 @@ protected:
         out << content;
     }
 
-    void write_ini(DataType type, uint64_t dim, uint64_t range_size, DistFunc dist_func) {
-        std::ofstream out(ini_path_);
-        ASSERT_TRUE(out.is_open());
-        out << "[dataset]\n";
-        out << "dirs=" << dataset_dir_.string() << "\n";
-        out << "range_size=" << range_size << "\n";
-        out << "dim=" << dim << "\n";
-        out << "type=" << data_type_to_string(type) << "\n";
-        out << "dist_func=" << dist_func_to_string(dist_func) << "\n";
-    }
-
     void create_dataset(DataType type, uint64_t dim, uint64_t range_size, DistFunc dist_func) {
-        DatasetNode dataset;
-        ASSERT_EQ(0, dataset.init_for_test({dataset_dir_.string()}, range_size, type, dim, dist_func).code());
-        ASSERT_EQ(0, dataset.store(input_path_.string()).code());
-        write_ini(type, dim, range_size, dist_func);
+        sk_handle_t* handle = sk_new_handle(db_root_.string().c_str());
+        ASSERT_NE(nullptr, handle);
+        ASSERT_EQ(0, sk_create(handle, dataset_name_.c_str(), nullptr, static_cast<unsigned int>(dim),
+            data_type_to_string(type), static_cast<unsigned int>(range_size), dist_func_to_string(dist_func)))
+            << sk_error_message(handle);
+        ASSERT_EQ(0, sk_load_file(handle, input_path_.string().c_str())) << sk_error_message(handle);
+        ASSERT_EQ(0, sk_close(handle)) << sk_error_message(handle);
+        sk_release_handle(handle);
     }
 
     SqliteDbPtr open_db_with_extension() {
@@ -134,9 +132,10 @@ protected:
 
     void create_virtual_table(sqlite3* db) {
         char* sql = sqlite3_mprintf(
-            "CREATE VIRTUAL TABLE %s USING vlite('%q')",
+            "CREATE VIRTUAL TABLE %s USING vlite('%q', '%q')",
             table_name_.c_str(),
-            ini_path_.string().c_str());
+            db_root_.string().c_str(),
+            dataset_name_.c_str());
         ASSERT_NE(nullptr, sql);
         char* err_msg = nullptr;
         const int rc = sqlite3_exec(db, sql, nullptr, nullptr, &err_msg);

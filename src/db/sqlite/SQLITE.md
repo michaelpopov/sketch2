@@ -148,7 +148,7 @@ FROM (
 );
 ```
 
-Use `bitset_agg(id)` to build the BLOB. For format details, see `src/db/sqlite/BITSET.md`.
+Use `bitset_agg(id)` to build the BLOB. For format details, see `src/sketch2api/BITSET.md`.
 
 ## Dataset Metadata (`dataset.ini`)
 

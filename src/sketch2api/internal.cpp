@@ -1,6 +1,7 @@
 #include "internal.h"
 
 #include "core/calc/scanner_ex.h"
+#include "core/compute/compute_cos.h"
 #include "core/storage/input_generator.h"
 #include "core/utils/compute_unit.h"
 #include "core/utils/log.h"
@@ -337,6 +338,32 @@ int sk_close_(sk_handle_t* handle) {
     return 0;
 }
 
+Ret run_knn_items_query(
+        const DatasetNode& dataset, const char* vec, size_t k,
+        const BitsetFilter* bitset_filter, std::vector<DistItem>* items) {
+    if (vec == nullptr || items == nullptr || k == 0) {
+        return Ret("Invalid arguments");
+    }
+
+    std::string query(vec);
+    if (!query.empty() && query[0] == '@') {
+        Ret load_ret = load_vector(query.c_str() + 1, query);
+        if (load_ret.code() != 0) {
+            return load_ret;
+        }
+    }
+
+    std::vector<uint8_t> buf(data_type_size(dataset.type()) * dataset.dim());
+    Ret ret = parse_vector(
+        buf.data(), buf.size(), dataset.type(), static_cast<uint16_t>(dataset.dim()), query.c_str());
+    if (ret.code() != 0) {
+        return ret;
+    }
+
+    ScannerEx scanner{selected_calc_engine(get_singleton().compute_unit().kind())};
+    return scanner.find_items(dataset.reader_dataset(), k, buf.data(), *items, bitset_filter);
+}
+
 int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
         uint64_t** ids_out, size_t* count_out) {
     DECL
@@ -351,16 +378,8 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
     *ids_out = nullptr;
     *count_out = 0;
 
-    std::vector<uint8_t> buf(data_type_size(handle->ds->type()) * handle->ds->dim());
-    Ret ret = parse_vector(
-        buf.data(), buf.size(), handle->ds->type(), static_cast<uint16_t>(handle->ds->dim()), vec);
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
     std::vector<DistItem> items;
-    ScannerEx scanner{selected_calc_engine(get_singleton().compute_unit().kind())};
-    ret = scanner.find_items(handle->ds->reader_dataset(), k, buf.data(), items);
+    Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), nullptr, &items);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
@@ -376,6 +395,85 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
         *ids_out = ids;
     }
     *count_out = items.size();
+    return 0;
+}
+
+int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
+        const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+        uint64_t** ids_out, double** scores_out, size_t* count_out) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+    if (vec == nullptr || k == 0 || ids_out == nullptr || scores_out == nullptr || count_out == nullptr) {
+        ERR("Invalid arguments")
+    }
+    const bool has_allowed_ids =
+        !(allowed_ids_blob == nullptr && allowed_ids_blob_size == 0);
+    if (has_allowed_ids && allowed_ids_blob == nullptr) {
+        ERR("Invalid allowed_ids blob argument")
+    }
+
+    *ids_out = nullptr;
+    *scores_out = nullptr;
+    *count_out = 0;
+
+    uint64_t allowed_ids_base_id = 0;
+    const uint8_t* allowed_ids_bits = static_cast<const uint8_t*>(allowed_ids_blob);
+    uint64_t allowed_ids_bits_size = static_cast<uint64_t>(allowed_ids_blob_size);
+    if (has_allowed_ids) {
+        if (allowed_ids_blob_size < sizeof(uint64_t)) {
+            ERR("allowed_ids blob is too small")
+        }
+        std::memcpy(&allowed_ids_base_id, allowed_ids_bits, sizeof(uint64_t));
+        allowed_ids_bits += sizeof(uint64_t);
+        allowed_ids_bits_size -= sizeof(uint64_t);
+    }
+
+    const BitsetFilter bitset_filter {
+        .base_id = allowed_ids_base_id,
+        .data = allowed_ids_bits,
+        .size = allowed_ids_bits_size,
+    };
+    const BitsetFilter* bitset_filter_ptr = has_allowed_ids ? &bitset_filter : nullptr;
+
+    std::vector<DistItem> items;
+    Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), bitset_filter_ptr, &items);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    if (!items.empty()) {
+        auto* ids = static_cast<uint64_t*>(std::malloc(items.size() * sizeof(uint64_t)));
+        auto* scores = static_cast<double*>(std::malloc(items.size() * sizeof(double)));
+        if (ids == nullptr || scores == nullptr) {
+            std::free(ids);
+            std::free(scores);
+            ERR("Out of memory")
+        }
+        for (size_t i = 0; i < items.size(); ++i) {
+            ids[i] = items[i].id;
+            scores[i] = items[i].score;
+        }
+        *ids_out = ids;
+        *scores_out = scores;
+    }
+    *count_out = items.size();
+    return 0;
+}
+
+int sk_score_ascending_is_better_(sk_handle_t* handle, bool* out) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+    if (out == nullptr) {
+        ERR("Invalid output argument")
+    }
+
+    *out = smaller_score_is_better(handle->ds->dist_func());
     return 0;
 }
 

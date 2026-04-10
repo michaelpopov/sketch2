@@ -193,8 +193,10 @@ The tutorial script demonstrates how to:
 - Insert test data into the dataset.
 - Run SQL statement on SQLite database to retrieve ids of nearest neighbors of a query vector.
 
+`vlite` now takes the Sketch2 database root path and the dataset name:
+
 ```
-CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini');
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db', 'demods');
 SELECT id, score FROM nn WHERE query = ? AND k = ? ORDER BY score;
 ```
 
@@ -214,7 +216,7 @@ The tutorial script demonstrates how to:
   data from a "metadata" table.
 
 ```
-CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini');
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db', 'demods');
 
 CREATE TABLE metadata (
             id INTEGER PRIMARY KEY,
@@ -252,7 +254,7 @@ The tutorial script demonstrates how to:
 
 
 ```
-CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db/demods/demods.ini');
+CREATE VIRTUAL TABLE nn USING vlite('/mnt/nvme/sketch2/db', 'demods');
 
 CREATE TABLE metadata (
             id INTEGER PRIMARY KEY,

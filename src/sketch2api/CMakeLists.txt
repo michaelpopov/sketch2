@@ -15,6 +15,7 @@ target_include_directories(sketch2api
 
 target_link_libraries(sketch2api
   PRIVATE
+    calc
     stor
     utils
 )

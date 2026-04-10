@@ -12,9 +12,7 @@ target_include_directories(sk2sqlite
 
 target_link_libraries(sk2sqlite
   PRIVATE
-    calc
-    stor
-    utils
+    sketch2api
     sketch_compile_options
     Threads::Threads
 )
@@ -23,9 +21,15 @@ add_executable(utest_vlite
   ${SHARED_UTEST_MAIN}
   utest_vlite.cpp
 )
+target_include_directories(utest_vlite
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/core
+)
 target_link_libraries(utest_vlite
   PRIVATE
-    stor
+    sketch2api
+    calc
     utils
     sqlite3_lib
     GTest::gtest
