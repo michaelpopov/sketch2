@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
+#include <span>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -36,6 +37,17 @@ bool parse_dataset_file_id(const std::string& name, const std::string& ext, uint
 
     *out = std::stoull(id_part);
     return true;
+}
+
+const DatasetItem* find_item_by_id(std::span<const DatasetItem> items, uint64_t file_id) {
+    auto it = std::lower_bound(items.begin(), items.end(), file_id,
+        [](const DatasetItem& item, uint64_t value) {
+            return item.id < value;
+        });
+    if (it == items.end() || it->id != file_id) {
+        return nullptr;
+    }
+    return &(*it);
 }
 
 } // namespace
@@ -107,6 +119,9 @@ Ret collect_dataset_items(const std::string& name, const DatasetMetadata& metada
     std::vector<DatasetItem> sorted_items;
     sorted_items.reserve(items_map.size());
     for (const auto& [file_id, item] : items_map) {
+        // A range with no .data file is considered deleted/absent unless a
+        // dangling .delta is present. In that dangling-delta case we fail so
+        // callers don't silently read from an incomplete file pair.
         if (item.data_file_path.empty()) {
             return Ret("DatasetReader::init: missing data file for id " + std::to_string(file_id));
         }
@@ -142,30 +157,30 @@ Ret DatasetReader::ensure_update_notifier_() const {
 }
 
 Ret DatasetReader::ensure_items_cache_() const {
+    // Caller holds cache_lock_. This method mutates items_cache_ and reader_cache_
+    // when the notifier signals a dataset update.
     CHECK(ensure_update_notifier_());
     if (update_notifier_ && update_notifier_->check_updated()) {
-        items_cache_valid_ = false;
-        items_cache_.clear();
+        items_cache_.reset();
         reader_cache_.clear();
     }
 
-    if (items_cache_valid_) {
+    if (items_cache_) {
         return Ret(0);
     }
-    CHECK(collect_dataset_items(name_, metadata_, &items_cache_));
-    items_cache_valid_ = true;
+    std::vector<DatasetItem> items;
+    CHECK(collect_dataset_items(name_, metadata_, &items));
+    items_cache_ = std::make_shared<const std::vector<DatasetItem>>(std::move(items));
     return Ret(0);
 }
 
 const DatasetItem* DatasetReader::find_item_(uint64_t file_id) const {
-    auto it = std::lower_bound(items_cache_.begin(), items_cache_.end(), file_id,
-        [](const DatasetItem& item, uint64_t value) {
-            return item.id < value;
-        });
-    if (it == items_cache_.end() || it->id != file_id) {
+    // Caller holds cache_lock_. items_cache_ may be reset/replaced by writers.
+    if (!items_cache_) {
         return nullptr;
     }
-    return &(*it);
+
+    return find_item_by_id(*items_cache_, file_id);
 }
 
 // Lazily opens and caches the DataReader for a dataset file pair, attaching the
@@ -222,7 +237,7 @@ std::pair<DataReaderPtr, Ret> DatasetReader::get_cached_reader_(const DatasetIte
         DatasetItem refreshed;
         {
             sketch::WriteGuard wg(cache_lock_);
-            items_cache_valid_ = false;
+            items_cache_.reset();
             reader_cache_.erase(item.id);
             const Ret cache_ret = ensure_items_cache_();
             if (cache_ret.code() != 0) {
@@ -247,23 +262,22 @@ std::pair<DataReaderPtr, Ret> DatasetReader::get_cached_reader_(const DatasetIte
 
 void DatasetReader::invalidate_data_caches_() {
     sketch::WriteGuard wg(cache_lock_);
-    items_cache_valid_ = false;
-    items_cache_.clear();
+    items_cache_.reset();
     reader_cache_.clear();
 }
 
 DatasetRangeReaderPtr DatasetReader::reader() const {
     DatasetRangeReaderPtr result = std::make_unique<DatasetRangeReader>();
-    std::vector<DatasetItem> items_copy;
+    std::shared_ptr<const std::vector<DatasetItem>> items_snapshot;
     {
         sketch::WriteGuard wg(cache_lock_);
         const Ret cache_ret = ensure_items_cache_();
         if (cache_ret.code() != 0) {
             throw std::runtime_error(cache_ret.message());
         }
-        items_copy = items_cache_;
+        items_snapshot = items_cache_;
     }
-    const auto ret = result->init(this, std::move(items_copy));
+    const auto ret = result->init(this, std::move(items_snapshot));
     if (ret.code() != 0) {
         throw std::runtime_error(ret.message());
     }
@@ -321,41 +335,53 @@ std::pair<std::string, Ret> DatasetReader::get_vector_string(uint64_t id, size_t
  *  DatasetRangeReader
  */
 
-Ret DatasetRangeReader::init(const DatasetReader* dataset, std::vector<DatasetItem> items) {
+Ret DatasetRangeReader::init(const DatasetReader* dataset,
+        std::shared_ptr<const std::vector<DatasetItem>> items) {
     if (!dataset) {
         return Ret("DatasetRangeReader::init: dataset is null");
     }
+    if (!items) {
+        return Ret("DatasetRangeReader::init: items are not initialized");
+    }
     dataset_ = dataset;
     items_ = std::move(items);
-    current_ = -1;
+    current_ = 0;
     return Ret(0);
 }
 
 std::pair<DataReaderPtr, Ret> DatasetRangeReader::next() {
-    ++current_;
-    if (static_cast<size_t>(current_) >= items_.size()) {
-        return {nullptr, Ret(0)};
+    if (!dataset_ || !items_) {
+        return {nullptr, Ret("DatasetRangeReader::next: reader is not initialized")};
     }
 
-    return dataset_->get_cached_reader_(items_[current_]);
+    const auto& items = *items_;
+    while (true) {
+        if (current_ >= items.size()) {
+            return {nullptr, Ret(0)};
+        }
+
+        auto [reader, ret] = dataset_->get_cached_reader_(items[current_++]);
+        if (ret.code() != 0) {
+            return {nullptr, ret};
+        }
+        if (reader) {
+            return {reader, Ret(0)};
+        }
+    }
 }
 
 std::pair<DataReaderPtr, Ret> DatasetRangeReader::get(uint64_t id) {
-    if (!dataset_) {
+    if (!dataset_ || !items_) {
         return {nullptr, Ret("DatasetRangeReader::get: reader is not initialized")};
     }
 
     const uint64_t file_id = id / dataset_->metadata_.range_size;
-    auto it = std::lower_bound(items_.begin(), items_.end(), file_id,
-        [](const DatasetItem& item, uint64_t value) {
-            return item.id < value;
-        });
-
-    if (it == items_.end() || it->id != file_id) {
+    const DatasetItem* found = find_item_by_id(*items_, file_id);
+    if (!found) {
         return {nullptr, Ret(0)};
     }
 
-    return dataset_->get_cached_reader_(*it);
+    return dataset_->get_cached_reader_(*found);
 }
 
 } // namespace sketch2

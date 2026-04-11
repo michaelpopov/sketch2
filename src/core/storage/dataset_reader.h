@@ -19,7 +19,7 @@ class DatasetReader;  // forward declaration for DatasetRangeReader
 // a dataset and fetches the reader for the range covering a specific id.
 class DatasetRangeReader {
 public:
-    Ret init(const DatasetReader* dataset, std::vector<DatasetItem> items);
+    Ret init(const DatasetReader* dataset, std::shared_ptr<const std::vector<DatasetItem>> items);
     std::pair<DataReaderPtr, Ret> next();
 
     // Get a DataReader for the file range containing id.
@@ -27,8 +27,8 @@ public:
 
 private:
     const DatasetReader* dataset_ = nullptr;
-    std::vector<DatasetItem> items_;
-    int current_ = -1;
+    std::shared_ptr<const std::vector<DatasetItem>> items_;
+    size_t current_ = 0;
 };
 
 using DatasetRangeReaderPtr = std::unique_ptr<DatasetRangeReader>;
@@ -48,8 +48,9 @@ public:
 
 protected:
     mutable sketch::RWLock cache_lock_;
-    mutable bool items_cache_valid_ = false;
-    mutable std::vector<DatasetItem> items_cache_;
+    // Guarded by cache_lock_. Replaced atomically as a shared immutable snapshot.
+    mutable std::shared_ptr<const std::vector<DatasetItem>> items_cache_;
+    // Guarded by cache_lock_.
     mutable std::unordered_map<uint64_t, DataReaderPtr> reader_cache_;
 
     void invalidate_data_caches_();
@@ -58,7 +59,9 @@ private:
     mutable std::unique_ptr<UpdateNotifier> update_notifier_;
 
     Ret ensure_update_notifier_() const;
+    // PRECONDITION: caller holds cache_lock_ (read or write).
     Ret ensure_items_cache_() const;
+    // PRECONDITION: caller holds cache_lock_.
     const DatasetItem* find_item_(uint64_t file_id) const;
     std::pair<DataReaderPtr, Ret> open_reader_(const DatasetItem& item) const;
     std::pair<DataReaderPtr, Ret> get_cached_reader_(const DatasetItem& item) const;

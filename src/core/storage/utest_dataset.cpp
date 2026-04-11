@@ -701,6 +701,35 @@ TEST_F(DatasetTest, DatasetRangeReaderNextIteratesAllFiles) {
     EXPECT_EQ(3u, file_count);
 }
 
+TEST_F(DatasetTest, DatasetRangeReaderNextSkipsMissingRangeAndContinues) {
+    auto dir = make_dir("d_next_skip_missing");
+    generate_input_file(input_path_, cfg(30, 0, DataType::f32, 4)); // files 0,1,2 for range_size=10
+    DatasetNode sc;
+    ASSERT_EQ(0, sc.init_for_test({dir}, 10, DataType::f32, 4).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    auto drs = sc.reader();
+
+    // Make the first snapshot entry stale: next() should skip file_id=0 after
+    // cache refresh and continue with file_id=1.
+    ASSERT_TRUE(fs::remove(file_path(dir, 0, ".data")));
+
+    auto [reader1, ret1] = drs->next();
+    ASSERT_EQ(0, ret1.code()) << ret1.message();
+    ASSERT_NE(nullptr, reader1);
+    ASSERT_NE(nullptr, reader1->get(15));
+    ASSERT_EQ(nullptr, reader1->get(5));
+
+    auto [reader2, ret2] = drs->next();
+    ASSERT_EQ(0, ret2.code()) << ret2.message();
+    ASSERT_NE(nullptr, reader2);
+    ASSERT_NE(nullptr, reader2->get(25));
+
+    auto [reader3, ret3] = drs->next();
+    ASSERT_EQ(0, ret3.code()) << ret3.message();
+    EXPECT_EQ(nullptr, reader3);
+}
+
 TEST_F(DatasetTest, DatasetRangeReaderNextReturnsDeltaFileAlongsideData) {
     auto dir = make_dir("d");
     DatasetNode sc;
