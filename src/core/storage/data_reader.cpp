@@ -15,8 +15,8 @@ namespace sketch2 {
 
 // --- Iterator ---
 
-DataReader::Iterator::Iterator(const DataReader* reader, const DataReader* delta_reader, size_t index, const uint64_t* ids)
-    : reader_(reader), delta_reader_(delta_reader), index_(index), ids_(ids),
+DataReader::Iterator::Iterator(const DataReader* reader, const DataReader* delta_reader, size_t index)
+    : reader_(reader), delta_reader_(delta_reader), index_(index),
       count_(reader_->count() + (delta_reader_ ? delta_reader_->count() : 0)) {}
 
 void DataReader::Iterator::next() {
@@ -66,10 +66,10 @@ uint64_t DataReader::Iterator::id() const {
     if (index_ >= reader_->count()) {
         assert(delta_reader_);
         const size_t ind = index_ - reader_->count();
-        return delta_reader_->ids_[ind];
+        return delta_reader_->ids_.id(ind);
     }
 
-    return ids_[index_];
+    return reader_->ids_.id(index_);
 }
 
 // --- OrderedIterator ---
@@ -124,10 +124,10 @@ uint64_t DataReader::OrderedIterator::id() const {
     }
 
     if (source_ == Source::Base) {
-        return reader_->ids_[index_];
+        return reader_->ids_.id(index_);
     }
 
-    return reader_->delta_->ids_[index_];
+    return reader_->delta_->ids_.id(index_);
 }
 
 // --- DataReader ---
@@ -186,10 +186,9 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         map_ = nullptr;
         map_len_ = 0;
         hdr_ = nullptr;
-        ids_ = nullptr;
+        ids_.clear();
         cosine_inv_norms_ = nullptr;
-        deleted_ids_ = nullptr;
-        ids_buf_.clear();
+        deleted_ids_.clear();
         cosine_inv_norms_buf_.clear();
         size_ = 0;
         stride_ = 0;
@@ -199,7 +198,9 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     hdr_ = reinterpret_cast<const DataFileHeader *>(map_);
     if (hdr_->base.magic != kMagic) return fail("DataReader: invalid magic number");
     if (hdr_->base.kind != static_cast<uint16_t>(FileType::Data)) return fail("DataReader: not a data file");
-    if (hdr_->base.version != kVersion) return fail("DataReader: unsupported file version");
+    if (hdr_->base.version != kVersion) {
+        return fail("DataReader: unsupported file version (only CompactIds-based storage format is supported)");
+    }
 
     try {
         type_ = data_type_from_int(hdr_->type);
@@ -225,18 +226,14 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         return fail("DataReader: unsupported data-file flags");
     }
 
-    const IdsLayout ids_layout = compute_ids_layout(*hdr_, count);
-    const size_t ids_bytes = (deleted_count + count) * sizeof(uint64_t);
+    const DataMetadataLayout metadata_layout = compute_data_metadata_layout(*hdr_, count);
     if (hdr_->data_offset < sizeof(DataFileHeader) || (hdr_->data_offset % kDataAlignment) != 0) {
         return fail("DataReader: invalid data offset alignment");
     }
     if (stride_ < size_ || (stride_ % kDataAlignment) != 0) {
         return fail("DataReader: invalid vector stride");
     }
-    if (ids_layout.ids_offset % alignof(uint64_t) != 0) {
-        return fail("DataReader: invalid ids offset alignment");
-    }
-    if (map_len_ != ids_layout.ids_offset + ids_bytes) {
+    if (map_len_ < metadata_layout.ids_trailer_offset) {
         return fail("DataReader: truncated or malformed data file");
     }
 
@@ -251,34 +248,47 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     }
 
     try {
-        // Buffer IDs (active + deleted) into heap memory to avoid page faults
-        // during scans that alternate between the vector region and the IDs region.
-        const size_t total_ids = count + deleted_count;
-        if (total_ids > 0) {
-            ids_buf_.resize(total_ids);
-            std::memcpy(ids_buf_.data(), map_ + ids_layout.ids_offset, total_ids * sizeof(uint64_t));
-            ids_ = ids_buf_.data();
-            deleted_ids_ = ids_buf_.data() + count;
-        } else {
-            ids_ = reinterpret_cast<const uint64_t*>(map_ + ids_layout.ids_offset);
-            deleted_ids_ = ids_ + count;
+        // Parse compact ID sections directly from the mapped trailer.
+        const uint8_t* ids_trailer = map_ + metadata_layout.ids_trailer_offset;
+        const size_t ids_trailer_size = map_len_ - metadata_layout.ids_trailer_offset;
+        size_t active_ids_bytes = 0;
+        CHECK(ids_.read(ids_trailer, ids_trailer_size, &active_ids_bytes));
+
+        size_t deleted_ids_bytes = 0;
+        CHECK(deleted_ids_.read(
+            ids_trailer + active_ids_bytes,
+            ids_trailer_size - active_ids_bytes,
+            &deleted_ids_bytes));
+
+        const size_t parsed_ids_trailer_size = active_ids_bytes + deleted_ids_bytes;
+        if (parsed_ids_trailer_size != ids_trailer_size) {
+            return fail("DataReader: malformed ids trailer size");
+        }
+        // Keep an explicit whole-file boundary check: metadata prefix plus both
+        // CompactIds payloads must end exactly at EOF (no trailing garbage).
+        const size_t parsed_file_size = metadata_layout.ids_trailer_offset + parsed_ids_trailer_size;
+        if (parsed_file_size != map_len_) {
+            return fail("DataReader: malformed ids trailer size");
+        }
+        if (ids_.count() != count || deleted_ids_.count() != deleted_count) {
+            return fail("DataReader: ids trailer count does not match header");
         }
 
         // Buffer cosine inverse norms for the same reason: the norms section sits
         // far from the vector data and would cause thrashing on every scan iteration.
-        if (ids_layout.cosine_inv_norms_bytes > 0) {
+        if (metadata_layout.cosine_inv_norms_bytes > 0) {
             cosine_inv_norms_buf_.resize(count);
             std::memcpy(cosine_inv_norms_buf_.data(),
-                        map_ + ids_layout.cosine_inv_norms_offset,
+                        map_ + metadata_layout.cosine_inv_norms_offset,
                         count * sizeof(float));
             cosine_inv_norms_ = cosine_inv_norms_buf_.data();
         } else {
             cosine_inv_norms_ = nullptr;
         }
 
-        // Release mmap pages for the metadata region (norms + IDs) since the data
-        // now lives in heap buffers. Page-align the start to satisfy madvise.
-        const size_t meta_start = static_cast<size_t>(hdr_->data_offset) + ids_layout.vectors_bytes;
+        // Release mmap pages for the metadata region (norms + ids trailer) since
+        // the data now lives in heap buffers. Page-align the start to satisfy madvise.
+        const size_t meta_start = static_cast<size_t>(hdr_->data_offset) + metadata_layout.vectors_bytes;
         const size_t page_size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
         const size_t aligned_start = align_up<size_t>(meta_start, page_size);
         if (aligned_start < map_len_) {
@@ -302,14 +312,16 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
 // Marks base-file rows hidden when the attached delta either overwrites or
 // deletes the same id, allowing iteration to skip superseded records cheaply.
 Ret DataReader::init_delta() {
-    if (!hdr_ || !ids_ || !delta_) {
+    if (!hdr_ || !delta_) {
         return Ret("DataReader::init_delta: reader is not initialized");
     }
 
-    auto mark_hidden = [this](const uint64_t* other_ids, size_t other_count) {
-        for (size_t i = 0, j = 0; i < hdr_->count; ++i) {
-            const uint64_t id = ids_[i];
-            while (j < other_count && other_ids[j] < id) {
+    auto mark_hidden = [this](const CompactIds& other_ids) {
+        const size_t base_count = ids_.count();
+        const size_t other_count = other_ids.count();
+        for (size_t i = 0, j = 0; i < base_count; ++i) {
+            const uint64_t id = ids_.id_unchecked(i);
+            while (j < other_count && other_ids.id_unchecked(j) < id) {
                 ++j;
             }
 
@@ -317,14 +329,14 @@ Ret DataReader::init_delta() {
                 break;
             }
 
-            if (other_ids[j] == id) {
+            if (other_ids.id_unchecked(j) == id) {
                 bitset_.set(i);
             }
         }
     };
 
-    mark_hidden(delta_->deleted_ids_, delta_->deleted_count());
-    mark_hidden(delta_->ids_, delta_->count());
+    mark_hidden(delta_->deleted_ids_);
+    mark_hidden(delta_->ids_);
 
     return Ret(0);
 }
@@ -335,9 +347,9 @@ void DataReader::assert_invariants_() const {
 #ifndef NDEBUG
     if (!hdr_) {
         assert(map_ == nullptr);
-        assert(ids_ == nullptr);
+        assert(ids_.empty());
         assert(cosine_inv_norms_ == nullptr);
-        assert(deleted_ids_ == nullptr);
+        assert(deleted_ids_.empty());
         assert(size_ == 0);
         assert(stride_ == 0);
         return;
@@ -352,8 +364,8 @@ void DataReader::assert_invariants_() const {
     assert(stride_ >= size_);
     assert((hdr_->data_offset % kDataAlignment) == 0);
     assert((stride_ % kDataAlignment) == 0);
-    assert(ids_ != nullptr);
-    assert(deleted_ids_ == ids_ + hdr_->count);
+    assert(ids_.count() == hdr_->count);
+    assert(deleted_ids_.count() == hdr_->deleted_count);
 
     if (data_file_has_cosine_inv_norms(*hdr_)) {
         assert(hdr_->count == 0 || cosine_inv_norms_ != nullptr);
@@ -398,7 +410,7 @@ size_t DataReader::count() const {
     if (!hdr_) {
         throw std::runtime_error("DataReader::count: reader is not initialized");
     }
-    return hdr_->count;
+    return static_cast<size_t>(hdr_->count);
 }
 
 bool DataReader::has_cosine_inv_norms() const {
@@ -413,7 +425,7 @@ DataReader::Iterator DataReader::begin() const {
     while (index < count() && is_hidden(index)) {
         ++index;
     }
-    return Iterator(this, delta_ ? delta_.get() : nullptr, index, ids_);
+    return Iterator(this, delta_ ? delta_.get() : nullptr, index);
 }
 
 DataReader::OrderedIterator DataReader::base_begin() const {
@@ -432,7 +444,7 @@ uint64_t DataReader::id(size_t index) const {
     if (index >= count()) {
         throw std::out_of_range("DataReader::id: index out of range");
     }
-    return ids_[index];
+    return ids_.id(index);
 }
 
 float DataReader::cosine_inv_norm(size_t index) const {
@@ -460,20 +472,15 @@ const uint8_t* DataReader::at(size_t index) const {
 // Looks up an id in the base file and falls back to the attached delta when the
 // base row is absent or hidden by newer updates.
 const uint8_t* DataReader::get(uint64_t id) const {
-    const size_t n = count();
-    const uint64_t* first = ids_;
-    const uint64_t* last  = ids_ + n;
-    const uint64_t* it    = std::lower_bound(first, last, id);
-
-    if (it == last) {
+    const size_t index = ids_.lower_bound_index(id);
+    if (index >= ids_.count()) {
         if (delta_) {
             return delta_->get(id);
         }
         return nullptr;
     }
 
-    const size_t index = static_cast<size_t>(it - first);
-    if (ids_[index] != id) {
+    if (ids_.id(index) != id) {
         if (delta_) {
             return delta_->get(id);
         }
@@ -498,7 +505,7 @@ uint64_t DataReader::deleted_id(size_t index) const {
     if (index >= deleted_count()) {
         throw std::out_of_range("DataReader::deleted_id: index out of range");
     }
-    return deleted_ids_[index];
+    return deleted_ids_.id(index);
 }
 
 // Verifies that ids and deleted ids are strictly sorted and disjoint, which is
@@ -512,13 +519,13 @@ bool DataReader::check_consistency() const {
     const size_t deleted_count_ = deleted_count();
 
     for (size_t i = 1; i < deleted_count_; ++i) {
-        if (deleted_ids_[i - 1] >= deleted_ids_[i]) {
+        if (deleted_ids_.id_unchecked(i - 1) >= deleted_ids_.id_unchecked(i)) {
             return false;
         }
     }
 
     for (size_t i = 1; i < ids_count; ++i) {
-        if (ids_[i - 1] >= ids_[i]) {
+        if (ids_.id_unchecked(i - 1) >= ids_.id_unchecked(i)) {
             return false;
         }
     }
@@ -526,8 +533,8 @@ bool DataReader::check_consistency() const {
     size_t i = 0;
     size_t j = 0;
     while (i < ids_count && j < deleted_count_) {
-        const uint64_t id = ids_[i];
-        const uint64_t deleted_id = deleted_ids_[j];
+        const uint64_t id = ids_.id_unchecked(i);
+        const uint64_t deleted_id = deleted_ids_.id_unchecked(j);
 
         if (id == deleted_id) {
             return false;
@@ -539,13 +546,6 @@ bool DataReader::check_consistency() const {
         }
     }
     return true;
-}
-
-const uint8_t* DataReader::get_by_pos(uint32_t pos) const {
-    if (pos > hdr_->count) {
-        return nullptr;
-    }
-    return map_ + hdr_->data_offset + stride_ * pos;
 }
 
 } // namespace sketch2

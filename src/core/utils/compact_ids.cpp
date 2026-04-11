@@ -3,6 +3,7 @@
 #include "compact_ids.h"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 
@@ -23,6 +24,14 @@ struct SerializedHeader {
 static_assert(sizeof(SerializedHeader) == 24, "SerializedHeader must stay compact");
 
 Ret validate_offsets(uint64_t base, const uint32_t* offsets, size_t count);
+size_t bitset_storage_size_for_offsets(const std::vector<uint32_t>& offsets);
+CompactIdsEncoding preferred_encoding_for_offsets(const std::vector<uint32_t>& offsets);
+size_t serialized_size_for_offsets(const std::vector<uint32_t>& offsets);
+Ret write_serialized_compact_ids(
+    FILE* f,
+    uint64_t base,
+    const std::vector<uint32_t>& offsets,
+    const std::string& error_message);
 
 Ret validate_ids_and_fill_offsets(const uint64_t* ids, size_t count, uint64_t* base,
         std::vector<uint32_t>* offsets) {
@@ -60,28 +69,6 @@ Ret validate_ids_and_fill_offsets(const uint64_t* ids, size_t count, uint64_t* b
     return Ret(0);
 }
 
-Ret validate_offsets_and_set_base(uint64_t base, const uint32_t* offsets, size_t count,
-        uint64_t* out_base, std::vector<uint32_t>* out_offsets) {
-    if (count == 0) {
-        *out_base = 0;
-        out_offsets->clear();
-        return Ret(0);
-    }
-
-    if (offsets == nullptr) {
-        return Ret("CompactIds::init: offsets pointer is null");
-    }
-
-    out_offsets->clear();
-    out_offsets->reserve(count);
-
-    CHECK(validate_offsets(base, offsets, count));
-    out_offsets->insert(out_offsets->end(), offsets, offsets + count);
-
-    *out_base = base;
-    return Ret(0);
-}
-
 Ret validate_offsets(uint64_t base, const uint32_t* offsets, size_t count) {
     uint32_t prev = 0;
     for (size_t i = 0; i < count; ++i) {
@@ -102,48 +89,88 @@ Ret validate_offsets(uint64_t base, const std::vector<uint32_t>& offsets) {
     return validate_offsets(base, offsets.data(), offsets.size());
 }
 
-Ret read_exact(FILE* f, void* data, size_t size, const std::string& error_message) {
-    if (size == 0) {
-        return Ret(0);
-    }
-    if (fread(data, 1, size, f) != size) {
-        return Ret(error_message);
-    }
-    return Ret(0);
-}
-
 size_t bitset_payload_size(uint32_t max_offset) {
     return (static_cast<size_t>(max_offset) + 8u) / 8u;
 }
 
-Ret decode_bitset_payload(const std::vector<uint8_t>& payload, uint32_t count, uint32_t max_offset,
+bool is_canonical_bitset_encoding(uint32_t count, size_t payload_size) {
+    return payload_size < static_cast<size_t>(count) * sizeof(uint32_t);
+}
+
+size_t bitset_storage_size_for_offsets(const std::vector<uint32_t>& offsets) {
+    if (offsets.empty()) {
+        return 0;
+    }
+    return bitset_payload_size(offsets.back());
+}
+
+CompactIdsEncoding preferred_encoding_for_offsets(const std::vector<uint32_t>& offsets) {
+    if (offsets.empty()) {
+        return CompactIdsEncoding::Offsets32;
+    }
+    return bitset_storage_size_for_offsets(offsets) < offsets.size() * sizeof(uint32_t)
+        ? CompactIdsEncoding::Bitset
+        : CompactIdsEncoding::Offsets32;
+}
+
+size_t serialized_size_for_offsets(const std::vector<uint32_t>& offsets) {
+    const size_t header_size = sizeof(SerializedHeader);
+    if (offsets.empty()) {
+        return header_size;
+    }
+    if (preferred_encoding_for_offsets(offsets) == CompactIdsEncoding::Bitset) {
+        return header_size + bitset_storage_size_for_offsets(offsets);
+    }
+    return header_size + offsets.size() * sizeof(uint32_t);
+}
+
+Ret decode_bitset_payload(const uint8_t* payload, size_t payload_size, uint32_t count, uint32_t max_offset,
         std::vector<uint32_t>* offsets) {
     offsets->clear();
     offsets->reserve(count);
 
     const size_t expected_payload_size = bitset_payload_size(max_offset);
-    if (payload.size() != expected_payload_size) {
+    if (payload_size != expected_payload_size) {
         return Ret("CompactIds::read: malformed bitset payload size");
     }
-    if (!payload.empty()) {
+    if (!is_canonical_bitset_encoding(count, payload_size)) {
+        return Ret("CompactIds::read: non-canonical bitset encoding");
+    }
+    if (payload_size > 0) {
         // Bits above max_offset in the last byte are padding and must stay zero.
         const uint32_t used_bits_in_last_byte = (max_offset + 1u) & 7u;
         if (used_bits_in_last_byte != 0u) {
             const uint8_t padding_mask = static_cast<uint8_t>(~((1u << used_bits_in_last_byte) - 1u));
-            if ((payload.back() & padding_mask) != 0u) {
+            if ((payload[payload_size - 1] & padding_mask) != 0u) {
                 return Ret("CompactIds::read: malformed bitset payload tail bits");
             }
         }
     }
 
-    // Use a 64-bit loop bound to avoid uint32_t wraparound when max_offset
-    // is UINT32_MAX.
-    const uint64_t limit = static_cast<uint64_t>(max_offset) + 1u;
-    for (uint64_t offset = 0; offset < limit; ++offset) {
-        const size_t byte_index = static_cast<size_t>(offset) >> 3;
-        const uint8_t mask = static_cast<uint8_t>(1u << (offset & 7u));
-        if ((payload[byte_index] & mask) != 0u) {
-            offsets->push_back(static_cast<uint32_t>(offset));
+    // Enumerate only the set bits instead of probing every offset in the span.
+    size_t byte_index = 0;
+    for (; byte_index + sizeof(uint64_t) <= payload_size; byte_index += sizeof(uint64_t)) {
+        uint64_t word = 0;
+        std::memcpy(&word, payload + byte_index, sizeof(word));
+        while (word != 0) {
+            const uint32_t bit_index = static_cast<uint32_t>(__builtin_ctzll(word));
+            offsets->push_back(static_cast<uint32_t>(byte_index * 8u + bit_index));
+            if (offsets->size() > count) {
+                return Ret("CompactIds::read: bitset count does not match header");
+            }
+            word &= (word - 1u);
+        }
+    }
+
+    for (; byte_index < payload_size; ++byte_index) {
+        uint8_t byte = payload[byte_index];
+        while (byte != 0) {
+            const uint32_t bit_index = static_cast<uint32_t>(__builtin_ctz(static_cast<unsigned int>(byte)));
+            offsets->push_back(static_cast<uint32_t>(byte_index * 8u + bit_index));
+            if (offsets->size() > count) {
+                return Ret("CompactIds::read: bitset count does not match header");
+            }
+            byte = static_cast<uint8_t>(byte & static_cast<uint8_t>(byte - 1u));
         }
     }
 
@@ -154,7 +181,134 @@ Ret decode_bitset_payload(const std::vector<uint8_t>& payload, uint32_t count, u
     return Ret(0);
 }
 
+Ret write_serialized_compact_ids(
+        FILE* f,
+        uint64_t base,
+        const std::vector<uint32_t>& offsets,
+        const std::string& error_message) {
+    const std::string base_message = error_message.empty() ? "CompactIds::write failed" : error_message;
+    if (f == nullptr) {
+        return Ret(base_message + ": file handle is null");
+    }
+
+    if (offsets.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+        return Ret(base_message + ": id count exceeds uint32_t range");
+    }
+
+    const CompactIdsEncoding encoding = preferred_encoding_for_offsets(offsets);
+    SerializedHeader hdr{};
+    hdr.encoding = static_cast<uint8_t>(encoding);
+    hdr.count = static_cast<uint32_t>(offsets.size());
+    hdr.max_offset = offsets.empty() ? 0 : offsets.back();
+    hdr.payload_size = 0;
+    hdr.base = offsets.empty() ? 0 : base;
+
+    if (encoding == CompactIdsEncoding::Bitset) {
+        const size_t bitset_size = bitset_storage_size_for_offsets(offsets);
+        if (bitset_size > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+            return Ret(base_message + ": bitset payload exceeds uint32_t range");
+        }
+        hdr.payload_size = static_cast<uint32_t>(bitset_size);
+    } else {
+        const size_t offsets_size = offsets.size() * sizeof(uint32_t);
+        if (offsets_size > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+            return Ret(base_message + ": offsets payload exceeds uint32_t range");
+        }
+        hdr.payload_size = static_cast<uint32_t>(offsets_size);
+    }
+
+    if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
+        return Ret(base_message);
+    }
+
+    if (offsets.empty()) {
+        return Ret(0);
+    }
+
+    if (encoding == CompactIdsEncoding::Offsets32) {
+        if (fwrite(offsets.data(), sizeof(uint32_t), offsets.size(), f) != offsets.size()) {
+            return Ret(base_message);
+        }
+        return Ret(0);
+    }
+
+    std::vector<uint8_t> bitset(bitset_storage_size_for_offsets(offsets), 0);
+    for (uint32_t value : offsets) {
+        const size_t byte_index = static_cast<size_t>(value) >> 3;
+        const uint8_t mask = static_cast<uint8_t>(1u << (value & 7u));
+        bitset[byte_index] |= mask;
+    }
+    if (fwrite(bitset.data(), 1, bitset.size(), f) != bitset.size()) {
+        return Ret(base_message);
+    }
+    return Ret(0);
+}
+
 } // namespace
+
+void CompactIdsBuilder::clear() {
+    base_ = 0;
+    offsets_.clear();
+}
+
+void CompactIdsBuilder::reserve(size_t count) {
+    offsets_.reserve(count);
+}
+
+Ret CompactIdsBuilder::append(uint64_t id) {
+    try {
+        if (offsets_.empty()) {
+            base_ = id;
+            offsets_.push_back(0);
+            return Ret(0);
+        }
+
+        const uint64_t previous_id = base_ + offsets_.back();
+        if (id <= previous_id) {
+            return Ret("CompactIds::init: ids must be strictly increasing");
+        }
+
+        const uint64_t offset = id - base_;
+        if (offset > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+            return Ret("CompactIds::init: id offset exceeds uint32_t range");
+        }
+
+        offsets_.push_back(static_cast<uint32_t>(offset));
+        return Ret(0);
+    } catch (const std::exception& ex) {
+        return Ret(std::string("CompactIdsBuilder::append: ") + ex.what());
+    }
+}
+
+uint64_t CompactIdsBuilder::min_id() const {
+    if (empty()) {
+        throw std::out_of_range("CompactIdsBuilder::min_id: container is empty");
+    }
+    return base_ + offsets_.front();
+}
+
+uint64_t CompactIdsBuilder::max_id() const {
+    if (empty()) {
+        throw std::out_of_range("CompactIdsBuilder::max_id: container is empty");
+    }
+    return base_ + offsets_.back();
+}
+
+size_t CompactIdsBuilder::bitset_storage_size_bytes() const {
+    return bitset_storage_size_for_offsets(offsets_);
+}
+
+CompactIdsEncoding CompactIdsBuilder::preferred_encoding() const {
+    return preferred_encoding_for_offsets(offsets_);
+}
+
+size_t CompactIdsBuilder::serialized_size_bytes() const {
+    return serialized_size_for_offsets(offsets_);
+}
+
+Ret CompactIdsBuilder::write(FILE* f, const std::string& error_message) const {
+    return write_serialized_compact_ids(f, base_, offsets_, error_message);
+}
 
 void CompactIds::Iterator::next() {
     if (eof()) {
@@ -181,38 +335,17 @@ size_t CompactIds::Iterator::index() const {
     return index_;
 }
 
-Ret CompactIds::init(const uint64_t* ids, size_t count) {
-    try {
-        uint64_t new_base = 0;
-        std::vector<uint32_t> new_offsets;
-        CHECK(validate_ids_and_fill_offsets(ids, count, &new_base, &new_offsets));
-        base_ = new_base;
-        offsets_ = std::move(new_offsets);
-        return Ret(0);
-    } catch (const std::exception& ex) {
-        return Ret(std::string("CompactIds::init: ") + ex.what());
-    }
-}
-
 Ret CompactIds::init(const std::vector<uint64_t>& ids) {
-    return init(ids.data(), ids.size());
-}
-
-Ret CompactIds::init(uint64_t base, const uint32_t* offsets, size_t count) {
     try {
         uint64_t new_base = 0;
         std::vector<uint32_t> new_offsets;
-        CHECK(validate_offsets_and_set_base(base, offsets, count, &new_base, &new_offsets));
+        CHECK(validate_ids_and_fill_offsets(ids.data(), ids.size(), &new_base, &new_offsets));
         base_ = new_base;
         offsets_ = std::move(new_offsets);
         return Ret(0);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIds::init: ") + ex.what());
     }
-}
-
-Ret CompactIds::init(uint64_t base, const std::vector<uint32_t>& offsets) {
-    return init(base, offsets.data(), offsets.size());
 }
 
 Ret CompactIds::init(uint64_t base, std::vector<uint32_t>&& offsets) {
@@ -230,14 +363,26 @@ Ret CompactIds::init(uint64_t base, std::vector<uint32_t>&& offsets) {
     }
 }
 
-Ret CompactIds::read(FILE* f) {
+Ret CompactIds::read(const uint8_t* data, size_t size, size_t* bytes_consumed) {
     try {
-        if (f == nullptr) {
-            return Ret("CompactIds::read: file handle is null");
+        if (bytes_consumed != nullptr) {
+            *bytes_consumed = 0;
+        }
+        if (data == nullptr) {
+            return Ret("CompactIds::read: data pointer is null");
+        }
+        if (size < sizeof(SerializedHeader)) {
+            return Ret("CompactIds::read: buffer too small to contain header");
         }
 
         SerializedHeader hdr{};
-        CHECK(read_exact(f, &hdr, sizeof(hdr), "CompactIds::read: failed to read header"));
+        std::memcpy(&hdr, data, sizeof(SerializedHeader));
+        const size_t payload_size = static_cast<size_t>(hdr.payload_size);
+        if (payload_size > size - sizeof(SerializedHeader)) {
+            return Ret("CompactIds::read: truncated payload");
+        }
+        const size_t consumed = sizeof(SerializedHeader) + payload_size;
+        const uint8_t* payload = data + sizeof(SerializedHeader);
 
         const CompactIdsEncoding encoding = static_cast<CompactIdsEncoding>(hdr.encoding);
         if (encoding != CompactIdsEncoding::Offsets32 && encoding != CompactIdsEncoding::Bitset) {
@@ -249,29 +394,28 @@ Ret CompactIds::read(FILE* f) {
                 return Ret("CompactIds::read: malformed empty payload header");
             }
             clear();
-            return Ret(0);
-        }
-
-        if (encoding == CompactIdsEncoding::Offsets32) {
+        } else if (encoding == CompactIdsEncoding::Offsets32) {
             const size_t expected_payload_size = static_cast<size_t>(hdr.count) * sizeof(uint32_t);
             if (hdr.payload_size != expected_payload_size) {
                 return Ret("CompactIds::read: malformed offsets payload size");
             }
             std::vector<uint32_t> offsets(hdr.count);
-            CHECK(read_exact(f, offsets.data(), hdr.payload_size, "CompactIds::read: failed to read offsets payload"));
-            return init(hdr.base, std::move(offsets));
+            std::memcpy(offsets.data(), payload, payload_size);
+            CHECK(init(hdr.base, std::move(offsets)));
+        } else {
+            const size_t expected_payload_size = bitset_payload_size(hdr.max_offset);
+            if (hdr.payload_size != expected_payload_size) {
+                return Ret("CompactIds::read: malformed bitset payload size");
+            }
+            std::vector<uint32_t> offsets;
+            CHECK(decode_bitset_payload(payload, payload_size, hdr.count, hdr.max_offset, &offsets));
+            CHECK(init(hdr.base, std::move(offsets)));
         }
 
-        const size_t expected_payload_size = bitset_payload_size(hdr.max_offset);
-        if (hdr.payload_size != expected_payload_size) {
-            return Ret("CompactIds::read: malformed bitset payload size");
+        if (bytes_consumed != nullptr) {
+            *bytes_consumed = consumed;
         }
-        std::vector<uint8_t> payload(hdr.payload_size);
-        CHECK(read_exact(f, payload.data(), payload.size(), "CompactIds::read: failed to read bitset payload"));
-
-        std::vector<uint32_t> offsets;
-        CHECK(decode_bitset_payload(payload, hdr.count, hdr.max_offset, &offsets));
-        return init(hdr.base, std::move(offsets));
+        return Ret(0);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIds::read: ") + ex.what());
     }
@@ -311,30 +455,15 @@ uint32_t CompactIds::max_offset() const {
 }
 
 size_t CompactIds::bitset_storage_size_bytes() const {
-    if (empty()) {
-        return 0;
-    }
-    return bitset_payload_size(max_offset());
+    return bitset_storage_size_for_offsets(offsets_);
 }
 
 CompactIdsEncoding CompactIds::preferred_encoding() const {
-    if (empty()) {
-        return CompactIdsEncoding::Offsets32;
-    }
-    return bitset_storage_size_bytes() < offsets_storage_size_bytes()
-        ? CompactIdsEncoding::Bitset
-        : CompactIdsEncoding::Offsets32;
+    return preferred_encoding_for_offsets(offsets_);
 }
 
 size_t CompactIds::serialized_size_bytes() const {
-    const size_t header_size = sizeof(SerializedHeader);
-    if (empty()) {
-        return header_size;
-    }
-    if (preferred_encoding() == CompactIdsEncoding::Bitset) {
-        return header_size + bitset_storage_size_bytes();
-    }
-    return header_size + offsets_storage_size_bytes();
+    return serialized_size_for_offsets(offsets_);
 }
 
 uint64_t CompactIds::id(size_t index) const {
@@ -375,71 +504,8 @@ bool CompactIds::contains(uint64_t value) const {
     return index_of(value) != npos;
 }
 
-Ret CompactIds::write_offsets(FILE* f, const std::string& error_message) const {
-    const std::string base_message = error_message.empty() ? "CompactIds::write_offsets failed" : error_message;
-    if (f == nullptr) {
-        return Ret(base_message + ": file handle is null");
-    }
-    if (offsets_.empty()) {
-        return Ret(0);
-    }
-    if (fwrite(offsets_.data(), sizeof(uint32_t), offsets_.size(), f) != offsets_.size()) {
-        return Ret(base_message);
-    }
-    return Ret(0);
-}
-
 Ret CompactIds::write(FILE* f, const std::string& error_message) const {
-    const std::string base_message = error_message.empty() ? "CompactIds::write failed" : error_message;
-    if (f == nullptr) {
-        return Ret(base_message + ": file handle is null");
-    }
-
-    if (count() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
-        return Ret(base_message + ": id count exceeds uint32_t range");
-    }
-
-    SerializedHeader hdr{};
-    hdr.encoding = static_cast<uint8_t>(preferred_encoding());
-    hdr.count = static_cast<uint32_t>(count());
-    hdr.max_offset = empty() ? 0 : max_offset();
-    hdr.payload_size = 0;
-    hdr.base = empty() ? 0 : base_;
-
-    if (preferred_encoding() == CompactIdsEncoding::Bitset) {
-        if (bitset_storage_size_bytes() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret(base_message + ": bitset payload exceeds uint32_t range");
-        }
-        hdr.payload_size = static_cast<uint32_t>(bitset_storage_size_bytes());
-    } else {
-        if (offsets_storage_size_bytes() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret(base_message + ": offsets payload exceeds uint32_t range");
-        }
-        hdr.payload_size = static_cast<uint32_t>(offsets_storage_size_bytes());
-    }
-
-    if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
-        return Ret(base_message);
-    }
-
-    if (empty()) {
-        return Ret(0);
-    }
-
-    if (preferred_encoding() == CompactIdsEncoding::Offsets32) {
-        return write_offsets(f, base_message);
-    }
-
-    std::vector<uint8_t> bitset(bitset_storage_size_bytes(), 0);
-    for (uint32_t value : offsets_) {
-        const size_t byte_index = static_cast<size_t>(value) >> 3;
-        const uint8_t mask = static_cast<uint8_t>(1u << (value & 7u));
-        bitset[byte_index] |= mask;
-    }
-    if (fwrite(bitset.data(), 1, bitset.size(), f) != bitset.size()) {
-        return Ret(base_message);
-    }
-    return Ret(0);
+    return write_serialized_compact_ids(f, base_, offsets_, error_message);
 }
 
 } // namespace sketch2

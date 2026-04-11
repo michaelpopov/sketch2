@@ -18,6 +18,34 @@ enum class CompactIdsEncoding : uint8_t {
     Bitset = 2,
 };
 
+class CompactIdsBuilder;
+class CompactIds;
+
+// CompactIdsBuilder incrementally accumulates a strictly increasing id stream
+// as one base id plus uint32 offsets, avoiding a transient uint64_t copy when
+// writers/mergers already see ids in sorted order.
+class CompactIdsBuilder {
+public:
+    void clear();
+    void reserve(size_t count);
+    Ret append(uint64_t id);
+
+    size_t count() const { return offsets_.size(); }
+    bool empty() const { return offsets_.empty(); }
+    uint64_t base() const { return base_; }
+    uint64_t min_id() const;
+    uint64_t max_id() const;
+    size_t offsets_storage_size_bytes() const { return offsets_.size() * sizeof(uint32_t); }
+    size_t bitset_storage_size_bytes() const;
+    CompactIdsEncoding preferred_encoding() const;
+    size_t serialized_size_bytes() const;
+    Ret write(FILE* f, const std::string& error_message) const;
+
+private:
+    uint64_t base_ = 0;
+    std::vector<uint32_t> offsets_;
+};
+
 // CompactIds stores a sorted set of uint64 ids as:
 // - one uint64 base id
 // - one uint32 offset per id relative to that base
@@ -44,12 +72,8 @@ public:
         size_t index_ = 0;
     };
 
-    Ret init(const uint64_t* ids, size_t count);
     Ret init(const std::vector<uint64_t>& ids);
-    Ret init(uint64_t base, const uint32_t* offsets, size_t count);
-    Ret init(uint64_t base, const std::vector<uint32_t>& offsets);
-    Ret init(uint64_t base, std::vector<uint32_t>&& offsets);
-    Ret read(FILE* f);
+    Ret read(const uint8_t* data, size_t size, size_t* bytes_consumed);
     void clear();
 
     size_t count() const { return offsets_.size(); }
@@ -65,16 +89,18 @@ public:
     size_t serialized_size_bytes() const;
 
     uint64_t id(size_t index) const;
+    // Fast path for tight loops that have already validated index bounds.
+    uint64_t id_unchecked(size_t index) const { return base_ + offsets_[index]; }
     size_t lower_bound_index(uint64_t id) const;
     size_t index_of(uint64_t id) const;
     bool contains(uint64_t id) const;
-    const uint32_t* offset_data() const { return offsets_.data(); }
-    Ret write_offsets(FILE* f, const std::string& error_message) const;
     Ret write(FILE* f, const std::string& error_message) const;
 
     Iterator begin() const { return Iterator(this, 0); }
 
 private:
+    Ret init(uint64_t base, std::vector<uint32_t>&& offsets);
+
     uint64_t base_ = 0;
     std::vector<uint32_t> offsets_;
 };

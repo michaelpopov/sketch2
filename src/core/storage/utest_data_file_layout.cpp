@@ -50,21 +50,22 @@ TEST_F(DataFileLayoutTest, MakeDataHeaderSetsCosineFlagWhenRequested) {
     EXPECT_EQ(kDataFileHasCosineInvNorms, hdr.flags);
 }
 
-TEST_F(DataFileLayoutTest, ComputeIdsLayoutAlignsIdsOffsetTo8Bytes) {
+TEST_F(DataFileLayoutTest, ComputeMetadataLayoutAlignsIdsTrailerOffsetTo8Bytes) {
     const auto hdr = make_data_header(0, 0, 0, 0, DataType::f32, 5);
-    const auto layout = compute_ids_layout(hdr, 1);
+    const auto layout = compute_data_metadata_layout(hdr, 1);
     EXPECT_EQ(static_cast<size_t>(hdr.vector_stride), layout.vectors_bytes);
-    EXPECT_EQ(0u, layout.ids_offset % kIdsAlignment);
-    EXPECT_EQ(layout.ids_offset - (static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes), layout.ids_padding);
+    EXPECT_EQ(0u, layout.ids_trailer_offset % kIdsAlignment);
+    EXPECT_EQ(layout.ids_trailer_offset - (static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes),
+        layout.ids_trailer_padding);
 }
 
-TEST_F(DataFileLayoutTest, ComputeIdsLayoutPlacesCosineSectionBeforeIds) {
+TEST_F(DataFileLayoutTest, ComputeMetadataLayoutPlacesCosineSectionBeforeIdsTrailer) {
     const auto hdr = make_data_header(0, 0, 0, 0, DataType::f32, 5, true);
-    const auto layout = compute_ids_layout(hdr, 3);
+    const auto layout = compute_data_metadata_layout(hdr, 3);
     EXPECT_EQ(static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes, layout.cosine_inv_norms_offset);
     EXPECT_EQ(3u * sizeof(float), layout.cosine_inv_norms_bytes);
-    EXPECT_EQ(0u, layout.ids_offset % kIdsAlignment);
-    EXPECT_EQ(layout.ids_offset,
+    EXPECT_EQ(0u, layout.ids_trailer_offset % kIdsAlignment);
+    EXPECT_EQ(layout.ids_trailer_offset,
         align_up<size_t>(layout.cosine_inv_norms_offset + layout.cosine_inv_norms_bytes, kIdsAlignment));
 }
 
@@ -114,22 +115,6 @@ TEST_F(DataFileLayoutTest, RewriteHeaderOverwritesExistingHeader) {
 
     EXPECT_EQ(9u, read.count);
     EXPECT_EQ(100u, read.min_id);
-}
-
-TEST_F(DataFileLayoutTest, WriteU64ArrayWritesValuesAndHandlesEmpty) {
-    FILE* f = fopen(path_.c_str(), "wb");
-    ASSERT_NE(nullptr, f);
-    ASSERT_EQ(0, write_u64_array(f, {}, "arr error").code());
-    const std::vector<uint64_t> values = {10, 20, 30};
-    ASSERT_EQ(0, write_u64_array(f, values, "arr error").code());
-    fclose(f);
-
-    std::vector<uint64_t> read(values.size(), 0);
-    FILE* fr = fopen(path_.c_str(), "rb");
-    ASSERT_NE(nullptr, fr);
-    ASSERT_EQ(values.size(), fread(read.data(), sizeof(uint64_t), values.size(), fr));
-    fclose(fr);
-    EXPECT_EQ(values, read);
 }
 
 TEST_F(DataFileLayoutTest, WriteVectorRecordPadsToStride) {

@@ -3,6 +3,7 @@
 #pragma once
 #include "utils/shared_types.h"
 #include "core/utils/dynamic_bitset.h"
+#include "core/utils/compact_ids.h"
 #include "core/storage/data_file.h"
 #include <cstdint>
 #include <memory>
@@ -29,12 +30,11 @@ public:
 
     private:
         friend class DataReader;
-        Iterator(const DataReader* reader, const DataReader* delta_reader, size_t index, const uint64_t* ids);
+        Iterator(const DataReader* reader, const DataReader* delta_reader, size_t index);
 
         const DataReader*  reader_ = nullptr;
         const DataReader*  delta_reader_ = nullptr;
         size_t             index_  = 0;
-        const uint64_t*    ids_    = nullptr; // cached pointer to the id array
         const size_t       count_;
     };
 
@@ -85,7 +85,7 @@ public:
     bool           is_hidden(size_t index) const;
     std::string    path() const { return path_; }
 
-    size_t deleted_count() const { return hdr_->deleted_count; }
+    size_t deleted_count() const { return deleted_ids_.count(); }
     uint64_t deleted_id(size_t index) const;
 
     bool check_consistency() const;
@@ -95,10 +95,9 @@ private:
     const uint8_t*           map_     = nullptr;
     size_t                   map_len_ = 0;
     const DataFileHeader*    hdr_     = nullptr;
-    const uint64_t*          ids_     = nullptr; // cached pointer to the ids section
+    CompactIds               ids_;
     const float*             cosine_inv_norms_ = nullptr; // cached pointer to optional cosine inverse norms
-    const uint64_t*          deleted_ids_ = nullptr; // cached pointer to the deleted ids section
-    std::vector<uint64_t>    ids_buf_;             // heap buffer for ids + deleted_ids
+    CompactIds               deleted_ids_;
     std::vector<float>       cosine_inv_norms_buf_; // heap buffer for cosine inverse norms
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
@@ -110,7 +109,6 @@ private:
 
     Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
     Ret init_delta();
-    const uint8_t* get_by_pos(uint32_t pos) const;
     void assert_invariants_() const;
 };
 

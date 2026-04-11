@@ -10,12 +10,12 @@
 
 namespace sketch2 {
 
-struct IdsLayout {
+struct DataMetadataLayout {
     size_t vectors_bytes = 0;
     size_t cosine_inv_norms_offset = 0;
     size_t cosine_inv_norms_bytes = 0;
-    size_t ids_offset = 0;
-    size_t ids_padding = 0;
+    size_t ids_trailer_offset = 0;
+    size_t ids_trailer_padding = 0;
 };
 
 inline bool data_file_has_cosine_inv_norms(const DataFileHeader& hdr) {
@@ -50,15 +50,15 @@ inline DataFileHeader make_data_header(uint64_t min_id, uint64_t max_id,
     return hdr;
 }
 
-inline IdsLayout compute_ids_layout(const DataFileHeader& hdr, size_t count) {
-    IdsLayout layout{};
+inline DataMetadataLayout compute_data_metadata_layout(const DataFileHeader& hdr, size_t count) {
+    DataMetadataLayout layout{};
     layout.vectors_bytes = count * static_cast<size_t>(hdr.vector_stride);
     const size_t after_vectors = static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes;
     layout.cosine_inv_norms_offset = after_vectors;
     layout.cosine_inv_norms_bytes = data_file_has_cosine_inv_norms(hdr) ? count * sizeof(float) : 0;
     const size_t after_cosine = after_vectors + layout.cosine_inv_norms_bytes;
-    layout.ids_offset = align_up<size_t>(after_cosine, kIdsAlignment);
-    layout.ids_padding = layout.ids_offset - after_cosine;
+    layout.ids_trailer_offset = align_up<size_t>(after_cosine, kIdsAlignment);
+    layout.ids_trailer_padding = layout.ids_trailer_offset - after_cosine;
     return layout;
 }
 
@@ -88,16 +88,6 @@ inline Ret rewrite_header(FILE* f, const DataFileHeader& hdr, const std::string&
     }
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
         return Ret(context + ": failed to write header");
-    }
-    return Ret(0);
-}
-
-inline Ret write_u64_array(FILE* f, const std::vector<uint64_t>& values, const std::string& error_message) {
-    if (values.empty()) {
-        return Ret(0);
-    }
-    if (fwrite(values.data(), sizeof(uint64_t), values.size(), f) != values.size()) {
-        return Ret(error_message);
     }
     return Ret(0);
 }

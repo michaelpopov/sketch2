@@ -14,9 +14,41 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
+#include "core/utils/compact_ids.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
+
+namespace {
+
+std::vector<uint8_t> read_file_bytes(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (f == nullptr) {
+        return {};
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return {};
+    }
+    const long size = ftell(f);
+    if (size < 0) {
+        fclose(f);
+        return {};
+    }
+    rewind(f);
+    std::vector<uint8_t> bytes(static_cast<size_t>(size));
+    if (!bytes.empty()) {
+        const size_t read = fread(bytes.data(), 1, bytes.size(), f);
+        if (read != bytes.size()) {
+            fclose(f);
+            return {};
+        }
+    }
+    fclose(f);
+    return bytes;
+}
+
+} // namespace
 
 class DataReaderTest : public ::testing::Test {
 protected:
@@ -80,7 +112,7 @@ protected:
         return delta;
     }
 
-    // Write a minimal valid binary data file with raw vector bytes.
+    // Write a minimal valid binary data file with vector bytes and compact id trailer.
     // type_field: 0=f16, 1=f32, 2=i16  (matches DataWriter encoding)
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs) {
@@ -101,15 +133,56 @@ protected:
         for (const auto& v : vecs) {
             ASSERT_EQ(0, write_vector_record(f, v.data(), v.size(), hdr.vector_stride, "DataReaderTest::write_raw").code());
         }
-        const IdsLayout ids_layout = compute_ids_layout(hdr, vecs.size());
-        const size_t ids_pad_size = ids_layout.ids_padding;
+        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, vecs.size());
+        const size_t ids_pad_size = metadata_layout.ids_trailer_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             fwrite(pad.data(), 1, pad.size(), f);
         }
+        CompactIds compact_ids;
+        std::vector<uint64_t> ids;
+        ids.reserve(vecs.size());
         for (size_t i = 0; i < vecs.size(); ++i) {
-            uint64_t id = min_id + static_cast<uint64_t>(i);
-            fwrite(&id, sizeof(id), 1, f);
+            ids.push_back(min_id + static_cast<uint64_t>(i));
+        }
+        ASSERT_EQ(0, compact_ids.init(ids).code());
+        ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::write_raw ids write failed").code());
+        CompactIds compact_deleted_ids;
+        ASSERT_EQ(0, compact_deleted_ids.init(std::vector<uint64_t>{}).code());
+        ASSERT_EQ(0, compact_deleted_ids.write(f, "DataReaderTest::write_raw deleted ids write failed").code());
+        fclose(f);
+    }
+
+    void write_raw_with_legacy_id_arrays(DataType type_field, uint16_t dim, uint64_t min_id,
+                                         const std::vector<std::vector<uint8_t>>& vecs) {
+        DataFileHeader hdr = make_data_header(
+            min_id,
+            min_id + static_cast<uint64_t>(vecs.size()) - 1,
+            static_cast<uint32_t>(vecs.size()),
+            0,
+            type_field,
+            dim);
+        FILE* f = fopen(data_path_.c_str(), "wb");
+        ASSERT_NE(nullptr, f);
+        ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+        const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+        if (pad_size > 0) {
+            std::vector<uint8_t> pad(pad_size, 0);
+            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+        }
+        for (const auto& v : vecs) {
+            ASSERT_EQ(0, write_vector_record(f, v.data(), v.size(), hdr.vector_stride,
+                      "DataReaderTest::write_raw_with_legacy_id_arrays").code());
+        }
+        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, vecs.size());
+        if (metadata_layout.ids_trailer_padding > 0) {
+            std::vector<uint8_t> pad(metadata_layout.ids_trailer_padding, 0);
+            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+        }
+        // Intentionally write legacy raw uint64 arrays to ensure hard cutover rejects them.
+        for (size_t i = 0; i < vecs.size(); ++i) {
+            const uint64_t id = min_id + static_cast<uint64_t>(i);
+            ASSERT_EQ(1u, fwrite(&id, sizeof(id), 1, f));
         }
         fclose(f);
     }
@@ -159,6 +232,31 @@ TEST_F(DataReaderTest, FailsOnWrongVersion) {
     uint16_t bad_version = static_cast<uint16_t>(kVersion + 1);
     fwrite(&bad_version, sizeof(bad_version), 1, f);
     fclose(f);
+    DataReader r;
+    EXPECT_NE(0, r.init(data_path_).code());
+}
+
+TEST_F(DataReaderTest, FailsOnPreviousVersionHardCutover) {
+    generate(1, 0, DataType::f32, 4);
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(0, fseek(f, static_cast<long>(sizeof(uint32_t) + sizeof(uint16_t)), SEEK_SET));
+    const uint16_t prev_version = static_cast<uint16_t>(kVersion - 1);
+    ASSERT_EQ(1u, fwrite(&prev_version, sizeof(prev_version), 1, f));
+    fclose(f);
+
+    DataReader r;
+    const Ret ret = r.init(data_path_);
+    EXPECT_NE(0, ret.code());
+}
+
+TEST_F(DataReaderTest, FailsOnLegacyRawIdsTrailer) {
+    const std::vector<std::vector<uint8_t>> vecs = {
+        std::vector<uint8_t>(4 * sizeof(float), 0),
+        std::vector<uint8_t>(4 * sizeof(float), 1),
+    };
+    write_raw_with_legacy_id_arrays(DataType::f32, 4, 10, vecs);
+
     DataReader r;
     EXPECT_NE(0, r.init(data_path_).code());
 }
@@ -273,6 +371,12 @@ TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
         std::vector<uint8_t> zeros(padding, 0);
         ASSERT_EQ(padding, fwrite(zeros.data(), 1, padding, f));
     }
+    CompactIds compact_ids;
+    ASSERT_EQ(0, compact_ids.init(std::vector<uint64_t>{}).code());
+    ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::EmptyDataFileInitSucceeds ids write failed").code());
+    CompactIds compact_deleted_ids;
+    ASSERT_EQ(0, compact_deleted_ids.init(std::vector<uint64_t>{}).code());
+    ASSERT_EQ(0, compact_deleted_ids.write(f, "DataReaderTest::EmptyDataFileInitSucceeds deleted ids write failed").code());
     fclose(f);
 
     DataReader r;
@@ -752,12 +856,34 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     const DataType type = data_type_from_int(hdr.type);
     const size_t vec_size = compute_vector_size(type, hdr.dim);
     EXPECT_LE(vec_size, static_cast<size_t>(hdr.vector_stride));
-    const size_t ids_offset = compute_ids_layout(hdr, hdr.count).ids_offset;
-    const size_t deleted_ids_offset = ids_offset + static_cast<size_t>(hdr.count) * sizeof(uint64_t);
+    const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
+    fclose(f);
 
-    ASSERT_EQ(0, fseek(f, static_cast<long>(deleted_ids_offset), SEEK_SET));
-    const uint64_t overlapped_id = 3; // 3 is in ids_ for this generated input
-    ASSERT_EQ(1u, fwrite(&overlapped_id, sizeof(overlapped_id), 1, f));
+    const std::vector<uint8_t> bytes = read_file_bytes(data_path_);
+    ASSERT_FALSE(bytes.empty());
+    CompactIds active_ids;
+    size_t active_ids_size = 0;
+    ASSERT_EQ(0, active_ids.read(bytes.data() + ids_offset, bytes.size() - ids_offset, &active_ids_size).code());
+    const size_t deleted_ids_offset = ids_offset + active_ids_size;
+
+    CompactIds deleted_ids;
+    ASSERT_EQ(0, deleted_ids.read(bytes.data() + deleted_ids_offset, bytes.size() - deleted_ids_offset, nullptr).code());
+    const size_t original_deleted_serialized_size = deleted_ids.serialized_size_bytes();
+    std::vector<uint64_t> overlapping_deleted;
+    overlapping_deleted.reserve(deleted_ids.count());
+    overlapping_deleted.push_back(3); // 3 is in active ids for this generated input
+    for (size_t i = 1; i < deleted_ids.count(); ++i) {
+        overlapping_deleted.push_back(deleted_ids.id(i));
+    }
+    CompactIds overlapping_deleted_ids;
+    ASSERT_EQ(0, overlapping_deleted_ids.init(overlapping_deleted).code());
+    ASSERT_EQ(original_deleted_serialized_size, overlapping_deleted_ids.serialized_size_bytes());
+
+    f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(0, fseek(f, deleted_ids_offset, SEEK_SET));
+    ASSERT_EQ(0, overlapping_deleted_ids.write(f,
+        "DataReaderTest::CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds write failed").code());
     fclose(f);
 
     DataReader r;

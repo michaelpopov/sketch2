@@ -7,8 +7,11 @@
 #include <unistd.h>
 #include <vector>
 #include "core/storage/input_generator.h"
+#include "core/storage/data_file.h"
+#include "core/storage/data_file_layout.h"
 #include "core/storage/dataset_node.h"
 #include "core/storage/data_reader.h"
+#include "core/utils/compact_ids.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -16,6 +19,18 @@ namespace fs = std::filesystem;
 
 class DatasetFullCycleTest : public ::testing::Test {
 protected:
+    struct CompactIdsHeaderForTest {
+        uint8_t encoding = 0;
+        uint8_t reserved0 = 0;
+        uint16_t reserved1 = 0;
+        uint32_t count = 0;
+        uint32_t max_offset = 0;
+        uint32_t payload_size = 0;
+        uint64_t base = 0;
+    };
+
+    static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIds header size");
+
     std::string base_dir_;
     std::string input_path_;
 
@@ -59,6 +74,22 @@ protected:
             ++n;
         }
         return n;
+    }
+
+    CompactIdsEncoding read_active_ids_encoding(const std::string& data_path) {
+        FILE* f = fopen(data_path.c_str(), "rb");
+        EXPECT_NE(nullptr, f);
+        if (f == nullptr) {
+            return CompactIdsEncoding::Offsets32;
+        }
+        DataFileHeader hdr{};
+        EXPECT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
+        const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
+        EXPECT_EQ(0, fseek(f, static_cast<long>(ids_offset), SEEK_SET));
+        CompactIdsHeaderForTest compact_hdr{};
+        EXPECT_EQ(1u, fread(&compact_hdr, sizeof(compact_hdr), 1, f));
+        fclose(f);
+        return static_cast<CompactIdsEncoding>(compact_hdr.encoding);
     }
 };
 
@@ -258,3 +289,15 @@ TEST_F(DatasetFullCycleTest, FullCycleI16WithOverrideAndDelete) {
     EXPECT_EQ(5, v5[0]); // untouched value
 }
 
+TEST_F(DatasetFullCycleTest, DenseRangeStoredWithBitsetCompactIdsTrailer) {
+    const std::string dir = make_dir("dense");
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({dir}, 100000, DataType::f32, 4).code());
+
+    write_generated(seq_cfg(9000, 20000, DataType::f32, 4));
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    const std::string data_path = dir + "/0.data";
+    ASSERT_TRUE(fs::exists(data_path));
+    EXPECT_EQ(CompactIdsEncoding::Bitset, read_active_ids_encoding(data_path));
+}

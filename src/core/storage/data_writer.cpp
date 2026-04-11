@@ -4,6 +4,7 @@
 #include "core/compute/compute.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
+#include "core/utils/compact_ids.h"
 #include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/timer.h"
@@ -59,9 +60,9 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
         return Ret("Invalid count of vectors in reader.");
     }
 
-    std::vector<uint64_t> ids;
-    std::vector<uint64_t> deleted_ids;
-    ids.reserve(count);
+    CompactIdsBuilder active_ids;
+    CompactIdsBuilder deleted_ids;
+    active_ids.reserve(count);
     deleted_ids.reserve(count);
 
     uint64_t prev_id = 0;
@@ -74,7 +75,10 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
         }
         prev_id = id;
         if (reader.is_no_data(i)) {
-            deleted_ids.push_back(id);
+            const Ret append_ret = deleted_ids.append(id);
+            if (append_ret.code() != 0) {
+                return Ret("DataWriter: deleted ids: " + append_ret.message());
+            }
         } else {
             if (id < min_id) {
                 min_id = id;
@@ -82,26 +86,23 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
             if (id > max_id) {
                 max_id = id;
             }
-            ids.push_back(id);
+            const Ret append_ret = active_ids.append(id);
+            if (append_ret.code() != 0) {
+                return Ret("DataWriter: active ids: " + append_ret.message());
+            }
         }
     }
 
-    if (deleted_ids.size() == count) {
+    if (deleted_ids.count() == count) {
         min_id = max_id = 0;
     }
-
-#ifndef NDEBUG
-    assert(ids.size() + deleted_ids.size() == count);
-    assert(std::is_sorted(ids.begin(), ids.end()));
-    assert(std::is_sorted(deleted_ids.begin(), deleted_ids.end()));
-#endif
 
     // Build DataFileHeader
     DataFileHeader hdr = make_data_header(
         min_id,
         max_id,
-        static_cast<uint32_t>(ids.size()),
-        static_cast<uint32_t>(deleted_ids.size()),
+        static_cast<uint32_t>(active_ids.count()),
+        static_cast<uint32_t>(deleted_ids.count()),
         reader.type(),
         static_cast<uint16_t>(reader.dim()),
         write_cosine_inv_norms);
@@ -126,12 +127,12 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
 
     // Write vector data
     const size_t vec_size = reader.size();
-    const IdsLayout ids_layout = compute_ids_layout(hdr, ids.size());
+    const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active_ids.count());
     const bool binary_input = reader.is_binary();
     std::vector<uint8_t> buf = binary_input ? std::vector<uint8_t>() : std::vector<uint8_t>(vec_size);
     std::vector<float> cosine_inv_norms;
     if (write_cosine_inv_norms) {
-        cosine_inv_norms.reserve(ids.size());
+        cosine_inv_norms.reserve(active_ids.count());
     }
 
     if (binary_input) {
@@ -164,17 +165,25 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     }
 
 #ifndef NDEBUG
-    assert(!write_cosine_inv_norms || cosine_inv_norms.size() == ids.size());
+    assert(!write_cosine_inv_norms || cosine_inv_norms.size() == active_ids.count());
 #endif
     CHECK(write_f32_array(f, cosine_inv_norms,
         "DataWriter: failed to write cosine inverse norms"));
-    CHECK(write_zero_padding(f, ids_layout.ids_padding, "DataWriter: failed to write id alignment padding"));
+    CHECK(write_zero_padding(f, metadata_layout.ids_trailer_padding,
+        "DataWriter: failed to write id alignment padding"));
 
-    // Write ids
-    CHECK(write_u64_array(f, ids, "DataWriter: failed to write ids"));
+    // Write compact id sections (active ids then deleted ids).
+    CHECK(active_ids.write(f, "DataWriter: failed to write ids"));
+    CHECK(deleted_ids.write(f, "DataWriter: failed to write deleted_ids"));
 
-    // Write deleted ids
-    CHECK(write_u64_array(f, deleted_ids, "DataWriter: failed to write deleted_ids"));
+#ifndef NDEBUG
+    const size_t ids_trailer_size =
+        active_ids.serialized_size_bytes() + deleted_ids.serialized_size_bytes();
+    const long file_pos_after_ids = ftell(f);
+    const long expected_file_pos_after_ids =
+        static_cast<long>(metadata_layout.ids_trailer_offset + ids_trailer_size);
+    assert(file_pos_after_ids == expected_file_pos_after_ids);
+#endif
 
     int n1 = fflush(f);
     int n2 = fsync(fileno(f));

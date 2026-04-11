@@ -36,6 +36,13 @@ struct DataFileHeader {
     uint32_t flags; // optional section flags, e.g. cosine inverse norms
 };
 
+// Data file payload contract (v6):
+// 1) aligned vector records
+// 2) optional cosine inverse norms for active vectors
+// 3) id-alignment padding
+// 4) CompactIds(active ids)
+// 5) CompactIds(deleted ids)
+
 struct WalFileHeader {
     BaseFileHeader base;
     uint16_t type;     // data type
