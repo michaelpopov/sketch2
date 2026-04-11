@@ -705,6 +705,74 @@ TEST_F(DataMergerTest, MergeDeltaFileMergesRecordsAndDeletes) {
     EXPECT_EQ(3u, hdr.deleted_count);
 }
 
+TEST_F(DataMergerTest, MergeDeltaFileCursorEdgeCaseEmptyDeleteStreams) {
+    const std::string source_path = p("source_empty_deletes.delta");
+    const std::string updater_path = p("updater_empty_deletes.delta");
+    const std::string out_path = p("merged_empty_deletes.delta");
+
+    write_f32_file(source_path, FileType::Data, {{10, 10.0f}}, {});
+    write_f32_file(updater_path, FileType::Data, {{11, 11.0f}}, {});
+
+    DataReader source_reader, updater_reader, out_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(2u, out_reader.count());
+    EXPECT_EQ(0u, out_reader.deleted_count());
+    EXPECT_FLOAT_EQ(10.0f, first_f32(out_reader, 10));
+    EXPECT_FLOAT_EQ(11.0f, first_f32(out_reader, 11));
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileCursorEdgeCaseSingleDeletedEntry) {
+    const std::string source_path = p("source_single_deleted.delta");
+    const std::string updater_path = p("updater_single_deleted.delta");
+    const std::string out_path = p("merged_single_deleted.delta");
+
+    write_f32_file(source_path, FileType::Data, {}, {42});
+    write_f32_file(updater_path, FileType::Data, {}, {});
+
+    DataReader source_reader, updater_reader, out_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(0u, out_reader.count());
+    ASSERT_EQ(1u, out_reader.deleted_count());
+    EXPECT_EQ(42u, out_reader.deleted_id(0));
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileCursorEdgeCaseAllSourceDeletesResurrected) {
+    const std::string source_path = p("source_resurrect_all.delta");
+    const std::string updater_path = p("updater_resurrect_all.delta");
+    const std::string out_path = p("merged_resurrect_all.delta");
+
+    write_f32_file(source_path, FileType::Data, {{8, 8.0f}}, {1, 2, 3});
+    write_f32_file(updater_path, FileType::Data, {{1, 10.0f}, {2, 20.0f}, {3, 30.0f}, {9, 90.0f}}, {});
+
+    DataReader source_reader, updater_reader, out_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(5u, out_reader.count());
+    EXPECT_EQ(0u, out_reader.deleted_count());
+    EXPECT_FLOAT_EQ(10.0f, first_f32(out_reader, 1));
+    EXPECT_FLOAT_EQ(20.0f, first_f32(out_reader, 2));
+    EXPECT_FLOAT_EQ(30.0f, first_f32(out_reader, 3));
+    EXPECT_FLOAT_EQ(8.0f, first_f32(out_reader, 8));
+    EXPECT_FLOAT_EQ(90.0f, first_f32(out_reader, 9));
+}
+
 TEST_F(DataMergerTest, MergeDeltaFileFromInputViewMergesRecordsAndDeletes) {
     const std::string source_path = p("source.delta");
     const std::string input_path = p("updates.txt");
@@ -746,6 +814,41 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewMergesRecordsAndDeletes) {
         deleted.push_back(out_reader.deleted_id(i));
     }
     EXPECT_EQ((std::vector<uint64_t>{2, 5, 7}), deleted);
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileFromInputViewCursorEdgeCaseAllSourceDeletesResurrected) {
+    const std::string source_path = p("source_input_resurrect_all.delta");
+    const std::string input_path = p("updates_input_resurrect_all.txt");
+    const std::string out_path = p("merged_input_resurrect_all.delta");
+
+    write_f32_file(source_path, FileType::Data, {{8, 8.0f}}, {1, 2, 3});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "1 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+        "2 : [ 20.0, 20.0, 20.0, 20.0 ]\n"
+        "3 : [ 30.0, 30.0, 30.0, 30.0 ]\n"
+        "9 : [ 90.0, 90.0, 90.0, 90.0 ]\n"
+        "10 : []\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(5u, out_reader.count());
+    ASSERT_EQ(1u, out_reader.deleted_count());
+    EXPECT_EQ(10u, out_reader.deleted_id(0));
+    EXPECT_FLOAT_EQ(10.0f, first_f32(out_reader, 1));
+    EXPECT_FLOAT_EQ(20.0f, first_f32(out_reader, 2));
+    EXPECT_FLOAT_EQ(30.0f, first_f32(out_reader, 3));
+    EXPECT_FLOAT_EQ(8.0f, first_f32(out_reader, 8));
+    EXPECT_FLOAT_EQ(90.0f, first_f32(out_reader, 9));
 }
 
 TEST_F(DataMergerTest, MergeDeltaFileFromInputViewPreservesCosineValues) {

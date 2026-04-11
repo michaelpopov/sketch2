@@ -219,11 +219,27 @@ private:
 
 class DataReaderUpdaterCursor {
 public:
+    // We intentionally iterate updater base rows only. Merge entry points reject
+    // updater files with attached deltas, so base_begin() is equivalent to
+    // begin() here and avoids pulling delta semantics into this cursor.
     explicit DataReaderUpdaterCursor(const DataReader& reader) : iter_(reader.base_begin()) {}
 
     bool eof() const { return iter_.eof(); }
     uint64_t id() const { return iter_.id(); }
-    void next() { iter_.next(); }
+    void next() {
+        if (iter_.eof()) {
+            return;
+        }
+#ifndef NDEBUG
+        const uint64_t prev_id = iter_.id();
+#endif
+        iter_.next();
+#ifndef NDEBUG
+        if (!iter_.eof()) {
+            assert(prev_id < iter_.id());
+        }
+#endif
+    }
 
     Ret write_current(MergeOutputWriter* output) const {
         return output->write_binary_record(iter_.id(), iter_.data(), iter_.cosine_inv_norm());
@@ -241,7 +257,15 @@ public:
     uint64_t id() const { return reader_.deleted_id(index_); }
     void next() {
         if (!eof()) {
+#ifndef NDEBUG
+            const uint64_t prev_id = reader_.deleted_id(index_);
+#endif
             ++index_;
+#ifndef NDEBUG
+            if (!eof()) {
+                assert(prev_id < reader_.deleted_id(index_));
+            }
+#endif
         }
     }
 
@@ -261,8 +285,16 @@ public:
     uint64_t id() const { return reader_.id(index_); }
     void next() {
         if (!eof()) {
+#ifndef NDEBUG
+            const uint64_t prev_id = reader_.id(index_);
+#endif
             ++index_;
             advance_to_live_row();
+#ifndef NDEBUG
+            if (!eof()) {
+                assert(prev_id < reader_.id(index_));
+            }
+#endif
         }
     }
 
@@ -304,8 +336,16 @@ public:
     uint64_t id() const { return reader_.id(index_); }
     void next() {
         if (!eof()) {
+#ifndef NDEBUG
+            const uint64_t prev_id = reader_.id(index_);
+#endif
             ++index_;
             advance_to_deleted_row();
+#ifndef NDEBUG
+            if (!eof()) {
+                assert(prev_id < reader_.id(index_));
+            }
+#endif
         }
     }
 
@@ -320,32 +360,36 @@ private:
     size_t index_ = 0;
 };
 
-struct InputReaderViewCounts {
-    size_t live_count = 0;
-    size_t delete_count = 0;
-};
-
-InputReaderViewCounts count_input_reader_view_rows(const InputReaderView& reader) {
-    InputReaderViewCounts counts;
+size_t count_input_reader_view_deleted_rows(const InputReaderView& reader) {
+    size_t deleted_count = 0;
     for (size_t i = 0; i < reader.count(); ++i) {
         if (reader.is_no_data(i)) {
-            ++counts.delete_count;
-        } else {
-            ++counts.live_count;
+            ++deleted_count;
         }
     }
-    return counts;
+    return deleted_count;
 }
 
-template <typename SourceDeletedCursor, typename UpdaterCursor, typename UpdaterDeletedCursor>
+template <typename UpdaterCursor>
+std::vector<uint64_t> collect_updater_live_ids(UpdaterCursor updater, size_t reserve_count) {
+    std::vector<uint64_t> live_ids;
+    live_ids.reserve(reserve_count);
+    for (; !updater.eof(); updater.next()) {
+        live_ids.push_back(updater.id());
+    }
+    return live_ids;
+}
+
+template <typename SourceDeletedCursor, typename UpdaterDeletedCursor>
 class DeltaDeleteCursor {
 public:
     DeltaDeleteCursor(SourceDeletedCursor source_deleted,
-            UpdaterCursor updater,
-            UpdaterDeletedCursor updater_deleted)
+            UpdaterDeletedCursor updater_deleted,
+            const std::vector<uint64_t>* updater_live_ids)
         : source_deleted_(std::move(source_deleted)),
-          updater_(std::move(updater)),
-          updater_deleted_(std::move(updater_deleted)) {
+          updater_deleted_(std::move(updater_deleted)),
+          updater_live_ids_(updater_live_ids) {
+        assert(updater_live_ids_ != nullptr);
         select_current();
     }
 
@@ -382,10 +426,12 @@ private:
     void skip_resurrected_source_deletes() {
         while (!source_deleted_.eof()) {
             const uint64_t source_id = source_deleted_.id();
-            while (!updater_.eof() && updater_.id() < source_id) {
-                updater_.next();
+            while (updater_live_index_ < updater_live_ids_->size() &&
+                    (*updater_live_ids_)[updater_live_index_] < source_id) {
+                ++updater_live_index_;
             }
-            if (!updater_.eof() && updater_.id() == source_id) {
+            if (updater_live_index_ < updater_live_ids_->size() &&
+                    (*updater_live_ids_)[updater_live_index_] == source_id) {
                 source_deleted_.next();
                 continue;
             }
@@ -428,28 +474,32 @@ private:
     }
 
     SourceDeletedCursor source_deleted_;
-    UpdaterCursor updater_;
     UpdaterDeletedCursor updater_deleted_;
+    const std::vector<uint64_t>* updater_live_ids_ = nullptr;
+    size_t updater_live_index_ = 0;
     uint64_t current_id_ = 0;
     bool has_current_ = false;
     CurrentSource current_source_ = CurrentSource::SourceOnly;
 };
 
-auto make_data_reader_delta_delete_cursor(const DataReader& source, const DataReader& updater) {
+auto make_data_reader_delta_delete_cursor(
+        const DataReader& source,
+        const DataReader& updater,
+        const std::vector<uint64_t>* updater_live_ids) {
     return DeltaDeleteCursor(
         DataReaderDeletedCursor(source),
-        DataReaderUpdaterCursor(updater),
-        DataReaderDeletedCursor(updater));
+        DataReaderDeletedCursor(updater),
+        updater_live_ids);
 }
 
 auto make_input_reader_delta_delete_cursor(
         const DataReader& source,
         const InputReaderView& updater,
-        bool compute_cosine_inv_norms) {
+        const std::vector<uint64_t>* updater_live_ids) {
     return DeltaDeleteCursor(
         DataReaderDeletedCursor(source),
-        InputReaderUpdaterCursor(updater, compute_cosine_inv_norms),
-        InputReaderDeletedCursor(updater));
+        InputReaderDeletedCursor(updater),
+        updater_live_ids);
 }
 
 template <typename Cursor>
@@ -730,9 +780,11 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     Timer timer("merge_delta_file");
     // Delta-to-delta merge keeps a tombstone section, but it must first remove
     // any old deletes that the updater resurrected as live rows.
+    const std::vector<uint64_t> updater_live_ids =
+        collect_updater_live_ids(DataReaderUpdaterCursor(updater), updater.count());
     CompactIdsBuilder compact_deleted_ids;
     CHECK(build_compact_ids_builder(
-        make_data_reader_delta_delete_cursor(source, updater),
+        make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids),
         "DataMerger::merge_delta_file: deleted ids",
         source.deleted_count() + updater.deleted_count(),
         &compact_deleted_ids));
@@ -741,11 +793,13 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
     output.reserve(source.count() + updater.count(), false);
+    const auto merge_deleted_cursor =
+        make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids);
     CHECK(merge_records(
         source,
         DataReaderUpdaterCursor(updater),
-        make_data_reader_delta_delete_cursor(source, updater),
-        make_data_reader_delta_delete_cursor(source, updater),
+        merge_deleted_cursor,
+        merge_deleted_cursor,
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
     // Delta files have the same live-row trailer as data files...
@@ -774,13 +828,12 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
     }
 
     Timer timer("merge_data_file");
-    const InputReaderViewCounts updater_counts = count_input_reader_view_rows(updater);
     const CompactIdsBuilder empty_deleted_ids;
     MergeFile merge_file;
     CHECK(merge_file.open(source, path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
-    output.reserve(source.count() + updater_counts.live_count, !updater.is_binary());
+    output.reserve(source.count() + updater.count(), !updater.is_binary());
 #ifndef NDEBUG
     assert(source.has_cosine_inv_norms() == output.cosine_inv_norms_enabled());
 #endif
@@ -815,27 +868,32 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     }
 
     Timer timer("merge_delta_file");
-    const InputReaderViewCounts updater_counts = count_input_reader_view_rows(updater);
     const bool compute_cosine_inv_norms = source.has_cosine_inv_norms();
+    const std::vector<uint64_t> updater_live_ids = collect_updater_live_ids(
+        InputReaderUpdaterCursor(updater, compute_cosine_inv_norms),
+        updater.count());
+    const size_t updater_deleted_count = count_input_reader_view_deleted_rows(updater);
     CompactIdsBuilder compact_deleted_ids;
     CHECK(build_compact_ids_builder(
-        make_input_reader_delta_delete_cursor(source, updater, compute_cosine_inv_norms),
+        make_input_reader_delta_delete_cursor(source, updater, &updater_live_ids),
         "DataMerger::merge_delta_file: deleted ids",
-        source.deleted_count() + updater_counts.delete_count,
+        source.deleted_count() + updater_deleted_count,
         &compact_deleted_ids));
     MergeFile merge_file;
     CHECK(merge_file.open(source, path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
-    output.reserve(source.count() + updater_counts.live_count, !updater.is_binary());
+    output.reserve(source.count() + updater.count(), !updater.is_binary());
 #ifndef NDEBUG
     assert(source.has_cosine_inv_norms() == output.cosine_inv_norms_enabled());
 #endif
+    const auto merge_deleted_cursor =
+        make_input_reader_delta_delete_cursor(source, updater, &updater_live_ids);
     CHECK(merge_records(
         source,
         InputReaderUpdaterCursor(updater, compute_cosine_inv_norms),
-        make_input_reader_delta_delete_cursor(source, updater, compute_cosine_inv_norms),
-        make_input_reader_delta_delete_cursor(source, updater, compute_cosine_inv_norms),
+        merge_deleted_cursor,
+        merge_deleted_cursor,
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
     CHECK(output.write_ids_section(
