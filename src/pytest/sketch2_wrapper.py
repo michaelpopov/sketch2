@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import ctypes
-from ctypes import POINTER, c_bool, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
+from ctypes import POINTER, c_bool, c_char, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
 from pathlib import Path
 
 
@@ -124,6 +124,9 @@ class Sketch2:
 
         self.lib.sk_set_log_level.argtypes = [c_char_p]
         self.lib.sk_set_log_level.restype = None
+
+        self.lib.sk_version.argtypes = [POINTER(c_char), c_size_t]
+        self.lib.sk_version.restype = None
 
         self.lib.sk_error.argtypes = [c_void_p]
         self.lib.sk_error.restype = c_int
@@ -286,3 +289,10 @@ class Sketch2:
 
     def set_log_level(self, level: str) -> None:
         self.lib.sk_set_log_level(level.encode("utf-8"))
+
+    def version(self, buf_size: int = 128) -> str:
+        if buf_size < 1:
+            raise ValueError("buf_size must be >= 1")
+        buf = ctypes.create_string_buffer(buf_size)
+        self.lib.sk_version(buf, c_size_t(buf_size))
+        return buf.value.decode("utf-8", errors="replace")

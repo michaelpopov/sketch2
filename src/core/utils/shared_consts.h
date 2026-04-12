@@ -7,6 +7,9 @@
 
 namespace sketch2 {
 
+// Current Sketch2 version
+inline constexpr char kSketch2Version[] = "0.1.0";
+
 // Dataset metadata file name shared by Dataset INI loading and dataset-management callers.
 inline constexpr char kMetadataFileName[] = "sketch2.metadata";
 

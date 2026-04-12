@@ -182,6 +182,11 @@ void sk_free(void* ptr);
  */
 void sk_set_log_level(const char* log_level);
 
+/*
+ * Write Sketch2 version string into caller-provided buffer.
+ */
+void sk_version(char* buf, size_t buf_size);
+
 #ifdef __cplusplus
 }
 #endif

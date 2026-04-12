@@ -7,8 +7,10 @@
 
 #include "core/utils/singleton.h"
 #include "core/utils/log.h"
+#include "core/utils/shared_consts.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <new>
 
@@ -302,6 +304,16 @@ void sk_set_log_level(const char* log_level) {
     }
     LogLevel level = parse_log_level(log_level);
     set_current_log_level(level);
+}
+
+void sk_version(char* buf, size_t buf_size) {
+    if (buf == nullptr || buf_size == 0) {
+        return;
+    }
+    const size_t version_len = std::strlen(kSketch2Version);
+    const size_t copy_len = (version_len < (buf_size - 1)) ? version_len : (buf_size - 1);
+    std::memcpy(buf, kSketch2Version, copy_len);
+    buf[copy_len] = '\0';
 }
 
 const char* sk_knn_engine_name_for_testing(void) {
