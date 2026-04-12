@@ -5,7 +5,7 @@
 #include "dlfcn.h"
 #include "sqlite3.h"
 
-#include "sketch2api/sketch2api.h"
+#include "sketch2api/sketch2.h"
 #include "utils/shared_types.h"
 
 #include <cstdio>

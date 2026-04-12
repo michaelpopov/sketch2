@@ -1,7 +1,7 @@
 // Implements the SQLite virtual table that exposes vector search over datasets.
 
 #include "vlite.h"
-#include "sketch2api/sketch2api.h"
+#include "sketch2api/sketch2.h"
 #include "sketch2api/sketch2api_testing.h"
 
 #include <algorithm>

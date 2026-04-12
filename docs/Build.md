@@ -24,7 +24,7 @@ Practical tools used by this repository:
 On Ubuntu, the repository `Makefile` provides:
 
 ```bash
-make install
+make prepare
 ```
 
 That target runs:
@@ -117,6 +117,31 @@ make san
 These commands configure the corresponding build directory if needed and then
 run `cmake --build` with parallel jobs.
 
+Install the release artifacts for reuse by other projects:
+
+```bash
+make install
+```
+
+That target depends on `rtest`, so it first builds the release configuration
+and runs the release test suite. It then creates an `install/` tree in the
+repository root and copies the public artifacts into it.
+
+Installed layout:
+
+- `install/include/sketch2.h`
+- `install/lib/libsketch2.so`
+
+The `install/` directory is meant to hold the files that another project needs
+in order to compile and link against Sketch2 without having to know the
+repository's internal build directories.
+
+Examples:
+
+- a C or C++ application that includes `sketch2.h` and links against `libsketch2.so`
+- a local integration test harness that wants a stable include path and library path
+- a separate CMake project that consumes Sketch2 from a checked-out source tree
+
 ## Building With CMake Directly
 
 If you want to work without the `Makefile`, use CMake directly.
@@ -147,6 +172,68 @@ If you want benchmark binaries as part of a release build, configure with:
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_BENCHMARKS=ON
 cmake --build build --target bench_comp gbench_comp
+```
+
+## Using Sketch2 From Another Project
+
+When Sketch2 is checked out locally, it is convenient to point dependent
+projects at the repository root through `SKETCH2_ROOT`.
+
+Example:
+
+```bash
+export SKETCH2_ROOT=/absolute/path/to/sketch2
+```
+
+If you are already in the repository root, you can also set it as:
+
+```bash
+export SKETCH2_ROOT=$(pwd)
+```
+
+After `make install`, the reusable build inputs are:
+
+- include path: `$SKETCH2_ROOT/install/include`
+- library path: `$SKETCH2_ROOT/install/lib`
+
+Example with `g++`:
+
+```bash
+g++ -std=c++20 app.cpp \
+  -I"$SKETCH2_ROOT/install/include" \
+  -L"$SKETCH2_ROOT/install/lib" \
+  -lsketch2
+```
+
+Example with CMake:
+
+```cmake
+target_include_directories(my_app PRIVATE "$ENV{SKETCH2_ROOT}/install/include")
+target_link_directories(my_app PRIVATE "$ENV{SKETCH2_ROOT}/install/lib")
+target_link_libraries(my_app PRIVATE sketch2)
+```
+
+This keeps the consumer pointed at the stable `install/` layout instead of the
+build-specific directories such as `build/lib` or `build-dbg/lib`.
+
+## Using The Shared Library During Dev And Test Runs
+
+If a development binary or test binary loads `libsketch2.so` at runtime, add
+the installed library directory to `LD_LIBRARY_PATH`.
+
+Example:
+
+```bash
+export LD_LIBRARY_PATH="$SKETCH2_ROOT/install/lib:${LD_LIBRARY_PATH}"
+```
+
+With that in place, locally built tools, integration tests, or other dependent
+executables can locate `libsketch2.so` during development and test runs.
+
+For a one-off command, you can also set it inline:
+
+```bash
+LD_LIBRARY_PATH="$SKETCH2_ROOT/install/lib:${LD_LIBRARY_PATH}" ./my_test_binary
 ```
 
 ## Running The Python Entry Points

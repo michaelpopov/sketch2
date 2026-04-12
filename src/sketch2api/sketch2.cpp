@@ -1,6 +1,6 @@
 // Implements the public C API for dataset lifecycle, mutation, and query operations.
 
-#include "sketch2api.h"
+#include "sketch2.h"
 #include "sketch2api_testing.h"
 #include "internal.h"
 #include "sketch2api_utils.h"

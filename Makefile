@@ -16,9 +16,9 @@ all: build
 # --- Build directory initialization ---
 # Always re-run configuration so the directory matches the requested build type.
 
-# Install required dependencies on Ubuntu
-.PHONY: install
-install:
+# Prepare required dependencies on Ubuntu
+.PHONY: prepare
+prepare:
 	sudo apt update && sudo apt install -y build-essential cmake ninja-build -y
 
 .PHONY: initdbg
@@ -72,6 +72,13 @@ sketch2test: build
 .PHONY: rtest
 rtest: rel
 	ctest --test-dir $(BUILD_REL) --output-on-failure
+
+# Installs the public header and release shared library under install/
+.PHONY: install
+install: rtest
+	@mkdir -p install/include install/lib
+	cp src/sketch2api/sketch2.h install/include/
+	cp $(BUILD_REL)/lib/libsketch2.so install/lib/
 
 # Runs the test suite in sanitizer build
 .PHONY: santest

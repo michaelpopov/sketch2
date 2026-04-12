@@ -1,7 +1,7 @@
 // End-to-end tests for compute.engine selection through sketch2api.
 
 #include "internal.h"
-#include "sketch2api.h"
+#include "sketch2.h"
 #include "core/utils/compute_unit.h"
 
 #include <cstdlib>

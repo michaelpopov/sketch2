@@ -1,5 +1,5 @@
 #pragma once
-#include "sketch2api.h"
+#include "sketch2.h"
 
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset_node.h"

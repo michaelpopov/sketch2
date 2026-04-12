@@ -21,7 +21,7 @@ Typical debug artifacts:
 
 ## Public C API Shape
 
-The public header is `src/sketch2api/sketch2api.h`.
+The public header is `src/sketch2api/sketch2.h`.
 Testing-only declarations live in `src/sketch2api/sketch2api_testing.h`.
 
 The API follows a simple status-code pattern:

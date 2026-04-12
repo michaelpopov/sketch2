@@ -1,7 +1,7 @@
 // Declares the public C API exposed by the sketch2api layer.
 
-#ifndef SKETCH2API_H
-#define SKETCH2API_H
+#ifndef SKETCH2_H
+#define SKETCH2_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -186,4 +186,4 @@ void sk_set_log_level(const char* log_level);
 }
 #endif
 
-#endif // SKETCH2API_H
+#endif // SKETCH2_H

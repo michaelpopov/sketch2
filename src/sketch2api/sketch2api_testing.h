@@ -9,7 +9,7 @@ extern "C" {
 
 /*
  * Test helper: returns active KNN engine name for the current process.
- * This declaration is intentionally kept out of sketch2api.h so it does not
+ * This declaration is intentionally kept out of sketch2.h so it does not
  * become part of the main public API surface.
  */
 const char* sk_knn_engine_name_for_testing(void);

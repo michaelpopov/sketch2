@@ -1,6 +1,6 @@
 // Unit tests for the public sketch2api API.
 
-#include "sketch2api.h"
+#include "sketch2.h"
 
 #include "storage/input_generator.h"
 
