@@ -133,6 +133,7 @@ constexpr const char* kBitsetBuilderMaxIdError =
 constexpr const char* kBitsetBuilderSizeError =
     "bitset builder: required bitset size exceeds supported limit";
 constexpr const char* kBitsetBuilderNomemError = "sketch2: out of memory";
+constexpr size_t kBitsetHeaderBytes = sizeof(uint64_t);
 
 void set_bitset_builder_error(bool* out_of_memory, const char** error_message_out,
     bool is_nomem, const char* message) {
@@ -888,7 +889,6 @@ int sk_bitset_builder_add_(
             builder, false, kBitsetBuilderMaxIdError, out_of_memory, error_message_out);
     }
 
-    constexpr size_t kHeaderBytes = sizeof(uint64_t);
     if (!builder->has_first_id) {
         builder->first_id = id;
         builder->has_first_id = true;
@@ -900,13 +900,13 @@ int sk_bitset_builder_add_(
 
     const uint64_t relative_id = id - builder->first_id;
     const uint64_t byte_index_u64 = relative_id >> 3u;
-    if (byte_index_u64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - kHeaderBytes - 1u)) {
+    if (byte_index_u64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - kBitsetHeaderBytes - 1u)) {
         return return_bitset_builder_error(
             builder, false, kBitsetBuilderSizeError, out_of_memory, error_message_out);
     }
 
     const size_t byte_index = static_cast<size_t>(byte_index_u64);
-    const size_t needed_size = kHeaderBytes + byte_index + 1u;
+    const size_t needed_size = kBitsetHeaderBytes + byte_index + 1u;
     if (needed_size > builder->capacity) {
         size_t new_capacity = builder->capacity > 0 ? builder->capacity : 1u;
         while (new_capacity < needed_size) {
@@ -941,7 +941,70 @@ int sk_bitset_builder_add_(
         builder->size = needed_size;
     }
 
-    builder->data[kHeaderBytes + byte_index] |= static_cast<uint8_t>(1u << (relative_id & 7u));
+    builder->data[kBitsetHeaderBytes + byte_index] |= static_cast<uint8_t>(1u << (relative_id & 7u));
+    return 0;
+}
+
+int sk_bitset_build_(
+        uint64_t* ids, uint64_t count, void** blob_out, size_t* blob_size_out,
+        bool* out_of_memory, const char** error_message_out) {
+    set_bitset_builder_error(out_of_memory, error_message_out, false, nullptr);
+
+    if (blob_out == nullptr || blob_size_out == nullptr) {
+        set_bitset_builder_error(out_of_memory, error_message_out, false,
+            "bitset builder: invalid output arguments");
+        return -1;
+    }
+    *blob_out = nullptr;
+    *blob_size_out = 0;
+
+    if (count == 0) {
+        return 0;
+    }
+    if (ids == nullptr) {
+        set_bitset_builder_error(out_of_memory, error_message_out, false,
+            "bitset builder: invalid ids argument");
+        return -1;
+    }
+
+    const uint64_t first_id = ids[0];
+    const uint64_t last_id = ids[count - 1];
+    if (first_id > kBitsetBuilderMaxId || last_id > kBitsetBuilderMaxId) {
+        set_bitset_builder_error(out_of_memory, error_message_out, false, kBitsetBuilderMaxIdError);
+        return -1;
+    }
+    for (uint64_t i = 1; i < count; ++i) {
+        if (ids[i] < ids[i - 1]) {
+            set_bitset_builder_error(out_of_memory, error_message_out, false, kBitsetBuilderOrderError);
+            return -1;
+        }
+    }
+
+    const uint64_t relative_last_id = last_id - first_id;
+    const uint64_t bitset_bytes_u64 = (relative_last_id >> 3u) + 1u;
+    if (bitset_bytes_u64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - kBitsetHeaderBytes)) {
+        set_bitset_builder_error(out_of_memory, error_message_out, false, kBitsetBuilderSizeError);
+        return -1;
+    }
+
+    const size_t bitset_bytes = static_cast<size_t>(bitset_bytes_u64);
+    const size_t blob_size = kBitsetHeaderBytes + bitset_bytes;
+    uint8_t* blob = static_cast<uint8_t*>(std::malloc(blob_size));
+    if (blob == nullptr) {
+        set_bitset_builder_error(out_of_memory, error_message_out, true, kBitsetBuilderNomemError);
+        return -1;
+    }
+
+    std::memset(blob, 0, blob_size);
+    std::memcpy(blob, &first_id, sizeof(first_id));
+    for (uint64_t i = 0; i < count; ++i) {
+        const uint64_t relative_id = ids[i] - first_id;
+        const size_t byte_index = static_cast<size_t>(relative_id >> 3u);
+        blob[kBitsetHeaderBytes + byte_index] |= static_cast<uint8_t>(1u << (relative_id & 7u));
+    }
+
+    *blob_out = blob;
+    *blob_size_out = blob_size;
     return 0;
 }
 

@@ -148,6 +148,21 @@ int sk_bitset_drop(sk_handle_t* handle, const char* name);
 int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
 
 /*
+ * Build an in-memory allowlist bitset blob from an ordered array of ids.
+ * Expectations:
+ * - ids must point to count ids sorted in non-decreasing order
+ * - duplicate ids are allowed
+ * - ids may be nullptr only when count is 0
+ * - blob_out and blob_size_out must be non-null
+ * - count == 0 is valid and returns an empty blob
+ * - out_of_memory and error_message_out are optional outputs
+ * On success, the caller owns *blob_out and must release it with sk_free().
+ */
+int sk_bitset_build(
+    uint64_t* ids, uint64_t count, void** blob_out, size_t* blob_size_out,
+    bool* out_of_memory, const char** error_message_out);
+
+/*
  * Internal-facing utility used by adapters (for example SQLite) to build an
  * in-memory allowlist bitset blob in the Sketch2 API binary format.
  */

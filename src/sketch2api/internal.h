@@ -40,6 +40,9 @@ SKETCH2API_HIDDEN int sk_bitset_builder_add_(
 SKETCH2API_HIDDEN int sk_bitset_builder_finish_(
     void** state, void** blob_out, size_t* blob_size_out,
     bool* out_of_memory, const char** error_message_out);
+SKETCH2API_HIDDEN int sk_bitset_build_(
+    uint64_t* ids, uint64_t count, void** blob_out, size_t* blob_size_out,
+    bool* out_of_memory, const char** error_message_out);
 SKETCH2API_HIDDEN int sk_stats_(sk_handle_t* handle, const char* path = nullptr);
 
 } // namespace sketch2api::detail

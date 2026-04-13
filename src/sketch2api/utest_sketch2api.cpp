@@ -1,6 +1,7 @@
 // Unit tests for the public sketch2api API.
 
 #include "sketch2.h"
+#include "internal.h"
 
 #include "storage/input_generator.h"
 
@@ -139,6 +140,35 @@ std::vector<uint8_t> build_bitset_blob(const std::vector<uint64_t>& ids, int* rc
         local_nomem = prior_nomem;
         local_error = prior_error;
     }
+
+    if (rc_out != nullptr) {
+        *rc_out = rc;
+    }
+    if (out_of_memory != nullptr) {
+        *out_of_memory = local_nomem;
+    }
+    if (error_message_out != nullptr) {
+        *error_message_out = local_error != nullptr ? local_error : "";
+    }
+
+    std::vector<uint8_t> out;
+    if (blob != nullptr && blob_size > 0) {
+        const auto* ptr = static_cast<const uint8_t*>(blob);
+        out.assign(ptr, ptr + blob_size);
+    }
+    sk_free(blob);
+    return out;
+}
+
+std::vector<uint8_t> build_bitset_blob_api(const std::vector<uint64_t>& ids, int* rc_out = nullptr,
+        bool* out_of_memory = nullptr, std::string* error_message_out = nullptr) {
+    void* blob = nullptr;
+    size_t blob_size = 0;
+    bool local_nomem = false;
+    const char* local_error = nullptr;
+    const int rc = sk_bitset_build(
+        ids.empty() ? nullptr : const_cast<uint64_t*>(ids.data()), ids.size(),
+        &blob, &blob_size, &local_nomem, &local_error);
 
     if (rc_out != nullptr) {
         *rc_out = rc;
@@ -352,6 +382,62 @@ TEST(sketch2api, bitset_builder_rejects_ids_above_maximum) {
     EXPECT_FALSE(out_of_memory);
     EXPECT_EQ("bitset builder: id must be <= 100000000", error_message);
     EXPECT_TRUE(blob.empty());
+}
+
+TEST(sketch2api, internal_bitset_build_matches_streaming_builder) {
+    const std::vector<uint64_t> ids = {10u, 11u, 18u, 18u};
+
+    int streaming_rc = -1;
+    bool streaming_nomem = false;
+    std::string streaming_error;
+    const std::vector<uint8_t> streaming_blob = build_bitset_blob(
+        ids, &streaming_rc, &streaming_nomem, &streaming_error);
+
+    void* blob = nullptr;
+    size_t blob_size = 0;
+    bool build_nomem = false;
+    const char* build_error = nullptr;
+    const int build_rc = sketch2api::detail::sk_bitset_build_(
+        const_cast<uint64_t*>(ids.data()), ids.size(),
+        &blob, &blob_size, &build_nomem, &build_error);
+
+    EXPECT_EQ(0, streaming_rc);
+    EXPECT_EQ(0, build_rc);
+    EXPECT_FALSE(streaming_nomem);
+    EXPECT_FALSE(build_nomem);
+    EXPECT_TRUE(streaming_error.empty());
+    EXPECT_EQ(nullptr, build_error);
+
+    std::vector<uint8_t> build_blob;
+    if (blob != nullptr && blob_size > 0) {
+        const auto* ptr = static_cast<const uint8_t*>(blob);
+        build_blob.assign(ptr, ptr + blob_size);
+    }
+    sk_free(blob);
+
+    EXPECT_EQ(streaming_blob, build_blob);
+}
+
+TEST(sketch2api, public_bitset_build_matches_streaming_builder) {
+    int build_rc = -1;
+    bool build_nomem = false;
+    std::string build_error;
+    const std::vector<uint8_t> build_blob = build_bitset_blob_api(
+        {10u, 11u, 18u, 18u}, &build_rc, &build_nomem, &build_error);
+
+    int streaming_rc = -1;
+    bool streaming_nomem = false;
+    std::string streaming_error;
+    const std::vector<uint8_t> streaming_blob = build_bitset_blob(
+        {10u, 11u, 18u, 18u}, &streaming_rc, &streaming_nomem, &streaming_error);
+
+    EXPECT_EQ(0, build_rc);
+    EXPECT_EQ(0, streaming_rc);
+    EXPECT_FALSE(build_nomem);
+    EXPECT_FALSE(streaming_nomem);
+    EXPECT_TRUE(build_error.empty());
+    EXPECT_TRUE(streaming_error.empty());
+    EXPECT_EQ(streaming_blob, build_blob);
 }
 
 TEST(sketch2api, generate_stats_and_print_smoke) {
