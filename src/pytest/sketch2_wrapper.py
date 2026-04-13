@@ -116,6 +116,9 @@ class Sketch2:
         self.lib.sk_generate_test_data.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64, c_bool]
         self.lib.sk_generate_test_data.restype = c_int
 
+        self.lib.sk_generate_test_metadata.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64]
+        self.lib.sk_generate_test_metadata.restype = c_int
+
         self.lib.sk_load_file.argtypes = [c_void_p, c_char_p]
         self.lib.sk_load_file.restype = c_int
 
@@ -277,6 +280,24 @@ class Sketch2:
                 c_uint64(count),
                 c_uint64(start_id),
                 c_bool(bool(binary)),
+            ),
+        )
+
+    def generate_test_metadata(
+        self,
+        file_path: str | Path,
+        count: int,
+        start_id: int | None = None,
+    ) -> None:
+        if start_id is None:
+            start_id = 0
+        self._check(
+            "generate_test_metadata",
+            self.lib.sk_generate_test_metadata(
+                self.handle,
+                str(file_path).encode("utf-8"),
+                c_uint64(count),
+                c_uint64(start_id),
             ),
         )
 

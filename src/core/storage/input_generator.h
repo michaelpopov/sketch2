@@ -37,6 +37,7 @@ struct GeneratorConfig {
 
 Ret generate_input_file(const std::string& path, const GeneratorConfig& config);
 Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen);
+Ret generate_dummy_metadata(const std::string& path, size_t count, size_t start_id = 0);
 
 // InputVector exists to generate deterministic per-dimension test vectors for
 // synthetic input files. It advances one column at a time so tests can produce

@@ -575,4 +575,27 @@ Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen
     });
 }
 
+Ret generate_dummy_metadata(const std::string& path, size_t count, size_t start_id) {
+    FILE* f = fopen(path.c_str(), "w");
+    if (!f) {
+        return Ret("Failed to open file for writing: " + path);
+    }
+    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+
+    fprintf(f, "id,aaa,bbb,ccc,text\n");
+    for (size_t i = start_id; i < start_id + count; ++i) {
+        const size_t aaa = i % 2;
+        const size_t bbb = i % 5;
+        const size_t ccc = i % 10;
+        fprintf(f, "%zu,%zu,%zu,%zu,\"aaa=%zu, bbb=%zu, ccc=%zu\"\n",
+            i, aaa, bbb, ccc, aaa, bbb, ccc);
+    }
+
+    if (ferror(f)) {
+        return make_io_error("Failed to write file", path);
+    }
+
+    return Ret(0);
+}
+
 } // namespace sketch2

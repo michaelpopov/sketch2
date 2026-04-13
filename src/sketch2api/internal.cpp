@@ -720,6 +720,13 @@ int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count
     return 0;
 }
 
+SKETCH2API_HIDDEN int sk_generate_test_metadata_(sk_handle_t* handle, 
+    const char* path, uint64_t count, uint64_t start_id) {
+    (void)handle;
+    Ret ret = generate_dummy_metadata(path, count, start_id);
+    return ret.code();
+}
+
 int sk_load_file_(sk_handle_t* handle, const char* path) {
     DECL
 

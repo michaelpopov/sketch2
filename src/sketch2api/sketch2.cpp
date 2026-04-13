@@ -201,6 +201,15 @@ int sk_generate_test_data(sk_handle_t* handle,
     }
 }
 
+int sk_generate_test_metadata(sk_handle_t* handle, 
+    const char* path, uint64_t count, uint64_t start_id) {
+    try {
+        return sk_generate_test_metadata_(handle, path, count, start_id);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
 int sk_load_file(sk_handle_t* handle, const char* path) {
     try {
         return sk_load_file_(handle, path);

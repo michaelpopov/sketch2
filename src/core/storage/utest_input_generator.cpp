@@ -116,6 +116,25 @@ TEST_F(InputGeneratorTest, FailureLeavesExistingFileUntouched) {
     EXPECT_EQ("keep me", read_file_bytes());
 }
 
+TEST_F(InputGeneratorTest, DummyMetadataWritesHeaderAndPeriodicColumns) {
+    ASSERT_EQ(0, generate_dummy_metadata(path_, 20).code());
+
+    auto lines = read_lines();
+    ASSERT_EQ(21u, lines.size());
+    EXPECT_EQ("id,aaa,bbb,ccc,text", lines[0]);
+    EXPECT_EQ("0,0,0,0,\"aaa=0, bbb=0, ccc=0\"", lines[1]);
+    EXPECT_EQ("1,1,1,1,\"aaa=1, bbb=1, ccc=1\"", lines[2]);
+    EXPECT_EQ("2,0,2,2,\"aaa=0, bbb=2, ccc=2\"", lines[3]);
+    EXPECT_EQ("4,0,4,4,\"aaa=0, bbb=4, ccc=4\"", lines[5]);
+    EXPECT_EQ("5,1,0,5,\"aaa=1, bbb=0, ccc=5\"", lines[6]);
+    EXPECT_EQ("9,1,4,9,\"aaa=1, bbb=4, ccc=9\"", lines[10]);
+    EXPECT_EQ("10,0,0,0,\"aaa=0, bbb=0, ccc=0\"", lines[11]);
+    EXPECT_EQ("11,1,1,1,\"aaa=1, bbb=1, ccc=1\"", lines[12]);
+    EXPECT_EQ("14,0,4,4,\"aaa=0, bbb=4, ccc=4\"", lines[15]);
+    EXPECT_EQ("15,1,0,5,\"aaa=1, bbb=0, ccc=5\"", lines[16]);
+    EXPECT_EQ("19,1,4,9,\"aaa=1, bbb=4, ccc=9\"", lines[20]);
+}
+
 TEST_F(InputGeneratorTest, HeaderLineF32) {
     GeneratorConfig cfg{PatternType::Sequential, 1, 0, DataType::f32, 128, 1000};
     generate_input_file(path_, cfg);

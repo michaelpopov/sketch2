@@ -119,6 +119,12 @@ int sk_generate_test_data(sk_handle_t* handle,
     const char* path, uint64_t count, uint64_t start_id, bool binary);
 
 /*
+* Generate file with test metadata in CSV format.
+*/
+int sk_generate_test_metadata(sk_handle_t* handle, 
+    const char* path, uint64_t count, uint64_t start_id);
+
+/*
  * Load vectors from a text or binary input file into the current dataset.
  */
 int sk_load_file(sk_handle_t* handle, const char* path);

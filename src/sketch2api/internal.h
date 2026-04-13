@@ -27,6 +27,8 @@ SKETCH2API_HIDDEN int sk_abort_writing_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_complete_writing_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_generate_test_data_(
     sk_handle_t* handle, const char* path, uint64_t count, uint64_t start_id, bool binary = false);
+SKETCH2API_HIDDEN int sk_generate_test_metadata_(sk_handle_t* handle, 
+    const char* path, uint64_t count, uint64_t start_id);
 SKETCH2API_HIDDEN int sk_load_file_(sk_handle_t* handle, const char* path);
 SKETCH2API_HIDDEN int sk_bitset_create_(
     sk_handle_t* handle, const void* blob, size_t blob_size, const char* name);
