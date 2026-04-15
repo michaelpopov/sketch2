@@ -199,6 +199,72 @@ Ret parse_vector_spaces(uint8_t* buf, size_t size, DataType type, uint16_t dim, 
     return Ret(0);
 }
 
+Ret convert_vector(
+        uint8_t* buf, size_t size, DataType type, uint64_t dim, const float* vec, uint64_t vec_size) {
+    if (buf == nullptr || vec == nullptr) {
+        return Ret("convert_vector: invalid arguments");
+    }
+    if (vec_size != dim) {
+        return Ret("Invalid query vector size");
+    }
+    if (dim > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+        return Ret("Query vector is too large");
+    }
+
+    const size_t dim_size = static_cast<size_t>(dim);
+    if (size < data_type_size(type) * dim_size) {
+        return Ret("convert_vector: invalid output buffer size");
+    }
+
+    switch (type) {
+        case DataType::f32: {
+            auto* out = reinterpret_cast<float*>(buf);
+            for (size_t i = 0; i < dim_size; ++i) {
+                if (!std::isfinite(vec[i])) {
+                    return Ret("Query vector contains non-finite f32 value");
+                }
+                out[i] = vec[i];
+            }
+            break;
+        }
+        case DataType::f16: {
+            auto* out = reinterpret_cast<float16*>(buf);
+            for (size_t i = 0; i < dim_size; ++i) {
+                if (!std::isfinite(vec[i])) {
+                    return Ret("Query vector contains non-finite f16 value");
+                }
+                out[i] = static_cast<float16>(vec[i]);
+                if (!std::isfinite(static_cast<double>(out[i]))) {
+                    return Ret("Query vector contains non-finite f16 value");
+                }
+            }
+            break;
+        }
+        case DataType::i16: {
+            auto* out = reinterpret_cast<int16_t*>(buf);
+            for (size_t i = 0; i < dim_size; ++i) {
+                const float value = vec[i];
+                if (!std::isfinite(value)) {
+                    return Ret("Query vector contains non-finite i16 value");
+                }
+                if (std::trunc(value) != value) {
+                    return Ret("Query vector contains non-integral i16 value");
+                }
+                if (value < static_cast<float>(std::numeric_limits<int16_t>::min()) ||
+                    value > static_cast<float>(std::numeric_limits<int16_t>::max())) {
+                    return Ret("Query vector contains out-of-range i16 value");
+                }
+                out[i] = static_cast<int16_t>(value);
+            }
+            break;
+        }
+        default:
+            return Ret("Unsupported dataset type");
+    }
+
+    return Ret(0);
+}
+
 // Returns true if the range [line, end) contains at least one comma character.
 bool check_comma_format(const char* line, const char* end) {
     if (line == nullptr) {

@@ -109,6 +109,15 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
     }
 }
 
+int sk_knn_vector(sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
+        uint64_t** ids_out, size_t* count_out) {
+    try {
+        return sk_knn_vector_(handle, vec, vec_size, k, ids_out, count_out);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
 int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
         const void* allowed_ids_blob, size_t allowed_ids_blob_size,
         uint64_t** ids_out, double** scores_out, size_t* count_out) {

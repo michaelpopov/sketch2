@@ -316,6 +316,28 @@ TEST(string_utils, parse_vector_spaces_f32_scientific_notation) {
     EXPECT_FLOAT_EQ(out[2], 3.0f);
 }
 
+TEST(string_utils, convert_vector_f16_success) {
+    const std::array<float, 3> input {1.5f, -2.0f, 3.25f};
+    std::array<float16, 3> out {};
+    const Ret ret = convert_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::f16,
+        input.size(), input.data(), input.size());
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_FLOAT_EQ(static_cast<float>(out[0]), 1.5f);
+    EXPECT_FLOAT_EQ(static_cast<float>(out[1]), -2.0f);
+    EXPECT_FLOAT_EQ(static_cast<float>(out[2]), 3.25f);
+}
+
+TEST(string_utils, convert_vector_i16_non_integral_fails) {
+    const std::array<float, 2> input {1.0f, 2.5f};
+    std::array<int16_t, 2> out {};
+    const Ret ret = convert_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::i16,
+        input.size(), input.data(), input.size());
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Query vector contains non-integral i16 value", ret.message());
+}
+
 // ── load_vector ─────────────────────────────────────────────────────────────
 
 class LoadVectorTest : public ::testing::Test {

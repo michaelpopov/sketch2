@@ -101,6 +101,20 @@ std::vector<uint64_t> api_knn(sk_handle_t* handle, const char* vec, unsigned int
     return out;
 }
 
+std::vector<uint64_t> api_knn_vector(sk_handle_t* handle, const std::vector<float>& vec, unsigned int k) {
+    uint64_t* ids = nullptr;
+    size_t count = 0;
+    EXPECT_EQ(0, sk_knn_vector(handle, vec.data(), vec.size(), k, &ids, &count))
+        << sk_error_message(handle);
+
+    std::vector<uint64_t> out;
+    if (ids != nullptr) {
+        out.assign(ids, ids + count);
+        sk_free(ids);
+    }
+    return out;
+}
+
 std::vector<uint8_t> api_load_bitset(sk_handle_t* handle, const char* name) {
     void* blob = nullptr;
     size_t blob_size = 0;
@@ -638,6 +652,36 @@ TEST(sketch2api, knn_rejects_null_output_parameters) {
     ASSERT_NE(handle, nullptr);
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
     EXPECT_NE(0, sk_knn(handle, "0.0, 0.0, 0.0, 0.0", 1, nullptr, nullptr));
+
+    EXPECT_OK(handle, sk_close(handle));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_release_handle(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, knn_vector_matches_text_knn_and_checks_size) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_new_handle(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 10, "10.0, 10.0, 10.0, 10.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 20, "20.0, 20.0, 20.0, 20.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 30, "30.0, 30.0, 30.0, 30.0"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    const std::vector<uint64_t> text_ids = api_knn(handle, "10.0, 10.0, 10.0, 10.0", 3);
+    const std::vector<uint64_t> vector_ids = api_knn_vector(handle, {10.0f, 10.0f, 10.0f, 10.0f}, 3);
+    EXPECT_EQ(text_ids, vector_ids);
+
+    const std::vector<float> short_query = {10.0f, 10.0f, 10.0f};
+    uint64_t* ids = nullptr;
+    size_t count = 0;
+    EXPECT_NE(0, sk_knn_vector(handle, short_query.data(), short_query.size(), 1, &ids, &count));
+    EXPECT_EQ(nullptr, ids);
+    EXPECT_EQ(0u, count);
 
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));

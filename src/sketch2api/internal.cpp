@@ -11,7 +11,6 @@
 
 #include <cassert>
 #include <cctype>
-#include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <experimental/scope>
@@ -389,17 +388,40 @@ Ret run_knn_items_query(
         return Ret("Invalid arguments");
     }
 
-    std::string query(vec);
-    if (!query.empty() && query[0] == '@') {
-        Ret load_ret = load_vector(query.c_str() + 1, query);
+    const char* query = vec;
+    std::string loaded_query;
+    if (vec[0] == '@') {
+        Ret load_ret = load_vector(vec + 1, loaded_query);
         if (load_ret.code() != 0) {
             return load_ret;
         }
+        query = loaded_query.c_str();
     }
 
     std::vector<uint8_t> buf(data_type_size(dataset.type()) * dataset.dim());
     Ret ret = parse_vector(
-        buf.data(), buf.size(), dataset.type(), static_cast<uint16_t>(dataset.dim()), query.c_str());
+        buf.data(), buf.size(), dataset.type(), static_cast<uint16_t>(dataset.dim()), query);
+    if (ret.code() != 0) {
+        return ret;
+    }
+
+    ScannerEx scanner{selected_calc_engine(get_singleton().compute_unit().kind())};
+    return scanner.find_items(dataset.reader_dataset(), k, buf.data(), *items, bitset_filter);
+}
+
+Ret run_knn_items_query(
+        const DatasetNode& dataset, const float* vec, uint64_t vec_size, size_t k,
+        const BitsetFilter* bitset_filter, std::vector<DistItem>* items) {
+    if (vec == nullptr || items == nullptr || k == 0) {
+        return Ret("Invalid arguments");
+    }
+    if (vec_size != dataset.dim()) {
+        return Ret("Invalid query vector size");
+    }
+
+    const uint64_t dataset_dim = dataset.dim();
+    std::vector<uint8_t> buf(data_type_size(dataset.type()) * dataset_dim);
+    Ret ret = convert_vector(buf.data(), buf.size(), dataset.type(), dataset_dim, vec, vec_size);
     if (ret.code() != 0) {
         return ret;
     }
@@ -424,6 +446,40 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
 
     std::vector<DistItem> items;
     Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), nullptr, &items);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    if (!items.empty()) {
+        auto* ids = static_cast<uint64_t*>(std::malloc(items.size() * sizeof(uint64_t)));
+        if (ids == nullptr) {
+            ERR("Out of memory")
+        }
+        for (size_t i = 0; i < items.size(); ++i) {
+            ids[i] = items[i].id;
+        }
+        *ids_out = ids;
+    }
+    *count_out = items.size();
+    return 0;
+}
+
+int sk_knn_vector_(sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
+        uint64_t** ids_out, size_t* count_out) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+    if (vec == nullptr || vec_size == 0 || k == 0 || ids_out == nullptr || count_out == nullptr) {
+        ERR("Invalid arguments")
+    }
+
+    *ids_out = nullptr;
+    *count_out = 0;
+
+    std::vector<DistItem> items;
+    Ret ret = run_knn_items_query(*handle->ds, vec, vec_size, static_cast<size_t>(k), nullptr, &items);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
