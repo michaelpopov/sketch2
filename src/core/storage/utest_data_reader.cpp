@@ -14,7 +14,7 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
-#include "core/utils/compact_ids.h"
+#include "core/utils/compact_ids_ext.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -78,8 +78,8 @@ protected:
         DataWriter w;
         ret = w.init(in_path, out_path);
         ASSERT_EQ(0, ret.code()) << "DataWriter::init failed: " << ret.message();
-        ret = w.exec();
-        ASSERT_EQ(0, ret.code()) << "DataWriter::exec failed: " << ret.message();
+        ret = w.exec_for_testing();
+        ASSERT_EQ(0, ret.code()) << "DataWriter::exec_for_testing failed: " << ret.message();
     }
 
     void generate(size_t count, size_t min_id, DataType type, size_t dim, size_t every_n_deleted = 0) {
@@ -103,7 +103,7 @@ protected:
         f.close();
         DataWriter w;
         w.init(in_path, out_path);
-        ASSERT_EQ(0, w.exec().code());
+        ASSERT_EQ(0, w.exec_for_testing().code());
     }
 
     std::unique_ptr<DataReader> make_delta_reader() {
@@ -139,7 +139,7 @@ protected:
             std::vector<uint8_t> pad(ids_pad_size, 0);
             fwrite(pad.data(), 1, pad.size(), f);
         }
-        CompactIds compact_ids;
+        CompactIdsExt compact_ids;
         std::vector<uint64_t> ids;
         ids.reserve(vecs.size());
         for (size_t i = 0; i < vecs.size(); ++i) {
@@ -147,8 +147,9 @@ protected:
         }
         ASSERT_EQ(0, compact_ids.init(ids).code());
         ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::write_raw ids write failed").code());
-        CompactIds compact_deleted_ids;
-        ASSERT_EQ(0, compact_deleted_ids.init(std::vector<uint64_t>{}).code());
+        CompactIdsExt compact_deleted_ids;
+        std::vector<uint64_t> deleted_ids;
+        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
         ASSERT_EQ(0, compact_deleted_ids.write(f, "DataReaderTest::write_raw deleted ids write failed").code());
         fclose(f);
     }
@@ -348,7 +349,7 @@ TEST_F(DataReaderTest, ReadsCosineValuesWhenSectionIsPresent) {
     generate_input_file(input_path_, cfg);
     DataWriter w;
     ASSERT_EQ(0, w.init(input_path_, data_path_, 0, 0, true).code());
-    ASSERT_EQ(0, w.exec().code());
+    ASSERT_EQ(0, w.exec_for_testing().code());
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_).code());
@@ -371,11 +372,13 @@ TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
         std::vector<uint8_t> zeros(padding, 0);
         ASSERT_EQ(padding, fwrite(zeros.data(), 1, padding, f));
     }
-    CompactIds compact_ids;
-    ASSERT_EQ(0, compact_ids.init(std::vector<uint64_t>{}).code());
+    CompactIdsExt compact_ids;
+    std::vector<uint64_t> ids;
+    ASSERT_EQ(0, compact_ids.init(ids).code());
     ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::EmptyDataFileInitSucceeds ids write failed").code());
-    CompactIds compact_deleted_ids;
-    ASSERT_EQ(0, compact_deleted_ids.init(std::vector<uint64_t>{}).code());
+    CompactIdsExt compact_deleted_ids;
+    std::vector<uint64_t> deleted_ids;
+    ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
     ASSERT_EQ(0, compact_deleted_ids.write(f, "DataReaderTest::EmptyDataFileInitSucceeds deleted ids write failed").code());
     fclose(f);
 
@@ -861,21 +864,20 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
 
     const std::vector<uint8_t> bytes = read_file_bytes(data_path_);
     ASSERT_FALSE(bytes.empty());
-    CompactIds active_ids;
+    CompactIdsExt active_ids;
     size_t active_ids_size = 0;
-    ASSERT_EQ(0, active_ids.read(bytes.data() + ids_offset, bytes.size() - ids_offset, &active_ids_size).code());
+    ASSERT_EQ(0, active_ids.map(bytes.data() + ids_offset, bytes.size() - ids_offset, &active_ids_size).code());
     const size_t deleted_ids_offset = ids_offset + active_ids_size;
 
-    CompactIds deleted_ids;
-    ASSERT_EQ(0, deleted_ids.read(bytes.data() + deleted_ids_offset, bytes.size() - deleted_ids_offset, nullptr).code());
+    CompactIdsExt deleted_ids;
+    ASSERT_EQ(0, deleted_ids.map(bytes.data() + deleted_ids_offset, bytes.size() - deleted_ids_offset, nullptr).code());
     const size_t original_deleted_serialized_size = deleted_ids.serialized_size_bytes();
     std::vector<uint64_t> overlapping_deleted;
     overlapping_deleted.reserve(deleted_ids.count());
-    overlapping_deleted.push_back(3); // 3 is in active ids for this generated input
-    for (size_t i = 1; i < deleted_ids.count(); ++i) {
-        overlapping_deleted.push_back(deleted_ids.id(i));
+    for (size_t i = 0; i < deleted_ids.count(); ++i) {
+        overlapping_deleted.push_back(deleted_ids.id(i) + 1u);
     }
-    CompactIds overlapping_deleted_ids;
+    CompactIdsExt overlapping_deleted_ids;
     ASSERT_EQ(0, overlapping_deleted_ids.init(overlapping_deleted).code());
     ASSERT_EQ(original_deleted_serialized_size, overlapping_deleted_ids.serialized_size_bytes());
 

@@ -56,7 +56,7 @@ protected:
         generate_input_file(in_path, cfg);
         DataWriter w;
         w.init(in_path, out_path);
-        ASSERT_EQ(0, w.exec().code());
+        ASSERT_EQ(0, w.exec_for_testing().code());
     }
 
     void generate(size_t count, size_t min_id, DataType type, size_t dim) {
@@ -75,7 +75,7 @@ protected:
         f.close();
         DataWriter w;
         w.init(delta_input_path_, delta_path_);
-        ASSERT_EQ(0, w.exec().code());
+        ASSERT_EQ(0, w.exec_for_testing().code());
     }
 
     void write_input_raw(const std::string& path, const std::string& content) {
@@ -641,7 +641,7 @@ TEST_F(ScannerExTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     DataWriter writer;
     ASSERT_EQ(0, writer.init(input_path_, d + "/0.data").code());
-    ASSERT_EQ(0, writer.exec().code());
+    ASSERT_EQ(0, writer.exec_for_testing().code());
 
     DatasetNode ds;
     ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::COS).code());

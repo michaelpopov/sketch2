@@ -40,8 +40,8 @@ struct DataFileHeader {
 // 1) aligned vector records
 // 2) optional cosine inverse norms for active vectors
 // 3) id-alignment padding
-// 4) CompactIds(active ids)
-// 5) CompactIds(deleted ids)
+// 4) CompactIdsOffsets(active ids)
+// 5) CompactIdsOffsets(deleted ids)
 
 struct WalFileHeader {
     BaseFileHeader base;

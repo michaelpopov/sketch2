@@ -15,7 +15,8 @@
 #include "core/storage/data_merger.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/input_reader.h"
-#include "core/utils/compact_ids.h"
+#include "core/utils/compact_ids_ext.h"
+#include "core/utils/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -35,7 +36,7 @@ protected:
         uint64_t base = 0;
     };
 
-    static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIds header size");
+    static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIdsOffsets header size");
 
     void SetUp() override {
         base_dir_ = tmp_dir() + "/sketch2_utest_dm_" + std::to_string(getpid());
@@ -110,11 +111,12 @@ protected:
             std::vector<uint8_t> pad(ids_pad_size, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
         }
-        CompactIds compact_active_ids;
+        CompactIdsExt compact_active_ids;
         ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
         ASSERT_EQ(0, compact_active_ids.write(f, "DataMergerTest::write_f32_file active ids").code());
-        CompactIds compact_deleted_ids;
-        ASSERT_EQ(0, compact_deleted_ids.init(deleted).code());
+        CompactIdsExt compact_deleted_ids;
+        std::vector<uint64_t> deleted_ids = deleted;
+        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
         ASSERT_EQ(0, compact_deleted_ids.write(f, "DataMergerTest::write_f32_file deleted ids").code());
         fclose(f);
     }
@@ -160,11 +162,12 @@ protected:
             std::vector<uint8_t> pad(ids_pad_size, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
         }
-        CompactIds compact_active_ids;
+        CompactIdsExt compact_active_ids;
         ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
         ASSERT_EQ(0, compact_active_ids.write(f, "DataMergerTest::write_i16_file active ids").code());
-        CompactIds compact_deleted_ids;
-        ASSERT_EQ(0, compact_deleted_ids.init(deleted).code());
+        CompactIdsExt compact_deleted_ids;
+        std::vector<uint64_t> deleted_ids = deleted;
+        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
         ASSERT_EQ(0, compact_deleted_ids.write(f, "DataMergerTest::write_i16_file deleted ids").code());
         fclose(f);
     }
@@ -181,28 +184,28 @@ protected:
         return hdr;
     }
 
-    CompactIdsEncoding read_active_ids_encoding(const std::string& path) {
+    CompactIdsExtEncoding read_active_ids_encoding(const std::string& path) {
         const DataFileHeader hdr = read_header(path);
         const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
         FILE* f = fopen(path.c_str(), "rb");
         EXPECT_NE(nullptr, f);
         if (f == nullptr) {
-            return CompactIdsEncoding::Offsets32;
+            return CompactIdsExtEncoding::Offsets32;
         }
         EXPECT_EQ(0, fseek(f, static_cast<long>(ids_offset), SEEK_SET));
         CompactIdsHeaderForTest active_hdr{};
         EXPECT_EQ(1u, fread(&active_hdr, sizeof(active_hdr), 1, f));
         fclose(f);
-        return static_cast<CompactIdsEncoding>(active_hdr.encoding);
+        return static_cast<CompactIdsExtEncoding>(active_hdr.encoding);
     }
 
-    CompactIdsEncoding read_deleted_ids_encoding(const std::string& path) {
+    CompactIdsExtEncoding read_deleted_ids_encoding(const std::string& path) {
         const DataFileHeader hdr = read_header(path);
         const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
         FILE* f = fopen(path.c_str(), "rb");
         EXPECT_NE(nullptr, f);
         if (f == nullptr) {
-            return CompactIdsEncoding::Offsets32;
+            return CompactIdsExtEncoding::Offsets32;
         }
         EXPECT_EQ(0, fseek(f, static_cast<long>(ids_offset), SEEK_SET));
         CompactIdsHeaderForTest active_hdr{};
@@ -212,7 +215,7 @@ protected:
         CompactIdsHeaderForTest deleted_hdr{};
         EXPECT_EQ(1u, fread(&deleted_hdr, sizeof(deleted_hdr), 1, f));
         fclose(f);
-        return static_cast<CompactIdsEncoding>(deleted_hdr.encoding);
+        return static_cast<CompactIdsExtEncoding>(deleted_hdr.encoding);
     }
 
     float first_f32(const DataReader& reader, uint64_t id) {
@@ -586,7 +589,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsActiveIdSpanBeyondCompac
     const Ret ret = merger.merge_data_file(source_reader, view, out_path);
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
-              ret.message().find("active ids: CompactIds::init: id offset exceeds uint32_t range"));
+              ret.message().find("active ids: id range exceeds uint32_t"));
     EXPECT_FALSE(fs::exists(out_path));
 }
 
@@ -612,7 +615,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsDeletedIdSpanBeyondComp
     const Ret ret = merger.merge_delta_file(source_reader, view, out_path);
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
-              ret.message().find("deleted ids: CompactIds::init: id offset exceeds uint32_t range"));
+              ret.message().find("deleted ids: id range exceeds uint32_t"));
     EXPECT_FALSE(fs::exists(out_path));
 }
 
@@ -625,7 +628,8 @@ TEST_F(DataMergerTest, MergeDataFileDenseActiveIdsUseBitsetEncoding) {
     write_input_file(input_path, "f32,4\n");
     std::ofstream append(input_path, std::ios::app);
     ASSERT_TRUE(append.is_open());
-    for (uint64_t id = 20000; id < 29000; ++id) {
+    for (uint64_t i = 0; i < 9000; ++i) {
+        const uint64_t id = 20000 + i * 2;
         append << id << " : [ 1.0, 1.0, 1.0, 1.0 ]\n";
     }
     append.close();
@@ -638,7 +642,7 @@ TEST_F(DataMergerTest, MergeDataFileDenseActiveIdsUseBitsetEncoding) {
 
     DataMerger merger;
     ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
-    EXPECT_EQ(CompactIdsEncoding::Bitset, read_active_ids_encoding(out_path));
+    EXPECT_EQ(CompactIdsExtEncoding::Bitset, read_active_ids_encoding(out_path));
 }
 
 TEST_F(DataMergerTest, MergeDeltaFileDenseDeletedIdsUseBitsetEncoding) {
@@ -649,8 +653,8 @@ TEST_F(DataMergerTest, MergeDeltaFileDenseDeletedIdsUseBitsetEncoding) {
     std::vector<std::pair<uint64_t, float>> source_active = {{1, 1.0f}};
     std::vector<uint64_t> updater_deleted;
     updater_deleted.reserve(9000);
-    for (uint64_t id = 20000; id < 29000; ++id) {
-        updater_deleted.push_back(id);
+    for (uint64_t i = 0; i < 9000; ++i) {
+        updater_deleted.push_back(20000 + i * 2);
     }
 
     write_f32_file(source_path, FileType::Data, source_active, {});
@@ -662,7 +666,7 @@ TEST_F(DataMergerTest, MergeDeltaFileDenseDeletedIdsUseBitsetEncoding) {
 
     DataMerger merger;
     ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
-    EXPECT_EQ(CompactIdsEncoding::Bitset, read_deleted_ids_encoding(out_path));
+    EXPECT_EQ(CompactIdsExtEncoding::Bitset, read_deleted_ids_encoding(out_path));
 }
 
 TEST_F(DataMergerTest, MergeDeltaFileMergesRecordsAndDeletes) {

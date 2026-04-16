@@ -1,6 +1,6 @@
-// Unit tests for the CompactIds utility.
+// Unit tests for the CompactIdsOffsets utility.
 
-#include "compact_ids.h"
+#include "compact_ids_offsets.h"
 
 #include <gtest/gtest.h>
 
@@ -16,6 +16,9 @@
 namespace sketch2 {
 
 namespace {
+
+constexpr uint8_t kOffsets32Encoding = 1;
+constexpr uint8_t kBitsetEncoding = 2;
 
 struct CompactIdsHeaderForTest {
     uint8_t encoding = 0;
@@ -56,7 +59,7 @@ std::vector<uint8_t> read_file_bytes(const std::string& path) {
     return bytes;
 }
 
-std::vector<uint8_t> serialize_ids_to_bytes(const CompactIds& ids) {
+std::vector<uint8_t> serialize_ids_to_bytes(const CompactIdsOffsets& ids) {
     const std::string path = tmp_dir() + "/sketch2_utest_compact_ids_" + std::to_string(getpid()) + ".bin";
     std::remove(path.c_str());
 
@@ -76,7 +79,7 @@ std::vector<uint8_t> serialize_ids_to_bytes(const CompactIds& ids) {
 
 std::vector<uint8_t> serialize_offsets_to_bytes(uint64_t base, const std::vector<uint32_t>& offsets) {
     CompactIdsHeaderForTest hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsEncoding::Offsets32);
+    hdr.encoding = kOffsets32Encoding;
     hdr.count = static_cast<uint32_t>(offsets.size());
     hdr.max_offset = offsets.empty() ? 0u : offsets.back();
     hdr.payload_size = static_cast<uint32_t>(offsets.size() * sizeof(uint32_t));
@@ -90,36 +93,24 @@ std::vector<uint8_t> serialize_offsets_to_bytes(uint64_t base, const std::vector
     return bytes;
 }
 
-std::vector<uint8_t> serialize_bitset_to_bytes(uint64_t base, uint32_t count, uint32_t max_offset,
-        const std::vector<uint8_t>& payload) {
-    CompactIdsHeaderForTest hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsEncoding::Bitset);
-    hdr.count = count;
-    hdr.max_offset = max_offset;
-    hdr.payload_size = static_cast<uint32_t>(payload.size());
-    hdr.base = count == 0 ? 0u : base;
+struct MappedCompactIds {
+    std::vector<uint8_t> serialized;
+    CompactIdsOffsets ids;
+};
 
-    std::vector<uint8_t> bytes(sizeof(hdr) + payload.size(), 0);
-    std::memcpy(bytes.data(), &hdr, sizeof(hdr));
-    if (!payload.empty()) {
-        std::memcpy(bytes.data() + sizeof(hdr), payload.data(), payload.size());
-    }
-    return bytes;
-}
-
-CompactIds read_ids_from_offsets_or_die(uint64_t base, const std::vector<uint32_t>& offsets) {
-    CompactIds ids;
-    const std::vector<uint8_t> serialized = serialize_offsets_to_bytes(base, offsets);
+MappedCompactIds map_ids_from_offsets_or_die(uint64_t base, const std::vector<uint32_t>& offsets) {
+    MappedCompactIds mapped;
+    mapped.serialized = serialize_offsets_to_bytes(base, offsets);
     size_t consumed = 0;
-    EXPECT_EQ(0, ids.read(serialized.data(), serialized.size(), &consumed).code());
-    EXPECT_EQ(serialized.size(), consumed);
-    return ids;
+    EXPECT_EQ(0, mapped.ids.map(mapped.serialized.data(), mapped.serialized.size(), &consumed).code());
+    EXPECT_EQ(mapped.serialized.size(), consumed);
+    return mapped;
 }
 
 } // namespace
 
 TEST(compact_ids, init_empty_container) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
 
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{}).code());
     EXPECT_TRUE(ids.empty());
@@ -128,44 +119,8 @@ TEST(compact_ids, init_empty_container) {
     EXPECT_EQ(0u, ids.lower_bound_index(123));
 }
 
-TEST(compact_ids_builder, append_preserves_values_and_metadata) {
-    CompactIdsBuilder ids;
-    ids.reserve(4);
-
-    ASSERT_EQ(0, ids.append(20000).code());
-    ASSERT_EQ(0, ids.append(20005).code());
-    ASSERT_EQ(0, ids.append(20011).code());
-    ASSERT_EQ(0, ids.append(29999).code());
-
-    EXPECT_EQ(4u, ids.count());
-    EXPECT_EQ(20000u, ids.base());
-    EXPECT_EQ(20000u, ids.min_id());
-    EXPECT_EQ(29999u, ids.max_id());
-    EXPECT_EQ(CompactIdsEncoding::Offsets32, ids.preferred_encoding());
-}
-
-TEST(compact_ids_builder, append_rejects_unsorted_ids) {
-    CompactIdsBuilder ids;
-
-    ASSERT_EQ(0, ids.append(100).code());
-    const Ret ret = ids.append(100);
-
-    EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::init: ids must be strictly increasing", ret.message());
-}
-
-TEST(compact_ids_builder, append_rejects_offsets_larger_than_uint32) {
-    CompactIdsBuilder ids;
-
-    ASSERT_EQ(0, ids.append(5).code());
-    const Ret ret = ids.append(5 + static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1u);
-
-    EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::init: id offset exceeds uint32_t range", ret.message());
-}
-
 TEST(compact_ids, init_from_sorted_ids_preserves_values) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     const std::vector<uint64_t> values = {20000, 20005, 20011, 29999};
 
     ASSERT_EQ(0, ids.init(values).code());
@@ -179,7 +134,7 @@ TEST(compact_ids, init_from_sorted_ids_preserves_values) {
 }
 
 TEST(compact_ids, clear_resets_container) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{100, 101, 105}).code());
 
     ids.clear();
@@ -190,27 +145,27 @@ TEST(compact_ids, clear_resets_container) {
 }
 
 TEST(compact_ids, init_rejects_duplicate_ids) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     const std::vector<uint64_t> values = {10, 11, 11};
 
     const Ret ret = ids.init(values);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::init: ids must be strictly increasing", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::init: ids must be strictly increasing", ret.message());
 }
 
 TEST(compact_ids, init_rejects_unsorted_ids) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     const std::vector<uint64_t> values = {10, 12, 11};
 
     const Ret ret = ids.init(values);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::init: ids must be strictly increasing", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::init: ids must be strictly increasing", ret.message());
 }
 
 TEST(compact_ids, init_rejects_offsets_larger_than_uint32) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     const std::vector<uint64_t> values = {
         5,
         5 + static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1u,
@@ -219,11 +174,11 @@ TEST(compact_ids, init_rejects_offsets_larger_than_uint32) {
     const Ret ret = ids.init(values);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::init: id offset exceeds uint32_t range", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::init: id offset exceeds uint32_t range", ret.message());
 }
 
 TEST(compact_ids, lower_bound_index_and_index_of_match_sorted_semantics) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20, 25, 40, 45}).code());
 
     EXPECT_EQ(0u, ids.lower_bound_index(10));
@@ -232,29 +187,30 @@ TEST(compact_ids, lower_bound_index_and_index_of_match_sorted_semantics) {
     EXPECT_EQ(2u, ids.lower_bound_index(40));
     EXPECT_EQ(4u, ids.lower_bound_index(100));
 
-    EXPECT_EQ(CompactIds::npos, ids.index_of(10));
+    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(10));
     EXPECT_EQ(0u, ids.index_of(20));
-    EXPECT_EQ(CompactIds::npos, ids.index_of(21));
+    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(21));
     EXPECT_EQ(3u, ids.index_of(45));
-    EXPECT_EQ(CompactIds::npos, ids.index_of(100));
+    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(100));
 }
 
 TEST(compact_ids, lower_bound_index_with_nonzero_first_offset_matches_sorted_semantics) {
-    CompactIds ids = read_ids_from_offsets_or_die(100, std::vector<uint32_t>{5, 10});
+    const MappedCompactIds mapped = map_ids_from_offsets_or_die(100, std::vector<uint32_t>{5, 10});
+    const CompactIdsOffsets& ids = mapped.ids;
 
     EXPECT_EQ(0u, ids.lower_bound_index(100));
     EXPECT_EQ(0u, ids.lower_bound_index(104));
     EXPECT_EQ(0u, ids.lower_bound_index(105));
     EXPECT_EQ(1u, ids.lower_bound_index(106));
 
-    EXPECT_EQ(CompactIds::npos, ids.index_of(100));
-    EXPECT_EQ(CompactIds::npos, ids.index_of(104));
+    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(100));
+    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(104));
     EXPECT_EQ(0u, ids.index_of(105));
-    EXPECT_EQ(CompactIds::npos, ids.index_of(106));
+    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(106));
 }
 
 TEST(compact_ids, contains_reports_membership) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
 
     EXPECT_TRUE(ids.contains(20000));
@@ -266,7 +222,8 @@ TEST(compact_ids, contains_reports_membership) {
 
 TEST(compact_ids, init_from_base_and_offsets_preserves_values) {
     const std::vector<uint32_t> offsets = {0, 5, 11, 9999};
-    CompactIds ids = read_ids_from_offsets_or_die(20000, offsets);
+    const MappedCompactIds mapped = map_ids_from_offsets_or_die(20000, offsets);
+    const CompactIdsOffsets& ids = mapped.ids;
     EXPECT_EQ(20000u, ids.base());
     EXPECT_EQ(offsets.size(), ids.count());
     EXPECT_EQ(0u, ids.offset(0));
@@ -278,7 +235,8 @@ TEST(compact_ids, init_from_base_and_offsets_preserves_values) {
 }
 
 TEST(compact_ids, min_id_uses_first_offset_for_base_plus_offsets_init) {
-    CompactIds ids = read_ids_from_offsets_or_die(100, std::vector<uint32_t>{5, 10});
+    const MappedCompactIds mapped = map_ids_from_offsets_or_die(100, std::vector<uint32_t>{5, 10});
+    const CompactIdsOffsets& ids = mapped.ids;
 
     EXPECT_EQ(105u, ids.min_id());
     EXPECT_EQ(105u, ids.id(0));
@@ -286,59 +244,55 @@ TEST(compact_ids, min_id_uses_first_offset_for_base_plus_offsets_init) {
 }
 
 TEST(compact_ids, preferred_encoding_uses_offsets_for_sparse_layouts) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{0, 1000, 2000}).code());
 
-    EXPECT_EQ(CompactIdsEncoding::Offsets32, ids.preferred_encoding());
     EXPECT_EQ(3u * sizeof(uint32_t), ids.offsets_storage_size_bytes());
-    EXPECT_EQ(251u, ids.bitset_storage_size_bytes());
 }
 
-TEST(compact_ids, preferred_encoding_uses_bitset_for_dense_layouts) {
+TEST(compact_ids, offsets_storage_size_bytes_for_dense_layouts) {
     std::vector<uint64_t> values;
     values.reserve(9000);
     for (uint64_t id = 20000; id < 29000; ++id) {
         values.push_back(id);
     }
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(values).code());
 
-    EXPECT_EQ(CompactIdsEncoding::Bitset, ids.preferred_encoding());
     EXPECT_EQ(9000u * sizeof(uint32_t), ids.offsets_storage_size_bytes());
-    EXPECT_EQ(1125u, ids.bitset_storage_size_bytes());
 }
 
 TEST(compact_ids, init_from_base_and_offsets_rejects_duplicate_offsets) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     const std::vector<uint8_t> serialized = serialize_offsets_to_bytes(100, std::vector<uint32_t>{0, 5, 5});
-    const Ret ret = ids.read(serialized.data(), serialized.size(), nullptr);
+    const Ret ret = ids.map(serialized.data(), serialized.size(), nullptr);
 
     ASSERT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::init: offsets must be strictly increasing", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::init: offsets must be strictly increasing", ret.message());
 }
 
 TEST(compact_ids, init_from_base_and_offsets_rejects_unsorted_offsets) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     const std::vector<uint8_t> serialized = serialize_offsets_to_bytes(100, std::vector<uint32_t>{0, 7, 6});
-    const Ret ret = ids.read(serialized.data(), serialized.size(), nullptr);
+    const Ret ret = ids.map(serialized.data(), serialized.size(), nullptr);
 
     ASSERT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::init: offsets must be strictly increasing", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::init: offsets must be strictly increasing", ret.message());
 }
 
 TEST(compact_ids, init_from_base_and_offsets_rejects_uint64_overflow) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     const std::vector<uint8_t> serialized =
         serialize_offsets_to_bytes(std::numeric_limits<uint64_t>::max() - 5u, std::vector<uint32_t>{0, 10});
-    const Ret ret = ids.read(serialized.data(), serialized.size(), nullptr);
+    const Ret ret = ids.map(serialized.data(), serialized.size(), nullptr);
 
     ASSERT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::init: base plus offset overflows uint64_t", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::init: base plus offset overflows uint64_t", ret.message());
 }
 
 TEST(compact_ids, id_out_of_range_throws) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{50, 60}).code());
 
     EXPECT_THROW(ids.id(2), std::out_of_range);
@@ -346,7 +300,7 @@ TEST(compact_ids, id_out_of_range_throws) {
 }
 
 TEST(compact_ids, offset_out_of_range_throws) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{50, 60}).code());
 
     EXPECT_THROW(ids.offset(2), std::out_of_range);
@@ -354,7 +308,7 @@ TEST(compact_ids, offset_out_of_range_throws) {
 }
 
 TEST(compact_ids, min_and_max_throw_for_empty_container) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
 
     EXPECT_THROW(ids.min_id(), std::out_of_range);
     EXPECT_THROW(ids.max_id(), std::out_of_range);
@@ -362,7 +316,7 @@ TEST(compact_ids, min_and_max_throw_for_empty_container) {
 }
 
 TEST(compact_ids, iterator_walks_ids_in_order) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{7, 9, 15}).code());
 
     auto it = ids.begin();
@@ -385,14 +339,14 @@ TEST(compact_ids, iterator_walks_ids_in_order) {
 }
 
 TEST(compact_ids, iterator_on_empty_container_is_eof) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{}).code());
 
     EXPECT_TRUE(ids.begin().eof());
 }
 
 TEST(compact_ids, iterator_access_after_eof_throws) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{42}).code());
 
     auto it = ids.begin();
@@ -403,25 +357,23 @@ TEST(compact_ids, iterator_access_after_eof_throws) {
     EXPECT_THROW(it.index(), std::out_of_range);
 }
 
-TEST(compact_ids, serialized_size_matches_preferred_encoding_payload) {
-    CompactIds ids;
+TEST(compact_ids, serialized_size_matches_offsets_payload) {
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{10, 1000, 2000}).code());
 
-    EXPECT_EQ(CompactIdsEncoding::Offsets32, ids.preferred_encoding());
     EXPECT_EQ(24u + 3u * sizeof(uint32_t), ids.serialized_size_bytes());
 }
 
 TEST(compact_ids, write_offsets_encoding_serializes_uint32_offsets_payload) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
-    ASSERT_EQ(CompactIdsEncoding::Offsets32, ids.preferred_encoding());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     ASSERT_EQ(sizeof(CompactIdsHeaderForTest) + ids.count() * sizeof(uint32_t), serialized.size());
 
     CompactIdsHeaderForTest hdr{};
     std::memcpy(&hdr, serialized.data(), sizeof(hdr));
-    EXPECT_EQ(static_cast<uint8_t>(CompactIdsEncoding::Offsets32), hdr.encoding);
+    EXPECT_EQ(kOffsets32Encoding, hdr.encoding);
 
     std::vector<uint32_t> offsets(ids.count());
     std::memcpy(offsets.data(), serialized.data() + sizeof(hdr), offsets.size() * sizeof(uint32_t));
@@ -429,17 +381,16 @@ TEST(compact_ids, write_offsets_encoding_serializes_uint32_offsets_payload) {
     EXPECT_EQ((std::vector<uint32_t>{0u, 5u, 11u, 9999u}), offsets);
 }
 
-TEST(compact_ids, write_and_read_round_trip_offsets_encoding) {
-    CompactIds ids;
+TEST(compact_ids, write_and_map_round_trip_offsets_encoding) {
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{10, 1000, 2000}).code());
-    ASSERT_EQ(CompactIdsEncoding::Offsets32, ids.preferred_encoding());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     ASSERT_FALSE(serialized.empty());
 
-    CompactIds restored;
+    CompactIdsOffsets restored;
     size_t consumed = 0;
-    ASSERT_EQ(0, restored.read(serialized.data(), serialized.size(), &consumed).code());
+    ASSERT_EQ(0, restored.map(serialized.data(), serialized.size(), &consumed).code());
     ASSERT_EQ(serialized.size(), consumed);
 
     EXPECT_EQ(ids.base(), restored.base());
@@ -450,23 +401,22 @@ TEST(compact_ids, write_and_read_round_trip_offsets_encoding) {
     }
 }
 
-TEST(compact_ids, write_and_read_round_trip_bitset_encoding) {
+TEST(compact_ids, write_and_map_round_trip_dense_layout_uses_offsets_encoding) {
     std::vector<uint64_t> values;
     values.reserve(9000);
     for (uint64_t id = 20000; id < 29000; ++id) {
         values.push_back(id);
     }
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(values).code());
-    ASSERT_EQ(CompactIdsEncoding::Bitset, ids.preferred_encoding());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     ASSERT_FALSE(serialized.empty());
 
-    CompactIds restored;
+    CompactIdsOffsets restored;
     size_t consumed = 0;
-    ASSERT_EQ(0, restored.read(serialized.data(), serialized.size(), &consumed).code());
+    ASSERT_EQ(0, restored.map(serialized.data(), serialized.size(), &consumed).code());
     ASSERT_EQ(serialized.size(), consumed);
 
     EXPECT_EQ(ids.base(), restored.base());
@@ -476,17 +426,17 @@ TEST(compact_ids, write_and_read_round_trip_bitset_encoding) {
     }
 }
 
-TEST(compact_ids, write_and_read_round_trip_empty_container) {
-    CompactIds ids;
+TEST(compact_ids, write_and_map_round_trip_empty_container) {
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{}).code());
     ASSERT_TRUE(ids.empty());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     ASSERT_FALSE(serialized.empty());
 
-    CompactIds restored;
+    CompactIdsOffsets restored;
     size_t consumed = 0;
-    ASSERT_EQ(0, restored.read(serialized.data(), serialized.size(), &consumed).code());
+    ASSERT_EQ(0, restored.map(serialized.data(), serialized.size(), &consumed).code());
     ASSERT_EQ(serialized.size(), consumed);
 
     EXPECT_TRUE(restored.empty());
@@ -495,7 +445,7 @@ TEST(compact_ids, write_and_read_round_trip_empty_container) {
 }
 
 TEST(compact_ids, write_rejects_null_file_handle) {
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{1, 2, 3}).code());
 
     const Ret ret = ids.write(nullptr, "write failed");
@@ -504,141 +454,82 @@ TEST(compact_ids, write_rejects_null_file_handle) {
     EXPECT_EQ("write failed: file handle is null", ret.message());
 }
 
-TEST(compact_ids, read_rejects_null_buffer) {
-    CompactIds ids;
+TEST(compact_ids, map_rejects_null_buffer) {
+    CompactIdsOffsets ids;
     size_t consumed = 123;
 
-    const Ret ret = ids.read(nullptr, 0, &consumed);
+    const Ret ret = ids.map(nullptr, 0, &consumed);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: data pointer is null", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::map: data pointer is null", ret.message());
     EXPECT_EQ(0u, consumed);
 }
 
-TEST(compact_ids, read_rejects_truncated_header) {
+TEST(compact_ids, map_rejects_truncated_header) {
     const uint8_t short_header[8] = {0};
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     size_t consumed = 123;
-    const Ret ret = ids.read(short_header, sizeof(short_header), &consumed);
+    const Ret ret = ids.map(short_header, sizeof(short_header), &consumed);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: buffer too small to contain header", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::map: buffer too small to contain header", ret.message());
     EXPECT_EQ(0u, consumed);
 }
 
-TEST(compact_ids, read_rejects_unknown_encoding) {
+TEST(compact_ids, map_rejects_unknown_encoding) {
     CompactIdsHeaderForTest hdr{};
     hdr.encoding = 99;
     std::vector<uint8_t> serialized(sizeof(hdr), 0);
     std::memcpy(serialized.data(), &hdr, sizeof(hdr));
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     size_t consumed = 123;
-    const Ret ret = ids.read(serialized.data(), serialized.size(), &consumed);
+    const Ret ret = ids.map(serialized.data(), serialized.size(), &consumed);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: unknown encoding", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::map: unexpected encoding", ret.message());
     EXPECT_EQ(0u, consumed);
 }
 
-TEST(compact_ids, read_rejects_malformed_empty_header) {
+TEST(compact_ids, map_rejects_malformed_empty_header) {
     CompactIdsHeaderForTest hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsEncoding::Offsets32);
+    hdr.encoding = kOffsets32Encoding;
     hdr.count = 0;
     hdr.base = 123; // illegal for empty payload path
     std::vector<uint8_t> serialized(sizeof(hdr), 0);
     std::memcpy(serialized.data(), &hdr, sizeof(hdr));
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     size_t consumed = 123;
-    const Ret ret = ids.read(serialized.data(), serialized.size(), &consumed);
+    const Ret ret = ids.map(serialized.data(), serialized.size(), &consumed);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: malformed empty payload header", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::map: malformed empty payload header", ret.message());
     EXPECT_EQ(0u, consumed);
 }
 
-TEST(compact_ids, read_rejects_offsets_payload_size_mismatch) {
+TEST(compact_ids, map_rejects_offsets_payload_size_mismatch) {
     CompactIdsHeaderForTest hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsEncoding::Offsets32);
+    hdr.encoding = kOffsets32Encoding;
     hdr.count = 2;
     hdr.payload_size = 4; // should be 8
     hdr.base = 100;
     std::vector<uint8_t> serialized(sizeof(hdr) + hdr.payload_size, 0);
     std::memcpy(serialized.data(), &hdr, sizeof(hdr));
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     size_t consumed = 123;
-    const Ret ret = ids.read(serialized.data(), serialized.size(), &consumed);
+    const Ret ret = ids.map(serialized.data(), serialized.size(), &consumed);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: malformed offsets payload size", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::map: malformed offsets payload size", ret.message());
     EXPECT_EQ(0u, consumed);
 }
 
-TEST(compact_ids, read_rejects_bitset_payload_size_mismatch) {
+TEST(compact_ids, map_rejects_truncated_offsets_payload) {
     CompactIdsHeaderForTest hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsEncoding::Bitset);
-    hdr.count = 3;
-    hdr.max_offset = 31;    // expected bitset payload is 4 bytes
-    hdr.payload_size = 3;   // mismatch
-    hdr.base = 200;
-    std::vector<uint8_t> serialized(sizeof(hdr) + hdr.payload_size, 0);
-    std::memcpy(serialized.data(), &hdr, sizeof(hdr));
-
-    CompactIds ids;
-    size_t consumed = 123;
-    const Ret ret = ids.read(serialized.data(), serialized.size(), &consumed);
-
-    EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: malformed bitset payload size", ret.message());
-    EXPECT_EQ(0u, consumed);
-}
-
-TEST(compact_ids, read_rejects_bitset_payload_with_nonzero_tail_bits) {
-    CompactIdsHeaderForTest hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsEncoding::Bitset);
-    hdr.count = 1;
-    hdr.max_offset = 5;   // valid bits are [0..5], bits 6-7 must be zero
-    hdr.payload_size = 1; // one byte payload
-    hdr.base = 100;
-    std::vector<uint8_t> serialized(sizeof(hdr) + 1, 0);
-    std::memcpy(serialized.data(), &hdr, sizeof(hdr));
-    const uint8_t malformed_payload = 0x41; // bit 0 set (valid), bit 6 set (invalid tail bit)
-    serialized[sizeof(hdr)] = malformed_payload;
-
-    CompactIds ids;
-    size_t consumed = 123;
-    const Ret ret = ids.read(serialized.data(), serialized.size(), &consumed);
-
-    EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: malformed bitset payload tail bits", ret.message());
-    EXPECT_EQ(0u, consumed);
-}
-
-TEST(compact_ids, read_rejects_non_canonical_sparse_bitset_encoding) {
-    // A canonical writer would store this as one uint32 offset, not a 126-byte bitset.
-    const std::vector<uint8_t> serialized = serialize_bitset_to_bytes(
-        100,
-        1,
-        1000,
-        std::vector<uint8_t>(126, 0));
-    std::vector<uint8_t> sparse = serialized;
-    sparse[sizeof(CompactIdsHeaderForTest)] = 0x01;
-
-    CompactIds ids;
-    size_t consumed = 123;
-    const Ret ret = ids.read(sparse.data(), sparse.size(), &consumed);
-
-    EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: non-canonical bitset encoding", ret.message());
-    EXPECT_EQ(0u, consumed);
-}
-
-TEST(compact_ids, read_rejects_truncated_offsets_payload) {
-    CompactIdsHeaderForTest hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsEncoding::Offsets32);
+    hdr.encoding = kOffsets32Encoding;
     hdr.count = 2;
     hdr.payload_size = 8;
     hdr.base = 100;
@@ -647,20 +538,20 @@ TEST(compact_ids, read_rejects_truncated_offsets_payload) {
     const uint32_t one_value = 5; // should have two values
     std::memcpy(truncated.data() + sizeof(hdr), &one_value, sizeof(one_value));
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     size_t consumed = 123;
-    const Ret ret = ids.read(truncated.data(), truncated.size(), &consumed);
+    const Ret ret = ids.map(truncated.data(), truncated.size(), &consumed);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: truncated payload", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::map: truncated payload", ret.message());
     EXPECT_EQ(0u, consumed);
 }
 
-TEST(compact_ids, read_buffer_round_trip_reports_bytes_consumed) {
+TEST(compact_ids, map_buffer_round_trip_reports_bytes_consumed) {
     const std::string path = tmp_dir() + "/sketch2_utest_compact_ids_buf_" + std::to_string(getpid()) + ".bin";
     std::remove(path.c_str());
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
 
     FILE* f = fopen(path.c_str(), "wb");
@@ -672,9 +563,9 @@ TEST(compact_ids, read_buffer_round_trip_reports_bytes_consumed) {
     ASSERT_FALSE(serialized.empty());
     std::remove(path.c_str());
 
-    CompactIds restored;
+    CompactIdsOffsets restored;
     size_t consumed = 0;
-    ASSERT_EQ(0, restored.read(serialized.data(), serialized.size(), &consumed).code());
+    ASSERT_EQ(0, restored.map(serialized.data(), serialized.size(), &consumed).code());
     EXPECT_EQ(serialized.size(), consumed);
     EXPECT_EQ(ids.base(), restored.base());
     EXPECT_EQ(ids.count(), restored.count());
@@ -683,16 +574,64 @@ TEST(compact_ids, read_buffer_round_trip_reports_bytes_consumed) {
     }
 }
 
-TEST(compact_ids, read_buffer_round_trip_bitset_reports_bytes_consumed) {
+TEST(compact_ids, map_offsets_round_trip_reports_bytes_consumed) {
+    CompactIdsOffsets ids;
+    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
+    const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
+    CompactIdsOffsets mapped;
+    size_t consumed = 0;
+    ASSERT_EQ(0, mapped.map(serialized.data(), serialized.size(), &consumed).code());
+    EXPECT_EQ(serialized.size(), consumed);
+    EXPECT_EQ(ids.base(), mapped.base());
+    EXPECT_EQ(ids.count(), mapped.count());
+    for (size_t i = 0; i < ids.count(); ++i) {
+        EXPECT_EQ(ids.id(i), mapped.id(i));
+        EXPECT_EQ(ids.offset(i), mapped.offset(i));
+    }
+}
+
+TEST(compact_ids, map_rejects_bitset_encoding) {
+    CompactIdsHeaderForTest hdr{};
+    hdr.encoding = kBitsetEncoding;
+    hdr.count = 1;
+    hdr.max_offset = 0;
+    hdr.payload_size = 1;
+    hdr.base = 100;
+    std::vector<uint8_t> serialized(sizeof(hdr) + 1, 0);
+    std::memcpy(serialized.data(), &hdr, sizeof(hdr));
+    serialized[sizeof(hdr)] = 0x01;
+
+    CompactIdsOffsets mapped;
+    const Ret ret = mapped.map(serialized.data(), serialized.size(), nullptr);
+
+    ASSERT_NE(0, ret.code());
+    EXPECT_EQ("CompactIdsOffsets::map: unexpected encoding", ret.message());
+}
+
+TEST(compact_ids, map_rejects_mismatched_max_offset) {
+    const std::vector<uint8_t> serialized = serialize_offsets_to_bytes(100, std::vector<uint32_t>{0, 5, 11, 9999});
+    std::vector<uint8_t> malformed = serialized;
+    CompactIdsHeaderForTest hdr{};
+    std::memcpy(&hdr, malformed.data(), sizeof(hdr));
+    hdr.max_offset = 9998;
+    std::memcpy(malformed.data(), &hdr, sizeof(hdr));
+
+    CompactIdsOffsets ids;
+    const Ret ret = ids.map(malformed.data(), malformed.size(), nullptr);
+
+    ASSERT_NE(0, ret.code());
+    EXPECT_EQ("CompactIdsOffsets::map: max_offset does not match payload", ret.message());
+}
+
+TEST(compact_ids, map_buffer_round_trip_dense_layout_reports_bytes_consumed) {
     std::vector<uint64_t> values;
     values.reserve(9000);
     for (uint64_t id = 20000; id < 29000; ++id) {
         values.push_back(id);
     }
 
-    CompactIds ids;
+    CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(values).code());
-    ASSERT_EQ(CompactIdsEncoding::Bitset, ids.preferred_encoding());
 
     const std::string path = tmp_dir() + "/sketch2_utest_compact_ids_buf_bitset_" + std::to_string(getpid()) + ".bin";
     std::remove(path.c_str());
@@ -705,9 +644,9 @@ TEST(compact_ids, read_buffer_round_trip_bitset_reports_bytes_consumed) {
     ASSERT_FALSE(serialized.empty());
     std::remove(path.c_str());
 
-    CompactIds restored;
+    CompactIdsOffsets restored;
     size_t consumed = 0;
-    ASSERT_EQ(0, restored.read(serialized.data(), serialized.size(), &consumed).code());
+    ASSERT_EQ(0, restored.map(serialized.data(), serialized.size(), &consumed).code());
     EXPECT_EQ(serialized.size(), consumed);
     EXPECT_EQ(ids.count(), restored.count());
     for (size_t i = 0; i < ids.count(); ++i) {
@@ -715,20 +654,20 @@ TEST(compact_ids, read_buffer_round_trip_bitset_reports_bytes_consumed) {
     }
 }
 
-TEST(compact_ids, read_buffer_rejects_truncated_payload) {
-    CompactIds ids;
+TEST(compact_ids, map_buffer_rejects_truncated_payload) {
+    CompactIdsOffsets ids;
     std::vector<uint8_t> truncated(sizeof(CompactIdsHeaderForTest), 0);
     CompactIdsHeaderForTest hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsEncoding::Offsets32);
+    hdr.encoding = kOffsets32Encoding;
     hdr.count = 2;
     hdr.payload_size = 8;
     hdr.base = 100;
     std::memcpy(truncated.data(), &hdr, sizeof(hdr));
 
     size_t consumed = 123;
-    const Ret ret = ids.read(truncated.data(), truncated.size(), &consumed);
+    const Ret ret = ids.map(truncated.data(), truncated.size(), &consumed);
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIds::read: truncated payload", ret.message());
+    EXPECT_EQ("CompactIdsOffsets::map: truncated payload", ret.message());
     EXPECT_EQ(0u, consumed);
 }
 

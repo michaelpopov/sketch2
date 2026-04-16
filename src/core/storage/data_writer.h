@@ -7,6 +7,7 @@
 namespace sketch2 {
 
 class InputReaderView;
+class DatasetWriter;
 
 // DataWriter exists to materialize the project's binary data-file format from
 // text or binary input records. It builds headers, aligned vector sections, optional
@@ -15,9 +16,9 @@ class DataWriter {
 public:
     Ret init(const std::string& input_path, const std::string& output_path,
         uint64_t start=0, uint64_t end=0, bool write_cosine_inv_norms=false);
-    Ret exec();
+    Ret exec_for_testing();
 
-    Ret load(const InputReaderView& reader, const std::string& output_path,
+    Ret write(const InputReaderView& reader, const std::string& output_path,
         bool write_cosine_inv_norms = false);
 
 private:

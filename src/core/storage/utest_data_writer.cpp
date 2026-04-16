@@ -14,7 +14,8 @@
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset_writer.h"
-#include "core/utils/compact_ids.h"
+#include "core/utils/compact_ids_ext.h"
+#include "core/utils/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 #include <filesystem>
 #include <limits>
@@ -34,7 +35,7 @@ struct CompactIdsHeaderForTest {
     uint64_t base = 0;
 };
 
-static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIds header size");
+static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIdsOffsets header size");
 
 std::vector<uint8_t> read_file_bytes(const std::string& path) {
     FILE* f = fopen(path.c_str(), "rb");
@@ -108,14 +109,14 @@ protected:
         fs::remove_all(dataset_dir_);
     }
 
-    // Generate input and run DataWriter::exec(), return the Ret from exec()
+    // Generate input and run DataWriter::exec_for_testing(), return the Ret from that call.
     Ret run(size_t count, size_t min_id, DataType type, size_t dim,
             size_t every_n_deleted = 0, bool write_cosine_inv_norms = false) {
         GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, every_n_deleted};
         generate_input_file(input_path_, cfg);
         DataWriter w;
         w.init(input_path_, output_path_, 0, 0, write_cosine_inv_norms);
-        return w.exec();
+        return w.exec_for_testing();
     }
 
     Ret run_binary(size_t count, size_t min_id, DataType type, size_t dim,
@@ -124,7 +125,7 @@ protected:
         generate_input_file(input_path_, cfg);
         DataWriter w;
         w.init(input_path_, output_path_, 0, 0, write_cosine_inv_norms);
-        return w.exec();
+        return w.exec_for_testing();
     }
 
     Ret run_raw_input(const std::string& content) {
@@ -133,7 +134,7 @@ protected:
         f.close();
         DataWriter w;
         w.init(input_path_, output_path_);
-        return w.exec();
+        return w.exec_for_testing();
     }
 
     DataFileHeader read_header() {
@@ -166,9 +167,9 @@ protected:
             if (trailer_offset > bytes.size()) {
                 return {};
             }
-            CompactIds compact_ids;
+            CompactIdsExt compact_ids;
             size_t consumed = 0;
-            if (compact_ids.read(bytes.data() + trailer_offset, bytes.size() - trailer_offset, &consumed).code() != 0) {
+            if (compact_ids.map(bytes.data() + trailer_offset, bytes.size() - trailer_offset, &consumed).code() != 0) {
                 return {};
             }
             for (size_t i = 0; i < count; ++i) {
@@ -192,17 +193,17 @@ protected:
             if (trailer_offset > bytes.size()) {
                 return {};
             }
-            CompactIds compact_ids;
+            CompactIdsExt compact_ids;
             size_t active_consumed = 0;
-            if (compact_ids.read(bytes.data() + trailer_offset, bytes.size() - trailer_offset,
+            if (compact_ids.map(bytes.data() + trailer_offset, bytes.size() - trailer_offset,
                     &active_consumed).code() != 0) {
                 return {};
             }
-            CompactIds compact_deleted_ids;
+            CompactIdsExt compact_deleted_ids;
             if (active_consumed > bytes.size() - trailer_offset) {
                 return {};
             }
-            if (compact_deleted_ids.read(bytes.data() + trailer_offset + active_consumed,
+            if (compact_deleted_ids.map(bytes.data() + trailer_offset + active_consumed,
                     bytes.size() - trailer_offset - active_consumed, nullptr).code() != 0) {
                 return {};
             }
@@ -246,31 +247,31 @@ protected:
         return values;
     }
 
-    CompactIdsEncoding read_compact_encoding_at(size_t offset) {
+    CompactIdsExtEncoding read_compact_encoding_at(size_t offset) {
         FILE* f = fopen(output_path_.c_str(), "rb");
         EXPECT_NE(nullptr, f);
         if (f == nullptr) {
-            return CompactIdsEncoding::Offsets32;
+            return CompactIdsExtEncoding::Offsets32;
         }
         EXPECT_EQ(0, fseek(f, static_cast<long>(offset), SEEK_SET));
         CompactIdsHeaderForTest hdr{};
         EXPECT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
         fclose(f);
-        return static_cast<CompactIdsEncoding>(hdr.encoding);
+        return static_cast<CompactIdsExtEncoding>(hdr.encoding);
     }
 
-    CompactIdsEncoding read_active_ids_encoding(size_t count, size_t vec_size) {
+    CompactIdsExtEncoding read_active_ids_encoding(size_t count, size_t vec_size) {
         const DataFileHeader hdr = read_header();
         return read_compact_encoding_at(ids_offset(count, vec_size, hdr));
     }
 
-    CompactIdsEncoding read_deleted_ids_encoding(size_t count, size_t vec_size) {
+    CompactIdsExtEncoding read_deleted_ids_encoding(size_t count, size_t vec_size) {
         const DataFileHeader hdr = read_header();
         const size_t active_offset = ids_offset(count, vec_size, hdr);
         FILE* f = fopen(output_path_.c_str(), "rb");
         EXPECT_NE(nullptr, f);
         if (f == nullptr) {
-            return CompactIdsEncoding::Offsets32;
+            return CompactIdsExtEncoding::Offsets32;
         }
         EXPECT_EQ(0, fseek(f, static_cast<long>(active_offset), SEEK_SET));
         CompactIdsHeaderForTest active_hdr{};
@@ -280,7 +281,7 @@ protected:
         CompactIdsHeaderForTest deleted_hdr{};
         EXPECT_EQ(1u, fread(&deleted_hdr, sizeof(deleted_hdr), 1, f));
         fclose(f);
-        return static_cast<CompactIdsEncoding>(deleted_hdr.encoding);
+        return static_cast<CompactIdsExtEncoding>(deleted_hdr.encoding);
     }
 
     Ret init_dataset_writer(DatasetWriter* writer, DataType type = DataType::f32, uint64_t dim = 4,
@@ -301,7 +302,7 @@ protected:
 TEST_F(DataWriterTest, FailsOnBadInputPath) {
     DataWriter w;
     w.init("/nonexistent/dir/input.txt", output_path_);
-    EXPECT_NE(0, w.exec().code());
+    EXPECT_NE(0, w.exec_for_testing().code());
 }
 
 TEST_F(DataWriterTest, FailsOnBadOutputPath) {
@@ -309,7 +310,7 @@ TEST_F(DataWriterTest, FailsOnBadOutputPath) {
     generate_input_file(input_path_, cfg);
     DataWriter w;
     w.init(input_path_, "/nonexistent/dir/output.bin");
-    EXPECT_NE(0, w.exec().code());
+    EXPECT_NE(0, w.exec_for_testing().code());
 }
 
 TEST_F(DataWriterTest, FailsWhenActiveIdSpanExceedsCompactIdsRange) {
@@ -321,7 +322,7 @@ TEST_F(DataWriterTest, FailsWhenActiveIdSpanExceedsCompactIdsRange) {
         " : [ 2, 2, 2, 2 ]\n");
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
-              ret.message().find("DataWriter: active ids: CompactIds::init: id offset exceeds uint32_t range"));
+              ret.message().find("DataWriter: active ids: id range exceeds uint32_t"));
 }
 
 TEST_F(DataWriterTest, FailsWhenDeletedIdSpanExceedsCompactIdsRange) {
@@ -333,7 +334,7 @@ TEST_F(DataWriterTest, FailsWhenDeletedIdSpanExceedsCompactIdsRange) {
         " : []\n");
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
-              ret.message().find("DataWriter: deleted ids: CompactIds::init: id offset exceeds uint32_t range"));
+              ret.message().find("DataWriter: deleted ids: id range exceeds uint32_t"));
 }
 
 // --- success ---
@@ -349,10 +350,12 @@ TEST_F(DataWriterTest, OutputFileSize) {
     run(count, 0, DataType::f32, dim);
     const DataFileHeader hdr = read_header();
     const size_t ids_off = ids_offset(count, dim * sizeof(float), hdr);
-    CompactIds compact_ids;
-    ASSERT_EQ(0, compact_ids.init(std::vector<uint64_t>{0, 1, 2, 3, 4}).code());
-    CompactIds compact_deleted_ids;
-    ASSERT_EQ(0, compact_deleted_ids.init(std::vector<uint64_t>{}).code());
+    CompactIdsExt compact_ids;
+    std::vector<uint64_t> ids{0, 1, 2, 3, 4};
+    ASSERT_EQ(0, compact_ids.init(ids).code());
+    CompactIdsExt compact_deleted_ids;
+    std::vector<uint64_t> deleted_ids;
+    ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
     size_t expected = sizeof(DataFileHeader)
                     + (hdr.data_offset - sizeof(DataFileHeader))
                     + count * static_cast<size_t>(hdr.vector_stride)  // padded vector records
@@ -449,15 +452,21 @@ TEST_F(DataWriterTest, SparseActiveIdsUseOffsetsEncoding) {
 
     const auto hdr = read_header();
     ASSERT_EQ(3u, hdr.count);
-    EXPECT_EQ(CompactIdsEncoding::Offsets32,
+    EXPECT_EQ(CompactIdsExtEncoding::Offsets32,
               read_active_ids_encoding(hdr.count, 4 * sizeof(float)));
 }
 
 TEST_F(DataWriterTest, DenseActiveIdsUseBitsetEncoding) {
-    ASSERT_EQ(0, run(9000, 20000, DataType::f32, 4).code());
+    std::ostringstream input;
+    input << "f32,4\n";
+    for (uint64_t i = 0; i < 9000; ++i) {
+        const uint64_t id = 20000 + i * 2;
+        input << id << " : [ 1.0, 1.0, 1.0, 1.0 ]\n";
+    }
+    ASSERT_EQ(0, run_raw_input(input.str()).code());
     const auto hdr = read_header();
     ASSERT_EQ(9000u, hdr.count);
-    EXPECT_EQ(CompactIdsEncoding::Bitset,
+    EXPECT_EQ(CompactIdsExtEncoding::Bitset,
               read_active_ids_encoding(hdr.count, 4 * sizeof(float)));
 }
 
@@ -465,7 +474,8 @@ TEST_F(DataWriterTest, DenseDeletedIdsUseBitsetEncoding) {
     std::ostringstream input;
     input << "f32,4\n";
     input << "1000 : [ 1.0, 1.0, 1.0, 1.0 ]\n";
-    for (uint64_t id = 20000; id < 29000; ++id) {
+    for (uint64_t i = 0; i < 9000; ++i) {
+        const uint64_t id = 20000 + i * 2;
         input << id << " : []\n";
     }
     ASSERT_EQ(0, run_raw_input(input.str()).code());
@@ -473,7 +483,7 @@ TEST_F(DataWriterTest, DenseDeletedIdsUseBitsetEncoding) {
     const auto hdr = read_header();
     ASSERT_EQ(1u, hdr.count);
     ASSERT_EQ(9000u, hdr.deleted_count);
-    EXPECT_EQ(CompactIdsEncoding::Bitset,
+    EXPECT_EQ(CompactIdsExtEncoding::Bitset,
               read_deleted_ids_encoding(hdr.count, 4 * sizeof(float)));
 }
 

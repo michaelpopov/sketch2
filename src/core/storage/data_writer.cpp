@@ -4,7 +4,8 @@
 #include "core/compute/compute.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
-#include "core/utils/compact_ids.h"
+#include "core/utils/compact_ids_ext.h"
+#include "core/utils/compact_ids_shared.h"
 #include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/timer.h"
@@ -19,6 +20,149 @@
 
 namespace sketch2 {
 
+namespace {
+
+struct IdStats {
+    uint64_t min_id = std::numeric_limits<uint64_t>::max();
+    uint64_t max_id = 0;
+    uint32_t active_count = 0;
+    uint32_t deleted_count = 0;
+};
+
+Ret scan_ids(const InputReaderView& reader, IdStats* stats) {
+    const size_t count = reader.count();
+    uint64_t prev_id = 0;
+
+    for (size_t i = 0; i < count; ++i) {
+        const uint64_t id = reader.id(i);
+        if (i > 0 && prev_id >= id) {
+            return Ret("Invalid order of ids in input data.");
+        }
+        prev_id = id;
+
+        if (reader.is_no_data(i)) {
+            ++stats->deleted_count;
+            continue;
+        }
+
+        stats->min_id = std::min(stats->min_id, id);
+        stats->max_id = std::max(stats->max_id, id);
+        ++stats->active_count;
+    }
+
+    if (stats->deleted_count == count) {
+        stats->min_id = 0;
+        stats->max_id = 0;
+    }
+
+    return Ret(0);
+}
+
+Ret write_vector_section(
+        FILE* f,
+        const InputReaderView& reader,
+        const DataFileHeader& hdr,
+        bool write_cosine_inv_norms,
+        std::vector<float>* cosine_inv_norms) {
+    const size_t count = reader.count();
+    const size_t vec_size = reader.size();
+    const bool binary_input = reader.is_binary();
+    std::vector<uint8_t> buf = binary_input ? std::vector<uint8_t>() : std::vector<uint8_t>(vec_size);
+
+    if (binary_input) {
+        for (size_t i = 0; i < count; ++i) {
+            if (reader.is_no_data(i)) {
+                continue;
+            }
+
+            const uint8_t* vector_data = nullptr;
+            CHECK(reader.raw_data(i, &vector_data));
+            CHECK(write_vector_record(
+                f,
+                vector_data,
+                vec_size,
+                hdr.vector_stride,
+                "DataWriter: failed to write vector data at index " + std::to_string(i)));
+            if (write_cosine_inv_norms) {
+                cosine_inv_norms->push_back(
+                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
+            }
+        }
+        return Ret(0);
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        if (reader.is_no_data(i)) {
+            continue;
+        }
+
+        CHECK(reader.data(i, buf.data(), buf.size()));
+        const uint8_t* vector_data = buf.data();
+        CHECK(write_vector_record(
+            f,
+            vector_data,
+            vec_size,
+            hdr.vector_stride,
+            "DataWriter: failed to write vector data at index " + std::to_string(i)));
+        if (write_cosine_inv_norms) {
+            cosine_inv_norms->push_back(
+                compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
+        }
+    }
+
+    return Ret(0);
+}
+
+Ret build_compact_accum(
+        const InputReaderView& reader,
+        uint32_t active_count,
+        uint32_t deleted_count,
+        CompactIdsAccumulator* active_accum,
+        CompactIdsAccumulator* deleted_accum) {
+    bool active_initialized = false;
+    bool deleted_initialized = false;
+    uint64_t active_base = 0;
+    uint64_t deleted_base = 0;
+
+    for (size_t i = 0; i < reader.count(); ++i) {
+        const uint64_t id = reader.id(i);
+        if (reader.is_no_data(i)) {
+            if (!deleted_initialized) {
+                deleted_accum->init(id, deleted_count);
+                deleted_base = id;
+                deleted_initialized = true;
+            } else if (id - deleted_base > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+                return Ret("DataWriter: deleted ids: id range exceeds uint32_t");
+            }
+            deleted_accum->add(id);
+            continue;
+        }
+
+        if (!active_initialized) {
+            active_accum->init(id, active_count);
+            active_base = id;
+            active_initialized = true;
+        } else if (id - active_base > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+            return Ret("DataWriter: active ids: id range exceeds uint32_t");
+        }
+        active_accum->add(id);
+    }
+
+    return Ret(0);
+}
+
+Ret finalize_output_file(FILE* f) {
+    const int flush_ret = fflush(f);
+    const int sync_ret = fsync(fileno(f));
+    const int close_ret = fclose(f);
+    if (flush_ret != 0 || sync_ret != 0 || close_ret != 0) {
+        return Ret("DataWriter: failed to flush and close file");
+    }
+    return Ret(0);
+}
+
+} // namespace
+
 Ret DataWriter::init(const std::string& input_path, const std::string& output_path,
     uint64_t start, uint64_t end, bool write_cosine_inv_norms) {
 
@@ -30,7 +174,7 @@ Ret DataWriter::init(const std::string& input_path, const std::string& output_pa
     return Ret(0);
 }
 
-Ret DataWriter::exec() {
+Ret DataWriter::exec_for_testing() {
     if (input_path_.empty()) {
         return Ret("Input path is not set.");
     }
@@ -45,64 +189,30 @@ Ret DataWriter::exec() {
     CHECK(source.init(input_path_));
 
     InputReaderView reader(source, start_, end_);
-    Ret ret = load(reader, output_path_, write_cosine_inv_norms_);
+    Ret ret = write(reader, output_path_, write_cosine_inv_norms_);
 
-    LOG_INFO << "DataWriter completed exec for " << output_path_ << " in " << timer.elapsed_ms() << " ms";
+    LOG_INFO << "DataWriter completed exec_for_testing for " << output_path_ << " in " << timer.elapsed_ms() << " ms";
     return ret;
 }
 
 // Converts a sorted text-or-binary input view into the binary on-disk data-file format.
 // It separates live ids from deletions, streams vectors into the aligned data
 // section, optionally persists cosine inverse norms, and then appends both id tables.
-Ret DataWriter::load(const InputReaderView& reader, const std::string& output_path, bool write_cosine_inv_norms) {
+Ret DataWriter::write(const InputReaderView& reader, const std::string& output_path, bool write_cosine_inv_norms) {
     const size_t count = reader.count();
     if (count == 0) {
         return Ret("Invalid count of vectors in reader.");
     }
 
-    CompactIdsBuilder active_ids;
-    CompactIdsBuilder deleted_ids;
-    active_ids.reserve(count);
-    deleted_ids.reserve(count);
-
-    uint64_t prev_id = 0;
-    uint64_t min_id = std::numeric_limits<uint64_t>::max();
-    uint64_t max_id = 0;
-    for (size_t i = 0; i < count; ++i) {
-        const uint64_t id = reader.id(i);
-        if (i > 0 && prev_id >= id) {
-            return Ret("Invalid order of ids in input data.");
-        }
-        prev_id = id;
-        if (reader.is_no_data(i)) {
-            const Ret append_ret = deleted_ids.append(id);
-            if (append_ret.code() != 0) {
-                return Ret("DataWriter: deleted ids: " + append_ret.message());
-            }
-        } else {
-            if (id < min_id) {
-                min_id = id;
-            }
-            if (id > max_id) {
-                max_id = id;
-            }
-            const Ret append_ret = active_ids.append(id);
-            if (append_ret.code() != 0) {
-                return Ret("DataWriter: active ids: " + append_ret.message());
-            }
-        }
-    }
-
-    if (deleted_ids.count() == count) {
-        min_id = max_id = 0;
-    }
+    IdStats stats;
+    CHECK(scan_ids(reader, &stats));
 
     // Build DataFileHeader
     DataFileHeader hdr = make_data_header(
-        min_id,
-        max_id,
-        static_cast<uint32_t>(active_ids.count()),
-        static_cast<uint32_t>(deleted_ids.count()),
+        stats.min_id,
+        stats.max_id,
+        stats.active_count,
+        stats.deleted_count,
         reader.type(),
         static_cast<uint16_t>(reader.dim()),
         write_cosine_inv_norms);
@@ -125,72 +235,51 @@ Ret DataWriter::load(const InputReaderView& reader, const std::string& output_pa
     static_assert(sizeof(hdr) % 8 == 0);
     CHECK(write_header_and_data_padding(f, hdr, "DataWriter"));
 
-    // Write vector data
-    const size_t vec_size = reader.size();
-    const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active_ids.count());
-    const bool binary_input = reader.is_binary();
-    std::vector<uint8_t> buf = binary_input ? std::vector<uint8_t>() : std::vector<uint8_t>(vec_size);
+    const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, stats.active_count);
     std::vector<float> cosine_inv_norms;
     if (write_cosine_inv_norms) {
-        cosine_inv_norms.reserve(active_ids.count());
+        cosine_inv_norms.reserve(stats.active_count);
     }
-
-    if (binary_input) {
-        for (size_t i = 0; i < count; ++i) {
-            if (reader.is_no_data(i)) {
-                continue;
-            }
-
-            const uint8_t* vector_data = nullptr;
-            CHECK(reader.raw_data(i, &vector_data));
-            CHECK(write_vector_record(f, vector_data, vec_size, hdr.vector_stride,
-                "DataWriter: failed to write vector data at index " + std::to_string(i)));
-            if (write_cosine_inv_norms) {
-                cosine_inv_norms.push_back(compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
-            }
-        }
-    } else {
-        for (size_t i = 0; i < count; ++i) {
-            if (!reader.is_no_data(i)) {
-                const uint8_t* vector_data = nullptr;
-                CHECK(reader.data(i, buf.data(), buf.size()));
-                vector_data = buf.data();
-                CHECK(write_vector_record(f, vector_data, vec_size, hdr.vector_stride,
-                    "DataWriter: failed to write vector data at index " + std::to_string(i)));
-                if (write_cosine_inv_norms) {
-                    cosine_inv_norms.push_back(compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
-                }
-            }
-        }
-    }
+    CHECK(write_vector_section(f, reader, hdr, write_cosine_inv_norms, &cosine_inv_norms));
 
 #ifndef NDEBUG
-    assert(!write_cosine_inv_norms || cosine_inv_norms.size() == active_ids.count());
+    assert(!write_cosine_inv_norms || cosine_inv_norms.size() == stats.active_count);
 #endif
     CHECK(write_f32_array(f, cosine_inv_norms,
         "DataWriter: failed to write cosine inverse norms"));
     CHECK(write_zero_padding(f, metadata_layout.ids_trailer_padding,
         "DataWriter: failed to write id alignment padding"));
 
+    CompactIdsExt active_ids_ext;
+    CompactIdsExt deleted_ids_ext;
+
+    {
+        CompactIdsAccumulator active_accum;
+        CompactIdsAccumulator deleted_accum;
+        CHECK(build_compact_accum(
+            reader, stats.active_count, stats.deleted_count, &active_accum, &deleted_accum));
+
+        CHECK(active_ids_ext.init(active_accum));
+        CHECK(deleted_ids_ext.init(deleted_accum));
+    }
+
     // Write compact id sections (active ids then deleted ids).
-    CHECK(active_ids.write(f, "DataWriter: failed to write ids"));
-    CHECK(deleted_ids.write(f, "DataWriter: failed to write deleted_ids"));
+    CHECK(active_ids_ext.write(f, "DataWriter: failed to write ids"));
+    CHECK(deleted_ids_ext.write(f, "DataWriter: failed to write deleted_ids"));
 
 #ifndef NDEBUG
     const size_t ids_trailer_size =
-        active_ids.serialized_size_bytes() + deleted_ids.serialized_size_bytes();
+        active_ids_ext.serialized_size_bytes() + deleted_ids_ext.serialized_size_bytes();
     const long file_pos_after_ids = ftell(f);
     const long expected_file_pos_after_ids =
         static_cast<long>(metadata_layout.ids_trailer_offset + ids_trailer_size);
     assert(file_pos_after_ids == expected_file_pos_after_ids);
 #endif
 
-    int n1 = fflush(f);
-    int n2 = fsync(fileno(f));
-    int n3 = fclose(f);
+    const Ret finalize_ret = finalize_output_file(f);
     f = nullptr;
-    if (n1 != 0 || n2 != 0 || n3 != 0) {
-        return Ret("DataWriter: failed to flush and close file");
+    if (finalize_ret.code() != 0) {
+        return finalize_ret;
     }
 
     return Ret(0);

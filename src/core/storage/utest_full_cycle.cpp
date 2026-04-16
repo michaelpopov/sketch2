@@ -11,7 +11,7 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/dataset_node.h"
 #include "core/storage/data_reader.h"
-#include "core/utils/compact_ids.h"
+#include "core/utils/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -29,7 +29,7 @@ protected:
         uint64_t base = 0;
     };
 
-    static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIds header size");
+    static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIdsOffsets header size");
 
     std::string base_dir_;
     std::string input_path_;
@@ -76,11 +76,11 @@ protected:
         return n;
     }
 
-    CompactIdsEncoding read_active_ids_encoding(const std::string& data_path) {
+    CompactIdsExtEncoding read_active_ids_encoding(const std::string& data_path) {
         FILE* f = fopen(data_path.c_str(), "rb");
         EXPECT_NE(nullptr, f);
         if (f == nullptr) {
-            return CompactIdsEncoding::Offsets32;
+            return CompactIdsExtEncoding::Offsets32;
         }
         DataFileHeader hdr{};
         EXPECT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
@@ -89,7 +89,7 @@ protected:
         CompactIdsHeaderForTest compact_hdr{};
         EXPECT_EQ(1u, fread(&compact_hdr, sizeof(compact_hdr), 1, f));
         fclose(f);
-        return static_cast<CompactIdsEncoding>(compact_hdr.encoding);
+        return static_cast<CompactIdsExtEncoding>(compact_hdr.encoding);
     }
 };
 
@@ -294,10 +294,16 @@ TEST_F(DatasetFullCycleTest, DenseRangeStoredWithBitsetCompactIdsTrailer) {
     DatasetNode ds;
     ASSERT_EQ(0, ds.init_for_test({dir}, 100000, DataType::f32, 4).code());
 
-    write_generated(seq_cfg(9000, 20000, DataType::f32, 4));
+    ManualInputGenerator gen;
+    gen.type = DataType::f32;
+    gen.dim = 4;
+    for (uint64_t i = 0; i < 9000; ++i) {
+        gen.add(20000 + i * 2, 1);
+    }
+    write_manual(gen);
     ASSERT_EQ(0, ds.store(input_path_).code());
 
     const std::string data_path = dir + "/0.data";
     ASSERT_TRUE(fs::exists(data_path));
-    EXPECT_EQ(CompactIdsEncoding::Bitset, read_active_ids_encoding(data_path));
+    EXPECT_EQ(CompactIdsExtEncoding::Bitset, read_active_ids_encoding(data_path));
 }

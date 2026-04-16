@@ -3,7 +3,7 @@
 #pragma once
 #include "utils/shared_types.h"
 #include "core/utils/dynamic_bitset.h"
-#include "core/utils/compact_ids.h"
+#include "core/utils/compact_ids_ext.h"
 #include "core/storage/data_file.h"
 #include <cstdint>
 #include <memory>
@@ -95,10 +95,9 @@ private:
     const uint8_t*           map_     = nullptr;
     size_t                   map_len_ = 0;
     const DataFileHeader*    hdr_     = nullptr;
-    CompactIds               ids_;
-    const float*             cosine_inv_norms_ = nullptr; // cached pointer to optional cosine inverse norms
-    CompactIds               deleted_ids_;
-    std::vector<float>       cosine_inv_norms_buf_; // heap buffer for cosine inverse norms
+    CompactIdsExt            ids_;
+    CompactIdsExt            deleted_ids_;
+    const float*             cosine_inv_norms_ = nullptr; // optional cosine inverse norms in mapped metadata
     DataType                 type_    = DataType::f32;
     size_t                   size_    = 0;        // size of one vector in bytes
     size_t                   stride_  = 0;        // bytes between persisted vectors

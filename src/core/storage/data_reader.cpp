@@ -189,7 +189,6 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         ids_.clear();
         cosine_inv_norms_ = nullptr;
         deleted_ids_.clear();
-        cosine_inv_norms_buf_.clear();
         size_ = 0;
         stride_ = 0;
         return Ret(message);
@@ -199,7 +198,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     if (hdr_->base.magic != kMagic) return fail("DataReader: invalid magic number");
     if (hdr_->base.kind != static_cast<uint16_t>(FileType::Data)) return fail("DataReader: not a data file");
     if (hdr_->base.version != kVersion) {
-        return fail("DataReader: unsupported file version (only CompactIds-based storage format is supported)");
+        return fail("DataReader: unsupported file version");
     }
 
     try {
@@ -248,14 +247,14 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     }
 
     try {
-        // Parse compact ID sections directly from the mapped trailer.
+        // Map compact ID sections directly from the mapped trailer.
         const uint8_t* ids_trailer = map_ + metadata_layout.ids_trailer_offset;
         const size_t ids_trailer_size = map_len_ - metadata_layout.ids_trailer_offset;
         size_t active_ids_bytes = 0;
-        CHECK(ids_.read(ids_trailer, ids_trailer_size, &active_ids_bytes));
+        CHECK(ids_.map(ids_trailer, ids_trailer_size, &active_ids_bytes));
 
         size_t deleted_ids_bytes = 0;
-        CHECK(deleted_ids_.read(
+        CHECK(deleted_ids_.map(
             ids_trailer + active_ids_bytes,
             ids_trailer_size - active_ids_bytes,
             &deleted_ids_bytes));
@@ -265,7 +264,7 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
             return fail("DataReader: malformed ids trailer size");
         }
         // Keep an explicit whole-file boundary check: metadata prefix plus both
-        // CompactIds payloads must end exactly at EOF (no trailing garbage).
+        // CompactIdsOffsets payloads must end exactly at EOF (no trailing garbage).
         const size_t parsed_file_size = metadata_layout.ids_trailer_offset + parsed_ids_trailer_size;
         if (parsed_file_size != map_len_) {
             return fail("DataReader: malformed ids trailer size");
@@ -274,29 +273,14 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
             return fail("DataReader: ids trailer count does not match header");
         }
 
-        // Buffer cosine inverse norms for the same reason: the norms section sits
-        // far from the vector data and would cause thrashing on every scan iteration.
         if (metadata_layout.cosine_inv_norms_bytes > 0) {
-            cosine_inv_norms_buf_.resize(count);
-            std::memcpy(cosine_inv_norms_buf_.data(),
-                        map_ + metadata_layout.cosine_inv_norms_offset,
-                        count * sizeof(float));
-            cosine_inv_norms_ = cosine_inv_norms_buf_.data();
+            cosine_inv_norms_ = reinterpret_cast<const float*>(
+                map_ + metadata_layout.cosine_inv_norms_offset);
         } else {
             cosine_inv_norms_ = nullptr;
         }
-
-        // Release mmap pages for the metadata region (norms + ids trailer) since
-        // the data now lives in heap buffers. Page-align the start to satisfy madvise.
-        const size_t meta_start = static_cast<size_t>(hdr_->data_offset) + metadata_layout.vectors_bytes;
-        const size_t page_size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
-        const size_t aligned_start = align_up<size_t>(meta_start, page_size);
-        if (aligned_start < map_len_) {
-            madvise(const_cast<uint8_t*>(map_) + aligned_start,
-                    map_len_ - aligned_start, MADV_DONTNEED);
-        }
     } catch (const std::exception& ex) {
-        return fail(std::string("DataReader: failed to initialize metadata cache: ") + ex.what());
+        return fail(std::string("DataReader: failed to initialize mapped metadata: ") + ex.what());
     }
     delta_  = std::move(delta);
 
@@ -316,7 +300,7 @@ Ret DataReader::init_delta() {
         return Ret("DataReader::init_delta: reader is not initialized");
     }
 
-    auto mark_hidden = [this](const CompactIds& other_ids) {
+    auto mark_hidden = [this](const CompactIdsExt& other_ids) {
         const size_t base_count = ids_.count();
         const size_t other_count = other_ids.count();
         for (size_t i = 0, j = 0; i < base_count; ++i) {
