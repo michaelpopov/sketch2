@@ -26,9 +26,9 @@ inline constexpr uint64_t kMaxDimension = 4096;
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 
 // Binary storage format version written into data/WAL headers and checked when reopening files.
-// Version 8 stores explicit offset/size metadata for independently mappable sections: vectors,
-// optional cosine inverse norms, active ids, and deleted ids.
-inline constexpr uint16_t kVersion = 8;
+// Version 10 stores explicit 64-bit offsets and sizes for all independently mappable sections,
+// including the vectors section itself.
+inline constexpr uint16_t kVersion = 10;
 
 // Vector payload alignment used by data files and accumulator storage for SIMD-friendly access.
 inline constexpr uint32_t kDataAlignment = 32;

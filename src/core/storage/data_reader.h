@@ -113,7 +113,7 @@ private:
 
     Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
     void reset_state_();
-    Ret open_and_read_header_(const std::string& path, int* fd, size_t* file_size);
+    Ret read_header_(int fd, const std::string& path, size_t* file_size);
     Ret validate_header_and_layout_(size_t file_size, DataMetadataLayout* metadata_layout);
     Ret validate_delta_(const std::unique_ptr<DataReader>& delta) const;
     Ret map_regions_(int fd, size_t file_size, const DataMetadataLayout& metadata_layout);

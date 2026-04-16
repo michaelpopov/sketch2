@@ -160,22 +160,46 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         return Ret(message);
     };
 
-    CHECK(open_and_read_header_(path, &fd, &file_size));
+    fd = open(path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return Ret("DataReader: failed to open file: " + path);
+    }
+
+    Ret ret = read_header_(fd, path, &file_size);
+    if (ret.code() != 0) {
+        return fail(ret.message());
+    }
+
     DataMetadataLayout metadata_layout{};
     try {
-        CHECK(validate_header_and_layout_(file_size, &metadata_layout));
-        CHECK(validate_delta_(delta));
-        CHECK(map_regions_(fd, file_size, metadata_layout));
+        ret = validate_header_and_layout_(file_size, &metadata_layout);
+        if (ret.code() != 0) {
+            return fail(ret.message());
+        }
+        ret = validate_delta_(delta);
+        if (ret.code() != 0) {
+            return fail(ret.message());
+        }
+        ret = map_regions_(fd, file_size, metadata_layout);
+        if (ret.code() != 0) {
+            return fail(ret.message());
+        }
     } catch (const std::exception& ex) {
         return fail(std::string("DataReader: failed to initialize mapped metadata: ") + ex.what());
     }
+
     close(fd);
     fd = -1;
+
+    initialized_ = true;
     delta_  = std::move(delta);
 
     if (delta_) {
         changed_bitset_.resize(hdr_.count);
-        CHECK(init_delta());
+        ret = init_delta();
+        if (ret.code() != 0) {
+            return fail(ret.message());
+        }
     }
 
     assert_invariants_();
@@ -198,34 +222,23 @@ void DataReader::reset_state_() {
     delta_.reset();
 }
 
-Ret DataReader::open_and_read_header_(const std::string& path, int* fd, size_t* file_size) {
-    if (fd == nullptr || file_size == nullptr) {
-        return Ret("DataReader: missing output pointers for file open");
-    }
-
-    *fd = open(path.c_str(), O_RDONLY);
-    if (*fd < 0) {
-        return Ret("DataReader: failed to open file: " + path);
+Ret DataReader::read_header_(int fd, const std::string& path, size_t* file_size) {
+    if (fd < 0 || file_size == nullptr) {
+        return Ret("DataReader: missing fd or file-size output for header read");
     }
 
     struct stat st;
-    if (fstat(*fd, &st) < 0) {
-        close(*fd);
-        *fd = -1;
+    if (fstat(fd, &st) < 0) {
         return Ret("DataReader: failed to stat file: " + path);
     }
 
     *file_size = static_cast<size_t>(st.st_size);
     if (*file_size < sizeof(DataFileHeader)) {
-        close(*fd);
-        *fd = -1;
         return Ret("DataReader: file too small to contain a valid header");
     }
 
-    const ssize_t header_bytes = pread(*fd, &hdr_, sizeof(hdr_), 0);
+    const ssize_t header_bytes = pread(fd, &hdr_, sizeof(hdr_), 0);
     if (header_bytes != static_cast<ssize_t>(sizeof(hdr_))) {
-        close(*fd);
-        *fd = -1;
         hdr_ = {};
         return Ret("DataReader: failed to read file header");
     }
@@ -261,7 +274,7 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
         return Ret("DataReader: unsupported data-file flags");
     }
     if (hdr_.data_offset < sizeof(DataFileHeader)
-            || (hdr_.data_offset % static_cast<uint32_t>(kDataRegionAlignment)) != 0) {
+            || (hdr_.data_offset % static_cast<uint64_t>(kDataRegionAlignment)) != 0) {
         return Ret("DataReader: invalid data offset alignment");
     }
     if (stride_ < vector_size_ || (stride_ % kDataAlignment) != 0) {
@@ -286,7 +299,6 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
         return Ret("DataReader: truncated or malformed data file");
     }
 
-    initialized_ = true;
     return Ret(0);
 }
 
@@ -403,7 +415,7 @@ void DataReader::assert_invariants_() const {
     assert(vector_size_ == compute_vector_size(type_, hdr_.dim));
     assert(stride_ == hdr_.vector_stride);
     assert(stride_ >= vector_size_);
-    assert((hdr_.data_offset % static_cast<uint32_t>(kDataRegionAlignment)) == 0);
+    assert((hdr_.data_offset % static_cast<uint64_t>(kDataRegionAlignment)) == 0);
     assert((stride_ % kDataAlignment) == 0);
     assert(ids_.count() == hdr_.count);
     assert(deleted_ids_.count() == hdr_.deleted_count);
@@ -419,7 +431,7 @@ void DataReader::assert_invariants_() const {
     assert(hdr_.ids_offset == metadata_layout.ids_trailer_offset);
     assert(hdr_.ids_bytes == ids_region_.size());
     assert(hdr_.deleted_ids_offset ==
-        static_cast<uint32_t>(compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)));
+        static_cast<uint64_t>(compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)));
     assert(hdr_.deleted_ids_bytes == deleted_ids_region_.size());
 
     if (data_file_has_cosine_inv_norms(hdr_)) {

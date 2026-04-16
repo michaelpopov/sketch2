@@ -4,7 +4,6 @@
 #include "core/storage/data_file.h"
 #include "utils/shared_types.h"
 #include <cstdio>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -62,7 +61,7 @@ inline DataFileHeader make_data_header(uint64_t min_id, uint64_t max_id,
     hdr.deleted_count = deleted_count;
     hdr.type = static_cast<uint16_t>(data_type_to_int(type));
     hdr.dim = dim;
-    hdr.data_offset = static_cast<uint32_t>(compute_data_region_offset(sizeof(DataFileHeader)));
+    hdr.data_offset = static_cast<uint64_t>(compute_data_region_offset(sizeof(DataFileHeader)));
     hdr.vector_stride = compute_vector_stride(compute_vector_size(type, dim));
     hdr.flags = has_cosine_inv_norms ? kDataFileHasCosineInvNorms : 0u;
     return hdr;
@@ -91,27 +90,15 @@ inline Ret set_data_header_layout(DataFileHeader* hdr, size_t ids_bytes, size_t 
     }
 
     const DataMetadataLayout layout = compute_data_metadata_layout(*hdr, hdr->count);
-    if (layout.vectors_bytes > std::numeric_limits<uint32_t>::max()
-            || layout.cosine_inv_norms_offset > std::numeric_limits<uint32_t>::max()
-            || layout.cosine_inv_norms_bytes > std::numeric_limits<uint32_t>::max()
-            || layout.ids_trailer_offset > std::numeric_limits<uint32_t>::max()
-            || ids_bytes > std::numeric_limits<uint32_t>::max()
-            || deleted_ids_bytes > std::numeric_limits<uint32_t>::max()) {
-        return Ret("set_data_header_layout: section size exceeds uint32_t");
-    }
-
     const size_t deleted_ids_offset = compute_deleted_ids_offset(layout.ids_trailer_offset, ids_bytes);
-    if (deleted_ids_offset > std::numeric_limits<uint32_t>::max()) {
-        return Ret("set_data_header_layout: section offset exceeds uint32_t");
-    }
 
-    hdr->vectors_bytes = static_cast<uint32_t>(layout.vectors_bytes);
-    hdr->cosine_inv_norms_offset = static_cast<uint32_t>(layout.cosine_inv_norms_offset);
-    hdr->cosine_inv_norms_bytes = static_cast<uint32_t>(layout.cosine_inv_norms_bytes);
-    hdr->ids_offset = static_cast<uint32_t>(layout.ids_trailer_offset);
-    hdr->ids_bytes = static_cast<uint32_t>(ids_bytes);
-    hdr->deleted_ids_offset = static_cast<uint32_t>(deleted_ids_offset);
-    hdr->deleted_ids_bytes = static_cast<uint32_t>(deleted_ids_bytes);
+    hdr->vectors_bytes = static_cast<uint64_t>(layout.vectors_bytes);
+    hdr->cosine_inv_norms_offset = static_cast<uint64_t>(layout.cosine_inv_norms_offset);
+    hdr->cosine_inv_norms_bytes = static_cast<uint64_t>(layout.cosine_inv_norms_bytes);
+    hdr->ids_offset = static_cast<uint64_t>(layout.ids_trailer_offset);
+    hdr->ids_bytes = static_cast<uint64_t>(ids_bytes);
+    hdr->deleted_ids_offset = static_cast<uint64_t>(deleted_ids_offset);
+    hdr->deleted_ids_bytes = static_cast<uint64_t>(deleted_ids_bytes);
     return Ret(0);
 }
 

@@ -31,20 +31,22 @@ struct DataFileHeader {
     uint32_t deleted_count;
     uint16_t type;     // data type
     uint16_t dim;
-    uint32_t data_offset; // offset from file start to vectors section
-    uint32_t vectors_bytes; // total bytes in the vectors section
+    uint64_t data_offset; // offset from file start to vectors section
+    uint64_t vectors_bytes; // total bytes in the vectors section
     uint32_t vector_stride; // bytes between consecutive persisted vectors, including padding
     uint32_t flags; // optional section flags, e.g. cosine inverse norms
-    uint32_t cosine_inv_norms_offset; // offset from file start to the optional norms section
-    uint32_t cosine_inv_norms_bytes; // size of the optional norms section
-    uint32_t ids_offset; // offset from file start to active ids section
-    uint32_t ids_bytes; // size of active ids section
-    uint32_t deleted_ids_offset; // offset from file start to deleted ids section
-    uint32_t deleted_ids_bytes; // size of deleted ids section
-    uint32_t reserved = 0;
+    uint64_t cosine_inv_norms_offset; // offset from file start to the optional norms section
+    uint64_t cosine_inv_norms_bytes; // size of the optional norms section
+    uint64_t ids_offset; // offset from file start to active ids section
+    uint64_t ids_bytes; // size of active ids section
+    uint64_t deleted_ids_offset; // offset from file start to deleted ids section
+    uint64_t deleted_ids_bytes; // size of deleted ids section
+    uint64_t reserved = 0;
 };
 
-// Data file payload contract (v8):
+static_assert(sizeof(DataFileHeader) == 120, "Unexpected DataFileHeader size");
+
+// Data file payload contract (v10):
 // 1) aligned vector records
 // 2) region-alignment padding
 // 3) optional cosine inverse norms for active vectors
