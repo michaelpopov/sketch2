@@ -116,6 +116,17 @@ protected:
     // type_field: 0=f16, 1=f32, 2=i16  (matches DataWriter encoding)
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs) {
+        CompactIdsExt compact_ids;
+        std::vector<uint64_t> ids;
+        ids.reserve(vecs.size());
+        for (size_t i = 0; i < vecs.size(); ++i) {
+            ids.push_back(min_id + static_cast<uint64_t>(i));
+        }
+        ASSERT_EQ(0, compact_ids.init(ids).code());
+        CompactIdsExt compact_deleted_ids;
+        std::vector<uint64_t> deleted_ids;
+        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+
         DataFileHeader hdr = make_data_header(
             min_id,
             min_id + static_cast<uint64_t>(vecs.size()) - 1,
@@ -123,6 +134,8 @@ protected:
             0,
             type_field,
             dim);
+        ASSERT_EQ(0, set_data_header_layout(
+            &hdr, compact_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
         FILE* f = fopen(data_path_.c_str(), "wb");
         fwrite(&hdr, sizeof(hdr), 1, f);
         const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -139,17 +152,13 @@ protected:
             std::vector<uint8_t> pad(ids_pad_size, 0);
             fwrite(pad.data(), 1, pad.size(), f);
         }
-        CompactIdsExt compact_ids;
-        std::vector<uint64_t> ids;
-        ids.reserve(vecs.size());
-        for (size_t i = 0; i < vecs.size(); ++i) {
-            ids.push_back(min_id + static_cast<uint64_t>(i));
-        }
-        ASSERT_EQ(0, compact_ids.init(ids).code());
         ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::write_raw ids write failed").code());
-        CompactIdsExt compact_deleted_ids;
-        std::vector<uint64_t> deleted_ids;
-        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+        const size_t deleted_ids_padding =
+            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_ids.serialized_size_bytes());
+        if (deleted_ids_padding > 0) {
+            std::vector<uint8_t> pad(deleted_ids_padding, 0);
+            fwrite(pad.data(), 1, pad.size(), f);
+        }
         ASSERT_EQ(0, compact_deleted_ids.write(f, "DataReaderTest::write_raw deleted ids write failed").code());
         fclose(f);
     }
@@ -163,6 +172,8 @@ protected:
             0,
             type_field,
             dim);
+        ASSERT_EQ(0, set_data_header_layout(
+            &hdr, vecs.size() * sizeof(uint64_t), 0).code());
         FILE* f = fopen(data_path_.c_str(), "wb");
         ASSERT_NE(nullptr, f);
         ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
@@ -364,6 +375,14 @@ TEST_F(DataReaderTest, ReadsCosineValuesWhenSectionIsPresent) {
 
 TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, DataType::f32, 4);
+    CompactIdsExt compact_ids;
+    std::vector<uint64_t> ids;
+    ASSERT_EQ(0, compact_ids.init(ids).code());
+    CompactIdsExt compact_deleted_ids;
+    std::vector<uint64_t> deleted_ids;
+    ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+    ASSERT_EQ(0, set_data_header_layout(
+        &hdr, compact_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
     FILE* f = fopen(data_path_.c_str(), "wb");
     ASSERT_NE(nullptr, f);
     ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
@@ -372,13 +391,14 @@ TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
         std::vector<uint8_t> zeros(padding, 0);
         ASSERT_EQ(padding, fwrite(zeros.data(), 1, padding, f));
     }
-    CompactIdsExt compact_ids;
-    std::vector<uint64_t> ids;
-    ASSERT_EQ(0, compact_ids.init(ids).code());
     ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::EmptyDataFileInitSucceeds ids write failed").code());
-    CompactIdsExt compact_deleted_ids;
-    std::vector<uint64_t> deleted_ids;
-    ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+    const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, 0);
+    const size_t deleted_ids_padding =
+        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_ids.serialized_size_bytes());
+    if (deleted_ids_padding > 0) {
+        std::vector<uint8_t> zeros(deleted_ids_padding, 0);
+        ASSERT_EQ(deleted_ids_padding, fwrite(zeros.data(), 1, deleted_ids_padding, f));
+    }
     ASSERT_EQ(0, compact_deleted_ids.write(f, "DataReaderTest::EmptyDataFileInitSucceeds deleted ids write failed").code());
     fclose(f);
 
@@ -867,7 +887,7 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     CompactIdsExt active_ids;
     size_t active_ids_size = 0;
     ASSERT_EQ(0, active_ids.map(bytes.data() + ids_offset, bytes.size() - ids_offset, &active_ids_size).code());
-    const size_t deleted_ids_offset = ids_offset + active_ids_size;
+    const size_t deleted_ids_offset = compute_deleted_ids_offset(ids_offset, active_ids_size);
 
     CompactIdsExt deleted_ids;
     ASSERT_EQ(0, deleted_ids.map(bytes.data() + deleted_ids_offset, bytes.size() - deleted_ids_offset, nullptr).code());

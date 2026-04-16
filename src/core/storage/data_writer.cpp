@@ -207,6 +207,19 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     IdStats stats;
     CHECK(scan_ids(reader, &stats));
 
+    CompactIdsExt active_ids_ext;
+    CompactIdsExt deleted_ids_ext;
+
+    {
+        CompactIdsAccumulator active_accum;
+        CompactIdsAccumulator deleted_accum;
+        CHECK(build_compact_accum(
+            reader, stats.active_count, stats.deleted_count, &active_accum, &deleted_accum));
+
+        CHECK(active_ids_ext.init(active_accum));
+        CHECK(deleted_ids_ext.init(deleted_accum));
+    }
+
     // Build DataFileHeader
     DataFileHeader hdr = make_data_header(
         stats.min_id,
@@ -216,6 +229,10 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
         reader.type(),
         static_cast<uint16_t>(reader.dim()),
         write_cosine_inv_norms);
+    CHECK(set_data_header_layout(
+        &hdr,
+        active_ids_ext.serialized_size_bytes(),
+        deleted_ids_ext.serialized_size_bytes()));
 
     // Write output file
     FILE *f = fopen(output_path.c_str(), "wb");
@@ -241,6 +258,8 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
         cosine_inv_norms.reserve(stats.active_count);
     }
     CHECK(write_vector_section(f, reader, hdr, write_cosine_inv_norms, &cosine_inv_norms));
+    CHECK(write_zero_padding(f, metadata_layout.vectors_padding,
+        "DataWriter: failed to write cosine alignment padding"));
 
 #ifndef NDEBUG
     assert(!write_cosine_inv_norms || cosine_inv_norms.size() == stats.active_count);
@@ -250,26 +269,18 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     CHECK(write_zero_padding(f, metadata_layout.ids_trailer_padding,
         "DataWriter: failed to write id alignment padding"));
 
-    CompactIdsExt active_ids_ext;
-    CompactIdsExt deleted_ids_ext;
-
-    {
-        CompactIdsAccumulator active_accum;
-        CompactIdsAccumulator deleted_accum;
-        CHECK(build_compact_accum(
-            reader, stats.active_count, stats.deleted_count, &active_accum, &deleted_accum));
-
-        CHECK(active_ids_ext.init(active_accum));
-        CHECK(deleted_ids_ext.init(deleted_accum));
-    }
-
     // Write compact id sections (active ids then deleted ids).
     CHECK(active_ids_ext.write(f, "DataWriter: failed to write ids"));
+    CHECK(write_zero_padding(f,
+        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, active_ids_ext.serialized_size_bytes()),
+        "DataWriter: failed to write deleted_ids alignment padding"));
     CHECK(deleted_ids_ext.write(f, "DataWriter: failed to write deleted_ids"));
 
 #ifndef NDEBUG
     const size_t ids_trailer_size =
-        active_ids_ext.serialized_size_bytes() + deleted_ids_ext.serialized_size_bytes();
+        active_ids_ext.serialized_size_bytes()
+        + compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, active_ids_ext.serialized_size_bytes())
+        + deleted_ids_ext.serialized_size_bytes();
     const long file_pos_after_ids = ftell(f);
     const long expected_file_pos_after_ids =
         static_cast<long>(metadata_layout.ids_trailer_offset + ids_trailer_size);

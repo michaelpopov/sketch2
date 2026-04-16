@@ -203,8 +203,12 @@ protected:
             if (active_consumed > bytes.size() - trailer_offset) {
                 return {};
             }
-            if (compact_deleted_ids.map(bytes.data() + trailer_offset + active_consumed,
-                    bytes.size() - trailer_offset - active_consumed, nullptr).code() != 0) {
+            const size_t deleted_offset = compute_deleted_ids_offset(trailer_offset, active_consumed);
+            if (deleted_offset > bytes.size()) {
+                return {};
+            }
+            if (compact_deleted_ids.map(bytes.data() + deleted_offset,
+                    bytes.size() - deleted_offset, nullptr).code() != 0) {
                 return {};
             }
             for (size_t i = 0; i < deleted_count; ++i) {
@@ -276,7 +280,8 @@ protected:
         EXPECT_EQ(0, fseek(f, static_cast<long>(active_offset), SEEK_SET));
         CompactIdsHeaderForTest active_hdr{};
         EXPECT_EQ(1u, fread(&active_hdr, sizeof(active_hdr), 1, f));
-        const size_t deleted_offset = active_offset + sizeof(CompactIdsHeaderForTest) + active_hdr.payload_size;
+        const size_t active_size = sizeof(CompactIdsHeaderForTest) + active_hdr.payload_size;
+        const size_t deleted_offset = compute_deleted_ids_offset(active_offset, active_size);
         EXPECT_EQ(0, fseek(f, static_cast<long>(deleted_offset), SEEK_SET));
         CompactIdsHeaderForTest deleted_hdr{};
         EXPECT_EQ(1u, fread(&deleted_hdr, sizeof(deleted_hdr), 1, f));
@@ -361,6 +366,7 @@ TEST_F(DataWriterTest, OutputFileSize) {
                     + count * static_cast<size_t>(hdr.vector_stride)  // padded vector records
                     + (ids_off - (hdr.data_offset + count * static_cast<size_t>(hdr.vector_stride))) // ids alignment padding
                     + compact_ids.serialized_size_bytes()
+                    + compute_deleted_ids_padding(ids_off, compact_ids.serialized_size_bytes())
                     + compact_deleted_ids.serialized_size_bytes();
     FILE* f = fopen(output_path_.c_str(), "rb");
     ASSERT_NE(nullptr, f);

@@ -80,6 +80,13 @@ protected:
             dim,
             has_cosine_inv_norms);
         hdr.base.kind = static_cast<uint16_t>(kind);
+        CompactIdsExt compact_active_ids;
+        ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
+        CompactIdsExt compact_deleted_ids;
+        std::vector<uint64_t> deleted_ids = deleted;
+        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+        ASSERT_EQ(0, set_data_header_layout(
+            &hdr, compact_active_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
 
         FILE* f = fopen(path.c_str(), "wb");
         ASSERT_NE(nullptr, f);
@@ -103,20 +110,27 @@ protected:
                 cosine_inv_norms.push_back(compute_cosine_inverse_norm(
                     reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim));
             }
+            const size_t cosine_pad_size = compute_data_metadata_layout(hdr, active.size()).vectors_padding;
+            if (cosine_pad_size > 0) {
+                std::vector<uint8_t> pad(cosine_pad_size, 0);
+                ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+            }
             ASSERT_EQ(0, write_f32_array(f, cosine_inv_norms,
                 "DataMergerTest::write_f32_file cosine").code());
         }
-        const size_t ids_pad_size = compute_data_metadata_layout(hdr, active.size()).ids_trailer_padding;
+        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
+        const size_t ids_pad_size = metadata_layout.ids_trailer_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
         }
-        CompactIdsExt compact_active_ids;
-        ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
         ASSERT_EQ(0, compact_active_ids.write(f, "DataMergerTest::write_f32_file active ids").code());
-        CompactIdsExt compact_deleted_ids;
-        std::vector<uint64_t> deleted_ids = deleted;
-        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+        const size_t deleted_ids_pad_size =
+            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_active_ids.serialized_size_bytes());
+        if (deleted_ids_pad_size > 0) {
+            std::vector<uint8_t> pad(deleted_ids_pad_size, 0);
+            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+        }
         ASSERT_EQ(0, compact_deleted_ids.write(f, "DataMergerTest::write_f32_file deleted ids").code());
         fclose(f);
     }
@@ -142,6 +156,13 @@ protected:
             DataType::i16,
             dim);
         hdr.base.kind = static_cast<uint16_t>(kind);
+        CompactIdsExt compact_active_ids;
+        ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
+        CompactIdsExt compact_deleted_ids;
+        std::vector<uint64_t> deleted_ids = deleted;
+        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+        ASSERT_EQ(0, set_data_header_layout(
+            &hdr, compact_active_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
 
         FILE* f = fopen(path.c_str(), "wb");
         ASSERT_NE(nullptr, f);
@@ -157,17 +178,19 @@ protected:
             ASSERT_EQ(0, write_vector_record(f, reinterpret_cast<const uint8_t*>(vec.data()),
                 vec.size() * sizeof(int16_t), hdr.vector_stride, "DataMergerTest::write_i16_file").code());
         }
-        const size_t ids_pad_size = compute_data_metadata_layout(hdr, active.size()).ids_trailer_padding;
+        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
+        const size_t ids_pad_size = metadata_layout.ids_trailer_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
         }
-        CompactIdsExt compact_active_ids;
-        ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
         ASSERT_EQ(0, compact_active_ids.write(f, "DataMergerTest::write_i16_file active ids").code());
-        CompactIdsExt compact_deleted_ids;
-        std::vector<uint64_t> deleted_ids = deleted;
-        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+        const size_t deleted_ids_pad_size =
+            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_active_ids.serialized_size_bytes());
+        if (deleted_ids_pad_size > 0) {
+            std::vector<uint8_t> pad(deleted_ids_pad_size, 0);
+            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+        }
         ASSERT_EQ(0, compact_deleted_ids.write(f, "DataMergerTest::write_i16_file deleted ids").code());
         fclose(f);
     }
@@ -210,7 +233,8 @@ protected:
         EXPECT_EQ(0, fseek(f, static_cast<long>(ids_offset), SEEK_SET));
         CompactIdsHeaderForTest active_hdr{};
         EXPECT_EQ(1u, fread(&active_hdr, sizeof(active_hdr), 1, f));
-        const size_t deleted_offset = ids_offset + sizeof(CompactIdsHeaderForTest) + active_hdr.payload_size;
+        const size_t active_size = sizeof(CompactIdsHeaderForTest) + active_hdr.payload_size;
+        const size_t deleted_offset = compute_deleted_ids_offset(ids_offset, active_size);
         EXPECT_EQ(0, fseek(f, static_cast<long>(deleted_offset), SEEK_SET));
         CompactIdsHeaderForTest deleted_hdr{};
         EXPECT_EQ(1u, fread(&deleted_hdr, sizeof(deleted_hdr), 1, f));

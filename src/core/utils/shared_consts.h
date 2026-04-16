@@ -26,12 +26,15 @@ inline constexpr uint64_t kMaxDimension = 4096;
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 
 // Binary storage format version written into data/WAL headers and checked when reopening files.
-// Version 6 switches the id trailer to CompactIdsOffsets(active) + CompactIdsOffsets(deleted)
-// after the vectors/cosine sections and alignment padding.
-inline constexpr uint16_t kVersion = 6;
+// Version 8 stores explicit offset/size metadata for independently mappable sections: vectors,
+// optional cosine inverse norms, active ids, and deleted ids.
+inline constexpr uint16_t kVersion = 8;
 
 // Vector payload alignment used by data files and accumulator storage for SIMD-friendly access.
 inline constexpr uint32_t kDataAlignment = 32;
+
+// Region alignment used by data files for independently mmap-able sections.
+inline constexpr uint64_t kDataRegionAlignment = 4096;
 
 // Id section alignment used by data-file layout code when placing CompactIdsOffsets trailer sections.
 inline constexpr uint32_t kIdsAlignment = 8;

@@ -206,11 +206,18 @@ public:
             const char* deleted_ids_message) {
         CompactIdsExt output_ids_ext;
         CHECK(output_ids_ext.init(output_ids_));
+        output_ids_bytes_ = output_ids_ext.serialized_size_bytes();
         cosine_inv_norms_.assert_matches(output_ids_.size());
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(header, output_ids_.size());
+        CHECK(write_zero_padding(f_, metadata_layout.vectors_padding,
+            std::string(context_) + ": failed to write cosine alignment padding"));
         CHECK(cosine_inv_norms_.write(f_, context_));
         CHECK(write_zero_padding(f_, metadata_layout.ids_trailer_padding, ids_padding_message));
         CHECK(output_ids_ext.write(f_, ids_message));
+        CHECK(write_zero_padding(
+            f_,
+            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, output_ids_ext.serialized_size_bytes()),
+            std::string(context_) + ": failed to write deleted_ids alignment padding"));
         CHECK(deleted_ids.write(f_, deleted_ids_message));
         return Ret(0);
     }
@@ -220,6 +227,7 @@ public:
     uint64_t output_min_id() const { return output_ids_min_; }
     uint64_t output_max_id() const { return output_ids_max_; }
     bool cosine_inv_norms_enabled() const { return cosine_enabled_; }
+    size_t output_ids_bytes() const { return output_ids_bytes_; }
 
 private:
     FILE* f_ = nullptr;
@@ -232,6 +240,7 @@ private:
     CosineInvNormOutput cosine_inv_norms_;
     CompactIdsAccumulator output_ids_;
     size_t output_ids_capacity_ = 0;
+    size_t output_ids_bytes_ = 0;
     bool output_ids_initialized_ = false;
     uint64_t output_ids_min_ = 0;
     uint64_t output_ids_max_ = 0;
@@ -720,7 +729,10 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         "DataMerger::merge_data_files: failed to write ids to merge file",
         "DataMerger::merge_data_files: failed to write deleted_ids to merge file"));
 
+    const CompactIdsExt empty_deleted_ids;
     set_output_id_range(output, merge_file.header());
+    CHECK(set_data_header_layout(
+        merge_file.header(), output.output_ids_bytes(), empty_deleted_ids.serialized_size_bytes()));
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_data_files");
 
@@ -839,6 +851,8 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
 
     merge_file.header()->deleted_count = static_cast<uint32_t>(compact_deleted_ids.count());
     set_output_id_range(output, merge_file.header());
+    CHECK(set_data_header_layout(
+        merge_file.header(), output.output_ids_bytes(), compact_deleted_ids.serialized_size_bytes()));
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_delta_file");
 
@@ -879,6 +893,8 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
         "DataMerger::merge_data_files: failed to write deleted_ids to merge file"));
 
     set_output_id_range(output, merge_file.header());
+    CHECK(set_data_header_layout(
+        merge_file.header(), output.output_ids_bytes(), empty_deleted_ids.serialized_size_bytes()));
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_data_files");
 
@@ -934,6 +950,8 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
 
     merge_file.header()->deleted_count = static_cast<uint32_t>(compact_deleted_ids.count());
     set_output_id_range(output, merge_file.header());
+    CHECK(set_data_header_layout(
+        merge_file.header(), output.output_ids_bytes(), compact_deleted_ids.serialized_size_bytes()));
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_delta_file");
 
