@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace sketch2 {
@@ -55,14 +56,22 @@ public:
     Iterator begin() const;
 
 private:
-    CompactIdsOffsets offsets_;
-    CompactIdsMisses misses_;
-    CompactIdsBitset bitset_;
     enum class StorageKind : uint8_t {
         Offsets,
         Misses,
         Bitset,
     };
+    using Storage = std::variant<CompactIdsOffsets, CompactIdsMisses, CompactIdsBitset>;
+
+    template <typename T>
+    T& storage_as();
+
+    template <typename T>
+    const T& storage_as() const;
+
+    void set_storage_kind(StorageKind kind);
+
+    Storage storage_{CompactIdsOffsets{}};
     StorageKind storage_kind_ = StorageKind::Offsets;
 
     static StorageKind detect_storage_kind(std::vector<uint64_t>& ids);

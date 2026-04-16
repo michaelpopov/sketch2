@@ -92,6 +92,20 @@ std::vector<uint8_t> serialize_auto_ids_to_bytes(const CompactIdsExt& ids) {
     return bytes;
 }
 
+CompactIdsAccumulator make_accumulator(const std::vector<uint64_t>& ids) {
+    CompactIdsAccumulator accumulator;
+    if (ids.empty()) {
+        accumulator.init(0, 0);
+        return accumulator;
+    }
+
+    accumulator.init(ids.front(), ids.size());
+    for (uint64_t id : ids) {
+        accumulator.add(id);
+    }
+    return accumulator;
+}
+
 std::vector<uint8_t> serialize_misses_to_bytes(
     uint64_t base,
     uint32_t count,
@@ -366,6 +380,20 @@ TEST(compact_ids_ext_auto, init_prefers_miss_list_for_sparse_ids) {
     EXPECT_EQ(3u, ids.count());
 }
 
+TEST(compact_ids_ext_auto, init_from_accumulator_prefers_offsets_for_sparse_ids) {
+    CompactIdsExt ids;
+    CompactIdsAccumulator accumulator = make_accumulator({100, 200, 300});
+
+    ASSERT_EQ(0, ids.init(accumulator).code());
+
+    const std::vector<uint8_t> serialized = serialize_auto_ids_to_bytes(ids);
+    const CompactIdsHeader hdr = read_header_or_die(serialized);
+    EXPECT_EQ(static_cast<uint8_t>(CompactIdsExtEncoding::Offsets32), hdr.encoding);
+    EXPECT_EQ(3u, ids.count());
+    EXPECT_EQ(1u, ids.lower_bound_index(150));
+    EXPECT_EQ(2u, ids.lower_bound_index(201));
+}
+
 TEST(compact_ids_ext_auto, init_prefers_bitset_for_dense_ids) {
     CompactIdsExt ids;
     std::vector<uint64_t> values = {100, 101, 103, 108, 109};
@@ -375,6 +403,41 @@ TEST(compact_ids_ext_auto, init_prefers_bitset_for_dense_ids) {
     const CompactIdsHeader hdr = read_header_or_die(serialized);
     EXPECT_EQ(static_cast<uint8_t>(CompactIdsExtEncoding::Bitset), hdr.encoding);
     EXPECT_EQ(5u, ids.count());
+}
+
+TEST(compact_ids_ext_auto, init_from_accumulator_prefers_bitset_for_dense_ids) {
+    CompactIdsExt ids;
+    CompactIdsAccumulator accumulator = make_accumulator({100, 101, 103, 108, 109});
+
+    ASSERT_EQ(0, ids.init(accumulator).code());
+
+    const std::vector<uint8_t> serialized = serialize_auto_ids_to_bytes(ids);
+    const CompactIdsHeader hdr = read_header_or_die(serialized);
+    EXPECT_EQ(static_cast<uint8_t>(CompactIdsExtEncoding::Bitset), hdr.encoding);
+    EXPECT_EQ(5u, ids.count());
+    EXPECT_EQ(3u, ids.lower_bound_index(104));
+    EXPECT_EQ(108u, ids.id(3));
+}
+
+TEST(compact_ids_ext_auto, init_from_accumulator_prefers_misses_for_dense_interior_gap) {
+    CompactIdsExt ids;
+    std::vector<uint64_t> values;
+    values.reserve(40);
+    for (uint64_t id = 100; id <= 140; ++id) {
+        if (id != 120) {
+            values.push_back(id);
+        }
+    }
+    CompactIdsAccumulator accumulator = make_accumulator(values);
+
+    ASSERT_EQ(0, ids.init(accumulator).code());
+
+    const std::vector<uint8_t> serialized = serialize_auto_ids_to_bytes(ids);
+    const CompactIdsHeader hdr = read_header_or_die(serialized);
+    EXPECT_EQ(static_cast<uint8_t>(CompactIdsExtEncoding::Misses32), hdr.encoding);
+    EXPECT_EQ(values.size(), ids.count());
+    EXPECT_EQ(20u, ids.lower_bound_index(120));
+    EXPECT_EQ(121u, ids.id(20));
 }
 
 TEST(compact_ids_ext_auto, map_dispatches_by_encoding) {

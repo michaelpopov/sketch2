@@ -4,10 +4,44 @@
 #include "compact_ids_shared.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 #include <stdexcept>
 
 namespace sketch2 {
+
+template <typename T>
+T& CompactIdsExt::storage_as() {
+    assert(std::holds_alternative<T>(storage_));
+    return std::get<T>(storage_);
+}
+
+template <typename T>
+const T& CompactIdsExt::storage_as() const {
+    assert(std::holds_alternative<T>(storage_));
+    return std::get<T>(storage_);
+}
+
+void CompactIdsExt::set_storage_kind(StorageKind kind) {
+    storage_kind_ = kind;
+    switch (storage_kind_) {
+        case StorageKind::Offsets:
+            if (!std::holds_alternative<CompactIdsOffsets>(storage_)) {
+                storage_.emplace<CompactIdsOffsets>();
+            }
+            break;
+        case StorageKind::Misses:
+            if (!std::holds_alternative<CompactIdsMisses>(storage_)) {
+                storage_.emplace<CompactIdsMisses>();
+            }
+            break;
+        case StorageKind::Bitset:
+            if (!std::holds_alternative<CompactIdsBitset>(storage_)) {
+                storage_.emplace<CompactIdsBitset>();
+            }
+            break;
+    }
+}
 
 CompactIdsExtEncoding CompactIdsAccumulator::encoding() {
     if (offsets_.empty()) {
@@ -85,96 +119,96 @@ CompactIdsExt::StorageKind CompactIdsExt::detect_storage_kind(std::vector<uint64
 Ret CompactIdsExt::init(CompactIdsAccumulator& accumulator) {
     switch (accumulator.encoding()) {
         case CompactIdsExtEncoding::Offsets32:
-            storage_kind_ = StorageKind::Offsets;
-            return offsets_.init(accumulator);
+            set_storage_kind(StorageKind::Offsets);
+            return storage_as<CompactIdsOffsets>().init(accumulator);
         case CompactIdsExtEncoding::Bitset:
-            storage_kind_ = StorageKind::Bitset;
-            return bitset_.init(accumulator);
+            set_storage_kind(StorageKind::Bitset);
+            return storage_as<CompactIdsBitset>().init(accumulator);
         case CompactIdsExtEncoding::Misses32:
-            storage_kind_ = StorageKind::Misses;
-            return misses_.init(accumulator);
+            set_storage_kind(StorageKind::Misses);
+            return storage_as<CompactIdsMisses>().init(accumulator);
     }
     return Ret("CompactIdsExt::init: unknown encoding");
 }
 
 Ret CompactIdsExt::init(std::vector<uint64_t>& ids) {
-    storage_kind_ = detect_storage_kind(ids);
+    set_storage_kind(detect_storage_kind(ids));
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.init(ids);
-        case StorageKind::Bitset: return bitset_.init(ids);
-        case StorageKind::Misses: return misses_.init(ids);
+        case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().init(ids);
+        case StorageKind::Bitset: return storage_as<CompactIdsBitset>().init(ids);
+        case StorageKind::Misses: return storage_as<CompactIdsMisses>().init(ids);
     }
     return Ret(0);
 }
 
 void CompactIdsExt::clear() {
     switch (storage_kind_) {
-        case StorageKind::Offsets: offsets_.clear(); break;
-        case StorageKind::Bitset: bitset_.clear(); break;
-        case StorageKind::Misses: misses_.clear(); break;
+        case StorageKind::Offsets: storage_as<CompactIdsOffsets>().clear(); break;
+        case StorageKind::Bitset: storage_as<CompactIdsBitset>().clear(); break;
+        case StorageKind::Misses: storage_as<CompactIdsMisses>().clear(); break;
     }
-    storage_kind_ = StorageKind::Offsets;
+    set_storage_kind(StorageKind::Offsets);
 }
 
 size_t CompactIdsExt::count() const {
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.count();
-        case StorageKind::Misses: return misses_.count();
-        case StorageKind::Bitset: return bitset_.count();
+        case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().count();
+        case StorageKind::Misses: return storage_as<CompactIdsMisses>().count();
+        case StorageKind::Bitset: return storage_as<CompactIdsBitset>().count();
     }
     return 0;
 }
 
 bool CompactIdsExt::empty() const {
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.empty();
-        case StorageKind::Misses: return misses_.empty();
-        case StorageKind::Bitset: return bitset_.empty();
+        case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().empty();
+        case StorageKind::Misses: return storage_as<CompactIdsMisses>().empty();
+        case StorageKind::Bitset: return storage_as<CompactIdsBitset>().empty();
     }
     return true;
 }
 
 size_t CompactIdsExt::serialized_size_bytes() const {
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.serialized_size_bytes();
-        case StorageKind::Misses: return misses_.serialized_size_bytes();
-        case StorageKind::Bitset: return bitset_.serialized_size_bytes();
+        case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().serialized_size_bytes();
+        case StorageKind::Misses: return storage_as<CompactIdsMisses>().serialized_size_bytes();
+        case StorageKind::Bitset: return storage_as<CompactIdsBitset>().serialized_size_bytes();
     }
     return 0;
 }
 
 uint64_t CompactIdsExt::id(size_t index) const {
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.id(index);
-        case StorageKind::Misses: return misses_.id(index);
-        case StorageKind::Bitset: return bitset_.id(index);
+        case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().id(index);
+        case StorageKind::Misses: return storage_as<CompactIdsMisses>().id(index);
+        case StorageKind::Bitset: return storage_as<CompactIdsBitset>().id(index);
     }
     return 0;
 }
 
 uint64_t CompactIdsExt::id_unchecked(size_t index) const {
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.id_unchecked(index);
-        case StorageKind::Misses: return misses_.id_unchecked(index);
-        case StorageKind::Bitset: return bitset_.id_unchecked(index);
+        case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().id_unchecked(index);
+        case StorageKind::Misses: return storage_as<CompactIdsMisses>().id_unchecked(index);
+        case StorageKind::Bitset: return storage_as<CompactIdsBitset>().id_unchecked(index);
     }
     return 0;
 }
 
 size_t CompactIdsExt::lower_bound_index(uint64_t id) const {
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.lower_bound_index(id);
-        case StorageKind::Misses: return misses_.lower_bound_index(id);
-        case StorageKind::Bitset: return bitset_.lower_bound_index(id);
+        case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().lower_bound_index(id);
+        case StorageKind::Misses: return storage_as<CompactIdsMisses>().lower_bound_index(id);
+        case StorageKind::Bitset: return storage_as<CompactIdsBitset>().lower_bound_index(id);
     }
     return 0;
 }
 
 Ret CompactIdsExt::write(FILE* f, const std::string& error_message) const {
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.write(f, error_message);
-        case StorageKind::Misses: return misses_.write(f, error_message);
-        case StorageKind::Bitset: return bitset_.write(f, error_message);
+        case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().write(f, error_message);
+        case StorageKind::Misses: return storage_as<CompactIdsMisses>().write(f, error_message);
+        case StorageKind::Bitset: return storage_as<CompactIdsBitset>().write(f, error_message);
     }
     return Ret(0);
 }
@@ -195,22 +229,16 @@ Ret CompactIdsExt::map(const uint8_t* data, size_t size, size_t* bytes_consumed)
 
     switch (hdr.encoding) {
         case static_cast<uint8_t>(CompactIdsExtEncoding::Offsets32):
-            CHECK(offsets_.map(data, size, bytes_consumed));
-            misses_.clear();
-            bitset_.clear();
-            storage_kind_ = StorageKind::Offsets;
+            set_storage_kind(StorageKind::Offsets);
+            CHECK(storage_as<CompactIdsOffsets>().map(data, size, bytes_consumed));
             return Ret(0);
         case static_cast<uint8_t>(CompactIdsExtEncoding::Bitset):
-            offsets_.clear();
-            CHECK(bitset_.map(data, size, bytes_consumed));
-            misses_.clear();
-            storage_kind_ = StorageKind::Bitset;
+            set_storage_kind(StorageKind::Bitset);
+            CHECK(storage_as<CompactIdsBitset>().map(data, size, bytes_consumed));
             return Ret(0);
         case static_cast<uint8_t>(CompactIdsExtEncoding::Misses32):
-            offsets_.clear();
-            CHECK(misses_.map(data, size, bytes_consumed));
-            bitset_.clear();
-            storage_kind_ = StorageKind::Misses;
+            set_storage_kind(StorageKind::Misses);
+            CHECK(storage_as<CompactIdsMisses>().map(data, size, bytes_consumed));
             return Ret(0);
         default:
             return Ret("CompactIdsExt::map: unknown encoding");
