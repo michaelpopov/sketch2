@@ -93,6 +93,12 @@ std::vector<uint8_t> serialize_offsets_to_bytes(uint64_t base, const std::vector
     return bytes;
 }
 
+std::vector<uint8_t> make_unaligned_buffer(const std::vector<uint8_t>& bytes) {
+    std::vector<uint8_t> unaligned(bytes.size() + 1, 0);
+    std::memcpy(unaligned.data() + 1, bytes.data(), bytes.size());
+    return unaligned;
+}
+
 struct MappedCompactIds {
     std::vector<uint8_t> serialized;
     CompactIdsOffsets ids;
@@ -115,7 +121,6 @@ TEST(compact_ids, init_empty_container) {
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{}).code());
     EXPECT_TRUE(ids.empty());
     EXPECT_EQ(0u, ids.count());
-    EXPECT_EQ(0u, ids.base());
     EXPECT_EQ(0u, ids.lower_bound_index(123));
 }
 
@@ -124,10 +129,7 @@ TEST(compact_ids, init_from_sorted_ids_preserves_values) {
     const std::vector<uint64_t> values = {20000, 20005, 20011, 29999};
 
     ASSERT_EQ(0, ids.init(values).code());
-    EXPECT_EQ(20000u, ids.base());
     EXPECT_EQ(values.size(), ids.count());
-    EXPECT_EQ(20000u, ids.min_id());
-    EXPECT_EQ(29999u, ids.max_id());
     for (size_t i = 0; i < values.size(); ++i) {
         EXPECT_EQ(values[i], ids.id(i));
     }
@@ -141,7 +143,6 @@ TEST(compact_ids, clear_resets_container) {
 
     EXPECT_TRUE(ids.empty());
     EXPECT_EQ(0u, ids.count());
-    EXPECT_EQ(0u, ids.base());
 }
 
 TEST(compact_ids, init_rejects_duplicate_ids) {
@@ -177,7 +178,7 @@ TEST(compact_ids, init_rejects_offsets_larger_than_uint32) {
     EXPECT_EQ("CompactIdsOffsets::init: id offset exceeds uint32_t range", ret.message());
 }
 
-TEST(compact_ids, lower_bound_index_and_index_of_match_sorted_semantics) {
+TEST(compact_ids, lower_bound_index_matches_sorted_semantics) {
     CompactIdsOffsets ids;
     ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20, 25, 40, 45}).code());
 
@@ -186,12 +187,6 @@ TEST(compact_ids, lower_bound_index_and_index_of_match_sorted_semantics) {
     EXPECT_EQ(1u, ids.lower_bound_index(21));
     EXPECT_EQ(2u, ids.lower_bound_index(40));
     EXPECT_EQ(4u, ids.lower_bound_index(100));
-
-    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(10));
-    EXPECT_EQ(0u, ids.index_of(20));
-    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(21));
-    EXPECT_EQ(3u, ids.index_of(45));
-    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(100));
 }
 
 TEST(compact_ids, lower_bound_index_with_nonzero_first_offset_matches_sorted_semantics) {
@@ -202,65 +197,16 @@ TEST(compact_ids, lower_bound_index_with_nonzero_first_offset_matches_sorted_sem
     EXPECT_EQ(0u, ids.lower_bound_index(104));
     EXPECT_EQ(0u, ids.lower_bound_index(105));
     EXPECT_EQ(1u, ids.lower_bound_index(106));
-
-    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(100));
-    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(104));
-    EXPECT_EQ(0u, ids.index_of(105));
-    EXPECT_EQ(CompactIdsOffsets::npos, ids.index_of(106));
-}
-
-TEST(compact_ids, contains_reports_membership) {
-    CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
-
-    EXPECT_TRUE(ids.contains(20000));
-    EXPECT_TRUE(ids.contains(20005));
-    EXPECT_FALSE(ids.contains(20006));
-    EXPECT_TRUE(ids.contains(29999));
-    EXPECT_FALSE(ids.contains(30000));
 }
 
 TEST(compact_ids, init_from_base_and_offsets_preserves_values) {
     const std::vector<uint32_t> offsets = {0, 5, 11, 9999};
     const MappedCompactIds mapped = map_ids_from_offsets_or_die(20000, offsets);
     const CompactIdsOffsets& ids = mapped.ids;
-    EXPECT_EQ(20000u, ids.base());
     EXPECT_EQ(offsets.size(), ids.count());
-    EXPECT_EQ(0u, ids.offset(0));
-    EXPECT_EQ(5u, ids.offset(1));
-    EXPECT_EQ(9999u, ids.max_offset());
     EXPECT_EQ(20000u, ids.id(0));
     EXPECT_EQ(20005u, ids.id(1));
     EXPECT_EQ(29999u, ids.id(3));
-}
-
-TEST(compact_ids, min_id_uses_first_offset_for_base_plus_offsets_init) {
-    const MappedCompactIds mapped = map_ids_from_offsets_or_die(100, std::vector<uint32_t>{5, 10});
-    const CompactIdsOffsets& ids = mapped.ids;
-
-    EXPECT_EQ(105u, ids.min_id());
-    EXPECT_EQ(105u, ids.id(0));
-    EXPECT_EQ(110u, ids.id(1));
-}
-
-TEST(compact_ids, preferred_encoding_uses_offsets_for_sparse_layouts) {
-    CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{0, 1000, 2000}).code());
-
-    EXPECT_EQ(3u * sizeof(uint32_t), ids.offsets_storage_size_bytes());
-}
-
-TEST(compact_ids, offsets_storage_size_bytes_for_dense_layouts) {
-    std::vector<uint64_t> values;
-    values.reserve(9000);
-    for (uint64_t id = 20000; id < 29000; ++id) {
-        values.push_back(id);
-    }
-
-    CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(values).code());
-
-    EXPECT_EQ(9000u * sizeof(uint32_t), ids.offsets_storage_size_bytes());
 }
 
 TEST(compact_ids, init_from_base_and_offsets_rejects_duplicate_offsets) {
@@ -297,22 +243,6 @@ TEST(compact_ids, id_out_of_range_throws) {
 
     EXPECT_THROW(ids.id(2), std::out_of_range);
     EXPECT_THROW(ids.id(100), std::out_of_range);
-}
-
-TEST(compact_ids, offset_out_of_range_throws) {
-    CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{50, 60}).code());
-
-    EXPECT_THROW(ids.offset(2), std::out_of_range);
-    EXPECT_THROW(ids.offset(100), std::out_of_range);
-}
-
-TEST(compact_ids, min_and_max_throw_for_empty_container) {
-    CompactIdsOffsets ids;
-
-    EXPECT_THROW(ids.min_id(), std::out_of_range);
-    EXPECT_THROW(ids.max_id(), std::out_of_range);
-    EXPECT_THROW(ids.max_offset(), std::out_of_range);
 }
 
 TEST(compact_ids, iterator_walks_ids_in_order) {
@@ -393,11 +323,9 @@ TEST(compact_ids, write_and_map_round_trip_offsets_encoding) {
     ASSERT_EQ(0, restored.map(serialized.data(), serialized.size(), &consumed).code());
     ASSERT_EQ(serialized.size(), consumed);
 
-    EXPECT_EQ(ids.base(), restored.base());
     EXPECT_EQ(ids.count(), restored.count());
     for (size_t i = 0; i < ids.count(); ++i) {
         EXPECT_EQ(ids.id(i), restored.id(i));
-        EXPECT_EQ(ids.offset(i), restored.offset(i));
     }
 }
 
@@ -419,7 +347,6 @@ TEST(compact_ids, write_and_map_round_trip_dense_layout_uses_offsets_encoding) {
     ASSERT_EQ(0, restored.map(serialized.data(), serialized.size(), &consumed).code());
     ASSERT_EQ(serialized.size(), consumed);
 
-    EXPECT_EQ(ids.base(), restored.base());
     EXPECT_EQ(ids.count(), restored.count());
     for (size_t i = 0; i < ids.count(); ++i) {
         EXPECT_EQ(ids.id(i), restored.id(i));
@@ -441,7 +368,6 @@ TEST(compact_ids, write_and_map_round_trip_empty_container) {
 
     EXPECT_TRUE(restored.empty());
     EXPECT_EQ(0u, restored.count());
-    EXPECT_EQ(0u, restored.base());
 }
 
 TEST(compact_ids, write_rejects_null_file_handle) {
@@ -567,7 +493,6 @@ TEST(compact_ids, map_buffer_round_trip_reports_bytes_consumed) {
     size_t consumed = 0;
     ASSERT_EQ(0, restored.map(serialized.data(), serialized.size(), &consumed).code());
     EXPECT_EQ(serialized.size(), consumed);
-    EXPECT_EQ(ids.base(), restored.base());
     EXPECT_EQ(ids.count(), restored.count());
     for (size_t i = 0; i < ids.count(); ++i) {
         EXPECT_EQ(ids.id(i), restored.id(i));
@@ -582,11 +507,25 @@ TEST(compact_ids, map_offsets_round_trip_reports_bytes_consumed) {
     size_t consumed = 0;
     ASSERT_EQ(0, mapped.map(serialized.data(), serialized.size(), &consumed).code());
     EXPECT_EQ(serialized.size(), consumed);
-    EXPECT_EQ(ids.base(), mapped.base());
     EXPECT_EQ(ids.count(), mapped.count());
     for (size_t i = 0; i < ids.count(); ++i) {
         EXPECT_EQ(ids.id(i), mapped.id(i));
-        EXPECT_EQ(ids.offset(i), mapped.offset(i));
+    }
+}
+
+TEST(compact_ids, map_accepts_unaligned_offsets_payload) {
+    CompactIdsOffsets ids;
+    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
+    const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
+    const std::vector<uint8_t> unaligned = make_unaligned_buffer(serialized);
+
+    CompactIdsOffsets mapped;
+    size_t consumed = 0;
+    ASSERT_EQ(0, mapped.map(unaligned.data() + 1, serialized.size(), &consumed).code());
+    EXPECT_EQ(serialized.size(), consumed);
+    EXPECT_EQ(ids.count(), mapped.count());
+    for (size_t i = 0; i < ids.count(); ++i) {
+        EXPECT_EQ(ids.id(i), mapped.id(i));
     }
 }
 

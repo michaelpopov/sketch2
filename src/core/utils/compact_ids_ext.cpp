@@ -109,9 +109,9 @@ Ret CompactIdsExt::init(std::vector<uint64_t>& ids) {
 
 void CompactIdsExt::clear() {
     switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.clear();
-        case StorageKind::Bitset: return bitset_.clear();
-        case StorageKind::Misses: return misses_.clear();
+        case StorageKind::Offsets: offsets_.clear(); break;
+        case StorageKind::Bitset: bitset_.clear(); break;
+        case StorageKind::Misses: misses_.clear(); break;
     }
     storage_kind_ = StorageKind::Offsets;
 }
@@ -132,60 +132,6 @@ bool CompactIdsExt::empty() const {
         case StorageKind::Bitset: return bitset_.empty();
     }
     return true;
-}
-
-uint64_t CompactIdsExt::base() const {
-    switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.base();
-        case StorageKind::Misses: return misses_.base();
-        case StorageKind::Bitset: return bitset_.base();
-    }
-    return 0;
-}
-
-uint64_t CompactIdsExt::min_id() const {
-    switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.min_id();
-        case StorageKind::Misses: return misses_.min_id();
-        case StorageKind::Bitset: return bitset_.min_id();
-    }
-    return 0;
-}
-
-uint64_t CompactIdsExt::max_id() const {
-    switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.max_id();
-        case StorageKind::Misses: return misses_.max_id();
-        case StorageKind::Bitset: return bitset_.max_id();
-    }
-    return 0;
-}
-
-uint32_t CompactIdsExt::offset(size_t index) const {
-    switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.offset(index);
-        case StorageKind::Misses: return misses_.offset(index);
-        case StorageKind::Bitset: return bitset_.offset(index);
-    }
-    return 0;
-}
-
-uint32_t CompactIdsExt::max_offset() const {
-    switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.max_offset();
-        case StorageKind::Misses: return misses_.max_offset();
-        case StorageKind::Bitset: return bitset_.max_offset();
-    }
-    return 0;
-}
-
-size_t CompactIdsExt::offsets_storage_size_bytes() const {
-    switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.offsets_storage_size_bytes();
-        case StorageKind::Misses: return misses_.offsets_storage_size_bytes();
-        case StorageKind::Bitset: return bitset_.offsets_storage_size_bytes();
-    }
-    return 0;
 }
 
 size_t CompactIdsExt::serialized_size_bytes() const {
@@ -220,24 +166,6 @@ size_t CompactIdsExt::lower_bound_index(uint64_t id) const {
         case StorageKind::Offsets: return offsets_.lower_bound_index(id);
         case StorageKind::Misses: return misses_.lower_bound_index(id);
         case StorageKind::Bitset: return bitset_.lower_bound_index(id);
-    }
-    return 0;
-}
-
-size_t CompactIdsExt::index_of(uint64_t id) const {
-    switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.index_of(id);
-        case StorageKind::Misses: return misses_.index_of(id);
-        case StorageKind::Bitset: return bitset_.index_of(id);
-    }
-    return 0;
-}
-
-bool CompactIdsExt::contains(uint64_t id) const {
-    switch (storage_kind_) {
-        case StorageKind::Offsets: return offsets_.contains(id);
-        case StorageKind::Misses: return misses_.contains(id);
-        case StorageKind::Bitset: return bitset_.contains(id);
     }
     return 0;
 }

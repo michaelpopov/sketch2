@@ -14,6 +14,10 @@ namespace {
 
 static_assert(sizeof(CompactIdsHeader) == 24, "CompactIdsHeader must stay compact");
 
+bool is_aligned_uint32(const void* ptr) {
+    return (reinterpret_cast<uintptr_t>(ptr) % alignof(uint32_t)) == 0;
+}
+
 Ret validate_offsets(uint64_t base, const uint32_t* offsets, size_t count);
 Ret validate_offsets(uint64_t base, const uint32_t* offsets, size_t count) {
     uint32_t prev = 0;
@@ -60,136 +64,151 @@ size_t CompactIdsOffsets::Iterator::index() const {
 
 Ret CompactIdsOffsets::init(const CompactIdsAccumulator& accumulator) {
     try {
-        if (accumulator.size() == 0) {
-            clear();
-            return Ret(0);
-        }
-        if (accumulator.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret("CompactIdsOffsets::init: id count exceeds uint32_t range");
-        }
-
-        const uint64_t new_base = accumulator[0];
-        std::vector<uint32_t> new_offsets;
-        new_offsets.reserve(accumulator.size());
-        uint64_t prev = new_base;
-        for (size_t i = 0; i < accumulator.size(); ++i) {
-            const uint64_t current = accumulator[i];
-            if (i > 0 && prev >= current) {
-                return Ret("CompactIdsOffsets::init: ids must be strictly increasing");
-            }
-
-            const uint64_t offset = current - new_base;
-            if (offset > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
-                return Ret("CompactIdsOffsets::init: id offset exceeds uint32_t range");
-            }
-
-            new_offsets.push_back(static_cast<uint32_t>(offset));
-            prev = current;
-        }
-
-        base_ = new_base;
-        owned_offsets_ = std::move(new_offsets);
-        offsets_ = owned_offsets_.data();
-        count_ = static_cast<uint32_t>(owned_offsets_.size());
-        return Ret(0);
+        return init_(accumulator);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsOffsets::init: ") + ex.what());
     }
+}
+
+Ret CompactIdsOffsets::init_(const CompactIdsAccumulator& accumulator) {
+    if (accumulator.size() == 0) {
+        clear();
+        return Ret(0);
+    }
+    if (accumulator.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+        return Ret("CompactIdsOffsets::init: id count exceeds uint32_t range");
+    }
+
+    const uint64_t new_base = accumulator[0];
+    std::vector<uint32_t> new_offsets;
+    new_offsets.reserve(accumulator.size());
+    uint64_t prev = new_base;
+    for (size_t i = 0; i < accumulator.size(); ++i) {
+        const uint64_t current = accumulator[i];
+        if (i > 0 && prev >= current) {
+            return Ret("CompactIdsOffsets::init: ids must be strictly increasing");
+        }
+
+        const uint64_t offset = current - new_base;
+        if (offset > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+            return Ret("CompactIdsOffsets::init: id offset exceeds uint32_t range");
+        }
+
+        new_offsets.push_back(static_cast<uint32_t>(offset));
+        prev = current;
+    }
+
+    base_ = new_base;
+    owned_offsets_ = std::move(new_offsets);
+    offsets_ = owned_offsets_.data();
+    count_ = static_cast<uint32_t>(owned_offsets_.size());
+    return Ret(0);
 }
 
 Ret CompactIdsOffsets::init(const std::vector<uint64_t>& ids) {
     try {
-        if (ids.empty()) {
-            clear();
-            return Ret(0);
-        }
-
-        if (ids.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret("CompactIdsOffsets::init: id count exceeds uint32_t range");
-        }
-
-        const uint64_t new_base = ids[0];
-        std::vector<uint32_t> new_offsets;
-        new_offsets.reserve(ids.size());
-        uint64_t prev = new_base;
-        for (size_t i = 0; i < ids.size(); ++i) {
-            const uint64_t current = ids[i];
-            if (i > 0 && prev >= current) {
-                return Ret("CompactIdsOffsets::init: ids must be strictly increasing");
-            }
-
-            const uint64_t offset = current - new_base;
-            if (offset > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
-                return Ret("CompactIdsOffsets::init: id offset exceeds uint32_t range");
-            }
-
-            new_offsets.push_back(static_cast<uint32_t>(offset));
-            prev = current;
-        }
-        base_ = new_base;
-        owned_offsets_ = std::move(new_offsets);
-        offsets_ = owned_offsets_.data();
-        count_ = static_cast<uint32_t>(owned_offsets_.size());
-        return Ret(0);
+        return init_(ids);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsOffsets::init: ") + ex.what());
     }
 }
 
+Ret CompactIdsOffsets::init_(const std::vector<uint64_t>& ids) {
+    if (ids.empty()) {
+        clear();
+        return Ret(0);
+    }
+
+    if (ids.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+        return Ret("CompactIdsOffsets::init: id count exceeds uint32_t range");
+    }
+
+    const uint64_t new_base = ids[0];
+    std::vector<uint32_t> new_offsets;
+    new_offsets.reserve(ids.size());
+    uint64_t prev = new_base;
+    for (size_t i = 0; i < ids.size(); ++i) {
+        const uint64_t current = ids[i];
+        if (i > 0 && prev >= current) {
+            return Ret("CompactIdsOffsets::init: ids must be strictly increasing");
+        }
+
+        const uint64_t offset = current - new_base;
+        if (offset > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+            return Ret("CompactIdsOffsets::init: id offset exceeds uint32_t range");
+        }
+
+        new_offsets.push_back(static_cast<uint32_t>(offset));
+        prev = current;
+    }
+    base_ = new_base;
+    owned_offsets_ = std::move(new_offsets);
+    offsets_ = owned_offsets_.data();
+    count_ = static_cast<uint32_t>(owned_offsets_.size());
+    return Ret(0);
+}
+
 Ret CompactIdsOffsets::map(const uint8_t* data, size_t size, size_t* bytes_consumed) {
     try {
-        if (bytes_consumed != nullptr) {
-            *bytes_consumed = 0;
-        }
-        if (data == nullptr) {
-            return Ret("CompactIdsOffsets::map: data pointer is null");
-        }
-        if (size < sizeof(CompactIdsHeader)) {
-            return Ret("CompactIdsOffsets::map: buffer too small to contain header");
-        }
-
-        CompactIdsHeader hdr{};
-        std::memcpy(&hdr, data, sizeof(CompactIdsHeader));
-        if (hdr.encoding != static_cast<uint8_t>(CompactIdsExtEncoding::Offsets32)) {
-            return Ret("CompactIdsOffsets::map: unexpected encoding");
-        }
-
-        const size_t payload_size = static_cast<size_t>(hdr.payload_size);
-        if (payload_size > size - sizeof(CompactIdsHeader)) {
-            return Ret("CompactIdsOffsets::map: truncated payload");
-        }
-
-        const size_t expected_payload_size = static_cast<size_t>(hdr.count) * sizeof(uint32_t);
-        if (payload_size != expected_payload_size) {
-            return Ret("CompactIdsOffsets::map: malformed offsets payload size");
-        }
-
-        const size_t consumed = sizeof(CompactIdsHeader) + payload_size;
-        if (hdr.count == 0) {
-            if (hdr.miss_count != 0 || hdr.payload_size != 0 || hdr.base != 0) {
-                return Ret("CompactIdsOffsets::map: malformed empty payload header");
-            }
-            clear();
-        } else {
-            const uint32_t* mapped_offsets =
-                reinterpret_cast<const uint32_t*>(data + sizeof(CompactIdsHeader));
-            CHECK(validate_offsets(hdr.base, mapped_offsets, hdr.count));
-            if (mapped_offsets[hdr.count - 1] != hdr.miss_count) {
-                return Ret("CompactIdsOffsets::map: max_offset does not match payload");
-            }
-            base_ = hdr.base;
-            count_ = hdr.count;
-            offsets_ = mapped_offsets;
-            owned_offsets_.clear();
-        }
-
-        if (bytes_consumed != nullptr) {
-            *bytes_consumed = consumed;
-        }
-        return Ret(0);
+        return map_(data, size, bytes_consumed);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsOffsets::map: ") + ex.what());
     }
+}
+
+Ret CompactIdsOffsets::map_(const uint8_t* data, size_t size, size_t* bytes_consumed) {
+    CompactIdsMappedPrefix prefix{};
+    CHECK(parse_compact_ids_mapped_prefix(
+        data,
+        size,
+        CompactIdsExtEncoding::Offsets32,
+        "CompactIdsOffsets::map",
+        bytes_consumed,
+        &prefix));
+    const CompactIdsHeader& hdr = prefix.header;
+    const size_t payload_size = prefix.payload_size;
+
+    const size_t expected_payload_size = static_cast<size_t>(hdr.count) * sizeof(uint32_t);
+    if (payload_size != expected_payload_size) {
+        return Ret("CompactIdsOffsets::map: malformed offsets payload size");
+    }
+
+    if (hdr.count == 0) {
+        CHECK(validate_compact_ids_empty_header(
+            hdr,
+            "CompactIdsOffsets::map: malformed empty payload header"));
+        clear();
+    } else {
+        const uint8_t* payload = data + sizeof(CompactIdsHeader);
+        const bool use_mapped_offsets = is_aligned_uint32(payload);
+        const uint32_t* mapped_offsets = nullptr;
+        if (use_mapped_offsets) {
+            mapped_offsets = reinterpret_cast<const uint32_t*>(payload);
+        } else {
+            owned_offsets_.resize(hdr.count);
+            std::memcpy(owned_offsets_.data(), payload, payload_size);
+            mapped_offsets = owned_offsets_.data();
+        }
+        const uint32_t header_max_offset = hdr.aux_data;
+        CHECK(validate_offsets(hdr.base, mapped_offsets, hdr.count));
+        if (mapped_offsets[hdr.count - 1] != header_max_offset) {
+            if (!use_mapped_offsets) {
+                owned_offsets_.clear();
+            }
+            return Ret("CompactIdsOffsets::map: max_offset does not match payload");
+        }
+        base_ = hdr.base;
+        count_ = hdr.count;
+        offsets_ = mapped_offsets;
+        if (use_mapped_offsets) {
+            owned_offsets_.clear();
+        }
+    }
+
+    if (bytes_consumed != nullptr) {
+        *bytes_consumed = prefix.consumed;
+    }
+    return Ret(0);
 }
 
 void CompactIdsOffsets::clear() {
@@ -199,36 +218,8 @@ void CompactIdsOffsets::clear() {
     owned_offsets_.clear();
 }
 
-uint64_t CompactIdsOffsets::min_id() const {
-    if (empty()) {
-        throw std::out_of_range("CompactIdsOffsets::min_id: container is empty");
-    }
-    return base_ + offsets_[0];
-}
-
-uint64_t CompactIdsOffsets::max_id() const {
-    if (empty()) {
-        throw std::out_of_range("CompactIdsOffsets::max_id: container is empty");
-    }
-    return base_ + offsets_[count_ - 1];
-}
-
-uint32_t CompactIdsOffsets::offset(size_t index) const {
-    if (index >= count()) {
-        throw std::out_of_range("CompactIdsOffsets::offset: index out of range");
-    }
-    return offsets_[index];
-}
-
-uint32_t CompactIdsOffsets::max_offset() const {
-    if (empty()) {
-        throw std::out_of_range("CompactIdsOffsets::max_offset: container is empty");
-    }
-    return offsets_[count_ - 1];
-}
-
 size_t CompactIdsOffsets::serialized_size_bytes() const {
-    return sizeof(CompactIdsHeader) + offsets_storage_size_bytes();
+    return sizeof(CompactIdsHeader) + static_cast<size_t>(count_) * sizeof(uint32_t);
 }
 
 uint64_t CompactIdsOffsets::id(size_t index) const {
@@ -257,34 +248,16 @@ size_t CompactIdsOffsets::lower_bound_index(uint64_t value) const {
     return static_cast<size_t>(it - offsets_);
 }
 
-size_t CompactIdsOffsets::index_of(uint64_t value) const {
-    const size_t index = lower_bound_index(value);
-    if (index >= count()) {
-        return npos;
-    }
-    return id(index) == value ? index : npos;
-}
-
-bool CompactIdsOffsets::contains(uint64_t value) const {
-    return index_of(value) != npos;
-}
-
 Ret CompactIdsOffsets::write(FILE* f, const std::string& error_message) const {
     const std::string base_message = error_message.empty() ? "CompactIdsOffsets::write failed" : error_message;
-    if (f == nullptr) {
-        return Ret(base_message + ": file handle is null");
-    }
-
-    CompactIdsHeader hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsExtEncoding::Offsets32);
-    hdr.count = count_;
-    hdr.miss_count = empty() ? 0 : max_offset();
-    hdr.payload_size = static_cast<uint32_t>(offsets_storage_size_bytes());
-    hdr.base = empty() ? 0 : base_;
-
-    if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
-        return Ret(base_message);
-    }
+    CHECK(write_compact_ids_header(
+        f,
+        CompactIdsExtEncoding::Offsets32,
+        count_,
+        empty() ? 0 : offsets_[count_ - 1],
+        static_cast<uint32_t>(static_cast<size_t>(count_) * sizeof(uint32_t)),
+        empty() ? 0 : base_,
+        base_message));
     if (empty()) {
         return Ret(0);
     }

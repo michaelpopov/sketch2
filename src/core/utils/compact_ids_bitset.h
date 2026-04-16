@@ -41,19 +41,11 @@ public:
 
     size_t count() const;
     bool empty() const;
-    uint64_t base() const;
-    uint64_t min_id() const;
-    uint64_t max_id() const;
-    uint32_t offset(size_t index) const;
-    uint32_t max_offset() const;
-    size_t offsets_storage_size_bytes() const;
     size_t serialized_size_bytes() const;
 
     uint64_t id(size_t index) const;
     uint64_t id_unchecked(size_t index) const;
     size_t lower_bound_index(uint64_t id) const;
-    size_t index_of(uint64_t id) const;
-    bool contains(uint64_t id) const;
 
     Ret write(FILE* f, const std::string& error_message) const;
     Ret map(const uint8_t* data, size_t size, size_t* bytes_consumed);
@@ -61,6 +53,9 @@ public:
     Iterator begin() const;
 
 private:
+    Ret init_(const CompactIdsAccumulator& accumulator);
+    Ret init_(const std::vector<uint64_t>& ids);
+    Ret map_(const uint8_t* data, size_t size, size_t* bytes_consumed);
     uint32_t select_bit(size_t target) const;
     size_t rank_bit(uint32_t offset) const;
     uint32_t next_set_bit(uint32_t offset) const;

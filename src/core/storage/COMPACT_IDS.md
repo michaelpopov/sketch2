@@ -1,49 +1,64 @@
-# CompactIdsOffsets
+# CompactIdsExt
 
-`CompactIdsOffsets` is the storage-layer representation for sorted vector ids and sorted tombstone ids.
-It exists to keep id metadata compact on disk and in memory while still supporting fast ordered access.
+`CompactIdsExt` is the storage-layer representation for sorted active ids and
+sorted tombstone ids.
+It is the orchestrator for the compact-id format: it chooses the payload
+encoding when writing, dispatches by encoding when mapping, and exposes one
+uniform sorted-id API to storage code.
 
-There are two related types:
+The concrete payload backends are:
 
-- `CompactIdsOffsets`: read-only container used after a file has been opened.
+- `CompactIdsOffsets`: raw strictly increasing `uint32_t` offsets from a base id
+- `CompactIdsBitset`: one bit per possible offset in the covered span
+- `CompactIdsMisses`: the offsets that are absent inside an otherwise dense span
 
-Both represent ids as:
+`CompactIdsAccumulator` is a write-path helper that collects sorted ids as
+offsets from the first id. Once accumulation is finished, `CompactIdsExt`
+chooses the smallest backend representation and writes it to disk.
 
-- one `uint64_t base`
-- one strictly increasing `uint32_t` offset per id, where `id = base + offset`
-
-This saves memory compared with storing every id as `uint64_t`, as long as all ids in one set fit within a `uint32_t` span from the first id.
+All variants represent ids relative to one `uint64_t base`, where the logical id
+space is `id = base + offset`.
 
 ## Serialized Form
 
-Each serialized `CompactIdsOffsets` section starts with a 24-byte header:
+Each serialized `CompactIdsExt` section starts with a 24-byte header:
 
 - `encoding`
 - `count`
-- `max_offset`
+- `aux_data`
 - `payload_size`
 - `base`
 
-The payload uses one of two encodings:
+`aux_data` is format-specific:
 
-- `Offsets32`: raw `uint32_t` offsets
-- `Bitset`: one bit per possible offset
+- `Offsets32`: `max_offset`
+- `Bitset`: `max_offset`
+- `Misses32`: `miss_count`
 
-`CompactIdsOffsets` chooses the smaller canonical payload automatically. Bitset is used only when it is smaller than raw offsets.
+The payload encoding is selected by `CompactIdsExt`:
 
-At runtime, `CompactIdsOffsets` is always materialized as ordered `uint32_t` offsets in memory, even if the file stored a bitset payload. This keeps `id(index)`, `lower_bound_index(id)`, and merge-style ordered scans simple and fast.
+- `Offsets32`: stores one `uint32_t` per id
+- `Bitset`: stores one bit per possible offset in the covered span
+- `Misses32`: stores one `uint32_t` per missing offset in the covered span
+
+At load time, `CompactIdsExt::map()` reads `encoding` and forwards to the
+matching backend parser. After mapping, callers still use the same high-level
+operations such as `id(index)`, `lower_bound_index(id)`, `contains(id)`, and
+ordered iteration regardless of which payload was stored on disk.
 
 ## File Layout
 
-In a `.data` or `.delta` file, the id metadata lives in the trailer after the vector records and optional cosine inverse norms:
+In a `.data` or `.delta` file, the id metadata lives in the trailer after the
+vector records and optional cosine inverse norms:
 
 1. vector records
 2. optional cosine inverse norms
 3. alignment padding to `kIdsAlignment`
-4. active ids `CompactIdsOffsets`
-5. deleted ids `CompactIdsOffsets`
+4. active ids `CompactIdsExt`
+5. deleted ids `CompactIdsExt`
 
-`DataMetadataLayout` in `data_file_layout.h` computes the offsets for these sections.
+`DataMetadataLayout` in `data_file_layout.h` computes the offsets for these
+sections.
 
 `DataFileHeader.count` is the number of active ids.
 `DataFileHeader.deleted_count` is the number of deleted ids.
@@ -67,34 +82,39 @@ Procedure:
 5. Stream only live vector records into the data section.
 6. Optionally write cosine inverse norms for live rows.
 7. Write id-trailer alignment padding.
-8. Serialize `active_ids`, then serialize `deleted_ids`.
+8. Materialize `CompactIdsExt` for active ids and deleted ids, then serialize both.
 
 Important details:
 
-- `CompactIdsAccumulator` is used while scanning ids, and `CompactIdsExt` is materialized once before writing.
+- `CompactIdsAccumulator` is used while scanning ids.
+- `CompactIdsExt` is materialized once per section right before trailer output.
 - If all rows are deletes, header `min_id` and `max_id` are written as zero.
-- Builder append fails if ids are not strictly increasing or if the span from the first id exceeds `uint32_t`.
+- Accumulation fails if ids are not strictly increasing or if the span from the
+  first id exceeds `uint32_t`.
 
 ## DataReader
 
-`DataReader::init()` memory-maps the file, validates the header and layout, and then parses the two `CompactIdsOffsets` sections from the trailer.
+`DataReader::init()` memory-maps the file, validates the header and layout, and
+then parses the two `CompactIdsExt` sections from the trailer.
 
 Procedure:
 
-1. `mmap()` the file and validate the header, version, type, dimensions, stride, and flags.
+1. `mmap()` the file and validate the header, version, type, dimensions,
+   stride, and flags.
 2. Use `compute_data_metadata_layout()` to locate the trailer.
-3. Read the first `CompactIdsOffsets` section into `ids_`.
-4. Read the second `CompactIdsOffsets` section into `deleted_ids_`.
+3. Read the first `CompactIdsExt` section into `ids_`.
+4. Read the second `CompactIdsExt` section into `deleted_ids_`.
 5. Require the parsed trailer to consume the file exactly.
 6. Require `ids_.count()` and `deleted_ids_.count()` to match the header counts.
 7. Copy cosine inverse norms into a heap buffer when present.
 
-How `CompactIdsOffsets` is used after load:
+How `CompactIdsExt` is used after load:
 
 - `id(index)` and `id_unchecked(index)` provide ordered id access.
 - `lower_bound_index(id)` powers `DataReader::get(id)`.
 - `deleted_id(index)` exposes persisted tombstones.
-- `check_consistency()` verifies that active ids and deleted ids are each strictly sorted and disjoint.
+- `check_consistency()` verifies that active ids and deleted ids are each
+  strictly sorted and disjoint.
 
 When a base reader is opened with an attached delta reader, `init_delta()` walks:
 
@@ -110,21 +130,30 @@ and marks base rows hidden when the delta overwrites or deletes the same id.
 
 ### Live ids
 
-`MergeOutputWriter` owns `output_ids_`, a `CompactIdsAccumulator` for the active ids of the new file.
-Each time a surviving record is written, `write_binary_record()` first appends its id to `output_ids_`, then writes the vector bytes.
+`MergeOutputWriter` owns `output_ids_`, a `CompactIdsAccumulator` for the active
+ids of the new file.
+Each time a surviving record is written, `write_binary_record()` first appends
+its id to `output_ids_`, then writes the vector bytes.
 
-This means the final active-id section is built incrementally in output order while the merge stream is produced.
+This means the final active-id section is built incrementally in output order
+while the merge stream is produced.
 
 ### Delete ids
 
-The merge logic still uses plain sorted `std::vector<uint64_t>` delete lists while deciding which records survive, because the merge loop only needs sequential comparisons.
+The merge logic still uses plain sorted `std::vector<uint64_t>` delete lists
+while deciding which records survive, because the merge loop only needs
+sequential comparisons.
 
 After the delete set is known:
 
-- data-file merges pass an empty `CompactIdsExt`, because the output `.data` file does not preserve tombstones
-- delta-file merges build one `CompactIdsAccumulator` from the final delete list and materialize `CompactIdsExt` when writing the trailer
+- data-file merges pass an empty `CompactIdsExt`, because the output `.data`
+  file does not preserve tombstones
+- delta-file merges build one `CompactIdsAccumulator` from the final delete list
+  and materialize `CompactIdsExt` when writing the trailer
 
-The delta path does not rebuild deleted ids inside `write_ids_section()` anymore. The builder is prepared once by the caller and then written directly.
+The delta path does not rebuild deleted ids inside `write_ids_section()`
+anymore. The accumulator is prepared once by the caller and then written
+directly as `CompactIdsExt`.
 
 ### Merge flow
 
@@ -132,12 +161,13 @@ The high-level merge procedure is:
 
 1. Normalize updater input into sorted live items plus a sorted delete list.
 2. Run `merge_records()` over source ids, updater ids, and deletes.
-3. For each surviving live row, append the id to `output_ids_` and write the vector record.
+3. For each surviving live row, append the id to `output_ids_` and write the
+   vector record.
 4. After all vectors are written, call `write_ids_section()` to write:
    - cosine inverse norms
    - alignment padding
-   - active ids from `output_ids_`
-   - deleted ids from the provided builder
+   - active ids from `output_ids_`, materialized as `CompactIdsExt`
+   - deleted ids from the provided `CompactIdsExt`
 5. Patch the header with final active `min_id`, `max_id`, and `count`.
 6. For delta merges, also patch `deleted_count`.
 
@@ -150,17 +180,20 @@ For delta merges, the final tombstone set is not just the updater delete list.
 - unions them with updater tombstones
 - removes duplicates
 
-That final sorted delete list is what gets serialized into the deleted-id `CompactIdsOffsets` section of the merged delta file.
+That final sorted delete list is what gets serialized into the deleted-id
+`CompactIdsExt` section of the merged delta file.
 
 ## Why This Design
 
 This design keeps the important operations efficient:
 
 - compact on-disk metadata
-- lower in-memory id storage than `uint64_t` arrays
+- a format-specific payload chosen to minimize storage
 - fast `id(index)` access
 - fast binary search by id
 - simple linear merge walks over sorted ids
 - no extra full-id copy on write and merge paths
 
-In short, `CompactIdsOffsets` is the sorted-id spine of the storage format: `DataWriter` builds it, `DataReader` uses it for lookup and iteration, and `DataMerger` carries it forward while producing new files.
+In short, `CompactIdsExt` is the sorted-id spine of the storage format:
+`DataWriter` builds it, `DataReader` uses it for lookup and iteration, and
+`DataMerger` carries it forward while producing new files.

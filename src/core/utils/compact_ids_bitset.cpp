@@ -44,10 +44,6 @@ size_t popcount_prefix(const uint8_t* bitset, uint32_t bit_count) {
     return count;
 }
 
-bool is_bitset_encoding(uint8_t encoding) {
-    return encoding == static_cast<uint8_t>(CompactIdsExtEncoding::Bitset);
-}
-
 } // namespace
 
 CompactIdsBitset::Iterator::Iterator(const CompactIdsBitset* ids)
@@ -81,88 +77,96 @@ size_t CompactIdsBitset::Iterator::index() const {
 
 Ret CompactIdsBitset::init(const CompactIdsAccumulator& accumulator) {
     try {
-        if (accumulator.size() == 0) {
-            clear();
-            return Ret(0);
-        }
-
-        if (accumulator.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret("CompactIdsBitset::init: id count exceeds uint32_t range");
-        }
-
-        const uint64_t new_base = accumulator[0];
-        uint64_t prev = new_base;
-        for (size_t i = 1; i < accumulator.size(); ++i) {
-            const uint64_t current = accumulator[i];
-            if (current <= prev) {
-                return Ret("CompactIdsBitset::init: ids must be strictly increasing");
-            }
-            prev = current;
-        }
-
-        const uint64_t max_offset64 = accumulator[accumulator.size() - 1] - new_base;
-        if (max_offset64 > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret("CompactIdsBitset::init: id range exceeds uint32_t");
-        }
-
-        const uint32_t new_span = static_cast<uint32_t>(max_offset64) + 1u;
-        std::vector<uint8_t> new_bitset(bitset_payload_size(static_cast<uint32_t>(max_offset64)), 0);
-        for (size_t i = 0; i < accumulator.size(); ++i) {
-            const uint32_t off = static_cast<uint32_t>(accumulator[i] - new_base);
-            new_bitset[off >> 3] |= static_cast<uint8_t>(1u << (off & 7u));
-        }
-
-        base_ = new_base;
-        count_ = static_cast<uint32_t>(accumulator.size());
-        span_ = new_span;
-        owned_bitset_ = std::move(new_bitset);
-        bitset_size_ = static_cast<uint32_t>(owned_bitset_.size());
-        bitset_ = owned_bitset_.data();
-        return Ret(0);
+        return init_(accumulator);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsBitset::init: ") + ex.what());
     }
 }
 
+Ret CompactIdsBitset::init_(const CompactIdsAccumulator& accumulator) {
+    if (accumulator.size() == 0) {
+        clear();
+        return Ret(0);
+    }
+
+    if (accumulator.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+        return Ret("CompactIdsBitset::init: id count exceeds uint32_t range");
+    }
+
+    const uint64_t new_base = accumulator[0];
+    uint64_t prev = new_base;
+    for (size_t i = 1; i < accumulator.size(); ++i) {
+        const uint64_t current = accumulator[i];
+        if (current <= prev) {
+            return Ret("CompactIdsBitset::init: ids must be strictly increasing");
+        }
+        prev = current;
+    }
+
+    const uint64_t max_offset64 = accumulator[accumulator.size() - 1] - new_base;
+    if (max_offset64 > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+        return Ret("CompactIdsBitset::init: id range exceeds uint32_t");
+    }
+
+    const uint32_t new_span = static_cast<uint32_t>(max_offset64) + 1u;
+    std::vector<uint8_t> new_bitset(bitset_payload_size(static_cast<uint32_t>(max_offset64)), 0);
+    for (size_t i = 0; i < accumulator.size(); ++i) {
+        const uint32_t off = static_cast<uint32_t>(accumulator[i] - new_base);
+        new_bitset[off >> 3] |= static_cast<uint8_t>(1u << (off & 7u));
+    }
+
+    base_ = new_base;
+    count_ = static_cast<uint32_t>(accumulator.size());
+    span_ = new_span;
+    owned_bitset_ = std::move(new_bitset);
+    bitset_size_ = static_cast<uint32_t>(owned_bitset_.size());
+    bitset_ = owned_bitset_.data();
+    return Ret(0);
+}
+
 Ret CompactIdsBitset::init(const std::vector<uint64_t>& ids) {
     try {
-        if (ids.empty()) {
-            clear();
-            return Ret(0);
-        }
-
-        for (size_t i = 1; i < ids.size(); ++i) {
-            if (ids[i] <= ids[i - 1]) {
-                return Ret("CompactIdsBitset::init: ids must be strictly increasing");
-            }
-        }
-
-        const uint64_t new_base = ids[0];
-        const uint64_t max_offset64 = ids.back() - new_base;
-        if (max_offset64 > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret("CompactIdsBitset::init: id range exceeds uint32_t");
-        }
-        if (ids.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret("CompactIdsBitset::init: id count exceeds uint32_t range");
-        }
-
-        const uint32_t new_span = static_cast<uint32_t>(max_offset64) + 1u;
-        std::vector<uint8_t> new_bitset(bitset_payload_size(static_cast<uint32_t>(max_offset64)), 0);
-        for (uint64_t value : ids) {
-            const uint32_t off = static_cast<uint32_t>(value - new_base);
-            new_bitset[off >> 3] |= static_cast<uint8_t>(1u << (off & 7u));
-        }
-
-        base_ = new_base;
-        count_ = static_cast<uint32_t>(ids.size());
-        span_ = new_span;
-        owned_bitset_ = std::move(new_bitset);
-        bitset_size_ = static_cast<uint32_t>(owned_bitset_.size());
-        bitset_ = owned_bitset_.data();
-        return Ret(0);
+        return init_(ids);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsBitset::init: ") + ex.what());
     }
+}
+
+Ret CompactIdsBitset::init_(const std::vector<uint64_t>& ids) {
+    if (ids.empty()) {
+        clear();
+        return Ret(0);
+    }
+
+    for (size_t i = 1; i < ids.size(); ++i) {
+        if (ids[i] <= ids[i - 1]) {
+            return Ret("CompactIdsBitset::init: ids must be strictly increasing");
+        }
+    }
+
+    const uint64_t new_base = ids[0];
+    const uint64_t max_offset64 = ids.back() - new_base;
+    if (max_offset64 > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+        return Ret("CompactIdsBitset::init: id range exceeds uint32_t");
+    }
+    if (ids.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+        return Ret("CompactIdsBitset::init: id count exceeds uint32_t range");
+    }
+
+    const uint32_t new_span = static_cast<uint32_t>(max_offset64) + 1u;
+    std::vector<uint8_t> new_bitset(bitset_payload_size(static_cast<uint32_t>(max_offset64)), 0);
+    for (uint64_t value : ids) {
+        const uint32_t off = static_cast<uint32_t>(value - new_base);
+        new_bitset[off >> 3] |= static_cast<uint8_t>(1u << (off & 7u));
+    }
+
+    base_ = new_base;
+    count_ = static_cast<uint32_t>(ids.size());
+    span_ = new_span;
+    owned_bitset_ = std::move(new_bitset);
+    bitset_size_ = static_cast<uint32_t>(owned_bitset_.size());
+    bitset_ = owned_bitset_.data();
+    return Ret(0);
 }
 
 void CompactIdsBitset::clear() {
@@ -182,44 +186,8 @@ bool CompactIdsBitset::empty() const {
     return count_ == 0;
 }
 
-uint64_t CompactIdsBitset::base() const {
-    return base_;
-}
-
-uint64_t CompactIdsBitset::min_id() const {
-    if (empty()) {
-        throw std::out_of_range("CompactIdsBitset::min_id: container is empty");
-    }
-    return base_;
-}
-
-uint64_t CompactIdsBitset::max_id() const {
-    if (empty()) {
-        throw std::out_of_range("CompactIdsBitset::max_id: container is empty");
-    }
-    return base_ + span_ - 1u;
-}
-
-uint32_t CompactIdsBitset::offset(size_t index) const {
-    if (index >= count_) {
-        throw std::out_of_range("CompactIdsBitset::offset: index out of range");
-    }
-    return select_bit(index);
-}
-
-uint32_t CompactIdsBitset::max_offset() const {
-    if (empty()) {
-        throw std::out_of_range("CompactIdsBitset::max_offset: container is empty");
-    }
-    return span_ - 1u;
-}
-
-size_t CompactIdsBitset::offsets_storage_size_bytes() const {
-    return bitset_size_;
-}
-
 size_t CompactIdsBitset::serialized_size_bytes() const {
-    return sizeof(CompactIdsHeader) + offsets_storage_size_bytes();
+    return sizeof(CompactIdsHeader) + bitset_size_;
 }
 
 uint64_t CompactIdsBitset::id(size_t index) const {
@@ -255,49 +223,17 @@ size_t CompactIdsBitset::lower_bound_index(uint64_t value) const {
     return rank_bit(next);
 }
 
-size_t CompactIdsBitset::index_of(uint64_t value) const {
-    if (empty() || value < base_) {
-        return npos;
-    }
-
-    const uint64_t off = value - base_;
-    if (off >= span_) {
-        return npos;
-    }
-
-    const uint32_t off32 = static_cast<uint32_t>(off);
-    if (!test_bit(bitset_, off32)) {
-        return npos;
-    }
-    return rank_bit(off32);
-}
-
-bool CompactIdsBitset::contains(uint64_t value) const {
-    if (empty() || value < base_) {
-        return false;
-    }
-
-    const uint64_t off = value - base_;
-    return off < span_ && test_bit(bitset_, static_cast<uint32_t>(off));
-}
-
 Ret CompactIdsBitset::write(FILE* f, const std::string& error_message) const {
     const std::string base_message = error_message.empty()
         ? "CompactIdsBitset::write failed" : error_message;
-    if (f == nullptr) {
-        return Ret(base_message + ": file handle is null");
-    }
-
-    CompactIdsHeader hdr{};
-    hdr.encoding = static_cast<uint8_t>(CompactIdsExtEncoding::Bitset);
-    hdr.count = count_;
-    hdr.miss_count = empty() ? 0u : max_offset();
-    hdr.payload_size = bitset_size_;
-    hdr.base = empty() ? 0 : base_;
-
-    if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
-        return Ret(base_message);
-    }
+    CHECK(write_compact_ids_header(
+        f,
+        CompactIdsExtEncoding::Bitset,
+        count_,
+        empty() ? 0u : span_ - 1u,
+        bitset_size_,
+        empty() ? 0 : base_,
+        base_message));
     if (bitset_size_ > 0 && fwrite(bitset_, 1, bitset_size_, f) != bitset_size_) {
         return Ret(base_message);
     }
@@ -307,69 +243,64 @@ Ret CompactIdsBitset::write(FILE* f, const std::string& error_message) const {
 
 Ret CompactIdsBitset::map(const uint8_t* data, size_t size, size_t* bytes_consumed) {
     try {
-        if (bytes_consumed != nullptr) {
-            *bytes_consumed = 0;
-        }
-        if (data == nullptr) {
-            return Ret("CompactIdsBitset::map: data pointer is null");
-        }
-        if (size < sizeof(CompactIdsHeader)) {
-            return Ret("CompactIdsBitset::map: buffer too small to contain header");
-        }
-
-        CompactIdsHeader hdr{};
-        std::memcpy(&hdr, data, sizeof(CompactIdsHeader));
-        if (!is_bitset_encoding(hdr.encoding)) {
-            return Ret("CompactIdsBitset::map: unexpected encoding");
-        }
-
-        const size_t payload_size = static_cast<size_t>(hdr.payload_size);
-        if (payload_size > size - sizeof(CompactIdsHeader)) {
-            return Ret("CompactIdsBitset::map: truncated payload");
-        }
-
-        const size_t expected_payload = hdr.count == 0 ? 0 : bitset_payload_size(hdr.miss_count);
-        if (payload_size != expected_payload) {
-            return Ret("CompactIdsBitset::map: payload size does not match max_offset");
-        }
-
-        const size_t consumed = sizeof(CompactIdsHeader) + payload_size;
-        if (hdr.count == 0) {
-            if (hdr.miss_count != 0 || hdr.payload_size != 0 || hdr.base != 0) {
-                return Ret("CompactIdsBitset::map: malformed empty header");
-            }
-            clear();
-        } else {
-            const uint32_t used_bits_in_last_byte = (hdr.miss_count + 1u) & 7u;
-            if (used_bits_in_last_byte != 0u) {
-                const uint8_t* payload = data + sizeof(CompactIdsHeader);
-                const uint8_t padding_mask =
-                    static_cast<uint8_t>(~((1u << used_bits_in_last_byte) - 1u));
-                if ((payload[payload_size - 1] & padding_mask) != 0u) {
-                    return Ret("CompactIdsBitset::map: malformed bitset payload tail bits");
-                }
-            }
-
-            const size_t actual_count = popcount_prefix(data + sizeof(CompactIdsHeader), hdr.miss_count + 1u);
-            if (actual_count != hdr.count) {
-                return Ret("CompactIdsBitset::map: bitset count does not match header");
-            }
-
-            base_ = hdr.base;
-            count_ = hdr.count;
-            span_ = hdr.miss_count + 1u;
-            owned_bitset_.clear();
-            bitset_size_ = hdr.payload_size;
-            bitset_ = bitset_size_ == 0 ? nullptr : data + sizeof(CompactIdsHeader);
-        }
-
-        if (bytes_consumed != nullptr) {
-            *bytes_consumed = consumed;
-        }
-        return Ret(0);
+        return map_(data, size, bytes_consumed);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsBitset::map: ") + ex.what());
     }
+}
+
+Ret CompactIdsBitset::map_(const uint8_t* data, size_t size, size_t* bytes_consumed) {
+    CompactIdsMappedPrefix prefix{};
+    CHECK(parse_compact_ids_mapped_prefix(
+        data,
+        size,
+        CompactIdsExtEncoding::Bitset,
+        "CompactIdsBitset::map",
+        bytes_consumed,
+        &prefix));
+    const CompactIdsHeader& hdr = prefix.header;
+    const size_t payload_size = prefix.payload_size;
+
+    const uint32_t header_max_offset = hdr.aux_data;
+    const size_t expected_payload = hdr.count == 0 ? 0 : bitset_payload_size(header_max_offset);
+    if (payload_size != expected_payload) {
+        return Ret("CompactIdsBitset::map: payload size does not match max_offset");
+    }
+
+    if (hdr.count == 0) {
+        CHECK(validate_compact_ids_empty_header(
+            hdr,
+            "CompactIdsBitset::map: malformed empty header"));
+        clear();
+    } else {
+        const uint32_t used_bits_in_last_byte = (header_max_offset + 1u) & 7u;
+        if (used_bits_in_last_byte != 0u) {
+            const uint8_t* payload = data + sizeof(CompactIdsHeader);
+            const uint8_t padding_mask =
+                static_cast<uint8_t>(~((1u << used_bits_in_last_byte) - 1u));
+            if ((payload[payload_size - 1] & padding_mask) != 0u) {
+                return Ret("CompactIdsBitset::map: malformed bitset payload tail bits");
+            }
+        }
+
+        const size_t actual_count =
+            popcount_prefix(data + sizeof(CompactIdsHeader), header_max_offset + 1u);
+        if (actual_count != hdr.count) {
+            return Ret("CompactIdsBitset::map: bitset count does not match header");
+        }
+
+        base_ = hdr.base;
+        count_ = hdr.count;
+        span_ = header_max_offset + 1u;
+        owned_bitset_.clear();
+        bitset_size_ = hdr.payload_size;
+        bitset_ = bitset_size_ == 0 ? nullptr : data + sizeof(CompactIdsHeader);
+    }
+
+    if (bytes_consumed != nullptr) {
+        *bytes_consumed = prefix.consumed;
+    }
+    return Ret(0);
 }
 
 CompactIdsBitset::Iterator CompactIdsBitset::begin() const {
