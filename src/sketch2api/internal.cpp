@@ -155,6 +155,65 @@ int return_bitset_builder_error(BitsetBuilderState* builder, bool is_nomem, cons
     return -1;
 }
 
+Ret build_bitset_filter(const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+        uint64_t* allowed_ids_base_id, const uint8_t** allowed_ids_bits,
+        uint64_t* allowed_ids_bits_size, bool* has_allowed_ids_out) {
+    if (allowed_ids_base_id == nullptr || allowed_ids_bits == nullptr ||
+            allowed_ids_bits_size == nullptr || has_allowed_ids_out == nullptr) {
+        return Ret("Invalid arguments");
+    }
+
+    const bool has_allowed_ids =
+        !(allowed_ids_blob == nullptr && allowed_ids_blob_size == 0);
+    if (has_allowed_ids && allowed_ids_blob == nullptr) {
+        return Ret("Invalid allowed_ids blob argument");
+    }
+
+    *allowed_ids_base_id = 0;
+    *allowed_ids_bits = static_cast<const uint8_t*>(allowed_ids_blob);
+    *allowed_ids_bits_size = static_cast<uint64_t>(allowed_ids_blob_size);
+    *has_allowed_ids_out = has_allowed_ids;
+
+    if (has_allowed_ids) {
+        if (allowed_ids_blob_size < sizeof(uint64_t)) {
+            return Ret("allowed_ids blob is too small");
+        }
+        std::memcpy(allowed_ids_base_id, *allowed_ids_bits, sizeof(uint64_t));
+        *allowed_ids_bits += sizeof(uint64_t);
+        *allowed_ids_bits_size -= sizeof(uint64_t);
+    }
+    return Ret(0);
+}
+
+Ret extract_items_outputs(const std::vector<DistItem>& items,
+        uint64_t** ids_out, double** scores_out, size_t* count_out) {
+    if (ids_out == nullptr || scores_out == nullptr || count_out == nullptr) {
+        return Ret("Invalid arguments");
+    }
+
+    *ids_out = nullptr;
+    *scores_out = nullptr;
+    *count_out = 0;
+
+    if (!items.empty()) {
+        auto* ids = static_cast<uint64_t*>(std::malloc(items.size() * sizeof(uint64_t)));
+        auto* scores = static_cast<double*>(std::malloc(items.size() * sizeof(double)));
+        if (ids == nullptr || scores == nullptr) {
+            std::free(ids);
+            std::free(scores);
+            return Ret("Out of memory");
+        }
+        for (size_t i = 0; i < items.size(); ++i) {
+            ids[i] = items[i].id;
+            scores[i] = items[i].score;
+        }
+        *ids_out = ids;
+        *scores_out = scores;
+    }
+    *count_out = items.size();
+    return Ret(0);
+}
+
 } // namespace
 
 #define ERR(x) { \
@@ -464,37 +523,51 @@ int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
     return 0;
 }
 
-int sk_knn_vector_(sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
-        uint64_t** ids_out, size_t* count_out) {
+int sk_knn_vector_items_(sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
+        const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+        uint64_t** ids_out, double** scores_out, size_t* count_out) {
     DECL
 
     if (handle->ds == nullptr) {
         ERR("No dataset is open")
     }
-    if (vec == nullptr || vec_size == 0 || k == 0 || ids_out == nullptr || count_out == nullptr) {
+    if (vec == nullptr || vec_size == 0 || k == 0 ||
+            ids_out == nullptr || scores_out == nullptr || count_out == nullptr) {
         ERR("Invalid arguments")
     }
 
     *ids_out = nullptr;
+    *scores_out = nullptr;
     *count_out = 0;
 
+    uint64_t allowed_ids_base_id = 0;
+    const uint8_t* allowed_ids_bits = nullptr;
+    uint64_t allowed_ids_bits_size = 0;
+    bool has_allowed_ids = false;
+    Ret ret = build_bitset_filter(
+        allowed_ids_blob, allowed_ids_blob_size, &allowed_ids_base_id,
+        &allowed_ids_bits, &allowed_ids_bits_size, &has_allowed_ids);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+    const BitsetFilter bitset_filter {
+        .base_id = allowed_ids_base_id,
+        .data = allowed_ids_bits,
+        .size = allowed_ids_bits_size,
+    };
+    const BitsetFilter* bitset_filter_ptr = has_allowed_ids ? &bitset_filter : nullptr;
+
     std::vector<DistItem> items;
-    Ret ret = run_knn_items_query(*handle->ds, vec, vec_size, static_cast<size_t>(k), nullptr, &items);
+    ret = run_knn_items_query(
+        *handle->ds, vec, vec_size, static_cast<size_t>(k), bitset_filter_ptr, &items);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
 
-    if (!items.empty()) {
-        auto* ids = static_cast<uint64_t*>(std::malloc(items.size() * sizeof(uint64_t)));
-        if (ids == nullptr) {
-            ERR("Out of memory")
-        }
-        for (size_t i = 0; i < items.size(); ++i) {
-            ids[i] = items[i].id;
-        }
-        *ids_out = ids;
+    ret = extract_items_outputs(items, ids_out, scores_out, count_out);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
     }
-    *count_out = items.size();
     return 0;
 }
 
@@ -509,28 +582,20 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
     if (vec == nullptr || k == 0 || ids_out == nullptr || scores_out == nullptr || count_out == nullptr) {
         ERR("Invalid arguments")
     }
-    const bool has_allowed_ids =
-        !(allowed_ids_blob == nullptr && allowed_ids_blob_size == 0);
-    if (has_allowed_ids && allowed_ids_blob == nullptr) {
-        ERR("Invalid allowed_ids blob argument")
-    }
-
     *ids_out = nullptr;
     *scores_out = nullptr;
     *count_out = 0;
 
     uint64_t allowed_ids_base_id = 0;
-    const uint8_t* allowed_ids_bits = static_cast<const uint8_t*>(allowed_ids_blob);
-    uint64_t allowed_ids_bits_size = static_cast<uint64_t>(allowed_ids_blob_size);
-    if (has_allowed_ids) {
-        if (allowed_ids_blob_size < sizeof(uint64_t)) {
-            ERR("allowed_ids blob is too small")
-        }
-        std::memcpy(&allowed_ids_base_id, allowed_ids_bits, sizeof(uint64_t));
-        allowed_ids_bits += sizeof(uint64_t);
-        allowed_ids_bits_size -= sizeof(uint64_t);
+    const uint8_t* allowed_ids_bits = nullptr;
+    uint64_t allowed_ids_bits_size = 0;
+    bool has_allowed_ids = false;
+    Ret ret = build_bitset_filter(
+        allowed_ids_blob, allowed_ids_blob_size, &allowed_ids_base_id,
+        &allowed_ids_bits, &allowed_ids_bits_size, &has_allowed_ids);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
     }
-
     const BitsetFilter bitset_filter {
         .base_id = allowed_ids_base_id,
         .data = allowed_ids_bits,
@@ -539,27 +604,15 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
     const BitsetFilter* bitset_filter_ptr = has_allowed_ids ? &bitset_filter : nullptr;
 
     std::vector<DistItem> items;
-    Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), bitset_filter_ptr, &items);
+    ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), bitset_filter_ptr, &items);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
 
-    if (!items.empty()) {
-        auto* ids = static_cast<uint64_t*>(std::malloc(items.size() * sizeof(uint64_t)));
-        auto* scores = static_cast<double*>(std::malloc(items.size() * sizeof(double)));
-        if (ids == nullptr || scores == nullptr) {
-            std::free(ids);
-            std::free(scores);
-            ERR("Out of memory")
-        }
-        for (size_t i = 0; i < items.size(); ++i) {
-            ids[i] = items[i].id;
-            scores[i] = items[i].score;
-        }
-        *ids_out = ids;
-        *scores_out = scores;
+    ret = extract_items_outputs(items, ids_out, scores_out, count_out);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
     }
-    *count_out = items.size();
     return 0;
 }
 

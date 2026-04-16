@@ -103,15 +103,18 @@ std::vector<uint64_t> api_knn(sk_handle_t* handle, const char* vec, unsigned int
 
 std::vector<uint64_t> api_knn_vector(sk_handle_t* handle, const std::vector<float>& vec, unsigned int k) {
     uint64_t* ids = nullptr;
+    double* scores = nullptr;
     size_t count = 0;
-    EXPECT_EQ(0, sk_knn_vector(handle, vec.data(), vec.size(), k, &ids, &count))
+    EXPECT_EQ(0, sk_knn_vector_items(
+        handle, vec.data(), vec.size(), k, nullptr, 0, &ids, &scores, &count))
         << sk_error_message(handle);
 
     std::vector<uint64_t> out;
     if (ids != nullptr) {
         out.assign(ids, ids + count);
-        sk_free(ids);
     }
+    sk_free(ids);
+    sk_free(scores);
     return out;
 }
 
@@ -659,7 +662,7 @@ TEST(sketch2api, knn_rejects_null_output_parameters) {
     std::filesystem::remove_all(root);
 }
 
-TEST(sketch2api, knn_vector_matches_text_knn_and_checks_size) {
+TEST(sketch2api, knn_vector_items_matches_text_knn_and_checks_size) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
@@ -678,10 +681,61 @@ TEST(sketch2api, knn_vector_matches_text_knn_and_checks_size) {
 
     const std::vector<float> short_query = {10.0f, 10.0f, 10.0f};
     uint64_t* ids = nullptr;
+    double* scores = nullptr;
     size_t count = 0;
-    EXPECT_NE(0, sk_knn_vector(handle, short_query.data(), short_query.size(), 1, &ids, &count));
+    EXPECT_NE(0, sk_knn_vector_items(
+        handle, short_query.data(), short_query.size(), 1, nullptr, 0, &ids, &scores, &count));
     EXPECT_EQ(nullptr, ids);
+    EXPECT_EQ(nullptr, scores);
     EXPECT_EQ(0u, count);
+
+    EXPECT_OK(handle, sk_close(handle));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_release_handle(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, knn_vector_items_matches_text_knn_items_with_bitset_filter) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_new_handle(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 10, "10.0, 10.0, 10.0, 10.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 20, "20.0, 20.0, 20.0, 20.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 30, "30.0, 30.0, 30.0, 30.0"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    const std::vector<uint8_t> allowed = build_bitset_blob_api({20, 30});
+    ASSERT_FALSE(allowed.empty());
+
+    uint64_t* text_ids = nullptr;
+    double* text_scores = nullptr;
+    size_t text_count = 0;
+    ASSERT_EQ(0, sk_knn_items(handle, "10.0, 10.0, 10.0, 10.0", 3,
+        allowed.data(), allowed.size(), &text_ids, &text_scores, &text_count))
+        << sk_error_message(handle);
+
+    const std::vector<float> vector_query = {10.0f, 10.0f, 10.0f, 10.0f};
+    uint64_t* vector_ids = nullptr;
+    double* vector_scores = nullptr;
+    size_t vector_count = 0;
+    ASSERT_EQ(0, sk_knn_vector_items(handle, vector_query.data(), vector_query.size(), 3,
+        allowed.data(), allowed.size(), &vector_ids, &vector_scores, &vector_count))
+        << sk_error_message(handle);
+
+    ASSERT_EQ(text_count, vector_count);
+    for (size_t i = 0; i < text_count; ++i) {
+        EXPECT_EQ(text_ids[i], vector_ids[i]);
+        EXPECT_DOUBLE_EQ(text_scores[i], vector_scores[i]);
+    }
+
+    sk_free(text_ids);
+    sk_free(text_scores);
+    sk_free(vector_ids);
+    sk_free(vector_scores);
 
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));

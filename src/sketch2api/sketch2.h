@@ -52,11 +52,14 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
     uint64_t** ids_out, size_t* count_out);
 
 /*
-* Run KNN and return an allocated result array. The caller owns *ids_out and
-* must release it with sk_free(). count_out receives the number of ids.
-*/
-int sk_knn_vector(sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
-    uint64_t** ids_out, size_t* count_out);
+ * Run KNN for an in-memory float query vector with optional bitset filtering
+ * and return allocated id/score arrays. The caller owns *ids_out and
+ * *scores_out and must release both with sk_free(). If allowed_ids_blob is
+ * nullptr and allowed_ids_blob_size is 0, no bitset filtering is applied.
+ */
+int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
+    const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+    uint64_t** ids_out, double** scores_out, size_t* count_out);
    
 /*
  * Run KNN with optional bitset filtering and return allocated id/score arrays.

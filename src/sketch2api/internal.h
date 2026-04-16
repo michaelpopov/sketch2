@@ -11,9 +11,10 @@ SKETCH2API_HIDDEN int sk_open_(sk_handle_t* handle, const char* name);
 SKETCH2API_HIDDEN int sk_close_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_knn_(
     sk_handle_t* handle, const char* vec, unsigned int k, uint64_t** ids_out, size_t* count_out);
-SKETCH2API_HIDDEN int sk_knn_vector_(
+SKETCH2API_HIDDEN int sk_knn_vector_items_(
     sk_handle_t* handle, const float* vec, uint64_t vec_size,
-    unsigned int k, uint64_t** ids_out, size_t* count_out);
+    unsigned int k, const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+    uint64_t** ids_out, double** scores_out, size_t* count_out);
 SKETCH2API_HIDDEN int sk_knn_items_(
     sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids_blob, size_t allowed_ids_blob_size,
