@@ -4,8 +4,8 @@
 #include "core/compute/compute.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/input_reader.h"
-#include "core/utils/compact_ids_ext.h"
-#include "core/utils/compact_ids_shared.h"
+#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids_shared.h"
 #include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/string_utils.h"
@@ -219,6 +219,7 @@ public:
             const char* ids_message,
             const char* deleted_ids_message) {
         CompactIdsExt output_ids_ext;
+        output_ids_.complete_adding();
         CHECK(output_ids_ext.init(output_ids_));
         output_ids_bytes_ = output_ids_ext.serialized_size_bytes();
         norms_.assert_matches(output_ids_.size());
@@ -863,6 +864,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         source.deleted_count() + updater.deleted_count(),
         &compact_deleted_ids_accum));
     CompactIdsExt compact_deleted_ids;
+    compact_deleted_ids_accum.complete_adding();
     CHECK(compact_deleted_ids.init(compact_deleted_ids_accum));
     MergeFile merge_file;
     CHECK(merge_file.open(source, source.norm_flags(), path, "DataMerger::merge_delta_file"));
@@ -966,6 +968,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
         source.deleted_count() + updater_deleted_count,
         &compact_deleted_ids_accum));
     CompactIdsExt compact_deleted_ids;
+    compact_deleted_ids_accum.complete_adding();
     CHECK(compact_deleted_ids.init(compact_deleted_ids_accum));
     MergeFile merge_file;
     CHECK(merge_file.open(source, target_norm_flags, path, "DataMerger::merge_delta_file"));

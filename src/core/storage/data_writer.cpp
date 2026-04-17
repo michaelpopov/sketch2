@@ -4,8 +4,8 @@
 #include "core/compute/compute.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
-#include "core/utils/compact_ids_ext.h"
-#include "core/utils/compact_ids_shared.h"
+#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids_shared.h"
 #include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/timer.h"
@@ -218,6 +218,8 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
         CHECK(build_compact_accum(
             reader, stats.active_count, stats.deleted_count, &active_accum, &deleted_accum));
 
+        active_accum.complete_adding();
+        deleted_accum.complete_adding();
         CHECK(active_ids_ext.init(active_accum));
         CHECK(deleted_ids_ext.init(deleted_accum));
     }

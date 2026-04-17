@@ -2,9 +2,9 @@
 
 #pragma once
 
-#include "utils/compact_ids_bitset.h"
-#include "utils/compact_ids_misses.h"
-#include "utils/compact_ids_offsets.h"
+#include "compact_ids_bitset.h"
+#include "compact_ids_misses.h"
+#include "compact_ids_offsets.h"
 
 #include <cstdio>
 #include <cstddef>
@@ -38,8 +38,9 @@ public:
         size_t index_ = 0;
     };
 
-    Ret init(CompactIdsAccumulator& accumulator);
-    Ret init(std::vector<uint64_t>& ids);
+    Ret init(const CompactIdsAccumulator& accumulator);
+    Ret init(const std::vector<uint64_t>& ids);
+    Ret init(const uint64_t* ids, size_t size);
     void clear();
 
     size_t count() const;
@@ -74,7 +75,7 @@ private:
     Storage storage_{CompactIdsOffsets{}};
     StorageKind storage_kind_ = StorageKind::Offsets;
 
-    static StorageKind detect_storage_kind(std::vector<uint64_t>& ids);
+    static StorageKind detect_storage_kind(const uint64_t* ids, size_t size);
 };
 
 } // namespace sketch2

@@ -15,8 +15,8 @@
 #include "core/storage/data_merger.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/input_reader.h"
-#include "core/utils/compact_ids_ext.h"
-#include "core/utils/compact_ids_shared.h"
+#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;

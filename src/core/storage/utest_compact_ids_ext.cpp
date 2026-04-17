@@ -94,15 +94,11 @@ std::vector<uint8_t> serialize_auto_ids_to_bytes(const CompactIdsExt& ids) {
 
 CompactIdsAccumulator make_accumulator(const std::vector<uint64_t>& ids) {
     CompactIdsAccumulator accumulator;
-    if (ids.empty()) {
-        accumulator.init(0, 0);
-        return accumulator;
-    }
-
-    accumulator.init(ids.front(), ids.size());
+    accumulator.init(ids.empty() ? 0 : ids.front(), ids.size());
     for (uint64_t id : ids) {
         accumulator.add(id);
     }
+    accumulator.complete_adding();
     return accumulator;
 }
 
@@ -125,10 +121,12 @@ std::vector<uint8_t> serialize_misses_to_bytes(
     return serialized;
 }
 
-std::vector<uint8_t> make_unaligned_buffer(const std::vector<uint8_t>& bytes) {
-    std::vector<uint8_t> unaligned(bytes.size() + 1, 0);
-    std::memcpy(unaligned.data() + 1, bytes.data(), bytes.size());
-    return unaligned;
+Ret init_ids(CompactIdsBitset& ids, const std::vector<uint64_t>& values) {
+    return ids.init(values.data(), values.size());
+}
+
+Ret init_ids(CompactIdsMisses& ids, const std::vector<uint64_t>& values) {
+    return ids.init(values.data(), values.size());
 }
 
 } // namespace
@@ -136,7 +134,7 @@ std::vector<uint8_t> make_unaligned_buffer(const std::vector<uint8_t>& bytes) {
 TEST(compact_ids_bitset, init_empty_container) {
     CompactIdsBitset ids;
 
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{}).code());
     EXPECT_TRUE(ids.empty());
     EXPECT_EQ(0u, ids.count());
     EXPECT_EQ(sizeof(CompactIdsHeader), ids.serialized_size_bytes());
@@ -147,7 +145,7 @@ TEST(compact_ids_bitset, init_from_sorted_ids_preserves_values) {
     CompactIdsBitset ids;
     const std::vector<uint64_t> values = {100, 101, 103, 108, 109};
 
-    ASSERT_EQ(0, ids.init(values).code());
+    ASSERT_EQ(0, init_ids(ids, values).code());
     EXPECT_EQ(values.size(), ids.count());
 
     for (size_t i = 0; i < values.size(); ++i) {
@@ -156,9 +154,20 @@ TEST(compact_ids_bitset, init_from_sorted_ids_preserves_values) {
     }
 }
 
+TEST(compact_ids_bitset, init_from_pointer_preserves_values) {
+    CompactIdsBitset ids;
+    const std::vector<uint64_t> values = {100, 101, 103, 108, 109};
+
+    ASSERT_EQ(0, ids.init(values.data(), values.size()).code());
+    EXPECT_EQ(values.size(), ids.count());
+    for (size_t i = 0; i < values.size(); ++i) {
+        EXPECT_EQ(values[i], ids.id(i));
+    }
+}
+
 TEST(compact_ids_bitset, lower_bound_index_matches_membership_boundaries) {
     CompactIdsBitset ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{100, 101, 103, 108, 109}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{100, 101, 103, 108, 109}).code());
 
     EXPECT_EQ(0u, ids.lower_bound_index(99));
     EXPECT_EQ(0u, ids.lower_bound_index(100));
@@ -170,7 +179,7 @@ TEST(compact_ids_bitset, lower_bound_index_matches_membership_boundaries) {
 TEST(compact_ids_bitset, iterator_visits_ids_in_order) {
     CompactIdsBitset ids;
     const std::vector<uint64_t> values = {100, 101, 103, 108, 109};
-    ASSERT_EQ(0, ids.init(values).code());
+    ASSERT_EQ(0, init_ids(ids, values).code());
 
     auto it = ids.begin();
     for (size_t i = 0; i < values.size(); ++i) {
@@ -187,7 +196,7 @@ TEST(compact_ids_bitset, iterator_visits_ids_in_order) {
 
 TEST(compact_ids_bitset, write_and_map_round_trip_preserves_values) {
     CompactIdsBitset ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{100, 101, 103, 108, 109}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{100, 101, 103, 108, 109}).code());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     const CompactIdsHeader hdr = read_header_or_die(serialized);
@@ -266,7 +275,7 @@ TEST(compact_ids_bitset, map_rejects_count_mismatch) {
 TEST(compact_ids_bitset, init_rejects_unsorted_ids) {
     CompactIdsBitset ids;
 
-    const Ret ret = ids.init(std::vector<uint64_t>{100, 100});
+    const Ret ret = init_ids(ids, std::vector<uint64_t>{100, 100});
 
     ASSERT_NE(0, ret.code());
     EXPECT_EQ("CompactIdsBitset::init: ids must be strictly increasing", ret.message());
@@ -275,7 +284,8 @@ TEST(compact_ids_bitset, init_rejects_unsorted_ids) {
 TEST(compact_ids_bitset, init_rejects_range_larger_than_uint32) {
     CompactIdsBitset ids;
 
-    const Ret ret = ids.init(
+    const Ret ret = init_ids(
+        ids,
         std::vector<uint64_t>{5, 5 + static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1u});
 
     ASSERT_NE(0, ret.code());
@@ -291,6 +301,16 @@ TEST(compact_ids_accumulator, add_rejects_offsets_larger_than_uint32) {
             ids.add(5 + static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1u);
         },
         std::out_of_range);
+}
+
+TEST(compact_ids_accumulator, encoding_throws_before_complete_adding) {
+    CompactIdsAccumulator ids;
+    ids.init(100, 3);
+    ids.add(100);
+    ids.add(103);
+    ids.add(101);
+
+    EXPECT_THROW(ids.encoding(), std::logic_error);
 }
 
 TEST(compact_ids_misses, map_rejects_unsorted_misses) {
@@ -352,16 +372,15 @@ TEST(compact_ids_misses, map_rejects_uint64_overflow) {
     EXPECT_EQ("CompactIdsMisses::map: base plus id span overflows uint64_t", ret.message());
 }
 
-TEST(compact_ids_misses, map_accepts_unaligned_misses_payload) {
+TEST(compact_ids_misses, map_accepts_aligned_misses_payload) {
     CompactIdsMisses ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{100, 101, 102, 104, 105, 106}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{100, 101, 102, 104, 105, 106}).code());
 
     const std::vector<uint8_t> serialized = serialize_misses_to_bytes(100, 6, {3});
-    const std::vector<uint8_t> unaligned = make_unaligned_buffer(serialized);
 
     CompactIdsMisses mapped;
     size_t consumed = 0;
-    ASSERT_EQ(0, mapped.map(unaligned.data() + 1, serialized.size(), &consumed).code());
+    ASSERT_EQ(0, mapped.map(serialized.data(), serialized.size(), &consumed).code());
     EXPECT_EQ(serialized.size(), consumed);
     EXPECT_EQ(ids.count(), mapped.count());
     for (size_t i = 0; i < ids.count(); ++i) {
@@ -380,10 +399,30 @@ TEST(compact_ids_ext_auto, init_prefers_miss_list_for_sparse_ids) {
     EXPECT_EQ(3u, ids.count());
 }
 
+TEST(compact_ids_ext_auto, init_from_pointer_rejects_unsorted_ids) {
+    CompactIdsExt ids;
+    const uint64_t values[] = {300, 100, 200};
+
+    const Ret ret = ids.init(values, 3);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("CompactIdsExt::init: ids not sorted", ret.message());
+}
+
+TEST(compact_ids_ext_auto, init_from_null_pointer_rejects_non_empty_input) {
+    CompactIdsExt ids;
+
+    const Ret ret = ids.init(nullptr, 1);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("CompactIdsExt::init: ids pointer is null", ret.message());
+}
+
 TEST(compact_ids_ext_auto, init_from_accumulator_prefers_offsets_for_sparse_ids) {
     CompactIdsExt ids;
     CompactIdsAccumulator accumulator = make_accumulator({100, 200, 300});
 
+    accumulator.complete_adding();
     ASSERT_EQ(0, ids.init(accumulator).code());
 
     const std::vector<uint8_t> serialized = serialize_auto_ids_to_bytes(ids);
@@ -409,6 +448,7 @@ TEST(compact_ids_ext_auto, init_from_accumulator_prefers_bitset_for_dense_ids) {
     CompactIdsExt ids;
     CompactIdsAccumulator accumulator = make_accumulator({100, 101, 103, 108, 109});
 
+    accumulator.complete_adding();
     ASSERT_EQ(0, ids.init(accumulator).code());
 
     const std::vector<uint8_t> serialized = serialize_auto_ids_to_bytes(ids);
@@ -430,6 +470,7 @@ TEST(compact_ids_ext_auto, init_from_accumulator_prefers_misses_for_dense_interi
     }
     CompactIdsAccumulator accumulator = make_accumulator(values);
 
+    accumulator.complete_adding();
     ASSERT_EQ(0, ids.init(accumulator).code());
 
     const std::vector<uint8_t> serialized = serialize_auto_ids_to_bytes(ids);

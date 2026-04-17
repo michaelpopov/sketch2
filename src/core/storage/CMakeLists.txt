@@ -1,4 +1,20 @@
-add_library(stor STATIC input_generator.cpp input_reader.cpp input_writer.cpp data_writer.cpp data_reader.cpp data_merger.cpp dataset.cpp dataset_reader.cpp dataset_writer.cpp dataset_node.cpp)
+add_library(stor STATIC
+  input_generator.cpp
+  input_reader.cpp
+  input_writer.cpp
+  data_writer.cpp
+  data_reader.cpp
+  data_merger.cpp
+  dataset.cpp
+  dataset_reader.cpp
+  dataset_writer.cpp
+  dataset_node.cpp
+  compact_ids_offsets.cpp
+  compact_ids_misses.cpp
+  compact_ids_bitset.cpp
+  compact_ids_ext.cpp
+  compact_ids_shared.cpp
+)
 
 target_include_directories(stor PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
@@ -16,6 +32,8 @@ add_executable(utest_stor
   utest_data_merger.cpp
   utest_dataset.cpp
   utest_full_cycle.cpp
+  utest_compact_ids_offsets.cpp
+  utest_compact_ids_ext.cpp
 )
 target_link_libraries(utest_stor PRIVATE stor GTest::gtest Threads::Threads)
 add_test(NAME utest_stor COMMAND utest_stor)

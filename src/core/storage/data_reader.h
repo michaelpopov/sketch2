@@ -3,7 +3,7 @@
 #pragma once
 #include "utils/shared_types.h"
 #include "core/utils/dynamic_bitset.h"
-#include "core/utils/compact_ids_ext.h"
+#include "core/storage/compact_ids_ext.h"
 #include "core/utils/mapped_region.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"

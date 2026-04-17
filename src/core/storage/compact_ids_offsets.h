@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "utils/shared_types.h"
+#include "core/utils/shared_types.h"
 
 #include <cstdio>
 #include <cstddef>
@@ -42,7 +42,7 @@ public:
     };
 
     Ret init(const CompactIdsAccumulator& accumulator);
-    Ret init(const std::vector<uint64_t>& ids);
+    Ret init(const uint64_t* ids, size_t size);
 
     Ret map(const uint8_t* data, size_t size, size_t* bytes_consumed);
     void clear();
@@ -61,7 +61,7 @@ public:
 
 private:
     Ret init_(const CompactIdsAccumulator& accumulator);
-    Ret init_(const std::vector<uint64_t>& ids);
+    Ret init_(const uint64_t* ids, size_t size);
     Ret map_(const uint8_t* data, size_t size, size_t* bytes_consumed);
     uint64_t base_ = 0;
     uint32_t count_ = 0;

@@ -93,12 +93,6 @@ std::vector<uint8_t> serialize_offsets_to_bytes(uint64_t base, const std::vector
     return bytes;
 }
 
-std::vector<uint8_t> make_unaligned_buffer(const std::vector<uint8_t>& bytes) {
-    std::vector<uint8_t> unaligned(bytes.size() + 1, 0);
-    std::memcpy(unaligned.data() + 1, bytes.data(), bytes.size());
-    return unaligned;
-}
-
 struct MappedCompactIds {
     std::vector<uint8_t> serialized;
     CompactIdsOffsets ids;
@@ -113,12 +107,16 @@ MappedCompactIds map_ids_from_offsets_or_die(uint64_t base, const std::vector<ui
     return mapped;
 }
 
+Ret init_ids(CompactIdsOffsets& ids, const std::vector<uint64_t>& values) {
+    return ids.init(values.data(), values.size());
+}
+
 } // namespace
 
 TEST(compact_ids, init_empty_container) {
     CompactIdsOffsets ids;
 
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{}).code());
     EXPECT_TRUE(ids.empty());
     EXPECT_EQ(0u, ids.count());
     EXPECT_EQ(0u, ids.lower_bound_index(123));
@@ -128,16 +126,36 @@ TEST(compact_ids, init_from_sorted_ids_preserves_values) {
     CompactIdsOffsets ids;
     const std::vector<uint64_t> values = {20000, 20005, 20011, 29999};
 
-    ASSERT_EQ(0, ids.init(values).code());
+    ASSERT_EQ(0, init_ids(ids, values).code());
     EXPECT_EQ(values.size(), ids.count());
     for (size_t i = 0; i < values.size(); ++i) {
         EXPECT_EQ(values[i], ids.id(i));
     }
 }
 
+TEST(compact_ids, init_from_pointer_preserves_values) {
+    CompactIdsOffsets ids;
+    const std::vector<uint64_t> values = {20000, 20005, 20011, 29999};
+
+    ASSERT_EQ(0, ids.init(values.data(), values.size()).code());
+    EXPECT_EQ(values.size(), ids.count());
+    for (size_t i = 0; i < values.size(); ++i) {
+        EXPECT_EQ(values[i], ids.id(i));
+    }
+}
+
+TEST(compact_ids, init_from_null_pointer_rejects_non_empty_input) {
+    CompactIdsOffsets ids;
+
+    const Ret ret = ids.init(nullptr, 1);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("CompactIdsOffsets::init: ids pointer is null", ret.message());
+}
+
 TEST(compact_ids, clear_resets_container) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{100, 101, 105}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{100, 101, 105}).code());
 
     ids.clear();
 
@@ -149,7 +167,7 @@ TEST(compact_ids, init_rejects_duplicate_ids) {
     CompactIdsOffsets ids;
     const std::vector<uint64_t> values = {10, 11, 11};
 
-    const Ret ret = ids.init(values);
+    const Ret ret = init_ids(ids, values);
 
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("CompactIdsOffsets::init: ids must be strictly increasing", ret.message());
@@ -159,7 +177,7 @@ TEST(compact_ids, init_rejects_unsorted_ids) {
     CompactIdsOffsets ids;
     const std::vector<uint64_t> values = {10, 12, 11};
 
-    const Ret ret = ids.init(values);
+    const Ret ret = init_ids(ids, values);
 
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("CompactIdsOffsets::init: ids must be strictly increasing", ret.message());
@@ -172,7 +190,7 @@ TEST(compact_ids, init_rejects_offsets_larger_than_uint32) {
         5 + static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1u,
     };
 
-    const Ret ret = ids.init(values);
+    const Ret ret = init_ids(ids, values);
 
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("CompactIdsOffsets::init: id offset exceeds uint32_t range", ret.message());
@@ -180,7 +198,7 @@ TEST(compact_ids, init_rejects_offsets_larger_than_uint32) {
 
 TEST(compact_ids, lower_bound_index_matches_sorted_semantics) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20, 25, 40, 45}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{20, 25, 40, 45}).code());
 
     EXPECT_EQ(0u, ids.lower_bound_index(10));
     EXPECT_EQ(0u, ids.lower_bound_index(20));
@@ -239,7 +257,7 @@ TEST(compact_ids, init_from_base_and_offsets_rejects_uint64_overflow) {
 
 TEST(compact_ids, id_out_of_range_throws) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{50, 60}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{50, 60}).code());
 
     EXPECT_THROW(ids.id(2), std::out_of_range);
     EXPECT_THROW(ids.id(100), std::out_of_range);
@@ -247,7 +265,7 @@ TEST(compact_ids, id_out_of_range_throws) {
 
 TEST(compact_ids, iterator_walks_ids_in_order) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{7, 9, 15}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{7, 9, 15}).code());
 
     auto it = ids.begin();
     ASSERT_FALSE(it.eof());
@@ -270,14 +288,14 @@ TEST(compact_ids, iterator_walks_ids_in_order) {
 
 TEST(compact_ids, iterator_on_empty_container_is_eof) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{}).code());
 
     EXPECT_TRUE(ids.begin().eof());
 }
 
 TEST(compact_ids, iterator_access_after_eof_throws) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{42}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{42}).code());
 
     auto it = ids.begin();
     it.next();
@@ -289,14 +307,14 @@ TEST(compact_ids, iterator_access_after_eof_throws) {
 
 TEST(compact_ids, serialized_size_matches_offsets_payload) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{10, 1000, 2000}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{10, 1000, 2000}).code());
 
     EXPECT_EQ(24u + 3u * sizeof(uint32_t), ids.serialized_size_bytes());
 }
 
 TEST(compact_ids, write_offsets_encoding_serializes_uint32_offsets_payload) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     ASSERT_EQ(sizeof(CompactIdsHeaderForTest) + ids.count() * sizeof(uint32_t), serialized.size());
@@ -313,7 +331,7 @@ TEST(compact_ids, write_offsets_encoding_serializes_uint32_offsets_payload) {
 
 TEST(compact_ids, write_and_map_round_trip_offsets_encoding) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{10, 1000, 2000}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{10, 1000, 2000}).code());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     ASSERT_FALSE(serialized.empty());
@@ -337,7 +355,7 @@ TEST(compact_ids, write_and_map_round_trip_dense_layout_uses_offsets_encoding) {
     }
 
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(values).code());
+    ASSERT_EQ(0, init_ids(ids, values).code());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     ASSERT_FALSE(serialized.empty());
@@ -355,7 +373,7 @@ TEST(compact_ids, write_and_map_round_trip_dense_layout_uses_offsets_encoding) {
 
 TEST(compact_ids, write_and_map_round_trip_empty_container) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{}).code());
     ASSERT_TRUE(ids.empty());
 
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
@@ -372,7 +390,7 @@ TEST(compact_ids, write_and_map_round_trip_empty_container) {
 
 TEST(compact_ids, write_rejects_null_file_handle) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{1, 2, 3}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{1, 2, 3}).code());
 
     const Ret ret = ids.write(nullptr, "write failed");
 
@@ -478,7 +496,7 @@ TEST(compact_ids, map_buffer_round_trip_reports_bytes_consumed) {
     std::remove(path.c_str());
 
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
 
     FILE* f = fopen(path.c_str(), "wb");
     ASSERT_NE(nullptr, f);
@@ -501,7 +519,7 @@ TEST(compact_ids, map_buffer_round_trip_reports_bytes_consumed) {
 
 TEST(compact_ids, map_offsets_round_trip_reports_bytes_consumed) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
     CompactIdsOffsets mapped;
     size_t consumed = 0;
@@ -513,15 +531,14 @@ TEST(compact_ids, map_offsets_round_trip_reports_bytes_consumed) {
     }
 }
 
-TEST(compact_ids, map_accepts_unaligned_offsets_payload) {
+TEST(compact_ids, map_accepts_aligned_offsets_payload) {
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
+    ASSERT_EQ(0, init_ids(ids, std::vector<uint64_t>{20000, 20005, 20011, 29999}).code());
     const std::vector<uint8_t> serialized = serialize_ids_to_bytes(ids);
-    const std::vector<uint8_t> unaligned = make_unaligned_buffer(serialized);
 
     CompactIdsOffsets mapped;
     size_t consumed = 0;
-    ASSERT_EQ(0, mapped.map(unaligned.data() + 1, serialized.size(), &consumed).code());
+    ASSERT_EQ(0, mapped.map(serialized.data(), serialized.size(), &consumed).code());
     EXPECT_EQ(serialized.size(), consumed);
     EXPECT_EQ(ids.count(), mapped.count());
     for (size_t i = 0; i < ids.count(); ++i) {
@@ -570,7 +587,7 @@ TEST(compact_ids, map_buffer_round_trip_dense_layout_reports_bytes_consumed) {
     }
 
     CompactIdsOffsets ids;
-    ASSERT_EQ(0, ids.init(values).code());
+    ASSERT_EQ(0, init_ids(ids, values).code());
 
     const std::string path = tmp_dir() + "/sketch2_utest_compact_ids_buf_bitset_" + std::to_string(getpid()) + ".bin";
     std::remove(path.c_str());

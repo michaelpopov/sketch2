@@ -14,8 +14,8 @@
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset_writer.h"
-#include "core/utils/compact_ids_ext.h"
-#include "core/utils/compact_ids_shared.h"
+#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 #include <filesystem>
 #include <limits>

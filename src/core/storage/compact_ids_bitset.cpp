@@ -124,44 +124,48 @@ Ret CompactIdsBitset::init_(const CompactIdsAccumulator& accumulator) {
     return Ret(0);
 }
 
-Ret CompactIdsBitset::init(const std::vector<uint64_t>& ids) {
+Ret CompactIdsBitset::init(const uint64_t* ids, size_t size) {
     try {
-        return init_(ids);
+        return init_(ids, size);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsBitset::init: ") + ex.what());
     }
 }
 
-Ret CompactIdsBitset::init_(const std::vector<uint64_t>& ids) {
-    if (ids.empty()) {
+Ret CompactIdsBitset::init_(const uint64_t* ids, size_t size) {
+    if (size == 0) {
         clear();
         return Ret(0);
     }
+    if (ids == nullptr) {
+        return Ret("CompactIdsBitset::init: ids pointer is null");
+    }
 
-    for (size_t i = 1; i < ids.size(); ++i) {
+    for (size_t i = 1; i < size; ++i) {
         if (ids[i] <= ids[i - 1]) {
             return Ret("CompactIdsBitset::init: ids must be strictly increasing");
         }
     }
 
     const uint64_t new_base = ids[0];
-    const uint64_t max_offset64 = ids.back() - new_base;
+    const uint64_t max_offset64 = ids[size - 1] - new_base;
     if (max_offset64 > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
         return Ret("CompactIdsBitset::init: id range exceeds uint32_t");
     }
-    if (ids.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+    if (size > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
         return Ret("CompactIdsBitset::init: id count exceeds uint32_t range");
     }
 
     const uint32_t new_span = static_cast<uint32_t>(max_offset64) + 1u;
     std::vector<uint8_t> new_bitset(bitset_payload_size(static_cast<uint32_t>(max_offset64)), 0);
-    for (uint64_t value : ids) {
+    for (size_t i = 0; i < size; ++i) {
+        const uint64_t value = ids[i];
         const uint32_t off = static_cast<uint32_t>(value - new_base);
         new_bitset[off >> 3] |= static_cast<uint8_t>(1u << (off & 7u));
     }
 
     base_ = new_base;
-    count_ = static_cast<uint32_t>(ids.size());
+    count_ = static_cast<uint32_t>(size);
     span_ = new_span;
     owned_bitset_ = std::move(new_bitset);
     bitset_size_ = static_cast<uint32_t>(owned_bitset_.size());

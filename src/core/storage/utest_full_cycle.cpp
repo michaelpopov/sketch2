@@ -11,7 +11,7 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/dataset_node.h"
 #include "core/storage/data_reader.h"
-#include "core/utils/compact_ids_shared.h"
+#include "core/storage/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;

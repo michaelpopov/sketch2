@@ -14,10 +14,6 @@ namespace {
 
 static_assert(sizeof(CompactIdsHeader) == 24, "CompactIdsHeader must stay compact");
 
-bool is_aligned_uint32(const void* ptr) {
-    return (reinterpret_cast<uintptr_t>(ptr) % alignof(uint32_t)) == 0;
-}
-
 Ret validate_offsets(uint64_t base, const uint32_t* offsets, size_t count);
 Ret validate_offsets(uint64_t base, const uint32_t* offsets, size_t count) {
     uint32_t prev = 0;
@@ -105,29 +101,32 @@ Ret CompactIdsOffsets::init_(const CompactIdsAccumulator& accumulator) {
     return Ret(0);
 }
 
-Ret CompactIdsOffsets::init(const std::vector<uint64_t>& ids) {
+Ret CompactIdsOffsets::init(const uint64_t* ids, size_t size) {
     try {
-        return init_(ids);
+        return init_(ids, size);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsOffsets::init: ") + ex.what());
     }
 }
 
-Ret CompactIdsOffsets::init_(const std::vector<uint64_t>& ids) {
-    if (ids.empty()) {
+Ret CompactIdsOffsets::init_(const uint64_t* ids, size_t size) {
+    if (size == 0) {
         clear();
         return Ret(0);
     }
+    if (ids == nullptr) {
+        return Ret("CompactIdsOffsets::init: ids pointer is null");
+    }
 
-    if (ids.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+    if (size > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
         return Ret("CompactIdsOffsets::init: id count exceeds uint32_t range");
     }
 
     const uint64_t new_base = ids[0];
     std::vector<uint32_t> new_offsets;
-    new_offsets.reserve(ids.size());
+    new_offsets.reserve(size);
     uint64_t prev = new_base;
-    for (size_t i = 0; i < ids.size(); ++i) {
+    for (size_t i = 0; i < size; ++i) {
         const uint64_t current = ids[i];
         if (i > 0 && prev >= current) {
             return Ret("CompactIdsOffsets::init: ids must be strictly increasing");
@@ -180,29 +179,16 @@ Ret CompactIdsOffsets::map_(const uint8_t* data, size_t size, size_t* bytes_cons
         clear();
     } else {
         const uint8_t* payload = data + sizeof(CompactIdsHeader);
-        const bool use_mapped_offsets = is_aligned_uint32(payload);
-        const uint32_t* mapped_offsets = nullptr;
-        if (use_mapped_offsets) {
-            mapped_offsets = reinterpret_cast<const uint32_t*>(payload);
-        } else {
-            owned_offsets_.resize(hdr.count);
-            std::memcpy(owned_offsets_.data(), payload, payload_size);
-            mapped_offsets = owned_offsets_.data();
-        }
+        const uint32_t* mapped_offsets = reinterpret_cast<const uint32_t*>(payload);
         const uint32_t header_max_offset = hdr.aux_data;
         CHECK(validate_offsets(hdr.base, mapped_offsets, hdr.count));
         if (mapped_offsets[hdr.count - 1] != header_max_offset) {
-            if (!use_mapped_offsets) {
-                owned_offsets_.clear();
-            }
             return Ret("CompactIdsOffsets::map: max_offset does not match payload");
         }
         base_ = hdr.base;
         count_ = hdr.count;
         offsets_ = mapped_offsets;
-        if (use_mapped_offsets) {
-            owned_offsets_.clear();
-        }
+        owned_offsets_.clear();
     }
 
     if (bytes_consumed != nullptr) {

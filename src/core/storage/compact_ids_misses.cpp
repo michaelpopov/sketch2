@@ -14,10 +14,6 @@ namespace {
 
 static_assert(sizeof(CompactIdsHeader) == 24, "CompactIdsHeader must stay compact");
 
-bool is_aligned_uint32(const void* ptr) {
-    return (reinterpret_cast<uintptr_t>(ptr) % alignof(uint32_t)) == 0;
-}
-
 Ret validate_misses(uint64_t base, const uint32_t* misses, uint32_t count, uint32_t miss_count) {
     const uint64_t total_span = static_cast<uint64_t>(count) + static_cast<uint64_t>(miss_count);
     if (total_span == 0) {
@@ -127,41 +123,44 @@ Ret CompactIdsMisses::init_(const CompactIdsAccumulator& accumulator) {
     return Ret(0);
 }
 
-Ret CompactIdsMisses::init(const std::vector<uint64_t>& ids) {
+Ret CompactIdsMisses::init(const uint64_t* ids, size_t size) {
     try {
-        return init_(ids);
+        return init_(ids, size);
     } catch (const std::exception& ex) {
         return Ret(std::string("CompactIdsMisses::init: ") + ex.what());
     }
 }
 
-Ret CompactIdsMisses::init_(const std::vector<uint64_t>& ids) {
-    if (ids.empty()) {
+Ret CompactIdsMisses::init_(const uint64_t* ids, size_t size) {
+    if (size == 0) {
         clear();
         return Ret(0);
     }
+    if (ids == nullptr) {
+        return Ret("CompactIdsMisses::init: ids pointer is null");
+    }
 
-    for (size_t i = 1; i < ids.size(); ++i) {
+    for (size_t i = 1; i < size; ++i) {
         if (ids[i] <= ids[i - 1]) {
             return Ret("CompactIdsMisses::init: ids must be strictly increasing");
         }
     }
 
     const uint64_t new_base = ids[0];
-    const uint64_t span = ids.back() - ids[0] + 1;
+    const uint64_t span = ids[size - 1] - ids[0] + 1;
 
     if (span - 1 > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
         return Ret("CompactIdsMisses::init: id range exceeds uint32_t");
     }
 
-    if (ids.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+    if (size > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
         return Ret("CompactIdsMisses::init: id count exceeds uint32_t range");
     }
 
     std::vector<uint32_t> new_misses;
-    new_misses.reserve(static_cast<size_t>(span) - ids.size());
+    new_misses.reserve(static_cast<size_t>(span) - size);
 
-    for (size_t i = 1; i < ids.size(); ++i) {
+    for (size_t i = 1; i < size; ++i) {
         const uint32_t prev_off = static_cast<uint32_t>(ids[i - 1] - new_base);
         const uint32_t curr_off = static_cast<uint32_t>(ids[i] - new_base);
         for (uint32_t off = prev_off + 1; off < curr_off; ++off) {
@@ -170,7 +169,7 @@ Ret CompactIdsMisses::init_(const std::vector<uint64_t>& ids) {
     }
 
     base_ = new_base;
-    count_ = static_cast<uint32_t>(ids.size());
+    count_ = static_cast<uint32_t>(size);
     owned_misses_ = std::move(new_misses);
     miss_count_ = static_cast<uint32_t>(owned_misses_.size());
     misses_ = owned_misses_.data();
@@ -320,25 +319,18 @@ Ret CompactIdsMisses::map_(const uint8_t* data, size_t size, size_t* bytes_consu
         clear();
     } else {
         const uint8_t* payload = data + sizeof(CompactIdsHeader);
-        const bool use_mapped_misses = header_miss_count == 0 || is_aligned_uint32(payload);
         const uint32_t* mapped_misses = nullptr;
         if (header_miss_count == 0) {
             mapped_misses = nullptr;
-        } else if (use_mapped_misses) {
-            mapped_misses = reinterpret_cast<const uint32_t*>(payload);
         } else {
-            owned_misses_.resize(header_miss_count);
-            std::memcpy(owned_misses_.data(), payload, payload_size);
-            mapped_misses = owned_misses_.data();
+            mapped_misses = reinterpret_cast<const uint32_t*>(payload);
         }
         CHECK(validate_misses(hdr.base, mapped_misses, hdr.count, header_miss_count));
         base_ = hdr.base;
         count_ = hdr.count;
         miss_count_ = header_miss_count;
         misses_ = mapped_misses;
-        if (use_mapped_misses) {
-            owned_misses_.clear();
-        }
+        owned_misses_.clear();
     }
 
     if (bytes_consumed != nullptr) {

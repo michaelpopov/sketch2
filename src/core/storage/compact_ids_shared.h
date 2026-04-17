@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "utils/shared_types.h"
+#include "core/utils/shared_types.h"
 
 namespace sketch2 {
 
@@ -53,10 +53,13 @@ Ret write_compact_ids_header(
     uint64_t base,
     const std::string& base_message);
 
+CompactIdsExtEncoding choose_compact_ids_encoding(size_t count, uint64_t max_offset);
+
 class CompactIdsAccumulator {
 public:
-    void init(uint64_t base, size_t count) { base_ = base; offsets_.reserve(count); }
+    void init(uint64_t base, size_t count) { base_ = base; offsets_.reserve(count); is_sorted_ = false; }
     void add(uint64_t id) {
+        is_sorted_ = false;
         if (id < base_) {
             throw std::invalid_argument("Invalid argument in CompactIdsAccumulator::add(uint64_t id)");
         }
@@ -66,12 +69,15 @@ public:
         }
         offsets_.push_back(static_cast<uint32_t>(offset));
     }
-    CompactIdsExtEncoding encoding();
+    void complete_adding();
+    CompactIdsExtEncoding encoding() const;
     size_t size() const { return offsets_.size(); }
     uint64_t operator[](size_t index) const { return base_ + offsets_[index]; }
+    bool is_sorted() const { return is_sorted_; }
 private:
     uint64_t base_ = 0;
     std::vector<uint32_t> offsets_;
+    bool is_sorted_ = false;
 };
 
         

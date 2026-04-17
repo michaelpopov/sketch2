@@ -2,9 +2,30 @@
 
 #include "compact_ids_shared.h"
 
+#include <algorithm>
 #include <cstring>
+#include <stdexcept>
 
 namespace sketch2 {
+
+void CompactIdsAccumulator::complete_adding() {
+    if (!std::is_sorted(offsets_.begin(), offsets_.end())) {
+        std::sort(offsets_.begin(), offsets_.end());
+    }
+    is_sorted_ = true;
+}
+
+CompactIdsExtEncoding CompactIdsAccumulator::encoding() const {
+    if (offsets_.empty()) {
+        return CompactIdsExtEncoding::Offsets32;
+    }
+
+    if (!std::is_sorted(offsets_.begin(), offsets_.end())) {
+        throw std::logic_error("CompactIdsAccumulator::encoding: offsets_ is not sorted.");
+    }
+
+    return choose_compact_ids_encoding(offsets_.size(), offsets_.back());
+}
 
 Ret parse_compact_ids_mapped_prefix(
     const uint8_t* data,
@@ -72,6 +93,25 @@ Ret write_compact_ids_header(
         return Ret(base_message);
     }
     return Ret(0);
+}
+
+CompactIdsExtEncoding choose_compact_ids_encoding(size_t count, uint64_t max_offset) {
+    if (count == 0) {
+        return CompactIdsExtEncoding::Offsets32;
+    }
+
+    const size_t offsets_bytes = count * sizeof(uint32_t);
+    const size_t bitset_bytes = (static_cast<size_t>(max_offset) + 8u) / 8u;
+    const size_t misses_count = static_cast<size_t>(max_offset) + 1u - count;
+    const size_t misses_bytes = misses_count * sizeof(uint32_t);
+
+    if (offsets_bytes <= misses_bytes && offsets_bytes <= bitset_bytes) {
+        return CompactIdsExtEncoding::Offsets32;
+    }
+    if (bitset_bytes < misses_bytes) {
+        return CompactIdsExtEncoding::Bitset;
+    }
+    return CompactIdsExtEncoding::Misses32;
 }
 
 } // namespace sketch2
