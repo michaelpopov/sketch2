@@ -506,8 +506,16 @@ CalcKernels resolve_nk_kernels(DistFunc func, DataType type) {
             break;
         case DistFunc::L2:
             switch (type) {
-                case DataType::f32: k.dist = &nk_dist_l2_f32; break;
-                case DataType::f16: k.dist = &nk_dist_l2_f16; break;
+                case DataType::f32:
+                    k.dist = &nk_dist_l2_f32;
+                    k.squared_norm = &nk_squared_norm_f32;
+                    k.dot = &nk_dot_product_f32;
+                    break;
+                case DataType::f16:
+                    k.dist = &nk_dist_l2_f16;
+                    k.squared_norm = &nk_squared_norm_f16;
+                    k.dot = &nk_dot_product_f16;
+                    break;
                 default:
                     throw std::runtime_error("resolve_nk_kernels: unsupported DataType for L2.");
             }

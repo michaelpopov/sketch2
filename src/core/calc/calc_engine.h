@@ -24,7 +24,9 @@ using CalcSquaredNormFn      = double (*)(const uint8_t*, size_t);
 using CalcDotFn              = double (*)(const uint8_t*, const uint8_t*, size_t);
 
 // Holds all resolved function pointers for one (metric, DataType) combination.
-// For DOT and L2 only `dist` is populated.
+// For DOT only `dist` is populated.
+// For L2, `dist` is always populated and `dot`/`squared_norm` may also be
+// populated so scanners can reuse persisted squared norms.
 // For COS all four fields are populated.
 struct CalcKernels {
     CalcDistFn              dist = nullptr;

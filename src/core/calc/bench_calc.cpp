@@ -238,8 +238,8 @@ std::vector<CaseStats> run_compute_bench(const Args& args, const uint8_t* a, con
     }
 
     const auto dist_fn = ComputeCos::resolve_dist(args.type);
-    const auto dot_fn = ComputeCos::resolve_dot(args.type);
-    const auto norm_fn = ComputeCos::resolve_squared_norm(args.type);
+    const auto dot_fn = ComputeDotNorm::resolve_dot(args.type);
+    const auto norm_fn = ComputeDotNorm::resolve_squared_norm(args.type);
     const auto dist_qn_fn = ComputeCos::resolve_dist_with_query_norm(args.type);
     const double query_norm_sq = norm_fn(b, args.dim);
 

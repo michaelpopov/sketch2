@@ -88,6 +88,11 @@ inline double query_inverse_norm(double query_norm_sq) {
     return 1.0 / std::sqrt(query_norm_sq);
 }
 
+inline double finalize_l2_distance_from_squared_norms(
+        double dot, double norm_a_sq, double norm_b_sq) {
+    return std::max(0.0, norm_a_sq + norm_b_sq - (2.0 * dot));
+}
+
 // ---------------------------------------------------------------------------
 // Scorer functors using function pointers
 // ---------------------------------------------------------------------------
@@ -127,6 +132,20 @@ struct FnPtrInvNormScore {
         const double dot = fn(it.data(), vec, dim);
         return finalize_cosine_distance_from_inverse_norms(
             dot, static_cast<double>(it.get_norm()), query_inv_norm);
+    }
+};
+
+struct FnPtrStoredSquaredNormL2Score {
+    CalcDotFn fn;
+    const uint8_t* vec;
+    size_t dim;
+    double query_norm_sq;
+
+    template <typename Iterator>
+    double operator()(const Iterator& it) const {
+        const double dot = fn(it.data(), vec, dim);
+        return finalize_l2_distance_from_squared_norms(
+            dot, static_cast<double>(it.get_norm()), query_norm_sq);
     }
 };
 
@@ -269,26 +288,20 @@ Ret build_dataset_heap_with_score(const DatasetReader& dataset, size_t count, co
         bitset);
 }
 
-template <typename InvScoreFn, typename QueryScoreFn>
-Ret build_dataset_heap_with_cos_scores(const DatasetReader& dataset, size_t count,
-        const InvScoreFn& inv_score, const QueryScoreFn& query_score, DistFunc func, DistHeap* heap,
+template <typename StoredNormScoreFn, typename FallbackScoreFn>
+Ret build_dataset_heap_with_optional_stored_norms(const DatasetReader& dataset, size_t count,
+        const StoredNormScoreFn& stored_norm_score, const FallbackScoreFn& fallback_score,
+        DistFunc func, DistHeap* heap,
         const BitsetFilter* bitset = nullptr) {
-    assert(func == DistFunc::COS);
-    // Defensive guard: this helper assumes COS-specific scoring kernels.
-    // If a future refactor routes another metric here, fail fast rather than
-    // interpreting non-cosine norms as inverse norms.
-    if (func != DistFunc::COS) {
-        return Ret("ScannerEx::build_dataset_heap_with_cos_scores: DistFunc::COS is required");
-    }
-
     return scan_dataset_heap_custom(
         dataset, count, heap,
-        [inv_score, query_score](const DataReader& reader, size_t local_count, DistHeap* local_heap,
+        [stored_norm_score, fallback_score, func](const DataReader& reader, size_t local_count,
+                DistHeap* local_heap,
                 const BitsetFilter* bitset) {
-            if (reader.has_norms()) {
-                scan_data_reader_scored(reader, local_count, local_heap, inv_score, bitset);
+            if (reader.has_matching_stored_norms(func)) {
+                scan_data_reader_scored(reader, local_count, local_heap, stored_norm_score, bitset);
             } else {
-                scan_data_reader_scored(reader, local_count, local_heap, query_score, bitset);
+                scan_data_reader_scored(reader, local_count, local_heap, fallback_score, bitset);
             }
         },
         func,
@@ -311,7 +324,17 @@ Ret build_heap(CalcEngine engine, const DatasetReader& dataset, DistFunc func,
         const double query_inv = query_inverse_norm(query_norm_sq);
         const FnPtrInvNormScore inv_score{k.dot, vec, dim, query_inv};
         const FnPtrQueryNormScore query_score{k.dist_with_query_norm, vec, dim, query_norm_sq};
-        return build_dataset_heap_with_cos_scores(dataset, count, inv_score, query_score, func, heap, bitset);
+        return build_dataset_heap_with_optional_stored_norms(
+            dataset, count, inv_score, query_score, func, heap, bitset);
+    }
+
+    if (func == DistFunc::L2 && k.squared_norm && k.dot) {
+        assert(k.dist);
+        const double query_norm_sq = k.squared_norm(vec, dim);
+        const FnPtrStoredSquaredNormL2Score stored_norm_score{k.dot, vec, dim, query_norm_sq};
+        const FnPtrDistScore fallback_score{k.dist, vec, dim};
+        return build_dataset_heap_with_optional_stored_norms(
+            dataset, count, stored_norm_score, fallback_score, func, heap, bitset);
     }
 
     assert(k.dist);

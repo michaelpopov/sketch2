@@ -191,9 +191,11 @@ TEST(HwyKernelsTest, ResolveCalcKernelsReturnsNonNull) {
             const CalcKernels k = resolve_calc_kernels(CalcEngine::highway, func, type);
             ASSERT_NE(k.dist, nullptr) << "func=" << static_cast<int>(func)
                                        << " type=" << static_cast<int>(type);
-            if (func == DistFunc::COS) {
+            if (func == DistFunc::L2 || func == DistFunc::COS) {
                 ASSERT_NE(k.dot, nullptr);
                 ASSERT_NE(k.squared_norm, nullptr);
+            }
+            if (func == DistFunc::COS) {
                 ASSERT_NE(k.dist_with_query_norm, nullptr);
             }
         }

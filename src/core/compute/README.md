@@ -227,8 +227,8 @@ should be treated as setup-time dispatch:
 - `ComputeL1::resolve_dist(...)`
 - `ComputeL2::resolve_dist(...)`
 - `ComputeCos::resolve_dist(...)`
-- `ComputeCos::resolve_dot(...)`
-- `ComputeCos::resolve_squared_norm(...)`
+- `ComputeDotNorm::resolve_dot(...)`
+- `ComputeDotNorm::resolve_squared_norm(...)`
 - `ComputeCos::resolve_dist_with_query_norm(...)`
 
 These functions are cheap enough to call once when binding a path, but they are

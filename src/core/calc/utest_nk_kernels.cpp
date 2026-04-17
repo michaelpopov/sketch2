@@ -119,6 +119,8 @@ TEST(NumKongKernelsTest, ResolveCalcKernelsUsesNumKongBackendWhenRequested) {
     const CalcKernels resolved = resolve_calc_kernels(CalcEngine::numkong, DistFunc::L2, DataType::f32);
     const CalcKernels direct = resolve_nk_kernels(DistFunc::L2, DataType::f32);
     EXPECT_EQ(direct.dist, resolved.dist);
+    EXPECT_EQ(direct.dot, resolved.dot);
+    EXPECT_EQ(direct.squared_norm, resolved.squared_norm);
 }
 
 TEST(NumKongKernelsTest, DynamicDispatchMetadataIsConsistent) {

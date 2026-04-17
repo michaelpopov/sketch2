@@ -1,4 +1,4 @@
-// Implements the portable cosine-distance primitives and helpers.
+// Implements portable cosine-distance primitives plus shared dot/norm helpers.
 
 #pragma once
 #include "core/calc/cosine_distance.h"
@@ -24,15 +24,30 @@
 
 namespace sketch2 {
 
-// ComputeCos exists to collect all cosine-distance functionality behind one
-// backend selector. It provides typed scalar implementations plus runtime
-// dispatch helpers that pick the best cosine, dot-product, and norm routines.
+// ComputeDotNorm exposes the shared dot-product and squared-norm primitives
+// used by both cosine and L2 scan paths.
+class ComputeDotNorm {
+public:
+    using SquaredNormFn = double (*)(const uint8_t*, size_t);
+    using DotFn = double (*)(const uint8_t*, const uint8_t*, size_t);
+
+    static SquaredNormFn resolve_squared_norm(DataType type);
+    static DotFn resolve_dot(DataType type);
+
+    static double squared_norm_f32(const uint8_t *a, size_t dim);
+    static double squared_norm_f16(const uint8_t *a, size_t dim);
+    static double squared_norm_i16(const uint8_t *a, size_t dim);
+    static double dot_f32(const uint8_t *a, const uint8_t *b, size_t dim);
+    static double dot_f16(const uint8_t *a, const uint8_t *b, size_t dim);
+    static double dot_i16(const uint8_t *a, const uint8_t *b, size_t dim);
+};
+
+// ComputeCos exists to collect cosine-distance functionality behind one
+// backend selector. Shared dot/norm helpers live in ComputeDotNorm.
 class ComputeCos : public ICompute {
 public:
     using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);
     using DistWithQueryNormFn = double (*)(const uint8_t*, const uint8_t*, size_t, double);
-    using SquaredNormFn = double (*)(const uint8_t*, size_t);
-    using DotFn = double (*)(const uint8_t*, const uint8_t*, size_t);
 
     double dist(const uint8_t *a, const uint8_t *b, DataType type, size_t dim) override;
     // These runtime resolvers intentionally stay next to the typed entrypoints
@@ -43,19 +58,11 @@ public:
     // reusing the same type/backend combination.
     static DistFn resolve_dist(DataType type);
     static DistWithQueryNormFn resolve_dist_with_query_norm(DataType type);
-    static SquaredNormFn resolve_squared_norm(DataType type);
-    static DotFn resolve_dot(DataType type);
 
     // Typed entrypoints used by scanner template dispatch and scalar fallback.
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_f16(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_i16(const uint8_t *a, const uint8_t *b, size_t dim);
-    static double squared_norm_f32(const uint8_t *a, size_t dim);
-    static double squared_norm_f16(const uint8_t *a, size_t dim);
-    static double squared_norm_i16(const uint8_t *a, size_t dim);
-    static double dot_f32(const uint8_t *a, const uint8_t *b, size_t dim);
-    static double dot_f16(const uint8_t *a, const uint8_t *b, size_t dim);
-    static double dot_i16(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_f32_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
     static double dist_f16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
     static double dist_i16_with_query_norm(const uint8_t *a, const uint8_t *b, size_t dim, double query_norm_sq);
@@ -180,7 +187,7 @@ inline ComputeCos::DistWithQueryNormFn ComputeCos::resolve_dist_with_query_norm(
     }
 }
 
-inline ComputeCos::SquaredNormFn ComputeCos::resolve_squared_norm(DataType type) {
+inline ComputeDotNorm::SquaredNormFn ComputeDotNorm::resolve_squared_norm(DataType type) {
     switch (get_singleton().compute_unit().kind()) {
 #if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:
@@ -233,11 +240,11 @@ inline ComputeCos::SquaredNormFn ComputeCos::resolve_squared_norm(DataType type)
         case DataType::i16: return &squared_norm_i16;
         default:
             assert(false);
-            throw std::runtime_error("ComputeCos::resolve_squared_norm: unsupported data type");
+            throw std::runtime_error("ComputeDotNorm::resolve_squared_norm: unsupported data type");
     }
 }
 
-inline ComputeCos::DotFn ComputeCos::resolve_dot(DataType type) {
+inline ComputeDotNorm::DotFn ComputeDotNorm::resolve_dot(DataType type) {
     switch (get_singleton().compute_unit().kind()) {
 #if SKETCH_HAS_AVX512VNNI
         case ComputeBackendKind::avx512_vnni:
@@ -290,25 +297,25 @@ inline ComputeCos::DotFn ComputeCos::resolve_dot(DataType type) {
         case DataType::i16: return &dot_i16;
         default:
             assert(false);
-            throw std::runtime_error("ComputeCos::resolve_dot: unsupported data type");
+            throw std::runtime_error("ComputeDotNorm::resolve_dot: unsupported data type");
     }
 }
 
 inline double ComputeCos::dist_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return dist_f32_with_query_norm(a, b, dim, squared_norm_f32(b, dim));
+    return dist_f32_with_query_norm(a, b, dim, ComputeDotNorm::squared_norm_f32(b, dim));
 }
 
 inline double ComputeCos::dist_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return dist_f16_with_query_norm(a, b, dim, squared_norm_f16(b, dim));
+    return dist_f16_with_query_norm(a, b, dim, ComputeDotNorm::squared_norm_f16(b, dim));
 }
 
 inline double ComputeCos::dist_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return dist_i16_with_query_norm(a, b, dim, squared_norm_i16(b, dim));
+    return dist_i16_with_query_norm(a, b, dim, ComputeDotNorm::squared_norm_i16(b, dim));
 }
 
 // Scalar norm helpers widen to double so scalar and SIMD backends follow the
 // same accumulation model and produce comparable results.
-inline double ComputeCos::squared_norm_f32(const uint8_t* a, size_t dim) {
+inline double ComputeDotNorm::squared_norm_f32(const uint8_t* a, size_t dim) {
     const float* va = reinterpret_cast<const float*>(a);
     double norm = 0.0;
     for (size_t i = 0; i < dim; ++i) {
@@ -318,7 +325,7 @@ inline double ComputeCos::squared_norm_f32(const uint8_t* a, size_t dim) {
     return norm;
 }
 
-inline double ComputeCos::squared_norm_f16(const uint8_t* a, size_t dim) {
+inline double ComputeDotNorm::squared_norm_f16(const uint8_t* a, size_t dim) {
     const float16* va = reinterpret_cast<const float16*>(a);
     double norm = 0.0;
     for (size_t i = 0; i < dim; ++i) {
@@ -328,7 +335,7 @@ inline double ComputeCos::squared_norm_f16(const uint8_t* a, size_t dim) {
     return norm;
 }
 
-inline double ComputeCos::squared_norm_i16(const uint8_t* a, size_t dim) {
+inline double ComputeDotNorm::squared_norm_i16(const uint8_t* a, size_t dim) {
     const int16_t* va = reinterpret_cast<const int16_t*>(a);
     double norm = 0.0;
     for (size_t i = 0; i < dim; ++i) {
@@ -340,7 +347,7 @@ inline double ComputeCos::squared_norm_i16(const uint8_t* a, size_t dim) {
 
 // Scalar dot helpers mirror the SIMD kernels semantically: load native values,
 // widen to double, and accumulate in a backend-independent format.
-inline double ComputeCos::dot_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
+inline double ComputeDotNorm::dot_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
     const float* va = reinterpret_cast<const float*>(a);
     const float* vb = reinterpret_cast<const float*>(b);
     double dot = 0.0;
@@ -350,7 +357,7 @@ inline double ComputeCos::dot_f32(const uint8_t* a, const uint8_t* b, size_t dim
     return dot;
 }
 
-inline double ComputeCos::dot_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
+inline double ComputeDotNorm::dot_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const float16* va = reinterpret_cast<const float16*>(a);
     const float16* vb = reinterpret_cast<const float16*>(b);
     double dot = 0.0;
@@ -360,7 +367,7 @@ inline double ComputeCos::dot_f16(const uint8_t* a, const uint8_t* b, size_t dim
     return dot;
 }
 
-inline double ComputeCos::dot_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
+inline double ComputeDotNorm::dot_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = reinterpret_cast<const int16_t*>(a);
     const int16_t* vb = reinterpret_cast<const int16_t*>(b);
     double dot = 0.0;

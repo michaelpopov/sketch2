@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <fcntl.h>
 #include <unistd.h>
 #include <vector>
 #include <fstream>
@@ -154,6 +155,22 @@ protected:
         if (exp <= 0)  return sign;
         if (exp >= 31) return static_cast<uint16_t>(sign | 0x7C00u);
         return static_cast<uint16_t>(sign | (exp << 10) | (mantissa >> 13));
+    }
+
+    void overwrite_stored_norm(const std::string& path, size_t index, float value) {
+        const int fd = open(path.c_str(), O_RDWR);
+        ASSERT_GE(fd, 0);
+
+        DataFileHeader hdr{};
+        ASSERT_EQ(static_cast<ssize_t>(sizeof(hdr)), pread(fd, &hdr, sizeof(hdr), 0));
+        ASSERT_TRUE(data_file_has_norms(hdr));
+        ASSERT_LT(index, static_cast<size_t>(hdr.count));
+
+        const off_t norm_offset =
+            static_cast<off_t>(hdr.norms_offset + index * sizeof(float));
+        ASSERT_EQ(static_cast<ssize_t>(sizeof(value)),
+                  pwrite(fd, &value, sizeof(value), norm_offset));
+        ASSERT_EQ(0, close(fd));
     }
 };
 
@@ -601,6 +618,54 @@ TEST_F(ScannerExTest, FindDatasetL2Works) {
     EXPECT_EQ(15u, result[0]);
     EXPECT_EQ(16u, result[1]);
     EXPECT_EQ(14u, result[2]);
+}
+
+TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsAcrossEngines) {
+    const std::string dataset_dir =
+        tmp_dir() + "/sketch2_utest_scanner_ex_l2_stored_norms_" + std::to_string(getpid());
+    const std::string config_path = dataset_dir + ".ini";
+    fs::create_directories(dataset_dir);
+    std::experimental::scope_exit cleanup([&]() {
+        fs::remove_all(dataset_dir);
+        std::remove(config_path.c_str());
+    });
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 2.0, 0.0, 0.0, 0.0 ]\n");
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 100, DataType::f32, 4, DistFunc::L2).code());
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    overwrite_stored_norm(dataset_dir + "/0.data", 0, 100.0f);
+
+    write_input_raw(
+        config_path,
+        std::string("[dataset]\n") +
+        "dirs = " + dataset_dir + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dist_func = l2\n"
+        "dim = 4\n");
+
+    DatasetReader reader;
+    ASSERT_EQ(0, reader.init(config_path).code());
+
+    const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    for (CalcEngine engine : {CalcEngine::compute, CalcEngine::highway, CalcEngine::numkong}) {
+        ScannerEx s(engine);
+        std::vector<DistItem> result;
+        ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code())
+            << "engine=" << calc_engine_name(engine);
+        ASSERT_EQ(2u, result.size());
+        EXPECT_EQ(20u, result[0].id) << "engine=" << calc_engine_name(engine);
+        EXPECT_NEAR(1.0, result[0].score, 1e-6) << "engine=" << calc_engine_name(engine);
+        EXPECT_EQ(10u, result[1].id) << "engine=" << calc_engine_name(engine);
+        EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << calc_engine_name(engine);
+    }
 }
 
 TEST_F(ScannerExTest, FindDatasetCosWorks) {

@@ -42,23 +42,23 @@ void expect_l2_resolvers() {
     EXPECT_EQ(&Backend::dist_i16, ComputeL2::resolve_dist(DataType::i16));
 }
 
-template <typename Backend>
+template <typename CosBackend, typename SharedBackend = CosBackend>
 void expect_cos_resolvers() {
-    EXPECT_EQ(&Backend::dist_f32, ComputeCos::resolve_dist(DataType::f32));
-    EXPECT_EQ(&Backend::dist_f16, ComputeCos::resolve_dist(DataType::f16));
-    EXPECT_EQ(&Backend::dist_i16, ComputeCos::resolve_dist(DataType::i16));
+    EXPECT_EQ(&CosBackend::dist_f32, ComputeCos::resolve_dist(DataType::f32));
+    EXPECT_EQ(&CosBackend::dist_f16, ComputeCos::resolve_dist(DataType::f16));
+    EXPECT_EQ(&CosBackend::dist_i16, ComputeCos::resolve_dist(DataType::i16));
 
-    EXPECT_EQ(&Backend::dist_f32_with_query_norm, ComputeCos::resolve_dist_with_query_norm(DataType::f32));
-    EXPECT_EQ(&Backend::dist_f16_with_query_norm, ComputeCos::resolve_dist_with_query_norm(DataType::f16));
-    EXPECT_EQ(&Backend::dist_i16_with_query_norm, ComputeCos::resolve_dist_with_query_norm(DataType::i16));
+    EXPECT_EQ(&CosBackend::dist_f32_with_query_norm, ComputeCos::resolve_dist_with_query_norm(DataType::f32));
+    EXPECT_EQ(&CosBackend::dist_f16_with_query_norm, ComputeCos::resolve_dist_with_query_norm(DataType::f16));
+    EXPECT_EQ(&CosBackend::dist_i16_with_query_norm, ComputeCos::resolve_dist_with_query_norm(DataType::i16));
 
-    EXPECT_EQ(&Backend::squared_norm_f32, ComputeCos::resolve_squared_norm(DataType::f32));
-    EXPECT_EQ(&Backend::squared_norm_f16, ComputeCos::resolve_squared_norm(DataType::f16));
-    EXPECT_EQ(&Backend::squared_norm_i16, ComputeCos::resolve_squared_norm(DataType::i16));
+    EXPECT_EQ(&SharedBackend::squared_norm_f32, ComputeDotNorm::resolve_squared_norm(DataType::f32));
+    EXPECT_EQ(&SharedBackend::squared_norm_f16, ComputeDotNorm::resolve_squared_norm(DataType::f16));
+    EXPECT_EQ(&SharedBackend::squared_norm_i16, ComputeDotNorm::resolve_squared_norm(DataType::i16));
 
-    EXPECT_EQ(&Backend::dot_f32, ComputeCos::resolve_dot(DataType::f32));
-    EXPECT_EQ(&Backend::dot_f16, ComputeCos::resolve_dot(DataType::f16));
-    EXPECT_EQ(&Backend::dot_i16, ComputeCos::resolve_dot(DataType::i16));
+    EXPECT_EQ(&SharedBackend::dot_f32, ComputeDotNorm::resolve_dot(DataType::f32));
+    EXPECT_EQ(&SharedBackend::dot_f16, ComputeDotNorm::resolve_dot(DataType::f16));
+    EXPECT_EQ(&SharedBackend::dot_i16, ComputeDotNorm::resolve_dot(DataType::i16));
 }
 
 TEST(ComputeRuntimeTest, ForcedScalarBackendUsesScalarResolvers) {
@@ -66,7 +66,7 @@ TEST(ComputeRuntimeTest, ForcedScalarBackendUsesScalarResolvers) {
 
     expect_dot_resolvers<ComputeDOT>();
     expect_l2_resolvers<ComputeL2>();
-    expect_cos_resolvers<ComputeCos>();
+    expect_cos_resolvers<ComputeCos, ComputeDotNorm>();
 }
 
 TEST(ComputeRuntimeTest, ForcedHighwayBackendIsAccepted) {

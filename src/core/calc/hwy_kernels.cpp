@@ -636,9 +636,21 @@ CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
             break;
         case DistFunc::L2:
             switch (type) {
-                case DataType::f32: k.dist = &hwy_dist_l2_f32; break;
-                case DataType::f16: k.dist = &hwy_dist_l2_f16; break;
-                case DataType::i16: k.dist = &hwy_dist_l2_i16; break;
+                case DataType::f32:
+                    k.dist = &hwy_dist_l2_f32;
+                    k.squared_norm = &hwy_squared_norm_f32;
+                    k.dot = &hwy_dot_f32;
+                    break;
+                case DataType::f16:
+                    k.dist = &hwy_dist_l2_f16;
+                    k.squared_norm = &hwy_squared_norm_f16;
+                    k.dot = &hwy_dot_f16;
+                    break;
+                case DataType::i16:
+                    k.dist = &hwy_dist_l2_i16;
+                    k.squared_norm = &hwy_squared_norm_i16;
+                    k.dot = &hwy_dot_i16;
+                    break;
                 default:
                     throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for L2.");
             }
