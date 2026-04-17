@@ -27,7 +27,7 @@ public:
         void           next();
         bool           eof()  const;
         const uint8_t* data() const;
-        float          cosine_inv_norm() const;
+        float          get_norm() const;
         uint64_t       id()   const;
 
     private:
@@ -48,7 +48,7 @@ public:
         void           next();
         bool           eof()  const;
         const uint8_t* data() const;
-        float          cosine_inv_norm() const;
+        float          get_norm() const;
         uint64_t       id()   const;
 
     private:
@@ -75,13 +75,15 @@ public:
     size_t size() const;  // size of one vector in bytes
     size_t stride() const { return stride_; } // distance between persisted vector records in bytes
     size_t count() const; // number of vectors
-    bool has_cosine_inv_norms() const;
+    uint32_t norm_flags() const;
+    bool has_norms() const;
+    bool has_matching_stored_norms(DistFunc dist_func) const;
 
     Iterator        begin() const;
     OrderedIterator base_begin() const;
     OrderedIterator delta_begin() const;
     uint64_t       id(size_t index) const;
-    float          cosine_inv_norm(size_t index) const;
+    float          get_norm(size_t index) const;
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     const uint8_t* at(size_t index) const;   // lookup by position; might return nullptr if the vector is deleted
     bool           is_hidden(size_t index) const;
@@ -102,7 +104,7 @@ private:
     bool                     initialized_ = false;
     CompactIdsExt            ids_;
     CompactIdsExt            deleted_ids_;
-    const float*             norms_   = nullptr; // optional cosine inverse norms in mapped metadata
+    const float*             norms_   = nullptr; // optional stored norms in mapped metadata
     DataType                 type_    = DataType::f32;
     size_t                   vector_size_ = 0;    // size of one vector in bytes
     size_t                   stride_  = 0;        // bytes between persisted vectors

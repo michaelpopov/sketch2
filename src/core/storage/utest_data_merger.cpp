@@ -62,7 +62,8 @@ protected:
                         const std::vector<std::pair<uint64_t, float>>& active,
                         const std::vector<uint64_t>& deleted,
                         uint16_t dim = kDim,
-                        bool has_cosine_inv_norms = false) {
+                        bool has_norms = false,
+                        DistFunc stored_norm_dist_func = DistFunc::COS) {
         std::vector<uint64_t> active_ids;
         active_ids.reserve(active.size());
         for (const auto& item : active) {
@@ -78,7 +79,7 @@ protected:
             static_cast<uint32_t>(deleted.size()),
             DataType::f32,
             dim,
-            has_cosine_inv_norms);
+            has_norms ? data_file_norm_flags_for_dist(stored_norm_dist_func) : 0u);
         hdr.base.kind = static_cast<uint16_t>(kind);
         CompactIdsExt compact_active_ids;
         ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
@@ -102,20 +103,27 @@ protected:
             ASSERT_EQ(0, write_vector_record(f, reinterpret_cast<const uint8_t*>(vec.data()),
                 vec.size() * sizeof(float), hdr.vector_stride, "DataMergerTest::write_f32_file").code());
         }
-        if (has_cosine_inv_norms) {
-            std::vector<float> cosine_inv_norms;
-            cosine_inv_norms.reserve(active.size());
+        if (has_norms) {
+            std::vector<float> norms;
+            norms.reserve(active.size());
             for (const auto& item : active) {
                 std::vector<float> vec(dim, item.second);
-                cosine_inv_norms.push_back(compute_cosine_inverse_norm(
-                    reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim));
+                if (stored_norm_dist_func == DistFunc::COS) {
+                    norms.push_back(compute_cosine_inverse_norm(
+                        reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim));
+                } else if (stored_norm_dist_func == DistFunc::L2) {
+                    norms.push_back(compute_squared_norm(
+                        reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim));
+                } else {
+                    FAIL() << "write_f32_file: invalid stored norm distance function";
+                }
             }
-            const size_t cosine_pad_size = compute_data_metadata_layout(hdr, active.size()).vectors_padding;
-            if (cosine_pad_size > 0) {
-                std::vector<uint8_t> pad(cosine_pad_size, 0);
+            const size_t norms_pad_size = compute_data_metadata_layout(hdr, active.size()).vectors_padding;
+            if (norms_pad_size > 0) {
+                std::vector<uint8_t> pad(norms_pad_size, 0);
                 ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
             }
-            ASSERT_EQ(0, write_f32_array(f, cosine_inv_norms,
+            ASSERT_EQ(0, write_f32_array(f, norms,
                 "DataMergerTest::write_f32_file cosine").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
@@ -335,20 +343,20 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewMergesAndPreservesCosineValues)
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::COS).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
     ASSERT_EQ(4u, out_reader.count());
-    ASSERT_TRUE(out_reader.has_cosine_inv_norms());
+    ASSERT_TRUE(out_reader.has_norms());
     EXPECT_EQ(nullptr, out_reader.get(1));
     EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 2));
     EXPECT_FLOAT_EQ(8.0f, first_f32(out_reader, 3));
     EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 5));
     EXPECT_FLOAT_EQ(1.0f, first_f32(out_reader, 6));
-    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(0)), 1e-6);
-    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(1)), 1e-6);
-    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(2)), 1e-6);
-    EXPECT_NEAR(1.0 / std::sqrt(30.0), static_cast<double>(out_reader.cosine_inv_norm(3)), 1e-6);
+    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(2)), 1e-6);
+    EXPECT_NEAR(1.0 / std::sqrt(30.0), static_cast<double>(out_reader.get_norm(3)), 1e-6);
 }
 
 TEST_F(DataMergerTest, MergeDataFileFromEmptyInputViewKeepsSource) {
@@ -370,13 +378,131 @@ TEST_F(DataMergerTest, MergeDataFileFromEmptyInputViewKeepsSource) {
     InputReaderView empty_view(input_reader, 20, 30);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_data_file(source_reader, empty_view, out_path).code());
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, empty_view, out_path, DistFunc::DOT).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
     EXPECT_EQ(2u, out_reader.count());
     EXPECT_EQ(0u, out_reader.deleted_count());
     EXPECT_FLOAT_EQ(1.1f, first_f32(out_reader, 1));
     EXPECT_FLOAT_EQ(3.3f, first_f32(out_reader, 3));
+}
+
+TEST_F(DataMergerTest, MergeDataFileFromInputViewPreservesL2Norms) {
+    const std::string source_path = p("source_l2.data");
+    const std::string input_path = p("updates_l2.txt");
+    const std::string out_path = p("merged_from_input_l2.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 3.0f}, {3, 4.0f}, {5, 5.0f}}, {}, kDim, true, DistFunc::L2);
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "1 : []\n"
+        "2 : [ 5.0, 5.0, 5.0, 5.0 ]\n"
+        "3 : [ 8.0, 8.0, 8.0, 8.0 ]\n"
+        "6 : [ 1.0, 2.0, 3.0, 4.0 ]\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::L2).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_EQ(4u, out_reader.count());
+    ASSERT_TRUE(out_reader.has_norms());
+    EXPECT_EQ(nullptr, out_reader.get(1));
+    EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 2));
+    EXPECT_FLOAT_EQ(8.0f, first_f32(out_reader, 3));
+    EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 5));
+    EXPECT_FLOAT_EQ(1.0f, first_f32(out_reader, 6));
+    EXPECT_FLOAT_EQ(100.0f, out_reader.get_norm(0));
+    EXPECT_FLOAT_EQ(256.0f, out_reader.get_norm(1));
+    EXPECT_FLOAT_EQ(100.0f, out_reader.get_norm(2));
+    EXPECT_FLOAT_EQ(30.0f, out_reader.get_norm(3));
+}
+
+TEST_F(DataMergerTest, MergeDataFileFromInputViewAddsL2NormsWhenSourceLacksThem) {
+    const std::string source_path = p("source_dot_to_l2.data");
+    const std::string input_path = p("updates_dot_to_l2.txt");
+    const std::string out_path = p("merged_dot_to_l2.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 3.0f}, {5, 5.0f}}, {});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "3 : [ 4.0, 4.0, 4.0, 4.0 ]\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::L2).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_TRUE(out_reader.has_norms());
+    ASSERT_TRUE(data_file_has_squared_norms(read_header(out_path)));
+    EXPECT_FLOAT_EQ(36.0f, out_reader.get_norm(0));
+    EXPECT_FLOAT_EQ(64.0f, out_reader.get_norm(1));
+    EXPECT_FLOAT_EQ(100.0f, out_reader.get_norm(2));
+}
+
+TEST_F(DataMergerTest, MergeDataFileFromInputViewRewritesCosineNormsToL2) {
+    const std::string source_path = p("source_cos_to_l2.data");
+    const std::string input_path = p("updates_cos_to_l2.txt");
+    const std::string out_path = p("merged_cos_to_l2.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 3.0f}, {5, 5.0f}}, {}, kDim, true, DistFunc::COS);
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "3 : [ 4.0, 4.0, 4.0, 4.0 ]\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::L2).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_TRUE(out_reader.has_norms());
+    ASSERT_TRUE(data_file_has_squared_norms(read_header(out_path)));
+    EXPECT_FLOAT_EQ(36.0f, out_reader.get_norm(0));
+    EXPECT_FLOAT_EQ(64.0f, out_reader.get_norm(1));
+    EXPECT_FLOAT_EQ(100.0f, out_reader.get_norm(2));
+}
+
+TEST_F(DataMergerTest, MergeDataFileFromInputViewDropsNormsForDot) {
+    const std::string source_path = p("source_cos_to_dot.data");
+    const std::string input_path = p("updates_cos_to_dot.txt");
+    const std::string out_path = p("merged_cos_to_dot.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 3.0f}, {5, 5.0f}}, {}, kDim, true, DistFunc::COS);
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "3 : [ 4.0, 4.0, 4.0, 4.0 ]\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_FALSE(out_reader.has_norms());
+    EXPECT_THROW(static_cast<void>(out_reader.get_norm(0)), std::logic_error);
 }
 
 TEST_F(DataMergerTest, MergeDataFileFromInputViewWithOnlyDeletesRemovesMatchingRows) {
@@ -398,7 +524,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewWithOnlyDeletesRemovesMatchingR
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
     EXPECT_EQ(1u, out_reader.count());
@@ -426,7 +552,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewWithOnlyInsertsAddsNonOverlappi
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
     EXPECT_EQ(4u, out_reader.count());
@@ -456,7 +582,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewWithSpaceSeparatedTextParsesAnd
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
     EXPECT_EQ(3u, out_reader.count());
@@ -482,10 +608,10 @@ TEST_F(DataMergerTest, MergeDataFilePreservesCosineValuesSection) {
     ASSERT_EQ(0, merger.merge_data_file(source_reader, updater_reader, out_path).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
-    ASSERT_TRUE(out_reader.has_cosine_inv_norms());
-    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(0)), 1e-6);
-    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(1)), 1e-6);
-    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(2)), 1e-6);
+    ASSERT_TRUE(out_reader.has_norms());
+    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(2)), 1e-6);
 }
 
 TEST_F(DataMergerTest, MergeDataFileAllDeletedProducesEmptyFile) {
@@ -550,6 +676,25 @@ TEST_F(DataMergerTest, MergeDataFileRejectsIncompatibleDim) {
     EXPECT_FALSE(fs::exists(out_path));
 }
 
+TEST_F(DataMergerTest, MergeDataFileRejectsIncompatibleNormKinds) {
+    const std::string source_path = p("source_cos.data");
+    const std::string updater_path = p("updater_l2.data");
+    const std::string out_path = p("merged_norm_kind.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 1.0f}}, {}, 4, true, DistFunc::COS);
+    write_f32_file(updater_path, FileType::Data, {{2, 2.0f}}, {}, 4, true, DistFunc::L2);
+
+    DataReader source_reader, updater_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    const auto ret = merger.merge_data_file(source_reader, updater_reader, out_path);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("incompatible norm layout"));
+    EXPECT_FALSE(fs::exists(out_path));
+}
+
 TEST_F(DataMergerTest, MergeDataFileRejectsUpdatedIdAlsoDeletedAndCleansOutput) {
     const std::string source_path = p("source.data");
     const std::string updater_path = p("updater.data");
@@ -586,7 +731,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsIncompatibleDim) {
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    const auto ret = merger.merge_data_file(source_reader, view, out_path);
+    const auto ret = merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT);
     EXPECT_NE(0, ret.code());
     EXPECT_FALSE(fs::exists(out_path));
 }
@@ -610,7 +755,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsActiveIdSpanBeyondCompac
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    const Ret ret = merger.merge_data_file(source_reader, view, out_path);
+    const Ret ret = merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT);
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
               ret.message().find("active ids: id range exceeds uint32_t"));
@@ -636,7 +781,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsDeletedIdSpanBeyondComp
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    const Ret ret = merger.merge_delta_file(source_reader, view, out_path);
+    const Ret ret = merger.merge_delta_file(source_reader, view, out_path, DistFunc::DOT);
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
               ret.message().find("deleted ids: id range exceeds uint32_t"));
@@ -665,7 +810,7 @@ TEST_F(DataMergerTest, MergeDataFileDenseActiveIdsUseBitsetEncoding) {
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT).code());
     EXPECT_EQ(CompactIdsExtEncoding::Bitset, read_active_ids_encoding(out_path));
 }
 
@@ -824,7 +969,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewMergesRecordsAndDeletes) {
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::DOT).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
     EXPECT_EQ(4u, out_reader.count());
@@ -866,7 +1011,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewCursorEdgeCaseAllSourceDeletes
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::DOT).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
     EXPECT_EQ(5u, out_reader.count());
@@ -899,14 +1044,14 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewPreservesCosineValues) {
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::COS).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
-    ASSERT_TRUE(out_reader.has_cosine_inv_norms());
+    ASSERT_TRUE(out_reader.has_norms());
     ASSERT_EQ(3u, out_reader.count());
-    EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(0)), 1e-6);
-    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(1)), 1e-6);
-    EXPECT_NEAR(1.0 / std::sqrt(30.0), static_cast<double>(out_reader.cosine_inv_norm(2)), 1e-6);
+    EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / std::sqrt(30.0), static_cast<double>(out_reader.get_norm(2)), 1e-6);
     EXPECT_EQ((std::vector<uint64_t>{1u, 5u}),
         [&]() {
             std::vector<uint64_t> ids;
@@ -936,7 +1081,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewWithOnlyDeletesProducesNoActiv
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path).code());
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::DOT).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
     EXPECT_EQ(0u, out_reader.count());
@@ -944,6 +1089,75 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewWithOnlyDeletesProducesNoActiv
     EXPECT_EQ(1u, out_reader.deleted_id(0));
     EXPECT_EQ(2u, out_reader.deleted_id(1));
     EXPECT_EQ(3u, out_reader.deleted_id(2));
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileFromInputViewPreservesL2Norms) {
+    const std::string source_path = p("source_l2.delta");
+    const std::string input_path = p("updates_l2.txt");
+    const std::string out_path = p("merged_from_input_l2.delta");
+
+    write_f32_file(source_path, FileType::Data, {{2, 2.0f}, {4, 4.0f}}, {1}, kDim, true, DistFunc::L2);
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "3 : [ 3.0, 3.0, 3.0, 3.0 ]\n"
+        "4 : [ 1.0, 2.0, 3.0, 4.0 ]\n"
+        "5 : []\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::L2).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_TRUE(out_reader.has_norms());
+    ASSERT_EQ(3u, out_reader.count());
+    EXPECT_FLOAT_EQ(16.0f, out_reader.get_norm(0));
+    EXPECT_FLOAT_EQ(36.0f, out_reader.get_norm(1));
+    EXPECT_FLOAT_EQ(30.0f, out_reader.get_norm(2));
+    EXPECT_EQ((std::vector<uint64_t>{1u, 5u}),
+        [&]() {
+            std::vector<uint64_t> ids;
+            for (size_t i = 0; i < out_reader.deleted_count(); ++i) {
+                ids.push_back(out_reader.deleted_id(i));
+            }
+            return ids;
+        }());
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileFromInputViewAddsCosineNormsWhenSourceLacksThem) {
+    const std::string source_path = p("source_dot_to_cos.delta");
+    const std::string input_path = p("updates_dot_to_cos.txt");
+    const std::string out_path = p("merged_dot_to_cos.delta");
+
+    write_f32_file(source_path, FileType::Data, {{2, 2.0f}, {4, 4.0f}}, {1});
+    write_input_file(
+        input_path,
+        "f32,4\n"
+        "3 : [ 3.0, 3.0, 3.0, 3.0 ]\n"
+        "4 : [ 1.0, 2.0, 3.0, 4.0 ]\n"
+        "5 : []\n");
+
+    DataReader source_reader, out_reader;
+    InputReader input_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, input_reader.init(input_path).code());
+    InputReaderView view(input_reader, 0, 0);
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::COS).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    ASSERT_TRUE(out_reader.has_norms());
+    ASSERT_TRUE(data_file_has_cosine_inv_norms(read_header(out_path)));
+    ASSERT_EQ(3u, out_reader.count());
+    EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / std::sqrt(30.0), static_cast<double>(out_reader.get_norm(2)), 1e-6);
 }
 
 TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsIncompatibleType) {
@@ -964,7 +1178,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsIncompatibleType) {
     InputReaderView view(input_reader, 0, 0);
 
     DataMerger merger;
-    const auto ret = merger.merge_delta_file(source_reader, view, out_path);
+    const auto ret = merger.merge_delta_file(source_reader, view, out_path, DistFunc::DOT);
     EXPECT_NE(0, ret.code());
     EXPECT_FALSE(fs::exists(out_path));
 }
@@ -985,11 +1199,11 @@ TEST_F(DataMergerTest, MergeDeltaFilePreservesCosineValuesSection) {
     ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
-    ASSERT_TRUE(out_reader.has_cosine_inv_norms());
+    ASSERT_TRUE(out_reader.has_norms());
     ASSERT_EQ(3u, out_reader.count());
-    EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(0)), 1e-6);
-    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(1)), 1e-6);
-    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.cosine_inv_norm(2)), 1e-6);
+    EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(1)), 1e-6);
+    EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(2)), 1e-6);
     EXPECT_EQ((std::vector<uint64_t>{1u, 5u}),
         [&]() {
             std::vector<uint64_t> ids;

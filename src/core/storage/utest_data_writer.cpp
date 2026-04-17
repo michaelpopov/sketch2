@@ -111,21 +111,19 @@ protected:
 
     // Generate input and run DataWriter::exec_for_testing(), return the Ret from that call.
     Ret run(size_t count, size_t min_id, DataType type, size_t dim,
-            size_t every_n_deleted = 0, bool write_cosine_inv_norms = false) {
+            size_t every_n_deleted = 0, DistFunc dist_func = DistFunc::DOT) {
         GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, every_n_deleted};
         generate_input_file(input_path_, cfg);
         DataWriter w;
-        w.init(input_path_, output_path_, 0, 0, write_cosine_inv_norms);
-        return w.exec_for_testing();
+        return w.exec_for_testing(input_path_, output_path_, 0, 0, dist_func);
     }
 
     Ret run_binary(size_t count, size_t min_id, DataType type, size_t dim,
-                   bool write_cosine_inv_norms = false) {
+                   DistFunc dist_func = DistFunc::DOT) {
         GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, 0, true};
         generate_input_file(input_path_, cfg);
         DataWriter w;
-        w.init(input_path_, output_path_, 0, 0, write_cosine_inv_norms);
-        return w.exec_for_testing();
+        return w.exec_for_testing(input_path_, output_path_, 0, 0, dist_func);
     }
 
     Ret run_raw_input(const std::string& content) {
@@ -133,8 +131,7 @@ protected:
         f << content;
         f.close();
         DataWriter w;
-        w.init(input_path_, output_path_);
-        return w.exec_for_testing();
+        return w.exec_for_testing(input_path_, output_path_);
     }
 
     DataFileHeader read_header() {
@@ -235,7 +232,7 @@ protected:
         return data;
     }
 
-    std::vector<float> read_cosine_inv_norms(size_t count) {
+    std::vector<float> read_norms(size_t count) {
         std::vector<float> values(count);
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
@@ -243,7 +240,7 @@ protected:
             auto sz = fread(&hdr, sizeof(hdr), 1, f);
             (void)sz;
             const DataMetadataLayout layout = compute_data_metadata_layout(hdr, count);
-            fseek(f, static_cast<long>(layout.cosine_inv_norms_offset), SEEK_SET);
+            fseek(f, static_cast<long>(layout.norms_offset), SEEK_SET);
             sz = fread(values.data(), sizeof(float), count, f);
             (void)sz;
             fclose(f);
@@ -306,16 +303,14 @@ protected:
 
 TEST_F(DataWriterTest, FailsOnBadInputPath) {
     DataWriter w;
-    w.init("/nonexistent/dir/input.txt", output_path_);
-    EXPECT_NE(0, w.exec_for_testing().code());
+    EXPECT_NE(0, w.exec_for_testing("/nonexistent/dir/input.txt", output_path_).code());
 }
 
 TEST_F(DataWriterTest, FailsOnBadOutputPath) {
     GeneratorConfig cfg{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
-    w.init(input_path_, "/nonexistent/dir/output.bin");
-    EXPECT_NE(0, w.exec_for_testing().code());
+    EXPECT_NE(0, w.exec_for_testing(input_path_, "/nonexistent/dir/output.bin").code());
 }
 
 TEST_F(DataWriterTest, FailsWhenActiveIdSpanExceedsCompactIdsRange) {
@@ -433,8 +428,17 @@ TEST_F(DataWriterTest, HeaderTypeI16) {
 }
 
 TEST_F(DataWriterTest, HeaderCosineFlagIsSetWhenRequested) {
-    ASSERT_EQ(0, run(3, 0, DataType::f32, 4, 0, true).code());
-    EXPECT_TRUE(data_file_has_cosine_inv_norms(read_header()));
+    ASSERT_EQ(0, run(3, 0, DataType::f32, 4, 0, DistFunc::COS).code());
+    const auto hdr = read_header();
+    EXPECT_TRUE(data_file_has_norms(hdr));
+    EXPECT_EQ(kDataFileHasCosineInvNorms, hdr.flags);
+}
+
+TEST_F(DataWriterTest, HeaderL2FlagIsSetWhenRequested) {
+    ASSERT_EQ(0, run(3, 0, DataType::f32, 4, 0, DistFunc::L2).code());
+    const auto hdr = read_header();
+    EXPECT_TRUE(data_file_has_norms(hdr));
+    EXPECT_EQ(kDataFileHasSquaredNorms, hdr.flags);
 }
 
 // --- ids section ---
@@ -522,27 +526,45 @@ TEST_F(DataWriterTest, BinaryInputVectorDataIsCorrect) {
 }
 
 TEST_F(DataWriterTest, CosineValuesSectionIsWritten) {
-    ASSERT_EQ(0, run(2, 0, DataType::f32, 4, 0, true).code());
+    ASSERT_EQ(0, run(2, 0, DataType::f32, 4, 0, DistFunc::COS).code());
     const auto hdr = read_header();
-    ASSERT_TRUE(data_file_has_cosine_inv_norms(hdr));
+    ASSERT_TRUE(data_file_has_norms(hdr));
+    EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
 
-    const auto cosine_inv_norms = read_cosine_inv_norms(hdr.count);
-    ASSERT_EQ(2u, cosine_inv_norms.size());
+    const auto norms = read_norms(hdr.count);
+    ASSERT_EQ(2u, norms.size());
     const float inv_norm0 = 1.0f / std::sqrt(4.0f * 0.1f * 0.1f);
     const float inv_norm1 = 1.0f / std::sqrt(4.0f * 1.1f * 1.1f);
-    EXPECT_NEAR(inv_norm0, cosine_inv_norms[0], 1e-5f);
-    EXPECT_NEAR(inv_norm1, cosine_inv_norms[1], 1e-5f);
+    EXPECT_NEAR(inv_norm0, norms[0], 1e-5f);
+    EXPECT_NEAR(inv_norm1, norms[1], 1e-5f);
 }
 
 TEST_F(DataWriterTest, CosineValuesSectionIsWrittenForI16) {
-    ASSERT_EQ(0, run(2, 0, DataType::i16, 4, 0, true).code());
+    ASSERT_EQ(0, run(2, 0, DataType::i16, 4, 0, DistFunc::COS).code());
     const auto hdr = read_header();
-    ASSERT_TRUE(data_file_has_cosine_inv_norms(hdr));
+    ASSERT_TRUE(data_file_has_norms(hdr));
+    EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
 
-    const auto cosine_inv_norms = read_cosine_inv_norms(hdr.count);
-    ASSERT_EQ(2u, cosine_inv_norms.size());
-    EXPECT_FLOAT_EQ(0.0f, cosine_inv_norms[0]);
-    EXPECT_NEAR(1.0f / std::sqrt(4.0f), cosine_inv_norms[1], 1e-6f);
+    const auto norms = read_norms(hdr.count);
+    ASSERT_EQ(2u, norms.size());
+    EXPECT_FLOAT_EQ(0.0f, norms[0]);
+    EXPECT_NEAR(1.0f / std::sqrt(4.0f), norms[1], 1e-6f);
+}
+
+TEST_F(DataWriterTest, L2ValuesSectionIsWritten) {
+    GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
+    generate_input_file(input_path_, cfg);
+    DataWriter w;
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, output_path_, 0, 0, DistFunc::L2).code());
+
+    const auto hdr = read_header();
+    ASSERT_TRUE(data_file_has_norms(hdr));
+    EXPECT_TRUE(data_file_has_squared_norms(hdr));
+
+    const auto norms = read_norms(hdr.count);
+    ASSERT_EQ(2u, norms.size());
+    EXPECT_NEAR(4.0f * 0.1f * 0.1f, norms[0], 1e-6f);
+    EXPECT_NEAR(4.0f * 1.1f * 1.1f, norms[1], 1e-6f);
 }
 
 TEST_F(DataWriterTest, UnsortedInputIsWrittenInSortedIdOrder) {
@@ -868,6 +890,6 @@ TEST_F(DataWriterTest, DatasetWriterStagedWriteWithCosineDistFunc) {
     DataReader data_reader;
     ASSERT_EQ(0, data_reader.init(data_path.string()).code());
     ASSERT_EQ(2u, data_reader.count());
-    EXPECT_NEAR(1.0f, data_reader.cosine_inv_norm(0), 1e-5f);
-    EXPECT_NEAR(1.0f, data_reader.cosine_inv_norm(1), 1e-5f);
+    EXPECT_NEAR(1.0f, data_reader.get_norm(0), 1e-5f);
+    EXPECT_NEAR(1.0f, data_reader.get_norm(1), 1e-5f);
 }

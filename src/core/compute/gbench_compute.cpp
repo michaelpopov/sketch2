@@ -320,9 +320,8 @@ struct [[maybe_unused]] ReaderBenchmarkData {
         require_ok(generate_input_file(input_path.string(), cfg), "generate reader input");
 
         DataWriter writer;
-        require_ok(writer.init(input_path.string(), data_path.string(), 0, 0, func == DistFunc::COS),
-            "init reader writer");
-        require_ok(writer.exec_for_testing(), "write reader data");
+        require_ok(writer.exec_for_testing(input_path.string(), data_path.string(), 0, 0, func),
+            "write reader data");
         require_ok(reader.init(data_path.string()), "init reader");
         query = make_vector(type, dim, count + 7);
     }

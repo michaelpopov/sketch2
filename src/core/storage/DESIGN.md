@@ -160,7 +160,7 @@ Interface:
     size()  vector size
     count() number of vectors
     begin() get iterator
-    cosine_inv_norm(index) f32 inverse norm for the matching active vector, or 0 if the section is absent
+    get_norm(index) f32 stored norm for the matching active vector; throws when the section is absent
     get(id) u8*
     at(index) u8*
 

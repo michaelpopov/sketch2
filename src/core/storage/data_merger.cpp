@@ -24,11 +24,11 @@ namespace sketch2 {
 
 namespace {
 
-class CosineInvNormOutput {
+class NormOutput {
 public:
-    explicit CosineInvNormOutput(bool enabled) : enabled_(enabled) {}
+    explicit NormOutput(bool enabled) : enabled_(enabled) {}
 
-    // The cosine side-array is optional in the on-disk format. This helper lets
+    // The norms side-array is optional in the on-disk format. This helper lets
     // the merge code always "push" norms while internally becoming a no-op when
     // the current dataset layout does not persist them.
     void reserve(size_t count) {
@@ -55,7 +55,7 @@ public:
         return write_f32_array(
             f,
             values_,
-            std::string(context) + ": failed to write cosine inverse norms");
+            std::string(context) + ": failed to write stored norms");
     }
 
 private:
@@ -68,6 +68,19 @@ private:
 void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer);
 Ret flush_and_close_merge_file(FILE** f, const char* context);
 
+float compute_stored_norm_for_dist(const uint8_t* data, DataType type, size_t dim, DistFunc dist_func) {
+    switch (dist_func) {
+        case DistFunc::COS:
+            return compute_cosine_inverse_norm(data, type, dim);
+        case DistFunc::L2:
+            return compute_squared_norm(data, type, dim);
+        case DistFunc::DOT:
+            throw std::runtime_error("compute_stored_norm_for_dist: DOT does not use stored norms");
+        default:
+            throw std::runtime_error("compute_stored_norm_for_dist: unsupported distance function");
+    }
+}
+
 class MergeFile {
 public:
     MergeFile() = default;
@@ -79,7 +92,7 @@ public:
     // Opens the destination file and writes a provisional header immediately.
     // The final counts/min/max ids are not known yet, so they are patched in at
     // the end once the merge body and trailing sections have been written.
-    Ret open(const DataReader& source, const std::string& path, const char* context) {
+    Ret open(const DataReader& source, uint32_t norm_flags, const std::string& path, const char* context) {
         f_ = fopen(path.c_str(), "wb");
         if (!f_) {
             return Ret(strerror(errno));
@@ -87,7 +100,7 @@ public:
 
         set_merge_file_buffer(f_, &file_buffer_);
         header_ = make_data_header(
-            0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()), source.has_cosine_inv_norms());
+            0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()), norm_flags);
         Ret ret = write_header_and_data_padding(f_, header_, context);
         if (ret.code() != 0) {
             fclose(f_);
@@ -135,25 +148,25 @@ public:
           vector_size_(compute_vector_size(type_, dim_)),
           vector_stride_(header.vector_stride),
           context_(context),
-          cosine_enabled_((header.flags & kDataFileHasCosineInvNorms) != 0u),
-          cosine_inv_norms_((header.flags & kDataFileHasCosineInvNorms) != 0u) {}
+          norms_enabled_(data_file_has_norms(header)),
+          norms_(data_file_has_norms(header)) {}
 
     // The merge emits at most source.count() + updater.count() live rows.
     // Reserving once keeps the hot merge loop simple and avoids reallocations.
     // The text scratch buffer is only needed for direct-input text merges.
     void reserve(size_t count, bool needs_text_buffer) {
         output_ids_capacity_ = count;
-        cosine_inv_norms_.reserve(count);
+        norms_.reserve(count);
         if (needs_text_buffer) {
             parsed_text_buffer_.resize(vector_size_);
         }
     }
 
     // Appends one surviving row to the output in the exact order required by
-    // the file format: first vector records, later the optional cosine array and
+    // the file format: first vector records, later the optional norms array and
     // id array. The ids are buffered here until those trailing sections are
     // written after all vectors.
-    Ret write_binary_record(uint64_t id, const uint8_t* data, float cosine_inv_norm) {
+    Ret write_binary_record(uint64_t id, const uint8_t* data, float norm) {
         if (!output_ids_initialized_) {
             output_ids_.init(id, output_ids_capacity_);
             output_ids_min_ = id;
@@ -170,11 +183,12 @@ public:
         }
         output_ids_.add(id);
         CHECK(write_vector_record(f_, data, vector_size_, vector_stride_, context_));
-        cosine_inv_norms_.push(cosine_inv_norm);
+        norms_.push(norm);
         return Ret(0);
     }
 
-    Ret write_text_record(uint64_t id, const char* start, const char* end, bool comma_delimited) {
+    Ret write_text_record(uint64_t id, const char* start, const char* end, bool comma_delimited,
+            DistFunc dist_func) {
         if (start == nullptr || end == nullptr) {
             return Ret("MergeOutputWriter: missing text vector range");
         }
@@ -190,14 +204,14 @@ public:
             : parse_vector_spaces(parsed_text_buffer_.data(), parsed_text_buffer_.size(), type_, dim_, start, end);
         CHECK(parse_ret);
 
-        const float cosine_inv_norm = cosine_inv_norms_enabled()
-            ? compute_cosine_inverse_norm(parsed_text_buffer_.data(), type_, dim_)
+        const float norm = norms_enabled()
+            ? compute_stored_norm_for_dist(parsed_text_buffer_.data(), type_, dim_, dist_func)
             : 0.0f;
-        return write_binary_record(id, parsed_text_buffer_.data(), cosine_inv_norm);
+        return write_binary_record(id, parsed_text_buffer_.data(), norm);
     }
 
     // Writes the trailer that follows the vector-record area in every merged
-    // file: optional cosine values, alignment padding before ids, and then the
+    // file: optional stored norms, alignment padding before ids, and then the
     // compact active/deleted id sections.
     Ret write_ids_section(const DataFileHeader& header,
             const CompactIdsExt& deleted_ids,
@@ -207,11 +221,11 @@ public:
         CompactIdsExt output_ids_ext;
         CHECK(output_ids_ext.init(output_ids_));
         output_ids_bytes_ = output_ids_ext.serialized_size_bytes();
-        cosine_inv_norms_.assert_matches(output_ids_.size());
+        norms_.assert_matches(output_ids_.size());
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(header, output_ids_.size());
         CHECK(write_zero_padding(f_, metadata_layout.vectors_padding,
-            std::string(context_) + ": failed to write cosine alignment padding"));
-        CHECK(cosine_inv_norms_.write(f_, context_));
+            std::string(context_) + ": failed to write norms alignment padding"));
+        CHECK(norms_.write(f_, context_));
         CHECK(write_zero_padding(f_, metadata_layout.ids_trailer_padding, ids_padding_message));
         CHECK(output_ids_ext.write(f_, ids_message));
         CHECK(write_zero_padding(
@@ -226,7 +240,7 @@ public:
     bool output_empty() const { return output_ids_.size() == 0; }
     uint64_t output_min_id() const { return output_ids_min_; }
     uint64_t output_max_id() const { return output_ids_max_; }
-    bool cosine_inv_norms_enabled() const { return cosine_enabled_; }
+    bool norms_enabled() const { return norms_enabled_; }
     size_t output_ids_bytes() const { return output_ids_bytes_; }
 
 private:
@@ -236,8 +250,8 @@ private:
     size_t vector_size_ = 0;
     size_t vector_stride_ = 0;
     const char* context_ = "";
-    bool cosine_enabled_ = false;
-    CosineInvNormOutput cosine_inv_norms_;
+    bool norms_enabled_ = false;
+    NormOutput norms_;
     CompactIdsAccumulator output_ids_;
     size_t output_ids_capacity_ = 0;
     size_t output_ids_bytes_ = 0;
@@ -272,7 +286,8 @@ public:
     }
 
     Ret write_current(MergeOutputWriter* output) const {
-        return output->write_binary_record(iter_.id(), iter_.data(), iter_.cosine_inv_norm());
+        const float norm = output->norms_enabled() ? iter_.get_norm() : 0.0f;
+        return output->write_binary_record(iter_.id(), iter_.data(), norm);
     }
 
 private:
@@ -306,8 +321,8 @@ private:
 
 class InputReaderUpdaterCursor {
 public:
-    InputReaderUpdaterCursor(const InputReaderView& reader, bool compute_cosine_inv_norms)
-        : reader_(reader), compute_cosine_inv_norms_(compute_cosine_inv_norms) {
+    InputReaderUpdaterCursor(const InputReaderView& reader, DistFunc dist_func, bool compute_norms)
+        : reader_(reader), dist_func_(dist_func), compute_norms_(compute_norms) {
         advance_to_live_row();
     }
 
@@ -332,16 +347,16 @@ public:
         if (reader_.is_binary()) {
             const uint8_t* raw_data = nullptr;
             CHECK(reader_.raw_data(index_, &raw_data));
-            const float cosine_inv_norm = compute_cosine_inv_norms_
-                ? compute_cosine_inverse_norm(raw_data, reader_.type(), reader_.dim())
+            const float norm = compute_norms_
+                ? compute_stored_norm_for_dist(raw_data, reader_.type(), reader_.dim(), dist_func_)
                 : 0.0f;
-            return output->write_binary_record(id(), raw_data, cosine_inv_norm);
+            return output->write_binary_record(id(), raw_data, norm);
         }
 
         const char* start = nullptr;
         const char* end = nullptr;
         CHECK(reader_.text_data_range(index_, &start, &end));
-        return output->write_text_record(id(), start, end, reader_.is_comma_delimited());
+        return output->write_text_record(id(), start, end, reader_.is_comma_delimited(), dist_func_);
     }
 
 private:
@@ -352,8 +367,9 @@ private:
     }
 
     const InputReaderView& reader_;
+    DistFunc dist_func_ = DistFunc::DOT;
     size_t index_ = 0;
-    bool compute_cosine_inv_norms_ = false;
+    bool compute_norms_ = false;
 };
 
 class InputReaderDeletedCursor {
@@ -550,6 +566,21 @@ Ret build_compact_accumulator(Cursor cursor, const char* context, size_t reserve
     return Ret(0);
 }
 
+float compute_source_output_norm(const DataReader& source, size_t index, uint32_t target_norm_flags) {
+    if (target_norm_flags == 0u) {
+        return 0.0f;
+    }
+    if (source.norm_flags() == target_norm_flags) {
+        return source.get_norm(index);
+    }
+
+    return compute_stored_norm_for_dist(
+        source.at(index),
+        source.type(),
+        source.dim(),
+        dist_func_for_data_file_norm_flags(target_norm_flags));
+}
+
 void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer) {
     file_buffer->resize(kFileBufferSize);
     (void)setvbuf(f, file_buffer->data(), _IOFBF, file_buffer->size());
@@ -579,6 +610,7 @@ Ret merge_records(const DataReader& source,
         UpdaterCursor updater,
         SourceDeleteCursor source_deletes,
         UpdaterDeleteCursor updater_deletes,
+        uint32_t target_norm_flags,
         const std::string& conflict_message,
         MergeOutputWriter* output) {
     // i  -> current live row in the persisted source file
@@ -625,7 +657,8 @@ Ret merge_records(const DataReader& source,
             const uint64_t update_id = updater.id();
             if (source_id < update_id) {
                 // Source id comes first and is not shadowed by an update.
-                CHECK(output->write_binary_record(source_id, source.at(i), source.cosine_inv_norm(i)));
+                const float norm = compute_source_output_norm(source, i, target_norm_flags);
+                CHECK(output->write_binary_record(source_id, source.at(i), norm));
                 ++i;
             } else if (source_id > update_id) {
                 // Updater inserted a new id before the current source id.
@@ -643,7 +676,8 @@ Ret merge_records(const DataReader& source,
         if (has_source) {
             const uint64_t source_id = source.id(i);
             // No updater rows remain, so every remaining source row survives.
-            CHECK(output->write_binary_record(source_id, source.at(i), source.cosine_inv_norm(i)));
+            const float norm = compute_source_output_norm(source, i, target_norm_flags);
+            CHECK(output->write_binary_record(source_id, source.at(i), norm));
             ++i;
         } else {
             // No source rows remain, so every remaining updater row is appended.
@@ -698,8 +732,8 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_data_file: incompatible source and updater");
     }
-    if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
-        return Ret("DataMerger::merge_data_file: incompatible cosine inverse-norm layout");
+    if (source.norm_flags() != updater.norm_flags()) {
+        return Ret("DataMerger::merge_data_file: incompatible norm layout");
     }
     if (source.has_delta() || updater.has_delta()) {
         return Ret("DataMerger::merge_data_file: source and updater must not have deltas");
@@ -709,7 +743,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     // For a data-file merge, deletes come directly from the updater because the
     // destination is a compact base file with no persisted tombstone section.
     MergeFile merge_file;
-    CHECK(merge_file.open(source, path, "DataMerger::merge_data_files"));
+    CHECK(merge_file.open(source, source.norm_flags(), path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
     output.reserve(source.count() + updater.count(), false);
@@ -718,6 +752,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         DataReaderUpdaterCursor(updater),
         DataReaderDeletedCursor(updater),
         DataReaderDeletedCursor(updater),
+        source.norm_flags(),
         "DataMerger::merge_data_files: updated id is also deleted",
         &output));
     // After all vector records are streamed, write the trailing metadata needed
@@ -761,7 +796,8 @@ Ret DataMerger::merge_delta_file(const DataReader& source, const DataReader& upd
     return ret;
 }
 
-Ret DataMerger::merge_data_file(const DataReader& source, const InputReaderView& updater, const std::string& path) {
+Ret DataMerger::merge_data_file(const DataReader& source, const InputReaderView& updater,
+        const std::string& path, DistFunc dist_func) {
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_data_file: incompatible source and updater");
     }
@@ -771,7 +807,7 @@ Ret DataMerger::merge_data_file(const DataReader& source, const InputReaderView&
     // two without having to special-case cleanup behavior.
     Ret ret(0);
     try {
-        ret = merge_data_file_(source, updater, path);
+        ret = merge_data_file_(source, updater, path, dist_func);
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
@@ -783,7 +819,8 @@ Ret DataMerger::merge_data_file(const DataReader& source, const InputReaderView&
     return ret;
 }
 
-Ret DataMerger::merge_delta_file(const DataReader& source, const InputReaderView& updater, const std::string& path) {
+Ret DataMerger::merge_delta_file(const DataReader& source, const InputReaderView& updater,
+        const std::string& path, DistFunc dist_func) {
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_delta_file: incompatible source and updater");
     }
@@ -792,7 +829,7 @@ Ret DataMerger::merge_delta_file(const DataReader& source, const InputReaderView
     // Ret and partial outputs are removed before the caller sees a result.
     Ret ret(0);
     try {
-        ret = merge_delta_file_(source, updater, path);
+        ret = merge_delta_file_(source, updater, path, dist_func);
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
@@ -807,8 +844,8 @@ Ret DataMerger::merge_delta_file(const DataReader& source, const InputReaderView
 // Rewrites a delta file while preserving delta semantics: live updates stay in
 // the record stream and the merged tombstone set is carried forward separately.
 Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
-    if (source.has_cosine_inv_norms() != updater.has_cosine_inv_norms()) {
-        return Ret("DataMerger::merge_delta_file: incompatible cosine inverse-norm layout");
+    if (source.norm_flags() != updater.norm_flags()) {
+        return Ret("DataMerger::merge_delta_file: incompatible norm layout");
     }
     if (source.has_delta() || updater.has_delta()) {
         return Ret("DataMerger::merge_delta_file: source and updater must not have deltas");
@@ -828,7 +865,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     CompactIdsExt compact_deleted_ids;
     CHECK(compact_deleted_ids.init(compact_deleted_ids_accum));
     MergeFile merge_file;
-    CHECK(merge_file.open(source, path, "DataMerger::merge_delta_file"));
+    CHECK(merge_file.open(source, source.norm_flags(), path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
     output.reserve(source.count() + updater.count(), false);
@@ -839,6 +876,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         DataReaderUpdaterCursor(updater),
         merge_deleted_cursor,
         merge_deleted_cursor,
+        source.norm_flags(),
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
     // Delta files have the same live-row trailer as data files...
@@ -860,7 +898,8 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     return ret;
 }
 
-Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView& updater, const std::string& path) {
+Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView& updater,
+        const std::string& path, DistFunc dist_func) {
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_data_file: incompatible source and updater");
     }
@@ -870,19 +909,21 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
 
     Timer timer("merge_data_file");
     const CompactIdsExt empty_deleted_ids;
+    const uint32_t target_norm_flags = data_file_norm_flags_for_dist(dist_func);
     MergeFile merge_file;
-    CHECK(merge_file.open(source, path, "DataMerger::merge_data_files"));
+    CHECK(merge_file.open(source, target_norm_flags, path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
     output.reserve(source.count() + updater.count(), !updater.is_binary());
 #ifndef NDEBUG
-    assert(source.has_cosine_inv_norms() == output.cosine_inv_norms_enabled());
+    assert((target_norm_flags != 0u) == output.norms_enabled());
 #endif
     CHECK(merge_records(
         source,
-        InputReaderUpdaterCursor(updater, source.has_cosine_inv_norms()),
+        InputReaderUpdaterCursor(updater, dist_func, target_norm_flags != 0u),
         InputReaderDeletedCursor(updater),
         InputReaderDeletedCursor(updater),
+        target_norm_flags,
         "DataMerger::merge_data_files: updated id is also deleted",
         &output));
     CHECK(output.write_ids_section(
@@ -902,7 +943,8 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
     return ret;
 }
 
-Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderView& updater, const std::string& path) {
+Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderView& updater,
+        const std::string& path, DistFunc dist_func) {
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_delta_file: incompatible source and updater");
     }
@@ -911,9 +953,10 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     }
 
     Timer timer("merge_delta_file");
-    const bool compute_cosine_inv_norms = source.has_cosine_inv_norms();
+    const uint32_t target_norm_flags = data_file_norm_flags_for_dist(dist_func);
+    const bool compute_norms = target_norm_flags != 0u;
     const std::vector<uint64_t> updater_live_ids = collect_updater_live_ids(
-        InputReaderUpdaterCursor(updater, compute_cosine_inv_norms),
+        InputReaderUpdaterCursor(updater, dist_func, compute_norms),
         updater.count());
     const size_t updater_deleted_count = count_input_reader_view_deleted_rows(updater);
     CompactIdsAccumulator compact_deleted_ids_accum;
@@ -925,20 +968,21 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     CompactIdsExt compact_deleted_ids;
     CHECK(compact_deleted_ids.init(compact_deleted_ids_accum));
     MergeFile merge_file;
-    CHECK(merge_file.open(source, path, "DataMerger::merge_delta_file"));
+    CHECK(merge_file.open(source, target_norm_flags, path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
     output.reserve(source.count() + updater.count(), !updater.is_binary());
 #ifndef NDEBUG
-    assert(source.has_cosine_inv_norms() == output.cosine_inv_norms_enabled());
+    assert(compute_norms == output.norms_enabled());
 #endif
     const auto merge_deleted_cursor =
         make_input_reader_delta_delete_cursor(source, updater, &updater_live_ids);
     CHECK(merge_records(
         source,
-        InputReaderUpdaterCursor(updater, compute_cosine_inv_norms),
+        InputReaderUpdaterCursor(updater, dist_func, compute_norms),
         merge_deleted_cursor,
         merge_deleted_cursor,
+        target_norm_flags,
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
     CHECK(output.write_ids_section(

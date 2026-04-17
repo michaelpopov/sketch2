@@ -42,18 +42,18 @@ const uint8_t* DataReader::Iterator::data() const {
     return reader_->at(index_);
 }
 
-float DataReader::Iterator::cosine_inv_norm() const {
+float DataReader::Iterator::get_norm() const {
     if (index_ >= count_) {
-        throw std::out_of_range("DataReader::Iterator::cosine_inv_norm: index out of range");
+        throw std::out_of_range("DataReader::Iterator::get_norm: index out of range");
     }
 
     if (index_ >= reader_->count()) {
         assert(delta_reader_);
         const size_t ind = index_ - reader_->count();
-        return delta_reader_->cosine_inv_norm(ind);
+        return delta_reader_->get_norm(ind);
     }
 
-    return reader_->cosine_inv_norm(index_);
+    return reader_->get_norm(index_);
 }
 
 uint64_t DataReader::Iterator::id() const {
@@ -104,16 +104,16 @@ const uint8_t* DataReader::OrderedIterator::data() const {
     return reader_->delta_->at(index_);
 }
 
-float DataReader::OrderedIterator::cosine_inv_norm() const {
+float DataReader::OrderedIterator::get_norm() const {
     if (eof()) {
-        throw std::out_of_range("DataReader::OrderedIterator::cosine_inv_norm: index out of range");
+        throw std::out_of_range("DataReader::OrderedIterator::get_norm: index out of range");
     }
 
     if (source_ == Source::Base) {
-        return reader_->cosine_inv_norm(index_);
+        return reader_->get_norm(index_);
     }
 
-    return reader_->delta_->cosine_inv_norm(index_);
+    return reader_->delta_->get_norm(index_);
 }
 
 uint64_t DataReader::OrderedIterator::id() const {
@@ -137,7 +137,7 @@ Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta)
 }
 
 // Memory-maps a binary data file, validates its layout, and caches pointers to
-// the vector, cosine, id, and delete sections. When a delta reader is attached,
+// the vector, norms, id, and delete sections. When a delta reader is attached,
 // it also builds a visibility bitset for base rows shadowed by newer updates.
 Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta) {
     if (initialized_) {
@@ -270,8 +270,11 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
 
     vector_size_ = dim * elem_size;
     stride_ = static_cast<size_t>(hdr_.vector_stride);
-    if ((hdr_.flags & ~kDataFileHasCosineInvNorms) != 0u) {
+    if ((hdr_.flags & ~kDataFileNormKindMask) != 0u) {
         return Ret("DataReader: unsupported data-file flags");
+    }
+    if (!data_file_has_valid_norm_flags(hdr_)) {
+        return Ret("DataReader: invalid stored norm flags");
     }
     if (hdr_.data_offset < sizeof(DataFileHeader)
             || (hdr_.data_offset % static_cast<uint64_t>(kDataRegionAlignment)) != 0) {
@@ -283,8 +286,8 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
 
     *metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
     if (hdr_.vectors_bytes != metadata_layout->vectors_bytes
-            || hdr_.cosine_inv_norms_offset != metadata_layout->cosine_inv_norms_offset
-            || hdr_.cosine_inv_norms_bytes != metadata_layout->cosine_inv_norms_bytes
+            || hdr_.norms_offset != metadata_layout->norms_offset
+            || hdr_.norms_bytes != metadata_layout->norms_bytes
             || hdr_.ids_offset != metadata_layout->ids_trailer_offset
             || hdr_.deleted_ids_offset != compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)) {
         return Ret("DataReader: malformed section layout in header");
@@ -310,8 +313,8 @@ Ret DataReader::validate_delta_(const std::unique_ptr<DataReader>& delta) const 
     if (type_ != delta->type_) return Ret("DataReader: invalid delta type");
     if (vector_size_ != delta->vector_size_) return Ret("DataReader: invalid delta dim");
     if (stride_ != delta->stride_) return Ret("DataReader: invalid delta stride");
-    if (data_file_has_cosine_inv_norms(hdr_) != data_file_has_cosine_inv_norms(delta->hdr_)) {
-        return Ret("DataReader: invalid delta cosine inverse-norm layout");
+    if (data_file_norm_flags(hdr_) != data_file_norm_flags(delta->hdr_)) {
+        return Ret("DataReader: invalid delta norm layout");
     }
     return Ret(0);
 }
@@ -320,9 +323,9 @@ Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout&
     if (metadata_layout.vectors_bytes > 0) {
         CHECK(vectors_region_.init(fd, hdr_.data_offset, metadata_layout.vectors_bytes));
     }
-    if (metadata_layout.cosine_inv_norms_bytes > 0) {
-        CHECK(norms_region_.init(fd, metadata_layout.cosine_inv_norms_offset,
-            metadata_layout.cosine_inv_norms_bytes));
+    if (metadata_layout.norms_bytes > 0) {
+        CHECK(norms_region_.init(fd, metadata_layout.norms_offset,
+            metadata_layout.norms_bytes));
     }
 
     CHECK(ids_region_.init(fd, hdr_.ids_offset, hdr_.ids_bytes));
@@ -354,7 +357,7 @@ Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout&
         return Ret("DataReader: ids trailer count does not match header");
     }
 
-    norms_ = metadata_layout.cosine_inv_norms_bytes > 0
+    norms_ = metadata_layout.norms_bytes > 0
         ? reinterpret_cast<const float*>(norms_region_.data())
         : nullptr;
     return Ret(0);
@@ -414,6 +417,7 @@ void DataReader::assert_invariants_() const {
     assert(hdr_.base.version == kVersion);
     assert(vector_size_ == compute_vector_size(type_, hdr_.dim));
     assert(stride_ == hdr_.vector_stride);
+    assert(data_file_has_valid_norm_flags(hdr_));
     assert(stride_ >= vector_size_);
     assert((hdr_.data_offset % static_cast<uint64_t>(kDataRegionAlignment)) == 0);
     assert((stride_ % kDataAlignment) == 0);
@@ -424,17 +428,17 @@ void DataReader::assert_invariants_() const {
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
     assert(vectors_region_.size() == metadata_layout.vectors_bytes);
-    assert(norms_region_.size() == metadata_layout.cosine_inv_norms_bytes);
+    assert(norms_region_.size() == metadata_layout.norms_bytes);
     assert(hdr_.vectors_bytes == metadata_layout.vectors_bytes);
-    assert(hdr_.cosine_inv_norms_offset == metadata_layout.cosine_inv_norms_offset);
-    assert(hdr_.cosine_inv_norms_bytes == metadata_layout.cosine_inv_norms_bytes);
+    assert(hdr_.norms_offset == metadata_layout.norms_offset);
+    assert(hdr_.norms_bytes == metadata_layout.norms_bytes);
     assert(hdr_.ids_offset == metadata_layout.ids_trailer_offset);
     assert(hdr_.ids_bytes == ids_region_.size());
     assert(hdr_.deleted_ids_offset ==
         static_cast<uint64_t>(compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)));
     assert(hdr_.deleted_ids_bytes == deleted_ids_region_.size());
 
-    if (data_file_has_cosine_inv_norms(hdr_)) {
+    if (data_file_has_norms(hdr_)) {
         assert(norms_ == reinterpret_cast<const float*>(norms_region_.data()));
     } else {
         assert(norms_ == nullptr);
@@ -445,7 +449,7 @@ void DataReader::assert_invariants_() const {
         assert(type_ == delta_->type());
         assert(vector_size_ == delta_->size());
         assert(stride_ == delta_->stride());
-        assert(has_cosine_inv_norms() == delta_->has_cosine_inv_norms());
+        assert(norm_flags() == delta_->norm_flags());
     } else {
         assert(changed_bitset_.size() == 0);
     }
@@ -480,11 +484,25 @@ size_t DataReader::count() const {
     return static_cast<size_t>(hdr_.count);
 }
 
-bool DataReader::has_cosine_inv_norms() const {
+uint32_t DataReader::norm_flags() const {
     if (!initialized_) {
-        throw std::runtime_error("DataReader::has_cosine_inv_norms: reader is not initialized");
+        throw std::runtime_error("DataReader::norm_flags: reader is not initialized");
     }
-    return data_file_has_cosine_inv_norms(hdr_);
+    return data_file_norm_flags(hdr_);
+}
+
+bool DataReader::has_norms() const {
+    if (!initialized_) {
+        throw std::runtime_error("DataReader::has_norms: reader is not initialized");
+    }
+    return data_file_has_norms(hdr_);
+}
+
+bool DataReader::has_matching_stored_norms(DistFunc dist_func) const {
+    if (!initialized_) {
+        throw std::runtime_error("DataReader::has_matching_stored_norms: reader is not initialized");
+    }
+    return data_file_matches_stored_norms_dist(hdr_, dist_func);
 }
 
 DataReader::Iterator DataReader::begin() const {
@@ -514,12 +532,12 @@ uint64_t DataReader::id(size_t index) const {
     return ids_.id(index);
 }
 
-float DataReader::cosine_inv_norm(size_t index) const {
+float DataReader::get_norm(size_t index) const {
     if (index >= count()) {
-        throw std::out_of_range("DataReader::cosine_inv_norm: index out of range");
+        throw std::out_of_range("DataReader::get_norm: index out of range");
     }
     if (!norms_) {
-        return 0.0f;
+        throw std::logic_error("DataReader::get_norm: norms section is absent");
     }
     return norms_[index];
 }

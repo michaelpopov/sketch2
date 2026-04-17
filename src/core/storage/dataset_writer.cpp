@@ -107,6 +107,19 @@ Ret cleanup_stale_input_files(const DatasetMetadata& metadata, const std::string
     return Ret(0);
 }
 
+Ret validate_dataset_reader_norms(const DataReader& reader, DistFunc dist_func, const std::string& path) {
+    if (!dataset_requires_stored_norms(dist_func)) {
+        return Ret(0);
+    }
+    if (!reader.has_norms()) {
+        return Ret("DatasetWriter::store_and_merge: dataset file is missing stored norms: " + path);
+    }
+    if (!reader.has_matching_stored_norms(dist_func)) {
+        return Ret("DatasetWriter::store_and_merge: dataset file has incompatible stored norms: " + path);
+    }
+    return Ret(0);
+}
+
 } // namespace
 
 /***********************************************************
@@ -580,7 +593,7 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
     // cases, but avoid it for the branches that immediately merge the result.
     auto write_temp_file = [&]() -> Ret {
         DataWriter writer;
-        return writer.write(view, temp_path, metadata_.dist_func == DistFunc::COS);
+        return writer.write(view, temp_path, metadata_.dist_func);
     };
 
     // Execution flow:
@@ -616,6 +629,7 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
     if (!std::filesystem::exists(delta_path)) {
         DataReader data_reader;
         CHECK(data_reader.init(data_path));
+        CHECK(validate_dataset_reader_norms(data_reader, metadata_.dist_func, data_path));
 
         // If the new batch is "large enough" relative to the base file, writing
         // a separate delta would just postpone an inevitable full rewrite. In
@@ -650,6 +664,7 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
     {
         DataReader delta_reader;
         CHECK(delta_reader.init(delta_path));
+        CHECK(validate_dataset_reader_norms(delta_reader, metadata_.dist_func, delta_path));
         CHECK(merge_delta_file(delta_reader, view, temp_path_base));
     }
 
@@ -659,8 +674,10 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
     {
         DataReader data_reader;
         CHECK(data_reader.init(data_path));
+        CHECK(validate_dataset_reader_norms(data_reader, metadata_.dist_func, data_path));
         DataReader delta_reader;
         CHECK(delta_reader.init(delta_path));
+        CHECK(validate_dataset_reader_norms(delta_reader, metadata_.dist_func, delta_path));
 
         const bool is_data_delta_merge = check_data_delta_merge(data_reader, delta_reader);
         if (is_data_delta_merge) {
@@ -724,7 +741,7 @@ Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const InputRea
     // from parsed input instead of a temp persisted file.
     DataMerger processor;
     const std::string merge_path = output_path_base + kMergeExt;
-    CHECK(processor.merge_data_file(data_reader, output_reader, merge_path));
+    CHECK(processor.merge_data_file(data_reader, output_reader, merge_path, metadata_.dist_func));
 
     const std::string data_path = output_path_base + kDataExt;
     std::error_code ec;
@@ -767,7 +784,7 @@ Ret DatasetWriter::merge_delta_file(const DataReader& delta_reader, const InputR
     // separate temp data file first.
     DataMerger processor;
     const std::string merge_path = output_path_base + kMergeExt;
-    CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path));
+    CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path, metadata_.dist_func));
 
     const std::string delta_path = output_path_base + kDeltaExt;
     std::error_code ec;

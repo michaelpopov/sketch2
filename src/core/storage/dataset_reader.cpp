@@ -184,7 +184,7 @@ const DatasetItem* DatasetReader::find_item_(uint64_t file_id) const {
 }
 
 // Lazily opens and caches the DataReader for a dataset file pair, attaching the
-// delta reader when present and verifying cosine metadata for cosine datasets.
+// delta reader when present and verifying stored norms metadata when required.
 std::pair<DataReaderPtr, Ret> DatasetReader::open_reader_(const DatasetItem& item) const {
     DataReaderPtr reader = std::make_shared<DataReader>();
     Ret ret(0);
@@ -204,9 +204,13 @@ std::pair<DataReaderPtr, Ret> DatasetReader::open_reader_(const DatasetItem& ite
         return {nullptr, ret};
     }
 
-    if (metadata_.dist_func == DistFunc::COS && !reader->has_cosine_inv_norms()) {
-        return {nullptr, Ret("Dataset: cosine file is missing stored inverse norms: " +
-            item.data_file_path)};
+    if (dataset_requires_stored_norms(metadata_.dist_func)) {
+        if (!reader->has_norms()) {
+            return {nullptr, Ret("Dataset: file is missing stored norms: " + item.data_file_path)};
+        }
+        if (!reader->has_matching_stored_norms(metadata_.dist_func)) {
+            return {nullptr, Ret("Dataset: file has incompatible stored norms: " + item.data_file_path)};
+        }
     }
 
     return {reader, Ret(0)};

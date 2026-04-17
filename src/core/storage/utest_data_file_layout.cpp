@@ -41,13 +41,23 @@ TEST_F(DataFileLayoutTest, MakeDataHeaderSetsExpectedFields) {
     EXPECT_GE(hdr.data_offset, sizeof(DataFileHeader));
     EXPECT_EQ(compute_vector_stride(64u * sizeof(float)), hdr.vector_stride);
     EXPECT_EQ(0u, hdr.vector_stride % kDataAlignment);
-    EXPECT_FALSE(data_file_has_cosine_inv_norms(hdr));
+    EXPECT_FALSE(data_file_has_norms(hdr));
 }
 
-TEST_F(DataFileLayoutTest, MakeDataHeaderSetsCosineFlagWhenRequested) {
-    const auto hdr = make_data_header(10, 20, 7, 2, DataType::f32, 64, true);
+TEST_F(DataFileLayoutTest, MakeDataHeaderSetsCosineNormFlagWhenRequested) {
+    const auto hdr = make_data_header(
+        10, 20, 7, 2, DataType::f32, 64, data_file_norm_flags_for_dist(DistFunc::COS));
+    EXPECT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
     EXPECT_EQ(kDataFileHasCosineInvNorms, hdr.flags);
+}
+
+TEST_F(DataFileLayoutTest, MakeDataHeaderSetsSquaredNormFlagWhenRequested) {
+    const auto hdr = make_data_header(
+        10, 20, 7, 2, DataType::f32, 64, data_file_norm_flags_for_dist(DistFunc::L2));
+    EXPECT_TRUE(data_file_has_norms(hdr));
+    EXPECT_TRUE(data_file_has_squared_norms(hdr));
+    EXPECT_EQ(kDataFileHasSquaredNorms, hdr.flags);
 }
 
 TEST_F(DataFileLayoutTest, ComputeMetadataLayoutAlignsIdsTrailerOffsetToRegionBoundary) {
@@ -60,15 +70,16 @@ TEST_F(DataFileLayoutTest, ComputeMetadataLayoutAlignsIdsTrailerOffsetToRegionBo
 }
 
 TEST_F(DataFileLayoutTest, ComputeMetadataLayoutPlacesCosineSectionBeforeIdsTrailer) {
-    const auto hdr = make_data_header(0, 0, 0, 0, DataType::f32, 5, true);
+    const auto hdr = make_data_header(
+        0, 0, 0, 0, DataType::f32, 5, data_file_norm_flags_for_dist(DistFunc::COS));
     const auto layout = compute_data_metadata_layout(hdr, 3);
-    EXPECT_EQ(0u, layout.cosine_inv_norms_offset % kDataRegionAlignment);
-    EXPECT_EQ(layout.cosine_inv_norms_offset,
+    EXPECT_EQ(0u, layout.norms_offset % kDataRegionAlignment);
+    EXPECT_EQ(layout.norms_offset,
         align_up<size_t>(static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes, kDataRegionAlignment));
-    EXPECT_EQ(3u * sizeof(float), layout.cosine_inv_norms_bytes);
+    EXPECT_EQ(3u * sizeof(float), layout.norms_bytes);
     EXPECT_EQ(0u, layout.ids_trailer_offset % kDataRegionAlignment);
     EXPECT_EQ(layout.ids_trailer_offset,
-        align_up<size_t>(layout.cosine_inv_norms_offset + layout.cosine_inv_norms_bytes, kDataRegionAlignment));
+        align_up<size_t>(layout.norms_offset + layout.norms_bytes, kDataRegionAlignment));
 }
 
 TEST_F(DataFileLayoutTest, WriteZeroPaddingWritesRequestedZeros) {

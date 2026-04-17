@@ -62,12 +62,29 @@ Ret write_vector_section(
         FILE* f,
         const InputReaderView& reader,
         const DataFileHeader& hdr,
-        bool write_cosine_inv_norms,
-        std::vector<float>* cosine_inv_norms) {
+        DistFunc dist_func,
+        std::vector<float>* norms) {
     const size_t count = reader.count();
     const size_t vec_size = reader.size();
     const bool binary_input = reader.is_binary();
     std::vector<uint8_t> buf = binary_input ? std::vector<uint8_t>() : std::vector<uint8_t>(vec_size);
+    const auto append_norm = [&](const uint8_t* vector_data) {
+        switch (dist_func) {
+            case DistFunc::COS:
+                norms->push_back(
+                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
+                return;
+            case DistFunc::L2:
+                norms->push_back(
+                    compute_squared_norm(vector_data, reader.type(), reader.dim()));
+                return;
+            case DistFunc::DOT:
+                return;
+            default:
+                assert(false && "write_vector_section: unsupported distance function");
+                throw std::runtime_error("write_vector_section: unsupported distance function");
+        }
+    };
 
     if (binary_input) {
         for (size_t i = 0; i < count; ++i) {
@@ -83,10 +100,7 @@ Ret write_vector_section(
                 vec_size,
                 hdr.vector_stride,
                 "DataWriter: failed to write vector data at index " + std::to_string(i)));
-            if (write_cosine_inv_norms) {
-                cosine_inv_norms->push_back(
-                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
-            }
+            append_norm(vector_data);
         }
         return Ret(0);
     }
@@ -104,10 +118,7 @@ Ret write_vector_section(
             vec_size,
             hdr.vector_stride,
             "DataWriter: failed to write vector data at index " + std::to_string(i)));
-        if (write_cosine_inv_norms) {
-            cosine_inv_norms->push_back(
-                compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
-        }
+        append_norm(vector_data);
     }
 
     return Ret(0);
@@ -163,22 +174,12 @@ Ret finalize_output_file(FILE* f) {
 
 } // namespace
 
-Ret DataWriter::init(const std::string& input_path, const std::string& output_path,
-    uint64_t start, uint64_t end, bool write_cosine_inv_norms) {
-
-    input_path_  = input_path;
-    output_path_ = output_path;
-    start_ = start;
-    end_ = end;
-    write_cosine_inv_norms_ = write_cosine_inv_norms;
-    return Ret(0);
-}
-
-Ret DataWriter::exec_for_testing() {
-    if (input_path_.empty()) {
+Ret DataWriter::exec_for_testing(const std::string& input_path, const std::string& output_path,
+    uint64_t start, uint64_t end, DistFunc dist_func) {
+    if (input_path.empty()) {
         return Ret("Input path is not set.");
     }
-    if (output_path_.empty()) {
+    if (output_path.empty()) {
         return Ret("Output path is not set.");
     }
 
@@ -186,19 +187,20 @@ Ret DataWriter::exec_for_testing() {
 
     // Create and init InputReader from input_path
     InputReader source;
-    CHECK(source.init(input_path_));
+    CHECK(source.init(input_path));
 
-    InputReaderView reader(source, start_, end_);
-    Ret ret = write(reader, output_path_, write_cosine_inv_norms_);
+    InputReaderView reader(source, start, end);
+    Ret ret = write(reader, output_path, dist_func);
 
-    LOG_INFO << "DataWriter completed exec_for_testing for " << output_path_ << " in " << timer.elapsed_ms() << " ms";
+    LOG_INFO << "DataWriter completed exec_for_testing for " << output_path
+             << " in " << timer.elapsed_ms() << " ms";
     return ret;
 }
 
 // Converts a sorted text-or-binary input view into the binary on-disk data-file format.
 // It separates live ids from deletions, streams vectors into the aligned data
-// section, optionally persists cosine inverse norms, and then appends both id tables.
-Ret DataWriter::write(const InputReaderView& reader, const std::string& output_path, bool write_cosine_inv_norms) {
+// section, optionally persists norms, and then appends both id tables.
+Ret DataWriter::write(const InputReaderView& reader, const std::string& output_path, DistFunc dist_func) {
     const size_t count = reader.count();
     if (count == 0) {
         return Ret("Invalid count of vectors in reader.");
@@ -220,6 +222,9 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
         CHECK(deleted_ids_ext.init(deleted_accum));
     }
 
+    const uint32_t norm_flags = data_file_norm_flags_for_dist(dist_func);
+    const bool is_norms_section = norm_flags != 0u;
+    
     // Build DataFileHeader
     DataFileHeader hdr = make_data_header(
         stats.min_id,
@@ -228,7 +233,7 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
         stats.deleted_count,
         reader.type(),
         static_cast<uint16_t>(reader.dim()),
-        write_cosine_inv_norms);
+        norm_flags);
     CHECK(set_data_header_layout(
         &hdr,
         active_ids_ext.serialized_size_bytes(),
@@ -253,19 +258,19 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     CHECK(write_header_and_data_padding(f, hdr, "DataWriter"));
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, stats.active_count);
-    std::vector<float> cosine_inv_norms;
-    if (write_cosine_inv_norms) {
-        cosine_inv_norms.reserve(stats.active_count);
+    std::vector<float> norms;
+    if (is_norms_section) {
+        norms.reserve(stats.active_count);
     }
-    CHECK(write_vector_section(f, reader, hdr, write_cosine_inv_norms, &cosine_inv_norms));
+    CHECK(write_vector_section(f, reader, hdr, dist_func, &norms));
     CHECK(write_zero_padding(f, metadata_layout.vectors_padding,
-        "DataWriter: failed to write cosine alignment padding"));
+        "DataWriter: failed to write norms alignment padding"));
 
 #ifndef NDEBUG
-    assert(!write_cosine_inv_norms || cosine_inv_norms.size() == stats.active_count);
+    assert(!is_norms_section || norms.size() == stats.active_count);
 #endif
-    CHECK(write_f32_array(f, cosine_inv_norms,
-        "DataWriter: failed to write cosine inverse norms"));
+    CHECK(write_f32_array(f, norms,
+        "DataWriter: failed to write norms"));
     CHECK(write_zero_padding(f, metadata_layout.ids_trailer_padding,
         "DataWriter: failed to write id alignment padding"));
 

@@ -39,9 +39,12 @@ inline constexpr uint64_t kDataRegionAlignment = 4096;
 // Id section alignment used by data-file layout code when placing CompactIdsOffsets trailer sections.
 inline constexpr uint32_t kIdsAlignment = 8;
 
-// Data-file header flag marking that a float inverse-norm section is present for active vectors.
-// This is used by cosine datasets so scanner can avoid recomputing stored-vector norms.
+// Data-file header flags describing which float values are persisted in the
+// optional norms section for active vectors.
 inline constexpr uint32_t kDataFileHasCosineInvNorms = 1u;
+inline constexpr uint32_t kDataFileHasSquaredNorms = 2u;
+inline constexpr uint32_t kDataFileNormKindMask =
+    kDataFileHasCosineInvNorms | kDataFileHasSquaredNorms;
 
 // Shared stdio buffer size used by DataWriter, DataMerger, and Dataset merge/store paths.
 inline constexpr size_t kFileBufferSize = 4 * 1024 * 1024;

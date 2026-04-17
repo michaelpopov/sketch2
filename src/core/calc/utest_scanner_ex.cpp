@@ -55,8 +55,7 @@ protected:
     void generate_file(const std::string& in_path, const std::string& out_path, const GeneratorConfig& cfg) {
         generate_input_file(in_path, cfg);
         DataWriter w;
-        w.init(in_path, out_path);
-        ASSERT_EQ(0, w.exec_for_testing().code());
+        ASSERT_EQ(0, w.exec_for_testing(in_path, out_path).code());
     }
 
     void generate(size_t count, size_t min_id, DataType type, size_t dim) {
@@ -74,8 +73,7 @@ protected:
         f << content;
         f.close();
         DataWriter w;
-        w.init(delta_input_path_, delta_path_);
-        ASSERT_EQ(0, w.exec_for_testing().code());
+        ASSERT_EQ(0, w.exec_for_testing(delta_input_path_, delta_path_).code());
     }
 
     void write_input_raw(const std::string& path, const std::string& content) {
@@ -640,8 +638,7 @@ TEST_F(ScannerExTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     DataWriter writer;
-    ASSERT_EQ(0, writer.init(input_path_, d + "/0.data").code());
-    ASSERT_EQ(0, writer.exec_for_testing().code());
+    ASSERT_EQ(0, writer.exec_for_testing(input_path_, d + "/0.data").code());
 
     DatasetNode ds;
     ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::COS).code());
@@ -664,7 +661,49 @@ TEST_F(ScannerExTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
     const Ret ret = s.find(reader, 3, q.data(), result);
     EXPECT_NE(0, ret.code());
     EXPECT_TRUE(result.empty());
-    EXPECT_NE(std::string(ret.message()).find("missing stored inverse norms"), std::string::npos);
+    EXPECT_NE(std::string(ret.message()).find("missing stored norms"), std::string::npos);
+}
+
+TEST_F(ScannerExTest, FindDatasetL2RejectsFilesMissingStoredNorms) {
+    std::string d = tmp_dir() + "/sketch2_utest_scanner_ex_l2_missing_norms_" + std::to_string(getpid());
+    std::string cfg = d + ".ini";
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() {
+        fs::remove_all(d);
+        std::remove(cfg.c_str());
+    });
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    DataWriter writer;
+    ASSERT_EQ(0, writer.exec_for_testing(input_path_, d + "/0.data").code());
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::L2).code());
+
+    write_input_raw(
+        cfg,
+        std::string("[dataset]\n") +
+        "dirs = " + d + "\n"
+        "range_size = 100\n"
+        "type = f32\n"
+        "dist_func = l2\n"
+        "dim = 4\n");
+
+    DatasetReader reader;
+    ASSERT_EQ(0, reader.init(cfg).code());
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    const Ret ret = s.find(reader, 3, q.data(), result);
+    EXPECT_NE(0, ret.code());
+    EXPECT_TRUE(result.empty());
+    EXPECT_NE(std::string(ret.message()).find("missing stored norms"), std::string::npos);
 }
 
 TEST_F(ScannerExTest, FindDatasetFailsOnNullQueryPointer) {

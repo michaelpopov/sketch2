@@ -7,6 +7,7 @@
 #include <cstring>
 #include <unistd.h>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 #include <fstream>
 #include "core/storage/data_file.h"
@@ -76,9 +77,7 @@ protected:
         Ret ret = generate_input_file(in_path, cfg);
         ASSERT_EQ(0, ret.code()) << "generate_input_file failed: " << ret.message();
         DataWriter w;
-        ret = w.init(in_path, out_path);
-        ASSERT_EQ(0, ret.code()) << "DataWriter::init failed: " << ret.message();
-        ret = w.exec_for_testing();
+        ret = w.exec_for_testing(in_path, out_path);
         ASSERT_EQ(0, ret.code()) << "DataWriter::exec_for_testing failed: " << ret.message();
     }
 
@@ -102,8 +101,7 @@ protected:
         f << content;
         f.close();
         DataWriter w;
-        w.init(in_path, out_path);
-        ASSERT_EQ(0, w.exec_for_testing().code());
+        ASSERT_EQ(0, w.exec_for_testing(in_path, out_path).code());
     }
 
     std::unique_ptr<DataReader> make_delta_reader() {
@@ -262,6 +260,23 @@ TEST_F(DataReaderTest, FailsOnPreviousVersionHardCutover) {
     EXPECT_NE(0, ret.code());
 }
 
+TEST_F(DataReaderTest, FailsOnInvalidCombinedNormFlags) {
+    generate(1, 0, DataType::f32, 4);
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    DataFileHeader hdr{};
+    ASSERT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
+    hdr.flags = kDataFileHasCosineInvNorms | kDataFileHasSquaredNorms;
+    rewind(f);
+    ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+    fclose(f);
+
+    DataReader r;
+    const Ret ret = r.init(data_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("invalid stored norm flags"));
+}
+
 TEST_F(DataReaderTest, FailsOnLegacyRawIdsTrailer) {
     const std::vector<std::vector<uint8_t>> vecs = {
         std::vector<uint8_t>(4 * sizeof(float), 0),
@@ -355,22 +370,57 @@ TEST_F(DataReaderTest, CountIsCorrect) {
     EXPECT_EQ(7u, r.count());
 }
 
+TEST_F(DataReaderTest, GetNormThrowsWhenNormsSectionIsAbsent) {
+    generate(2, 0, DataType::f32, 4);
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    ASSERT_FALSE(r.has_norms());
+
+    EXPECT_THROW(static_cast<void>(r.get_norm(0)), std::logic_error);
+
+    auto it = r.base_begin();
+    ASSERT_FALSE(it.eof());
+    EXPECT_THROW(static_cast<void>(it.get_norm()), std::logic_error);
+}
+
 TEST_F(DataReaderTest, ReadsCosineValuesWhenSectionIsPresent) {
     GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
-    ASSERT_EQ(0, w.init(input_path_, data_path_, 0, 0, true).code());
-    ASSERT_EQ(0, w.exec_for_testing().code());
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, DistFunc::COS).code());
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_).code());
-    ASSERT_TRUE(r.has_cosine_inv_norms());
-    EXPECT_NEAR(1.0 / std::sqrt(4.0 * 0.1 * 0.1), static_cast<double>(r.cosine_inv_norm(0)), 1e-6);
-    EXPECT_NEAR(1.0 / std::sqrt(4.0 * 1.1 * 1.1), static_cast<double>(r.cosine_inv_norm(1)), 1e-6);
+    ASSERT_TRUE(r.has_norms());
+    EXPECT_EQ(kDataFileHasCosineInvNorms, r.norm_flags());
+    EXPECT_TRUE(r.has_matching_stored_norms(DistFunc::COS));
+    EXPECT_FALSE(r.has_matching_stored_norms(DistFunc::L2));
+    EXPECT_NEAR(1.0 / std::sqrt(4.0 * 0.1 * 0.1), static_cast<double>(r.get_norm(0)), 1e-6);
+    EXPECT_NEAR(1.0 / std::sqrt(4.0 * 1.1 * 1.1), static_cast<double>(r.get_norm(1)), 1e-6);
 
     auto it = r.base_begin();
     ASSERT_FALSE(it.eof());
-    EXPECT_NEAR(static_cast<double>(r.cosine_inv_norm(0)), static_cast<double>(it.cosine_inv_norm()), 1e-6);
+    EXPECT_NEAR(static_cast<double>(r.get_norm(0)), static_cast<double>(it.get_norm()), 1e-6);
+}
+
+TEST_F(DataReaderTest, ReadsL2NormValuesWhenSectionIsPresent) {
+    GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
+    generate_input_file(input_path_, cfg);
+    DataWriter w;
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, DistFunc::L2).code());
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    ASSERT_TRUE(r.has_norms());
+    EXPECT_EQ(kDataFileHasSquaredNorms, r.norm_flags());
+    EXPECT_TRUE(r.has_matching_stored_norms(DistFunc::L2));
+    EXPECT_FALSE(r.has_matching_stored_norms(DistFunc::COS));
+    EXPECT_NEAR(4.0 * 0.1 * 0.1, static_cast<double>(r.get_norm(0)), 1e-6);
+    EXPECT_NEAR(4.0 * 1.1 * 1.1, static_cast<double>(r.get_norm(1)), 1e-6);
+
+    auto it = r.base_begin();
+    ASSERT_FALSE(it.eof());
+    EXPECT_NEAR(static_cast<double>(r.get_norm(0)), static_cast<double>(it.get_norm()), 1e-6);
 }
 
 TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
