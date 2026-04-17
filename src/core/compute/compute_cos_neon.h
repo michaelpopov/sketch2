@@ -111,8 +111,8 @@ inline double ComputeCos_Neon::dist_f16_with_query_norm(const uint8_t *a, const 
         norm_a_acc0 = vmlaq_f32(norm_a_acc0, a4_f32, a4_f32);
     }
 
-    double dot = static_cast<double>(vaddvq_f32(vaddq_f32(dot_acc0, dot_acc1)));
-    double norm_a = static_cast<double>(vaddvq_f32(vaddq_f32(norm_a_acc0, norm_a_acc1)));
+    double dot = static_cast<double>(vaddvq_f32(dot_acc0) + vaddvq_f32(dot_acc1));
+    double norm_a = static_cast<double>(vaddvq_f32(norm_a_acc0) + vaddvq_f32(norm_a_acc1));
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
@@ -150,10 +150,10 @@ inline double ComputeCos_Neon::dist_i16_with_query_norm(const uint8_t *a, const 
         const int32x4_t b_lo = vmovl_s16(vget_low_s16(b8));
         const int32x4_t b_hi = vmovl_s16(vget_high_s16(b8));
 
-        accumulate_mul_i32_as_i64_cos(a_lo, b_lo, &dot_acc0, &dot_acc1);
-        accumulate_mul_i32_as_i64_cos(a_hi, b_hi, &dot_acc2, &dot_acc3);
-        accumulate_mul_i32_as_i64_cos(a_lo, a_lo, &norm_a_acc0, &norm_a_acc1);
-        accumulate_mul_i32_as_i64_cos(a_hi, a_hi, &norm_a_acc2, &norm_a_acc3);
+        accumulate_mul_i32_as_i64(a_lo, b_lo, &dot_acc0, &dot_acc1);
+        accumulate_mul_i32_as_i64(a_hi, b_hi, &dot_acc2, &dot_acc3);
+        accumulate_mul_i32_as_i64(a_lo, a_lo, &norm_a_acc0, &norm_a_acc1);
+        accumulate_mul_i32_as_i64(a_hi, a_hi, &norm_a_acc2, &norm_a_acc3);
     }
 
     double dot = static_cast<double>(hsum_s64x2(dot_acc0) + hsum_s64x2(dot_acc1) +

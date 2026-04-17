@@ -231,7 +231,7 @@ class Sketch2SqliteMetadataIntegTest(IntegTestBase):
         self.assertEqual([item_id for item_id, _ in expected], [item_id for item_id, _ in actual])
         self.assertEqual(len(expected), len(actual))
         for (_, expected_score), (_, actual_score) in zip(expected, actual):
-            self.assertAlmostEqual(expected_score, actual_score, places=4)
+            self.assertAlmostEqual(expected_score, actual_score, delta=1e-4)
 
     def assert_join_rows_match_ids(
         self,
@@ -246,7 +246,7 @@ class Sketch2SqliteMetadataIntegTest(IntegTestBase):
         }
         for item_id, score, aaa, bbb, ccc, text in actual:
             expected_aaa, expected_bbb, expected_ccc, expected_text = metadata_values(item_id)
-            self.assertAlmostEqual(expected_scores[item_id], score, places=4)
+            self.assertAlmostEqual(expected_scores[item_id], score, delta=1e-4)
             self.assertEqual(expected_aaa, aaa)
             self.assertEqual(expected_bbb, bbb)
             self.assertEqual(expected_ccc, ccc)

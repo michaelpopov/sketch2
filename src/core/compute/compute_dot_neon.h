@@ -25,11 +25,6 @@ public:
 
 #if defined(__aarch64__)
 
-inline void accumulate_mul_i32_as_i64_dot(int32x4_t a, int32x4_t b, int64x2_t* acc0, int64x2_t* acc1) {
-    *acc0 = vaddq_s64(*acc0, vmull_s32(vget_low_s32(a), vget_low_s32(b)));
-    *acc1 = vaddq_s64(*acc1, vmull_s32(vget_high_s32(a), vget_high_s32(b)));
-}
-
 inline double ComputeDOT_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
     const float *va = reinterpret_cast<const float *>(a);
     const float *vb = reinterpret_cast<const float *>(b);
@@ -39,7 +34,7 @@ inline double ComputeDOT_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size
     size_t i = 0;
     const size_t simd8_end = dim & ~static_cast<size_t>(7);
     for (; i < simd8_end; i += 8) {
-        acc0 = vmlaq_f32(acc0, vld1q_f32(va + i),     vld1q_f32(vb + i));
+        acc0 = vmlaq_f32(acc0, vld1q_f32(va + i), vld1q_f32(vb + i));
         acc1 = vmlaq_f32(acc1, vld1q_f32(va + i + 4), vld1q_f32(vb + i + 4));
     }
     const size_t simd4_end = dim & ~static_cast<size_t>(3);
@@ -47,7 +42,7 @@ inline double ComputeDOT_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size
         acc0 = vmlaq_f32(acc0, vld1q_f32(va + i), vld1q_f32(vb + i));
     }
 
-    double sum = static_cast<double>(vaddvq_f32(vaddq_f32(acc0, acc1)));
+    double sum = static_cast<double>(vaddvq_f32(acc0) + vaddvq_f32(acc1));
     for (; i < dim; ++i) {
         sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
@@ -70,18 +65,18 @@ inline double ComputeDOT_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size
         acc0 = vmlaq_f32(acc0, vcvt_f32_f16(vget_low_f16(a8)), vcvt_f32_f16(vget_low_f16(b8)));
         acc1 = vmlaq_f32(acc1, vcvt_f32_f16(vget_high_f16(a8)), vcvt_f32_f16(vget_high_f16(b8)));
     }
-    sum = static_cast<double>(vaddvq_f32(vaddq_f32(acc0, acc1)));
+    sum = static_cast<double>(vaddvq_f32(acc0) + vaddvq_f32(acc1));
 #else
-    float32x4_t acc = vdupq_n_f32(0.0f);
+    float32x4_t acc0 = vdupq_n_f32(0.0f);
     const size_t simd4_end = dim & ~static_cast<size_t>(3);
     for (; i < simd4_end; i += 4) {
         float16x4_t a4 = vld1_f16(reinterpret_cast<const float16_t *>(va + i));
         float16x4_t b4 = vld1_f16(reinterpret_cast<const float16_t *>(vb + i));
         float32x4_t a4_f32 = vcvt_f32_f16(a4);
         float32x4_t b4_f32 = vcvt_f32_f16(b4);
-        acc = vmlaq_f32(acc, a4_f32, b4_f32);
+        acc0 = vmlaq_f32(acc0, a4_f32, b4_f32);
     }
-    sum = static_cast<double>(vaddvq_f32(acc));
+    sum = static_cast<double>(vaddvq_f32(acc0));
 #endif
 
     for (; i < dim; ++i) {
@@ -108,8 +103,8 @@ inline double ComputeDOT_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size
         const int32x4_t b_lo = vmovl_s16(vget_low_s16(b8));
         const int32x4_t b_hi = vmovl_s16(vget_high_s16(b8));
 
-        accumulate_mul_i32_as_i64_dot(a_lo, b_lo, &acc0, &acc1);
-        accumulate_mul_i32_as_i64_dot(a_hi, b_hi, &acc2, &acc3);
+        accumulate_mul_i32_as_i64(a_lo, b_lo, &acc0, &acc1);
+        accumulate_mul_i32_as_i64(a_hi, b_hi, &acc2, &acc3);
     }
 
     int64_t total_sum = hsum_s64x2(acc0) + hsum_s64x2(acc1) + hsum_s64x2(acc2) + hsum_s64x2(acc3);

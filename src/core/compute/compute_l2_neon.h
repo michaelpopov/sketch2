@@ -22,11 +22,6 @@ public:
 
 #if defined(__aarch64__)
 
-inline void accumulate_squared_i32_as_i64_l2(int32x4_t diff, int64x2_t* acc0, int64x2_t* acc1) {
-    *acc0 = vaddq_s64(*acc0, vmull_s32(vget_low_s32(diff), vget_low_s32(diff)));
-    *acc1 = vaddq_s64(*acc1, vmull_s32(vget_high_s32(diff), vget_high_s32(diff)));
-}
-
 inline double ComputeL2_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
     const float *va = reinterpret_cast<const float *>(a);
     const float *vb = reinterpret_cast<const float *>(b);
@@ -47,7 +42,7 @@ inline double ComputeL2_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_
         acc0 = vmlaq_f32(acc0, d, d);
     }
 
-    double sum = static_cast<double>(vaddvq_f32(vaddq_f32(acc0, acc1)));
+    double sum = static_cast<double>(vaddvq_f32(acc0) + vaddvq_f32(acc1));
     for (; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
         sum += d * d;
@@ -65,7 +60,9 @@ inline double ComputeL2_Neon::dist_f32_with_limit(const uint8_t *a, const uint8_
     for (; i < simd8_end; i += 8) {
         const float32x4_t d0 = vsubq_f32(vld1q_f32(va + i),     vld1q_f32(vb + i));
         const float32x4_t d1 = vsubq_f32(vld1q_f32(va + i + 4), vld1q_f32(vb + i + 4));
-        sum += static_cast<double>(vaddvq_f32(vaddq_f32(vmulq_f32(d0, d0), vmulq_f32(d1, d1))));
+        float32x4_t block0 = vmulq_f32(d0, d0);
+        float32x4_t block1 = vmulq_f32(d1, d1);
+        sum += static_cast<double>(vaddvq_f32(block0) + vaddvq_f32(block1));
         if (sum > limit) {
             return sum;
         }
@@ -117,7 +114,7 @@ inline double ComputeL2_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size_
         acc0 = vmlaq_f32(acc0, d4, d4);
     }
 
-    double sum = static_cast<double>(vaddvq_f32(vaddq_f32(acc0, acc1)));
+    double sum = static_cast<double>(vaddvq_f32(acc0) + vaddvq_f32(acc1));
     for (; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
         sum += d * d;
@@ -140,7 +137,9 @@ inline double ComputeL2_Neon::dist_f16_with_limit(const uint8_t *a, const uint8_
         const float16x8_t d8 = vsubq_f16(a8, b8);
         const float32x4_t d_lo = vcvt_f32_f16(vget_low_f16(d8));
         const float32x4_t d_hi = vcvt_f32_f16(vget_high_f16(d8));
-        sum += static_cast<double>(vaddvq_f32(vaddq_f32(vmulq_f32(d_lo, d_lo), vmulq_f32(d_hi, d_hi))));
+        float32x4_t block0 = vmulq_f32(d_lo, d_lo);
+        float32x4_t block1 = vmulq_f32(d_hi, d_hi);
+        sum += static_cast<double>(vaddvq_f32(block0) + vaddvq_f32(block1));
         if (sum > limit) {
             return sum;
         }
@@ -182,8 +181,8 @@ inline double ComputeL2_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size_
         const int16x8_t b8 = vld1q_s16(vb + i);
         const int32x4_t d_lo = vsubq_s32(vmovl_s16(vget_low_s16(a8)), vmovl_s16(vget_low_s16(b8)));
         const int32x4_t d_hi = vsubq_s32(vmovl_s16(vget_high_s16(a8)), vmovl_s16(vget_high_s16(b8)));
-        accumulate_squared_i32_as_i64_l2(d_lo, &acc0, &acc1);
-        accumulate_squared_i32_as_i64_l2(d_hi, &acc2, &acc3);
+        accumulate_mul_i32_as_i64(d_lo, d_lo, &acc0, &acc1);
+        accumulate_mul_i32_as_i64(d_hi, d_hi, &acc2, &acc3);
     }
 
     double sum = static_cast<double>(hsum_s64x2(acc0) + hsum_s64x2(acc1) +
