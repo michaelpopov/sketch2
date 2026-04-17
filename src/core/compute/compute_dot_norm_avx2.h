@@ -71,12 +71,35 @@ SKETCH_AVX2_TARGET inline void accumulate_i16_dot_and_norm_a_as_i64_cos(__m256i 
 
 SKETCH_AVX2_TARGET inline double ComputeDotNorm_AVX2::squared_norm_f32(const uint8_t *a, size_t dim) {
     const float *va = reinterpret_cast<const float *>(a);
-    double norm = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        const double ai = static_cast<double>(va[i]);
-        norm += ai * ai;
+    __m256 norm0 = _mm256_setzero_ps();
+    __m256 norm1 = _mm256_setzero_ps();
+    __m256 norm2 = _mm256_setzero_ps();
+    __m256 norm3 = _mm256_setzero_ps();
+
+    size_t i = 0;
+    for (; i + 32 <= dim; i += 32) {
+        const __m256 a0 = _mm256_loadu_ps(va + i);
+        const __m256 a1 = _mm256_loadu_ps(va + i + 8);
+        const __m256 a2 = _mm256_loadu_ps(va + i + 16);
+        const __m256 a3 = _mm256_loadu_ps(va + i + 24);
+
+        norm0 = fmadd_ps(a0, a0, norm0);
+        norm1 = fmadd_ps(a1, a1, norm1);
+        norm2 = fmadd_ps(a2, a2, norm2);
+        norm3 = fmadd_ps(a3, a3, norm3);
     }
-    return norm;
+    for (; i + 8 <= dim; i += 8) {
+        const __m256 a8 = _mm256_loadu_ps(va + i);
+        norm0 = fmadd_ps(a8, a8, norm0);
+    }
+
+    const __m256 norm = _mm256_add_ps(_mm256_add_ps(norm0, norm1), _mm256_add_ps(norm2, norm3));
+    double norm_sum = hsum_ps_256(norm);
+    for (; i < dim; ++i) {
+        const double ai = static_cast<double>(va[i]);
+        norm_sum += ai * ai;
+    }
+    return norm_sum;
 }
 
 SKETCH_AVX2_TARGET inline double ComputeDotNorm_AVX2::dot_f32(const uint8_t *a, const uint8_t *b, size_t dim) {
@@ -119,12 +142,35 @@ SKETCH_AVX2_TARGET inline double ComputeDotNorm_AVX2::dot_f32(const uint8_t *a, 
 
 SKETCH_AVX2_TARGET inline double ComputeDotNorm_AVX2::squared_norm_f16(const uint8_t *a, size_t dim) {
     const float16 *va = reinterpret_cast<const float16 *>(a);
-    double norm = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        const double ai = static_cast<double>(va[i]);
-        norm += ai * ai;
+    __m256 norm0 = _mm256_setzero_ps();
+    __m256 norm1 = _mm256_setzero_ps();
+    __m256 norm2 = _mm256_setzero_ps();
+    __m256 norm3 = _mm256_setzero_ps();
+
+    size_t i = 0;
+    for (; i + 32 <= dim; i += 32) {
+        const __m256 a0 = load_f16x8_ps(va + i);
+        const __m256 a1 = load_f16x8_ps(va + i + 8);
+        const __m256 a2 = load_f16x8_ps(va + i + 16);
+        const __m256 a3 = load_f16x8_ps(va + i + 24);
+
+        norm0 = fmadd_ps(a0, a0, norm0);
+        norm1 = fmadd_ps(a1, a1, norm1);
+        norm2 = fmadd_ps(a2, a2, norm2);
+        norm3 = fmadd_ps(a3, a3, norm3);
     }
-    return norm;
+    for (; i + 8 <= dim; i += 8) {
+        const __m256 a8 = load_f16x8_ps(va + i);
+        norm0 = fmadd_ps(a8, a8, norm0);
+    }
+
+    const __m256 norm = _mm256_add_ps(_mm256_add_ps(norm0, norm1), _mm256_add_ps(norm2, norm3));
+    double norm_sum = hsum_ps_256(norm);
+    for (; i < dim; ++i) {
+        const double ai = static_cast<double>(va[i]);
+        norm_sum += ai * ai;
+    }
+    return norm_sum;
 }
 
 SKETCH_AVX2_TARGET inline double ComputeDotNorm_AVX2::dot_f16(const uint8_t *a, const uint8_t *b, size_t dim) {

@@ -21,6 +21,7 @@ Testing/
 .DS_Store
 .vscode/
 .idea/
+.claude/
 
 # Archives
 *.a

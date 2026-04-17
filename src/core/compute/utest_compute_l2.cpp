@@ -30,6 +30,33 @@ namespace {
 #define SKETCH2_COMPUTE_AVX512VNNI_TESTS 1
 #endif
 
+class ComputeUnitOverrideGuard {
+public:
+    explicit ComputeUnitOverrideGuard(ComputeBackendKind kind)
+        : original_(get_singleton().compute_unit().kind()),
+          supported_(ComputeUnit::is_supported(kind)),
+          active_(false) {
+        if (!supported_) {
+            return;
+        }
+        active_ = Singleton::force_compute_unit_for_testing(kind);
+    }
+
+    ~ComputeUnitOverrideGuard() {
+        if (active_) {
+            EXPECT_TRUE(Singleton::force_compute_unit_for_testing(original_));
+        }
+    }
+
+    bool supported() const { return supported_; }
+    bool active() const { return active_; }
+
+private:
+    ComputeBackendKind original_;
+    bool supported_;
+    bool active_;
+};
+
 TEST(ComputeL2Test, DistF32ComputesSquaredDistance) {
     const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
     const std::vector<float> b = {1.0f, 0.0f, 1.0f, 10.0f};
@@ -70,6 +97,25 @@ TEST(ComputeL2Test, ResolveDistReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::f32));
     EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::f16));
     EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::i16));
+}
+
+TEST(ComputeL2Test, ResolveDistWithLimitUsesScalarFallbackWhenScalarBackendForced) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::scalar);
+    ASSERT_TRUE(guard.active());
+
+    EXPECT_EQ(&ComputeL2::dist_f32_with_limit, ComputeL2::resolve_dist_with_limit(DataType::f32));
+    EXPECT_EQ(&ComputeL2::dist_f16_with_limit, ComputeL2::resolve_dist_with_limit(DataType::f16));
+}
+
+TEST(ComputeL2Test, ResolveDistWithLimitUsesNeonPathsWhenNeonBackendForced) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "NEON is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    EXPECT_EQ(&ComputeL2_Neon::dist_f32_with_limit, ComputeL2::resolve_dist_with_limit(DataType::f32));
+    EXPECT_EQ(&ComputeL2_Neon::dist_f16_with_limit, ComputeL2::resolve_dist_with_limit(DataType::f16));
 }
 
 #if defined(__aarch64__)
@@ -351,6 +397,22 @@ TEST(ComputeL2Neon, ResolveDistUsesNeonF16Path) {
     EXPECT_EQ(&ComputeL2_Neon::dist_f16, ComputeL2::resolve_dist(DataType::f16));
 }
 
+TEST(ComputeL2Neon, DistF32WithLimitReturnsPartialSumAfterEarlyExit) {
+    const std::vector<float> a(12, 0.0f);
+    std::vector<float> b(12, 1.0f);
+    std::fill(b.begin() + 8, b.end(), 10.0f);
+
+    const double got = ComputeL2_Neon::dist_f32_with_limit(
+        reinterpret_cast<const uint8_t*>(a.data()),
+        reinterpret_cast<const uint8_t*>(b.data()),
+        b.size(),
+        4.0);
+    const double full = reference_l2(a.data(), b.data(), b.size());
+
+    EXPECT_DOUBLE_EQ(8.0, got);
+    EXPECT_LT(got, full);
+}
+
 #else
 TEST(ComputeL2Neon, NotBuiltForThisTarget) {
     GTEST_SKIP() << "NEON is not enabled for this target";
@@ -435,6 +497,30 @@ TEST_F(ComputeL2AVX2, DistF32MatchesReferenceAlignedAndUnaligned) {
 
 TEST_F(ComputeL2AVX2, ResolveDistUsesAVX2F32Path) {
     EXPECT_EQ(&ComputeL2_AVX2::dist_f32, ComputeL2::resolve_dist(DataType::f32));
+}
+
+TEST_F(ComputeL2AVX2, ResolveDistWithLimitUsesAVX2F32Path) {
+    EXPECT_EQ(&ComputeL2_AVX2::dist_f32_with_limit, ComputeL2::resolve_dist_with_limit(DataType::f32));
+}
+
+TEST_F(ComputeL2AVX2, ResolveDistWithLimitUsesAVX2F16Path) {
+    EXPECT_EQ(&ComputeL2_AVX2::dist_f16_with_limit, ComputeL2::resolve_dist_with_limit(DataType::f16));
+}
+
+TEST_F(ComputeL2AVX2, DistF32WithLimitReturnsPartialSumAfterEarlyExit) {
+    const std::vector<float> a(36, 0.0f);
+    std::vector<float> b(36, 1.0f);
+    std::fill(b.begin() + 32, b.end(), 10.0f);
+
+    const double got = ComputeL2_AVX2::dist_f32_with_limit(
+        reinterpret_cast<const uint8_t*>(a.data()),
+        reinterpret_cast<const uint8_t*>(b.data()),
+        b.size(),
+        16.0);
+    const double full = reference_l2(a.data(), b.data(), b.size());
+
+    EXPECT_DOUBLE_EQ(32.0, got);
+    EXPECT_LT(got, full);
 }
 
 TEST_F(ComputeL2AVX2, DistI16ZeroDimIsZero) {

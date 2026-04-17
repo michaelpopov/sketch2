@@ -16,6 +16,8 @@ public:
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_f16(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_i16(const uint8_t *a, const uint8_t *b, size_t dim);
+    static double dist_f32_with_limit(const uint8_t *a, const uint8_t *b, size_t dim, double limit);
+    static double dist_f16_with_limit(const uint8_t *a, const uint8_t *b, size_t dim, double limit);
 };
 
 #if defined(__aarch64__)
@@ -49,6 +51,39 @@ inline double ComputeL2_Neon::dist_f32(const uint8_t *a, const uint8_t *b, size_
     for (; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
         sum += d * d;
+    }
+    return sum;
+}
+
+inline double ComputeL2_Neon::dist_f32_with_limit(const uint8_t *a, const uint8_t *b, size_t dim, double limit) {
+    const float *va = reinterpret_cast<const float *>(a);
+    const float *vb = reinterpret_cast<const float *>(b);
+    double sum = 0.0;
+
+    size_t i = 0;
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    for (; i < simd8_end; i += 8) {
+        const float32x4_t d0 = vsubq_f32(vld1q_f32(va + i),     vld1q_f32(vb + i));
+        const float32x4_t d1 = vsubq_f32(vld1q_f32(va + i + 4), vld1q_f32(vb + i + 4));
+        sum += static_cast<double>(vaddvq_f32(vaddq_f32(vmulq_f32(d0, d0), vmulq_f32(d1, d1))));
+        if (sum > limit) {
+            return sum;
+        }
+    }
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
+    for (; i < simd4_end; i += 4) {
+        const float32x4_t d = vsubq_f32(vld1q_f32(va + i), vld1q_f32(vb + i));
+        sum += static_cast<double>(vaddvq_f32(vmulq_f32(d, d)));
+        if (sum > limit) {
+            return sum;
+        }
+    }
+    for (; i < dim; ++i) {
+        const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
+        sum += d * d;
+        if (sum > limit) {
+            return sum;
+        }
     }
     return sum;
 }
@@ -90,6 +125,48 @@ inline double ComputeL2_Neon::dist_f16(const uint8_t *a, const uint8_t *b, size_
     return sum;
 }
 
+inline double ComputeL2_Neon::dist_f16_with_limit(const uint8_t *a, const uint8_t *b, size_t dim, double limit) {
+    const float16 *va = reinterpret_cast<const float16 *>(a);
+    const float16 *vb = reinterpret_cast<const float16 *>(b);
+    double sum = 0.0;
+
+    size_t i = 0;
+    const size_t simd8_end = dim & ~static_cast<size_t>(7);
+    const size_t simd4_end = dim & ~static_cast<size_t>(3);
+#if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+    for (; i < simd8_end; i += 8) {
+        const float16x8_t a8 = vld1q_f16(reinterpret_cast<const float16_t *>(va + i));
+        const float16x8_t b8 = vld1q_f16(reinterpret_cast<const float16_t *>(vb + i));
+        const float16x8_t d8 = vsubq_f16(a8, b8);
+        const float32x4_t d_lo = vcvt_f32_f16(vget_low_f16(d8));
+        const float32x4_t d_hi = vcvt_f32_f16(vget_high_f16(d8));
+        sum += static_cast<double>(vaddvq_f32(vaddq_f32(vmulq_f32(d_lo, d_lo), vmulq_f32(d_hi, d_hi))));
+        if (sum > limit) {
+            return sum;
+        }
+    }
+#endif
+    for (; i < simd4_end; i += 4) {
+        const float16x4_t a4 = vld1_f16(reinterpret_cast<const float16_t *>(va + i));
+        const float16x4_t b4 = vld1_f16(reinterpret_cast<const float16_t *>(vb + i));
+        const float32x4_t a4_f32 = vcvt_f32_f16(a4);
+        const float32x4_t b4_f32 = vcvt_f32_f16(b4);
+        const float32x4_t d4 = vsubq_f32(a4_f32, b4_f32);
+        sum += static_cast<double>(vaddvq_f32(vmulq_f32(d4, d4)));
+        if (sum > limit) {
+            return sum;
+        }
+    }
+    for (; i < dim; ++i) {
+        const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
+        sum += d * d;
+        if (sum > limit) {
+            return sum;
+        }
+    }
+    return sum;
+}
+
 inline double ComputeL2_Neon::dist_i16(const uint8_t *a, const uint8_t *b, size_t dim) {
     const int16_t *va = reinterpret_cast<const int16_t *>(a);
     const int16_t *vb = reinterpret_cast<const int16_t *>(b);
@@ -124,7 +201,15 @@ inline double ComputeL2_Neon::dist_f32(const uint8_t *, const uint8_t *, size_t)
     throw std::runtime_error("NEON f32 not supported on this platform");
 }
 
+inline double ComputeL2_Neon::dist_f32_with_limit(const uint8_t *, const uint8_t *, size_t, double) {
+    throw std::runtime_error("NEON f32 not supported on this platform");
+}
+
 inline double ComputeL2_Neon::dist_f16(const uint8_t *, const uint8_t *, size_t) {
+    throw std::runtime_error("NEON f16 not supported on this platform");
+}
+
+inline double ComputeL2_Neon::dist_f16_with_limit(const uint8_t *, const uint8_t *, size_t, double) {
     throw std::runtime_error("NEON f16 not supported on this platform");
 }
 

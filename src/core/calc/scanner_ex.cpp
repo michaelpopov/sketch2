@@ -4,6 +4,7 @@
 #include "core/calc/scanner_ex.h"
 #include "core/calc/calc_engine.h"
 #include "core/calc/cosine_distance.h"
+#include "core/compute/compute_l2.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset_reader.h"
 #include "core/utils/log.h"
@@ -93,6 +94,46 @@ inline double finalize_squared_l2_distance_from_squared_norms(
     return std::max(0.0, norm_a_sq + norm_b_sq - (2.0 * dot));
 }
 
+constexpr size_t kPrefetchCacheLineBytes = 64;
+
+// The scanner walks vectors sequentially within each reader, so prefetch the
+// next visible record's first cache line while scoring the current one. Fetch
+// a second line only for wider vectors to keep the hint conservative.
+template <typename Iterator>
+inline void prefetch_next_vector_record(const Iterator& it, size_t vector_size_bytes) {
+    Iterator next_it = it;
+    next_it.next();
+    if (next_it.eof()) {
+        return;
+    }
+
+    const uint8_t* const next_data = next_it.data();
+    __builtin_prefetch(next_data, 0, 1);
+    if (vector_size_bytes > kPrefetchCacheLineBytes) {
+        __builtin_prefetch(next_data + kPrefetchCacheLineBytes, 0, 1);
+    }
+}
+
+inline bool bitset_allows_id(const BitsetFilter* bitset, uint64_t id) {
+    if (bitset == nullptr) {
+        return true;
+    }
+
+    assert(bitset->data != nullptr || bitset->size == 0);
+    if (id < bitset->base_id) {
+        return false;
+    }
+
+    const uint64_t relative_id = id - bitset->base_id;
+    const uint64_t byte_index = relative_id >> 3;
+    if (byte_index >= bitset->size) {
+        return false;
+    }
+
+    const uint8_t mask = static_cast<uint8_t>(1u << (relative_id & 7u));
+    return (bitset->data[byte_index] & mask) != 0u;
+}
+
 // ---------------------------------------------------------------------------
 // Scorer functors using function pointers
 // ---------------------------------------------------------------------------
@@ -149,6 +190,17 @@ struct FnPtrStoredSquaredNormL2Score {
     }
 };
 
+struct FnPtrDistLimitScore {
+    ComputeL2::DistWithLimitFn fn;
+    const uint8_t* vec;
+    size_t dim;
+
+    template <typename Iterator>
+    double operator()(const Iterator& it, double limit) const {
+        return fn(it.data(), vec, dim, limit);
+    }
+};
+
 // ---------------------------------------------------------------------------
 // Scanning infrastructure (mirrors scanner.cpp)
 // ---------------------------------------------------------------------------
@@ -158,19 +210,13 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
         size_t vector_size_bytes,
         const BitsetFilter* bitset = nullptr) {
     for (; !it.eof(); it.next()) {
-        if (bitset != nullptr) {
-            assert(bitset->data != nullptr || bitset->size == 0);
-            const uint64_t id = it.id();
-            if (id < bitset->base_id) continue;
-            const uint64_t relative_id = id - bitset->base_id;
-            const uint64_t byte_index = relative_id >> 3;
-            if (byte_index >= bitset->size) continue;
-            const uint8_t mask = static_cast<uint8_t>(1u << (relative_id & 7u));
-            if ((bitset->data[byte_index] & mask) == 0u) continue;
+        const uint64_t id = it.id();
+        if (!bitset_allows_id(bitset, id)) {
+            continue;
         }
 #ifndef DUMMY_CALC
-        (void)vector_size_bytes;
-        push_result(heap, count, it.id(), score(it));
+        prefetch_next_vector_record(it, vector_size_bytes);
+        push_result(heap, count, id, score(it));
 #else
         (void)score;
         // Access vector's data and use it as a dummy to prevent
@@ -181,7 +227,7 @@ void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const Score
         for (size_t i = 0; i < vector_size_bytes; i += 4096) {
             byte_sum ^= vec_data[i];
         }
-        push_result(heap, count, it.id(), static_cast<double>(byte_sum));
+        push_result(heap, count, id, static_cast<double>(byte_sum));
 #endif
     }
 }
@@ -193,6 +239,42 @@ void scan_data_reader_scored(const DataReader& reader,
     const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
     scan_iterator_scored(reader.base_begin(), count, heap, score, vector_size_bytes, bitset);
     scan_iterator_scored(reader.delta_begin(), count, heap, score, vector_size_bytes, bitset);
+}
+
+template <typename Iterator, typename ScoreFn>
+void scan_iterator_scored_with_cutoff(Iterator it, size_t count, DistHeap* heap, const ScoreFn& score,
+        size_t vector_size_bytes,
+        const BitsetFilter* bitset = nullptr) {
+    for (; !it.eof(); it.next()) {
+        const uint64_t id = it.id();
+        if (!bitset_allows_id(bitset, id)) {
+            continue;
+        }
+#ifndef DUMMY_CALC
+        prefetch_next_vector_record(it, vector_size_bytes);
+        const double limit = heap->size() < count
+            ? std::numeric_limits<double>::infinity()
+            : heap->top().score;
+        push_result(heap, count, id, score(it, limit));
+#else
+        (void)score;
+        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
+        uint64_t byte_sum = 0;
+        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
+            byte_sum ^= vec_data[i];
+        }
+        push_result(heap, count, id, static_cast<double>(byte_sum));
+#endif
+    }
+}
+
+template <typename ScoreFn>
+void scan_data_reader_scored_with_cutoff(const DataReader& reader,
+        size_t count, DistHeap* heap, const ScoreFn& score,
+        const BitsetFilter* bitset = nullptr) {
+    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+    scan_iterator_scored_with_cutoff(reader.base_begin(), count, heap, score, vector_size_bytes, bitset);
+    scan_iterator_scored_with_cutoff(reader.delta_begin(), count, heap, score, vector_size_bytes, bitset);
 }
 
 template <typename ReaderScanFn>
@@ -288,6 +370,34 @@ Ret build_dataset_heap_with_score(const DatasetReader& dataset, size_t count, co
         bitset);
 }
 
+template <typename StoredNormScoreFn, typename CutoffScoreFn>
+Ret build_dataset_heap_with_optional_stored_norms_and_cutoff(
+        const DatasetReader& dataset, size_t count,
+        const StoredNormScoreFn& stored_norm_score, const CutoffScoreFn& cutoff_score,
+        DistFunc func, DistHeap* heap,
+        const BitsetFilter* bitset = nullptr) {
+    const bool supports_optional_stored_norms = (func == DistFunc::COS || func == DistFunc::L2);
+    assert(supports_optional_stored_norms);
+    if (!supports_optional_stored_norms) {
+        throw std::invalid_argument(
+            std::string("stored-norm scoring is only supported for COS/L2, got ") + dist_func_name(func));
+    }
+
+    return scan_dataset_heap_custom(
+        dataset, count, heap,
+        [stored_norm_score, cutoff_score, func](const DataReader& reader, size_t local_count,
+                DistHeap* local_heap,
+                const BitsetFilter* bitset) {
+            if (reader.has_matching_stored_norms(func)) {
+                scan_data_reader_scored(reader, local_count, local_heap, stored_norm_score, bitset);
+            } else {
+                scan_data_reader_scored_with_cutoff(reader, local_count, local_heap, cutoff_score, bitset);
+            }
+        },
+        func,
+        bitset);
+}
+
 template <typename StoredNormScoreFn, typename FallbackScoreFn>
 Ret build_dataset_heap_with_optional_stored_norms(const DatasetReader& dataset, size_t count,
         const StoredNormScoreFn& stored_norm_score, const FallbackScoreFn& fallback_score,
@@ -334,6 +444,17 @@ Ret build_heap(CalcEngine engine, const DatasetReader& dataset, DistFunc func,
     const size_t dim = dataset.dim();
     const CalcKernels k = resolve_calc_kernels(engine, func, type);
 
+    const bool use_compute_l2_cutoff =
+        engine == CalcEngine::compute &&
+        func == DistFunc::L2 &&
+        (type == DataType::f32 || type == DataType::f16) &&
+        // The scanner only enables early-cutoff scoring for backends with
+        // dedicated SIMD kernels. resolve_dist_with_limit may still return a
+        // scalar reference fallback for other backends, but that path is kept
+        // out of scanner hot loops on purpose.
+        (get_singleton().compute_unit().kind() == ComputeBackendKind::avx2 ||
+         get_singleton().compute_unit().kind() == ComputeBackendKind::neon);
+
     if (func == DistFunc::COS) {
         assert(k.squared_norm && k.dot && k.dist_with_query_norm);
         const double query_norm_sq = k.squared_norm(vec, dim);
@@ -348,6 +469,11 @@ Ret build_heap(CalcEngine engine, const DatasetReader& dataset, DistFunc func,
         assert(k.dist);
         const double query_norm_sq = k.squared_norm(vec, dim);
         const FnPtrStoredSquaredNormL2Score stored_norm_score{k.dot, vec, dim, query_norm_sq};
+        if (use_compute_l2_cutoff) {
+            const FnPtrDistLimitScore cutoff_score{ComputeL2::resolve_dist_with_limit(type), vec, dim};
+            return build_dataset_heap_with_optional_stored_norms_and_cutoff(
+                dataset, count, stored_norm_score, cutoff_score, func, heap, bitset);
+        }
         const FnPtrDistScore fallback_score{k.dist, vec, dim};
         return build_dataset_heap_with_optional_stored_norms(
             dataset, count, stored_norm_score, fallback_score, func, heap, bitset);

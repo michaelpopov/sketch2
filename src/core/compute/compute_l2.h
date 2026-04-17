@@ -28,6 +28,7 @@ namespace sketch2 {
 class ComputeL2 : public ICompute {
 public:
     using DistFn = double (*)(const uint8_t*, const uint8_t*, size_t);
+    using DistWithLimitFn = double (*)(const uint8_t*, const uint8_t*, size_t, double);
 
     double dist(const uint8_t *a, const uint8_t *b, DataType type, size_t dim) override;
     // Runtime backend selection intentionally stays here with the typed
@@ -36,11 +37,14 @@ public:
     // process-wide ComputeUnit from the singleton, so callers should treat it
     // as setup-time dispatch and cache the result if they plan to reuse it.
     static DistFn resolve_dist(DataType type);
+    static DistWithLimitFn resolve_dist_with_limit(DataType type);
 
     // Typed entrypoints used by scanner template dispatch and scalar fallback.
     static double dist_f32(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_f16(const uint8_t *a, const uint8_t *b, size_t dim);
     static double dist_i16(const uint8_t *a, const uint8_t *b, size_t dim);
+    static double dist_f32_with_limit(const uint8_t *a, const uint8_t *b, size_t dim, double limit);
+    static double dist_f16_with_limit(const uint8_t *a, const uint8_t *b, size_t dim, double limit);
 };
 
 inline double ComputeL2::dist(const uint8_t *a, const uint8_t *b, DataType type, size_t dim) {
@@ -105,6 +109,56 @@ inline ComputeL2::DistFn ComputeL2::resolve_dist(DataType type) {
     }
 }
 
+inline ComputeL2::DistWithLimitFn ComputeL2::resolve_dist_with_limit(DataType type) {
+    switch (get_singleton().compute_unit().kind()) {
+#if SKETCH_HAS_AVX512VNNI
+        case ComputeBackendKind::avx512_vnni:
+            // No AVX512 early-cutoff kernels exist yet. resolve_dist_with_limit
+            // still falls back to the scalar reference implementation below in
+            // release builds; the assert is here so any future widening of
+            // scanner-side gating fails loudly during development.
+            assert(false && "ComputeL2::resolve_dist_with_limit: AVX512 VNNI cutoff kernels are unimplemented");
+            break;
+#endif
+#if SKETCH_HAS_AVX512F
+        case ComputeBackendKind::avx512f:
+            // Same contract as AVX512 VNNI above: debug builds trip here,
+            // release builds intentionally fall back to the scalar reference
+            // cutoff implementation below.
+            assert(false && "ComputeL2::resolve_dist_with_limit: AVX512F cutoff kernels are unimplemented");
+            break;
+#endif
+#if SKETCH_HAS_AVX2
+        case ComputeBackendKind::avx2:
+            switch (type) {
+                case DataType::f32: return &ComputeL2_AVX2::dist_f32_with_limit;
+                case DataType::f16: return &ComputeL2_AVX2::dist_f16_with_limit;
+                default: break;
+            }
+            break;
+#endif
+#if SKETCH_HAS_NEON
+        case ComputeBackendKind::neon:
+            switch (type) {
+                case DataType::f32: return &ComputeL2_Neon::dist_f32_with_limit;
+                case DataType::f16: return &ComputeL2_Neon::dist_f16_with_limit;
+                default: break;
+            }
+            break;
+#endif
+        default:
+            break;
+    }
+
+    switch (type) {
+        case DataType::f32: return &dist_f32_with_limit;
+        case DataType::f16: return &dist_f16_with_limit;
+        default:
+            assert(false);
+            throw std::runtime_error("ComputeL2::resolve_dist_with_limit: unsupported data type");
+    }
+}
+
 inline double ComputeL2::dist_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
     const float* va = reinterpret_cast<const float*>(a);
     const float* vb = reinterpret_cast<const float*>(b);
@@ -123,6 +177,34 @@ inline double ComputeL2::dist_f16(const uint8_t* a, const uint8_t* b, size_t dim
     for (size_t i = 0; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
         sum += d * d;
+    }
+    return sum;
+}
+
+inline double ComputeL2::dist_f32_with_limit(const uint8_t* a, const uint8_t* b, size_t dim, double limit) {
+    const float* va = reinterpret_cast<const float*>(a);
+    const float* vb = reinterpret_cast<const float*>(b);
+    double sum = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
+        sum += d * d;
+        if (sum > limit) {
+            return sum;
+        }
+    }
+    return sum;
+}
+
+inline double ComputeL2::dist_f16_with_limit(const uint8_t* a, const uint8_t* b, size_t dim, double limit) {
+    const float16* va = reinterpret_cast<const float16*>(a);
+    const float16* vb = reinterpret_cast<const float16*>(b);
+    double sum = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
+        sum += d * d;
+        if (sum > limit) {
+            return sum;
+        }
     }
     return sum;
 }

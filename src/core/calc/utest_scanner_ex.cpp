@@ -23,6 +23,37 @@
 using namespace sketch2;
 namespace fs = std::filesystem;
 
+namespace {
+
+class ComputeUnitOverrideGuard {
+public:
+    explicit ComputeUnitOverrideGuard(ComputeBackendKind kind)
+        : original_(get_singleton().compute_unit().kind()),
+          supported_(ComputeUnit::is_supported(kind)),
+          active_(false) {
+        if (!supported_) {
+            return;
+        }
+        active_ = Singleton::force_compute_unit_for_testing(kind);
+    }
+
+    ~ComputeUnitOverrideGuard() {
+        if (active_) {
+            EXPECT_TRUE(Singleton::force_compute_unit_for_testing(original_));
+        }
+    }
+
+    bool supported() const { return supported_; }
+    bool active() const { return active_; }
+
+private:
+    ComputeBackendKind original_;
+    bool supported_;
+    bool active_;
+};
+
+} // namespace
+
 class ScannerExTest : public ::testing::Test {
 protected:
     std::string input_path_;
@@ -318,6 +349,254 @@ TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithComputeEngine) {
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
     EXPECT_EQ(2u, result[2]);
+}
+
+TEST_F(ScannerExTest, FindItemsF32L2WithComputeAvx2MatchesExpectedScores) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "AVX2 is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF32L2WithComputeAvx2UsesFiniteCutoffWhenKIsGreaterThanOne) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "AVX2 is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+    EXPECT_EQ(20u, result[1].id);
+    EXPECT_DOUBLE_EQ(1.0, result[1].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF16L2WithComputeAvx2MatchesExpectedScores) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "AVX2 is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f16,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f16_vec(0.0f, 4);
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF16L2WithComputeAvx2UsesFiniteCutoffWhenKIsGreaterThanOne) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "AVX2 is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f16,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f16_vec(0.0f, 4);
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+    EXPECT_EQ(20u, result[1].id);
+    EXPECT_DOUBLE_EQ(1.0, result[1].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF32L2WithComputeAvx2MatchesExpectedScoresDim36) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "AVX2 is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f32,36\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 36, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF16L2WithComputeAvx2MatchesExpectedScoresDim36) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "AVX2 is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f16,36\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f16, 36, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f16_vec(0.0f, 36);
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF32L2WithComputeNeonMatchesExpectedScores) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "NEON is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF32L2WithComputeNeonUsesFiniteCutoffWhenKIsGreaterThanOne) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "NEON is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+    EXPECT_EQ(20u, result[1].id);
+    EXPECT_DOUBLE_EQ(1.0, result[1].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF16L2WithComputeNeonMatchesExpectedScores) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "NEON is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f16,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f16_vec(0.0f, 4);
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+}
+
+TEST_F(ScannerExTest, FindItemsF16L2WithComputeNeonUsesFiniteCutoffWhenKIsGreaterThanOne) {
+    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
+    if (!guard.supported()) {
+        GTEST_SKIP() << "NEON is not supported on this CPU";
+    }
+    ASSERT_TRUE(guard.active());
+
+    write_input_raw(
+        input_path_,
+        "f16,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_});
+
+    ScannerEx s(CalcEngine::compute);
+    auto q = f16_vec(0.0f, 4);
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+    EXPECT_EQ(20u, result[1].id);
+    EXPECT_DOUBLE_EQ(1.0, result[1].score);
 }
 
 // ---------------------------------------------------------------------------
