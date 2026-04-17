@@ -88,7 +88,7 @@ inline double query_inverse_norm(double query_norm_sq) {
     return 1.0 / std::sqrt(query_norm_sq);
 }
 
-inline double finalize_l2_distance_from_squared_norms(
+inline double finalize_squared_l2_distance_from_squared_norms(
         double dot, double norm_a_sq, double norm_b_sq) {
     return std::max(0.0, norm_a_sq + norm_b_sq - (2.0 * dot));
 }
@@ -144,7 +144,7 @@ struct FnPtrStoredSquaredNormL2Score {
     template <typename Iterator>
     double operator()(const Iterator& it) const {
         const double dot = fn(it.data(), vec, dim);
-        return finalize_l2_distance_from_squared_norms(
+        return finalize_squared_l2_distance_from_squared_norms(
             dot, static_cast<double>(it.get_norm()), query_norm_sq);
     }
 };
@@ -293,11 +293,27 @@ Ret build_dataset_heap_with_optional_stored_norms(const DatasetReader& dataset, 
         const StoredNormScoreFn& stored_norm_score, const FallbackScoreFn& fallback_score,
         DistFunc func, DistHeap* heap,
         const BitsetFilter* bitset = nullptr) {
+    const bool supports_optional_stored_norms = (func == DistFunc::COS || func == DistFunc::L2);
+    // This helper assumes both score paths are semantically identical for the
+    // same metric and differ only in how they source their norm inputs. Keep a
+    // real runtime guard here so a future metric does not accidentally mix
+    // incompatible score scales between the stored-norm and fallback branches
+    // in release builds.
+    assert(supports_optional_stored_norms);
+    if (!supports_optional_stored_norms) {
+        throw std::invalid_argument(
+            std::string("stored-norm scoring is only supported for COS/L2, got ") + dist_func_name(func));
+    }
+
     return scan_dataset_heap_custom(
         dataset, count, heap,
         [stored_norm_score, fallback_score, func](const DataReader& reader, size_t local_count,
                 DistHeap* local_heap,
                 const BitsetFilter* bitset) {
+            // Persisted datasets for COS/L2 are validated up front and should
+            // always have matching stored norms. Keep the fallback anyway as a
+            // defensive path for any future caller that bypasses DatasetReader
+            // invariants or relaxes the stored-norm requirement.
             if (reader.has_matching_stored_norms(func)) {
                 scan_data_reader_scored(reader, local_count, local_heap, stored_norm_score, bitset);
             } else {

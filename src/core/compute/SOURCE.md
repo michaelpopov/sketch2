@@ -9,6 +9,10 @@
 - `compute_avx2_utils.h`: Shared AVX2 target-attribute and SIMD helper utilities.
 - `compute_avx512_utils.h`: Shared AVX-512 target-attribute and SIMD helper utilities.
 - `compute_neon_utils.h`: Shared NEON target-attribute and SIMD helper utilities.
+- `compute_dot_norm.h`: Shared dot-product and squared-norm runtime resolver entry points.
+- `compute_dot_norm_avx2.h`: AVX2-specialized shared dot-product and squared-norm kernels.
+- `compute_dot_norm_avx512.h`: AVX-512 shared dot-product and squared-norm kernels for `avx512f` and `avx512_vnni`.
+- `compute_dot_norm_neon.h`: NEON-specialized shared dot-product and squared-norm kernels.
 - `compute_cos.h`: Portable cosine-distance implementation and runtime resolver entry points.
 - `compute_cos_avx2.h`: AVX2-specialized cosine-distance kernels.
 - `compute_cos_avx512.h`: AVX-512 cosine-distance kernels for `avx512f` and `avx512_vnni`.

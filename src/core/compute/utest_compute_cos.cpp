@@ -202,7 +202,7 @@ TEST(ComputeCosScalar, DistI16UsesScalarFallback) {
 TEST(ComputeCosNeon, DotF32MatchesReference) {
     const std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, -5.0f};
     const std::vector<float> b = {0.0f, 2.5f, 1.0f, 0.0f, -1.0f};
-    const double got = ComputeCos_Neon::dot_f32(reinterpret_cast<const uint8_t*>(a.data()),
+    const double got = ComputeDotNorm_Neon::dot_f32(reinterpret_cast<const uint8_t*>(a.data()),
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
@@ -215,7 +215,7 @@ TEST(ComputeCosNeon, DotF32MatchesReference) {
             b2[i] = static_cast<float>(i % 5) * 0.3f - 0.75f;
         }
         const double ref = reference_dot(a2.data(), b2.data(), dim);
-        const double got2 = ComputeCos_Neon::dot_f32(
+        const double got2 = ComputeDotNorm_Neon::dot_f32(
             reinterpret_cast<const uint8_t*>(a2.data()),
             reinterpret_cast<const uint8_t*>(b2.data()), dim);
         EXPECT_NEAR(ref, got2, std::max(1e-5, std::abs(ref) * 5e-5)) << "dim=" << dim;
@@ -249,7 +249,7 @@ TEST(ComputeCosNeon, DotF16MatchesReference) {
 
     const std::vector<float16> a = {float16(1.0f), float16(2.0f), float16(3.0f), float16(4.0f)};
     const std::vector<float16> b = {float16(5.0f), float16(6.0f), float16(7.0f), float16(8.0f)};
-    const double got = ComputeCos_Neon::dot_f16(reinterpret_cast<const uint8_t*>(a.data()),
+    const double got = ComputeDotNorm_Neon::dot_f16(reinterpret_cast<const uint8_t*>(a.data()),
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
@@ -262,7 +262,7 @@ TEST(ComputeCosNeon, DotF16MatchesReference) {
             b2[i] = static_cast<float16>(static_cast<float>(i % 5) * 0.3f - 0.75f);
         }
         const double ref = reference_dot(a2.data(), b2.data(), dim);
-        const double got2 = ComputeCos_Neon::dot_f16(
+        const double got2 = ComputeDotNorm_Neon::dot_f16(
             reinterpret_cast<const uint8_t*>(a2.data()),
             reinterpret_cast<const uint8_t*>(b2.data()), dim);
         EXPECT_NEAR(ref, got2, std::max(1e-2, std::abs(ref) * 1e-2)) << "dim=" << dim;
@@ -272,7 +272,7 @@ TEST(ComputeCosNeon, DotF16MatchesReference) {
 TEST(ComputeCosNeon, DotI16MatchesReference) {
     const std::vector<int16_t> a = {10, -2, 7, -8, 20};
     const std::vector<int16_t> b = {4, -5, 10, -8, 18};
-    const double got = ComputeCos_Neon::dot_i16(reinterpret_cast<const uint8_t*>(a.data()),
+    const double got = ComputeDotNorm_Neon::dot_i16(reinterpret_cast<const uint8_t*>(a.data()),
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 a.size());
     EXPECT_NEAR(reference_dot(a.data(), b.data(), a.size()), got, 1e-6);
@@ -285,7 +285,7 @@ TEST(ComputeCosNeon, DotI16MatchesReference) {
             b2[i] = static_cast<int16_t>(static_cast<int>((i * 17 + 3) % 200) - 100);
         }
         const double ref = reference_dot(a2.data(), b2.data(), dim);
-        const double got2 = ComputeCos_Neon::dot_i16(
+        const double got2 = ComputeDotNorm_Neon::dot_i16(
             reinterpret_cast<const uint8_t*>(a2.data()),
             reinterpret_cast<const uint8_t*>(b2.data()), dim);
         EXPECT_DOUBLE_EQ(ref, got2) << "dim=" << dim;
@@ -379,7 +379,7 @@ TEST(ComputeCosNeon, DistF16OrthogonalVectorsYieldOne) {
 TEST(ComputeCosNeon, SquaredNormF32MatchesReference) {
     const std::vector<float> a = {1.0f, -2.0f, 3.0f, -4.0f, 5.0f};
     // 1 + 4 + 9 + 16 + 25 = 55
-    const double got = ComputeCos_Neon::squared_norm_f32(
+    const double got = ComputeDotNorm_Neon::squared_norm_f32(
         reinterpret_cast<const uint8_t*>(a.data()), a.size());
     EXPECT_DOUBLE_EQ(55.0, got);
 
@@ -389,7 +389,7 @@ TEST(ComputeCosNeon, SquaredNormF32MatchesReference) {
         for (size_t i = 0; i < dim; ++i)
             a2[i] = static_cast<float>(i % 7 + 1) * 0.5f - 2.0f;
         double ref = reference_squared_norm(a2.data(), dim);
-        const double got2 = ComputeCos_Neon::squared_norm_f32(
+        const double got2 = ComputeDotNorm_Neon::squared_norm_f32(
             reinterpret_cast<const uint8_t*>(a2.data()), dim);
         EXPECT_NEAR(ref, got2, std::max(1e-5, ref * 1e-5)) << "dim=" << dim;
     }
@@ -398,7 +398,7 @@ TEST(ComputeCosNeon, SquaredNormF32MatchesReference) {
 TEST(ComputeCosNeon, SquaredNormI16MatchesReference) {
     const std::vector<int16_t> a = {10, -20, 30, -40, 50};
     // 100 + 400 + 900 + 1600 + 2500 = 5500
-    const double got = ComputeCos_Neon::squared_norm_i16(
+    const double got = ComputeDotNorm_Neon::squared_norm_i16(
         reinterpret_cast<const uint8_t*>(a.data()), a.size());
     EXPECT_DOUBLE_EQ(5500.0, got);
 
@@ -408,7 +408,7 @@ TEST(ComputeCosNeon, SquaredNormI16MatchesReference) {
         for (size_t i = 0; i < dim; ++i)
             a2[i] = static_cast<int16_t>(static_cast<int>((i * 13 + 7) % 200) - 100);
         double ref = reference_squared_norm(a2.data(), dim);
-        const double got2 = ComputeCos_Neon::squared_norm_i16(
+        const double got2 = ComputeDotNorm_Neon::squared_norm_i16(
             reinterpret_cast<const uint8_t*>(a2.data()), dim);
         EXPECT_DOUBLE_EQ(ref, got2) << "dim=" << dim;
     }
@@ -417,7 +417,7 @@ TEST(ComputeCosNeon, SquaredNormI16MatchesReference) {
 TEST(ComputeCosNeon, SquaredNormF16MatchesReference) {
     const std::vector<float16> a = {float16(1.0f), float16(-2.0f), float16(3.0f), float16(-4.0f)};
     // 1 + 4 + 9 + 16 = 30
-    const double got = ComputeCos_Neon::squared_norm_f16(
+    const double got = ComputeDotNorm_Neon::squared_norm_f16(
         reinterpret_cast<const uint8_t*>(a.data()), a.size());
     EXPECT_NEAR(30.0, got, 1e-2);
 
@@ -427,7 +427,7 @@ TEST(ComputeCosNeon, SquaredNormF16MatchesReference) {
         for (size_t i = 0; i < dim; ++i)
             a2[i] = static_cast<float16>(static_cast<float>(i % 7 + 1) * 0.5f - 2.0f);
         double ref = reference_squared_norm(a2.data(), dim);
-        const double got2 = ComputeCos_Neon::squared_norm_f16(
+        const double got2 = ComputeDotNorm_Neon::squared_norm_f16(
             reinterpret_cast<const uint8_t*>(a2.data()), dim);
         EXPECT_NEAR(ref, got2, std::max(1e-2, ref * 1e-2)) << "dim=" << dim;
     }
@@ -519,7 +519,7 @@ TEST(ComputeCosNeon, DotF32TailHandling) {
         auto b = make_buffer<float>(dim, 0);
         fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + 7));
         const double ref = reference_dot(a.ptr, b.ptr, dim);
-        const double got = ComputeCos_Neon::dot_f32(
+        const double got = ComputeDotNorm_Neon::dot_f32(
             reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
         EXPECT_NEAR(ref, got, std::max(1e-5, std::abs(ref) * 5e-5)) << "dim=" << dim;
     }
@@ -546,7 +546,7 @@ TEST(ComputeCosNeon, DotI16TailHandling) {
         auto b = make_buffer<int16_t>(dim, 0);
         fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + 3));
         const double ref = reference_dot(a.ptr, b.ptr, dim);
-        const double got = ComputeCos_Neon::dot_i16(
+        const double got = ComputeDotNorm_Neon::dot_i16(
             reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
         EXPECT_DOUBLE_EQ(ref, got) << "dim=" << dim;
     }
@@ -573,7 +573,7 @@ TEST(ComputeCosNeon, DotF16TailHandling) {
         auto b = make_buffer<float16>(dim, 0);
         fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + 5));
         const double ref = reference_dot(a.ptr, b.ptr, dim);
-        const double got = ComputeCos_Neon::dot_f16(
+        const double got = ComputeDotNorm_Neon::dot_f16(
             reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
         EXPECT_NEAR(ref, got, std::max(1e-2, std::abs(ref) * 1e-2)) << "dim=" << dim;
     }
@@ -656,7 +656,7 @@ TEST(ComputeCosNeon, DotF16HandlesExtremes) {
         b[i] = float16(-65504.0f);
     }
     const double ref = reference_dot(a.data(), b.data(), dim);
-    const double got = ComputeCos_Neon::dot_f16(reinterpret_cast<const uint8_t*>(a.data()),
+    const double got = ComputeDotNorm_Neon::dot_f16(reinterpret_cast<const uint8_t*>(a.data()),
                                                 reinterpret_cast<const uint8_t*>(b.data()),
                                                 dim);
     EXPECT_NEAR(ref, got, std::max(1.0, std::abs(ref) * 1e-5));
@@ -668,7 +668,7 @@ TEST(ComputeCosNeon, DotF32LargeDim) {
     auto b = make_buffer<float>(dim, 0);
     fill_f32(a.ptr, b.ptr, dim, 9999);
     const double ref = reference_dot(a.ptr, b.ptr, dim);
-    const double got = ComputeCos_Neon::dot_f32(
+    const double got = ComputeDotNorm_Neon::dot_f32(
         reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
     EXPECT_NEAR(ref, got, std::max(1e-4, std::abs(ref) * 5e-5));
 }
@@ -701,7 +701,7 @@ TEST(ComputeCosNeon, DotF16LargeDim) {
     auto b = make_buffer<float16>(dim, 0);
     fill_f16(a.ptr, b.ptr, dim, 9999);
     const double ref = reference_dot(a.ptr, b.ptr, dim);
-    const double got = ComputeCos_Neon::dot_f16(
+    const double got = ComputeDotNorm_Neon::dot_f16(
         reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
     EXPECT_NEAR(ref, got, std::max(1e-2, std::abs(ref) * 1e-2));
 }
@@ -728,7 +728,7 @@ TEST(ComputeCosNeon, DotF32MisalignedMatchesReference) {
                 auto b = make_buffer<float>(dim, misalign_b);
                 fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 101));
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_Neon::dot_f32(
+                const double got = ComputeDotNorm_Neon::dot_f32(
                     reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, std::max(1e-5, std::abs(ref) * 5e-5))
                     << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
@@ -764,7 +764,7 @@ TEST(ComputeCosNeon, DotI16MisalignedMatchesReference) {
                 auto b = make_buffer<int16_t>(dim, misalign_b);
                 fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 151));
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_Neon::dot_i16(
+                const double got = ComputeDotNorm_Neon::dot_i16(
                     reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
                 EXPECT_DOUBLE_EQ(ref, got)
                     << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
@@ -800,7 +800,7 @@ TEST(ComputeCosNeon, DotF16MisalignedMatchesReference) {
                 auto b = make_buffer<float16>(dim, misalign_b);
                 fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 131));
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_Neon::dot_f16(
+                const double got = ComputeDotNorm_Neon::dot_f16(
                     reinterpret_cast<uint8_t*>(a.ptr), reinterpret_cast<uint8_t*>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, std::max(1e-2, std::abs(ref) * 1e-2))
                     << "dim=" << dim << " misalign_a=" << misalign_a << " misalign_b=" << misalign_b;
@@ -841,11 +841,11 @@ TEST(ComputeCosNeon, ResolveDistUsesNeonF16Path) {
 }
 
 TEST(ComputeCosNeon, ResolveDotUsesNeonF32Path) {
-    EXPECT_EQ(&ComputeCos_Neon::dot_f32, ComputeDotNorm::resolve_dot(DataType::f32));
+    EXPECT_EQ(&ComputeDotNorm_Neon::dot_f32, ComputeDotNorm::resolve_dot(DataType::f32));
 }
 
 TEST(ComputeCosNeon, ResolveDotUsesNeonI16Path) {
-    EXPECT_EQ(&ComputeCos_Neon::dot_i16, ComputeDotNorm::resolve_dot(DataType::i16));
+    EXPECT_EQ(&ComputeDotNorm_Neon::dot_i16, ComputeDotNorm::resolve_dot(DataType::i16));
 }
 
 TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonF32Path) {
@@ -859,11 +859,11 @@ TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonI16Path) {
 }
 
 TEST(ComputeCosNeon, ResolveSquaredNormUsesNeonF32Path) {
-    EXPECT_EQ(&ComputeCos_Neon::squared_norm_f32, ComputeDotNorm::resolve_squared_norm(DataType::f32));
+    EXPECT_EQ(&ComputeDotNorm_Neon::squared_norm_f32, ComputeDotNorm::resolve_squared_norm(DataType::f32));
 }
 
 TEST(ComputeCosNeon, ResolveSquaredNormUsesNeonI16Path) {
-    EXPECT_EQ(&ComputeCos_Neon::squared_norm_i16, ComputeDotNorm::resolve_squared_norm(DataType::i16));
+    EXPECT_EQ(&ComputeDotNorm_Neon::squared_norm_i16, ComputeDotNorm::resolve_squared_norm(DataType::i16));
 }
 
 TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonF16Path) {
@@ -872,7 +872,7 @@ TEST(ComputeCosNeon, ResolveDistWithQueryNormUsesNeonF16Path) {
 }
 
 TEST(ComputeCosNeon, ResolveSquaredNormUsesNeonF16Path) {
-    EXPECT_EQ(&ComputeCos_Neon::squared_norm_f16, ComputeDotNorm::resolve_squared_norm(DataType::f16));
+    EXPECT_EQ(&ComputeDotNorm_Neon::squared_norm_f16, ComputeDotNorm::resolve_squared_norm(DataType::f16));
 }
 
 #else
@@ -915,7 +915,7 @@ TEST_F(ComputeCosAVX2, DotF32MatchesReferenceAlignedAndUnaligned) {
                 fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 101));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_AVX2::dot_f32(reinterpret_cast<uint8_t *>(a.ptr),
+                const double got = ComputeDotNorm_AVX2::dot_f32(reinterpret_cast<uint8_t *>(a.ptr),
                                                             reinterpret_cast<uint8_t *>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, 5e-5) << "dim=" << dim << " misalign_a=" << misalign_a
                                             << " misalign_b=" << misalign_b;
@@ -961,7 +961,7 @@ TEST_F(ComputeCosAVX2, DotF16MatchesReferenceAlignedAndUnaligned) {
                 fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 131));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_AVX2::dot_f16(reinterpret_cast<uint8_t *>(a.ptr),
+                const double got = ComputeDotNorm_AVX2::dot_f16(reinterpret_cast<uint8_t *>(a.ptr),
                                                             reinterpret_cast<uint8_t *>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, 1e-2) << "dim=" << dim << " misalign_a=" << misalign_a
                                             << " misalign_b=" << misalign_b;
@@ -1002,7 +1002,7 @@ TEST_F(ComputeCosAVX2, ResolveDistUsesAVX2F16Path) {
 }
 
 TEST_F(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F16Path) {
-    EXPECT_EQ(&ComputeCos_AVX2::squared_norm_f16, ComputeDotNorm::resolve_squared_norm(DataType::f16));
+    EXPECT_EQ(&ComputeDotNorm_AVX2::squared_norm_f16, ComputeDotNorm::resolve_squared_norm(DataType::f16));
 }
 
 TEST_F(ComputeCosAVX2, DistI16ZeroDimIsZero) {
@@ -1023,7 +1023,7 @@ TEST_F(ComputeCosAVX2, DotI16MatchesReferenceAlignedAndUnaligned) {
                 fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 151));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_AVX2::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
+                const double got = ComputeDotNorm_AVX2::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
                                                             reinterpret_cast<uint8_t *>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, 1e-9) << "dim=" << dim << " misalign_a=" << misalign_a
                                             << " misalign_b=" << misalign_b;
@@ -1052,11 +1052,11 @@ TEST_F(ComputeCosAVX2, DistI16MatchesReferenceAlignedAndUnaligned) {
 }
 
 TEST_F(ComputeCosAVX2, ResolveSquaredNormUsesAVX2F32Path) {
-    EXPECT_EQ(&ComputeCos_AVX2::squared_norm_f32, ComputeDotNorm::resolve_squared_norm(DataType::f32));
+    EXPECT_EQ(&ComputeDotNorm_AVX2::squared_norm_f32, ComputeDotNorm::resolve_squared_norm(DataType::f32));
 }
 
 TEST_F(ComputeCosAVX2, ResolveSquaredNormUsesAVX2I16Path) {
-    EXPECT_EQ(&ComputeCos_AVX2::squared_norm_i16, ComputeDotNorm::resolve_squared_norm(DataType::i16));
+    EXPECT_EQ(&ComputeDotNorm_AVX2::squared_norm_i16, ComputeDotNorm::resolve_squared_norm(DataType::i16));
 }
 
 #else
@@ -1092,7 +1092,7 @@ TEST_F(ComputeCosAVX512F, DotF32MatchesReferenceAlignedAndUnaligned) {
                 fill_f32(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 211));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_AVX512::dot_f32(reinterpret_cast<uint8_t *>(a.ptr),
+                const double got = ComputeDotNorm_AVX512::dot_f32(reinterpret_cast<uint8_t *>(a.ptr),
                                                               reinterpret_cast<uint8_t *>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, 5e-5) << "dim=" << dim << " misalign_a=" << misalign_a
                                             << " misalign_b=" << misalign_b;
@@ -1130,7 +1130,7 @@ TEST_F(ComputeCosAVX512F, DotF16MatchesReferenceAlignedAndUnaligned) {
                 fill_f16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 227));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_AVX512::dot_f16(reinterpret_cast<uint8_t *>(a.ptr),
+                const double got = ComputeDotNorm_AVX512::dot_f16(reinterpret_cast<uint8_t *>(a.ptr),
                                                               reinterpret_cast<uint8_t *>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, 1e-2) << "dim=" << dim << " misalign_a=" << misalign_a
                                             << " misalign_b=" << misalign_b;
@@ -1168,7 +1168,7 @@ TEST_F(ComputeCosAVX512F, DotI16MatchesReferenceAlignedAndUnaligned) {
                 fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 233));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_AVX512::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
+                const double got = ComputeDotNorm_AVX512::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
                                                               reinterpret_cast<uint8_t *>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, 1e-9) << "dim=" << dim << " misalign_a=" << misalign_a
                                             << " misalign_b=" << misalign_b;
@@ -1223,7 +1223,7 @@ TEST_F(ComputeCosAVX512VNNI, DotI16MatchesReferenceAlignedAndUnaligned) {
                 fill_i16(a.ptr, b.ptr, dim, static_cast<uint32_t>(dim + misalign_a + misalign_b + 241));
 
                 const double ref = reference_dot(a.ptr, b.ptr, dim);
-                const double got = ComputeCos_AVX512_VNNI::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
+                const double got = ComputeDotNorm_AVX512_VNNI::dot_i16(reinterpret_cast<uint8_t *>(a.ptr),
                                                                    reinterpret_cast<uint8_t *>(b.ptr), dim);
                 EXPECT_NEAR(ref, got, 1e-9) << "dim=" << dim << " misalign_a=" << misalign_a
                                             << " misalign_b=" << misalign_b;

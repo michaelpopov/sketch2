@@ -89,7 +89,7 @@ TEST(ComputeRuntimeTest, ForcedAvx2BackendUsesAvx2Resolvers) {
 
     expect_dot_resolvers<ComputeDOT_AVX2>();
     expect_l2_resolvers<ComputeL2_AVX2>();
-    expect_cos_resolvers<ComputeCos_AVX2>();
+    expect_cos_resolvers<ComputeCos_AVX2, ComputeDotNorm_AVX2>();
 }
 #endif
 
@@ -103,7 +103,7 @@ TEST(ComputeRuntimeTest, ForcedAvx512BackendUsesAvx512Resolvers) {
 
     expect_dot_resolvers<ComputeDOT_AVX512>();
     expect_l2_resolvers<ComputeL2_AVX512>();
-    expect_cos_resolvers<ComputeCos_AVX512>();
+    expect_cos_resolvers<ComputeCos_AVX512, ComputeDotNorm_AVX512>();
 }
 #endif
 
@@ -117,7 +117,7 @@ TEST(ComputeRuntimeTest, ForcedAvx512VnniBackendUsesAvx512VnniResolvers) {
 
     expect_dot_resolvers<ComputeDOT_AVX512_VNNI>();
     expect_l2_resolvers<ComputeL2_AVX512_VNNI>();
-    expect_cos_resolvers<ComputeCos_AVX512_VNNI>();
+    expect_cos_resolvers<ComputeCos_AVX512_VNNI, ComputeDotNorm_AVX512_VNNI>();
 }
 #endif
 

@@ -219,6 +219,17 @@ results than recomputing norms in `double`. The expected benefit is lower storag
 per-candidate work in cosine-heavy scans.
 Cosine datasets reject persisted files that do not contain the inverse-norm section.
 
+For L2 datasets scanner likewise precomputes the query squared norm once per search. If a data file
+or accumulator entry contains stored squared norms, scanner uses:
+
+    l2_distance_sq = norm_sq(a) + norm_sq(q) - 2 * dot(a, q)
+
+That avoids recomputing the stored-vector squared norm inside the hot scan loop.
+Because persisted squared norms are stored as `f32`, this fast path may produce slightly different
+results than recomputing norms in `double`. The expected benefit is lower per-candidate work in
+L2-heavy scans.
+L2 datasets reject persisted files that do not contain the squared-norm section.
+
 
 Dataset
 -----------------------

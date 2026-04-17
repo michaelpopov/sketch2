@@ -88,6 +88,7 @@ Each metric family exposes:
 
 The main headers are:
 
+- `compute_dot_norm.h`
 - `compute_l1.h`
 - `compute_l2.h`
 - `compute_cos.h`
@@ -101,6 +102,7 @@ Each one follows the same pattern:
 
 Architecture-specific kernels live in:
 
+- `compute_dot_norm_avx2.h`, `compute_dot_norm_avx512.h`, `compute_dot_norm_neon.h`
 - `compute_l1_avx2.h`, `compute_l2_avx2.h`, `compute_cos_avx2.h`
 - `compute_l1_avx512.h`, `compute_l2_avx512.h`, `compute_cos_avx512.h`
 - `compute_l1_neon.h`, `compute_l2_neon.h`, `compute_cos_neon.h`
@@ -342,6 +344,17 @@ This is why cosine dispatch uses:
 
 - `resolve_dot(...)`
 - `resolve_squared_norm(...)`
+
+Like cosine, L2 now also has a stored-norm scan path for persisted datasets:
+
+- compute query squared norm once
+- if a reader stores squared norms, reuse them directly
+- compute only the dot product per candidate and finalize
+  `||a - q||^2 = ||a||^2 + ||q||^2 - 2 * dot(a, q)`
+
+Because persisted squared norms are stored as `f32`, this L2 fast path may
+produce slightly different results than recomputing norms in `double`, just as
+the cosine inverse-norm path can.
 - `resolve_dist_with_query_norm(...)`
 
 instead of a single simple `dist(...)` interface.
@@ -446,6 +459,7 @@ For example, extending the AVX-512 line further would typically require:
 3. Reuse or extend the existing AVX-512 build support and ISA-targeting helpers
 4. Implement new metric kernels
 5. Extend resolver switches in:
+   - `compute_dot_norm.h`
    - `compute_l1.h`
    - `compute_l2.h`
    - `compute_cos.h`
@@ -489,8 +503,12 @@ are not intended as the inner-loop abstraction boundary.
 
 - `compute.h`
   Common compute interfaces and shared distance item types.
+- `compute_dot_norm.h`
+  Shared dot-product and squared-norm resolver layer for cosine and L2 paths.
+- `compute_dot_norm_avx2.h`, `compute_dot_norm_avx512.h`, `compute_dot_norm_neon.h`
+  SIMD-specialized shared dot-product and squared-norm kernels.
 - `compute_l1.h`, `compute_l2.h`, `compute_cos.h`
-  Scalar implementations and runtime resolver layer.
+  Scalar metric implementations and runtime resolver layers.
 - `compute_*_avx2.h`, `compute_*_neon.h`
   SIMD-specialized kernels.
 - `compute_*_avx512.h`
