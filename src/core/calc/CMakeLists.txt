@@ -38,10 +38,6 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   endif()
 endif()
 
-if(DEFINED ENV{DUMMY_CALC} AND NOT "$ENV{DUMMY_CALC}" STREQUAL "")
-  target_compile_definitions(calc PRIVATE DUMMY_CALC)
-endif()
-
 add_executable(utest_calc
   ${SHARED_UTEST_MAIN}
   utest_hwy_kernels.cpp

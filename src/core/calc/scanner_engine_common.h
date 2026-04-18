@@ -162,19 +162,8 @@ inline void scan_ordered_iterator_with_dist(DataReader::OrderedIterator it, size
         if (!bitset_allows_id(bitset, id)) {
             continue;
         }
-#ifndef DUMMY_CALC
         prefetch_next_vector_record(it, vector_size_bytes);
         push_result(heap, count, id, dist_fn(it.data(), query.vec, query.dim));
-#else
-        (void)dist_fn;
-        (void)query;
-        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
-        uint64_t byte_sum = 0;
-        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
-            byte_sum ^= vec_data[i];
-        }
-        push_result(heap, count, id, static_cast<double>(byte_sum));
-#endif
     }
 }
 
@@ -186,19 +175,8 @@ inline void scan_ordered_iterator_with_query_norm(DataReader::OrderedIterator it
         if (!bitset_allows_id(bitset, id)) {
             continue;
         }
-#ifndef DUMMY_CALC
         prefetch_next_vector_record(it, vector_size_bytes);
         push_result(heap, count, id, dist_fn(it.data(), query.vec, query.dim, query.norm_sq));
-#else
-        (void)dist_fn;
-        (void)query;
-        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
-        uint64_t byte_sum = 0;
-        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
-            byte_sum ^= vec_data[i];
-        }
-        push_result(heap, count, id, static_cast<double>(byte_sum));
-#endif
     }
 }
 
@@ -210,21 +188,10 @@ inline void scan_ordered_iterator_with_cos_stored_norms(DataReader::OrderedItera
         if (!bitset_allows_id(bitset, id)) {
             continue;
         }
-#ifndef DUMMY_CALC
         prefetch_next_vector_record(it, vector_size_bytes);
         const double dot = dot_fn(it.data(), query.vec, query.dim);
         push_result(heap, count, id, finalize_cosine_distance_from_inverse_norms(
             dot, static_cast<double>(it.get_norm()), query.inv_norm));
-#else
-        (void)dot_fn;
-        (void)query;
-        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
-        uint64_t byte_sum = 0;
-        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
-            byte_sum ^= vec_data[i];
-        }
-        push_result(heap, count, id, static_cast<double>(byte_sum));
-#endif
     }
 }
 
@@ -236,21 +203,10 @@ inline void scan_ordered_iterator_with_l2_stored_norms(DataReader::OrderedIterat
         if (!bitset_allows_id(bitset, id)) {
             continue;
         }
-#ifndef DUMMY_CALC
         prefetch_next_vector_record(it, vector_size_bytes);
         const double dot = dot_fn(it.data(), query.vec, query.dim);
         push_result(heap, count, id, finalize_squared_l2_distance_from_squared_norms(
             dot, static_cast<double>(it.get_norm()), query.norm_sq));
-#else
-        (void)dot_fn;
-        (void)query;
-        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
-        uint64_t byte_sum = 0;
-        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
-            byte_sum ^= vec_data[i];
-        }
-        push_result(heap, count, id, static_cast<double>(byte_sum));
-#endif
     }
 }
 
