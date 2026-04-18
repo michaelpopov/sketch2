@@ -1,7 +1,8 @@
-// Declares the Highway-backed scanner implementation.
+// Declares the Highway-backed scanner implementation and kernel resolver.
 
 #pragma once
 
+#include "core/calc/calc_engine.h"
 #include "core/calc/dist_item.h"
 #include "core/utils/bitset_filter.h"
 
@@ -20,5 +21,7 @@ public:
     Ret find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result, const BitsetFilter* bitset = nullptr) const;
 };
+
+CalcKernels resolve_hwy_kernels(DistFunc func, DataType type);
 
 } // namespace sketch2

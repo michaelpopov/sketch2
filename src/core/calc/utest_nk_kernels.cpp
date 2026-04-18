@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "core/calc/calc_engine.h"
-#include "core/calc/nk_kernels.h"
+#include "core/calc/scanner_nk.h"
 #include "core/calc/utest_calc_helpers.h"
 #include "numkong/capabilities.h"
 

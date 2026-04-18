@@ -2,7 +2,7 @@
 
 #include "core/calc/calc_engine.h"
 #if SKETCH_CALC_ENGINE_NUMKONG
-#include "core/calc/nk_kernels.h"
+#include "core/calc/scanner_nk.h"
 #endif
 #include "core/utils/shared_types.h"
 #include "core/utils/singleton.h"
