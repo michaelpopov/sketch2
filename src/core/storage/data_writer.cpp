@@ -71,12 +71,12 @@ Ret write_vector_section(
     const auto append_norm = [&](const uint8_t* vector_data) {
         switch (dist_func) {
             case DistFunc::COS:
-                norms->push_back(
-                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
+                norms->push_back(static_cast<float>(
+                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim())));
                 return;
             case DistFunc::L2:
-                norms->push_back(
-                    compute_squared_norm(vector_data, reader.type(), reader.dim()));
+                norms->push_back(static_cast<float>(
+                    compute_squared_norm(vector_data, reader.type(), reader.dim())));
                 return;
             case DistFunc::DOT:
                 return;
