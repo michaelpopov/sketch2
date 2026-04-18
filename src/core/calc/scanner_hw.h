@@ -22,6 +22,9 @@ public:
         std::vector<DistItem>& result, const BitsetFilter* bitset = nullptr) const;
 };
 
+Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec,
+    std::vector<DistItem>* result, const BitsetFilter* bitset = nullptr);
+
 CalcKernels resolve_hwy_kernels(DistFunc func, DataType type);
 
 } // namespace sketch2

@@ -431,7 +431,7 @@ double nk_dist_cos_qn_f16(const uint8_t* a, const uint8_t* b, size_t dim, double
                                     query_norm_sq);
 }
 
-Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec,
+Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>* result, const BitsetFilter* bitset) {
     if (vec == nullptr || count == 0 || result == nullptr) {
         return Ret("ScannerEx::find: invalid arguments.");
@@ -474,6 +474,11 @@ Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec
 }
 
 } // namespace
+
+Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec,
+        std::vector<DistItem>* result, const BitsetFilter* bitset) {
+    return find_items_nk_impl(dataset, count, vec, result, bitset);
+}
 
 bool nk_calc_uses_dynamic_dispatch() {
     return nk_capabilities_compiled() != nk_cap_serial_k;

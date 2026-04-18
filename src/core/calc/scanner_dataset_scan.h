@@ -35,6 +35,10 @@ inline Ret collect_dataset_readers(const DatasetReader& dataset, std::vector<Dat
 template <typename ReaderScanFn>
 inline Ret scan_dataset_readers(const std::vector<DataReaderPtr>& readers, size_t count, DistHeap* heap,
         const ReaderScanFn& scan_reader, DistFunc func, const BitsetFilter* bitset = nullptr) {
+    if (count == 0) {
+        return Ret(0);
+    }
+
     const auto& pool = get_singleton().thread_pool();
     if (!pool || readers.size() < 2) {
         for (const auto& reader : readers) {

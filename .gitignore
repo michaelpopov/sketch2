@@ -8,6 +8,10 @@ bin/
 bin-dbg/
 bin-san/
 install/
+build-nk-dbg/
+build-nk-san/
+build-nk/
+
 
 # CMake
 CMakeCache.txt
