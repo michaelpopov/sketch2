@@ -11,8 +11,7 @@ Minimum build requirements:
 
 - CMake 3.20 or newer
 - a C++20 compiler
-- GCC or Clang on x86/x86_64 if AVX2 or AVX-512 runtime backends are enabled
-- AArch64 is supported with the architecture options needed for NEON and fp16
+- GCC or Clang on x86/x86_64 and AArch64 for the Google Highway and NumKong multi-target build
 
 Practical tools used by this repository:
 
@@ -47,6 +46,9 @@ Build directories are engine-specific because `SKETCH_CALC_ENGINE` is cached at
 configure time. If you want a NumKong build, configure a fresh build directory
 for it instead of reusing a previously configured `highway` tree.
 
+The default calc engine is `highway`. Set `-DSKETCH_CALC_ENGINE=numkong` at
+configure time if you want the NumKong-backed build instead.
+
 Important build types:
 
 - `Debug`
@@ -56,7 +58,7 @@ Important build types:
 If no build type is provided, the top-level CMake configuration defaults to
 `Debug`.
 
-On x86/x86_64, the build enables runtime-dispatched SIMD backends through these
+On x86/x86_64, Highway builds can compile higher-ISA targets through these
 options:
 
 - `SKETCH_ENABLE_AVX2`
@@ -319,5 +321,7 @@ export SKETCH2_LOG_FILE=/tmp/sketch2.log
 - `Release` uses the compiler's standard CMake release flags, which typically
   means optimized code with `-DNDEBUG`
 - `Sanitizer` builds use AddressSanitizer, UndefinedBehaviorSanitizer, and LeakSanitizer
-- on x86, higher SIMD backends are compiled into one binary and selected at
-  runtime on supported CPUs
+- each configured build contains one top-level compute engine selected by
+  `SKETCH_CALC_ENGINE`
+- Highway builds can still contain multiple ISA targets inside that engine,
+  while NumKong builds keep their own internal capability-specific dispatch

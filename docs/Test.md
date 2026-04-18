@@ -57,7 +57,8 @@ as additional validation signals.
 ## Testing Model
 
 Sketch2 uses multiple layers of testing because the project spans storage,
-compute, process-wide runtime state, Python bindings, and SQLite integration.
+the compute layer, process-wide runtime state, Python bindings, and SQLite
+integration.
 
 The main layers are:
 
@@ -78,8 +79,9 @@ Tests are grouped by subsystem into separate executables:
 
 - `utest_utils`
 - `utest_stor`
-- `utest_comp`
+- `utest_calc`
 - `utest_sketch2`
+- `utest_compute_sketch2api`
 - `utest_vlite`
 
 These binaries cover:
@@ -88,8 +90,8 @@ These binaries cover:
   and the update notifier
 - storage components such as input generation, input parsing, data file
   layout, readers, writers, and dataset logic
-- compute kernels, runtime backend selection, and scanner logic
-- the `sketch2api` C API
+- compute kernels, engine-specific scanner logic, and compute engine resolver behavior
+- the `sketch2api` C API, including compute-oriented API coverage
 - the SQLite integration layer
 
 There is also a dedicated thread-pool test binary:
@@ -140,7 +142,7 @@ These tests validate:
 
 - extension loading and virtual table creation
 - KNN result ids and scores returned through SQL
-- correct use of dataset-configured score functions such as `l1`, `l2`, and
+- correct use of dataset-configured score functions such as `dot`, `l2`, and
   `cos`
 - SQL constraint handling and error reporting
 - SQLite-facing helper functionality such as the bitset-related interfaces
@@ -180,7 +182,7 @@ At a high level, the suite checks these properties:
 - mutable state in pending updates behaves correctly
 - merges preserve logical dataset contents
 - compute kernels and scanner logic return correct nearest neighbors
-- runtime backend dispatch stays correct across supported builds
+- compiled compute engine behavior stays correct across supported builds
 - public APIs behave correctly through `Sketch2api`, Python, and SQLite
 - reader/writer coordination and update notification work across processes
 
