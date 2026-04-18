@@ -31,21 +31,19 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
         assert(kernels.squared_norm && kernels.dot && kernels.dist_with_query_norm);
         const double query_norm_sq = kernels.squared_norm(vec, dim);
         const double query_inv = query_inverse_norm(query_norm_sq);
-        const FnPtrInvNormScore stored_norm_score{kernels.dot, vec, dim, query_inv};
-        const FnPtrQueryNormScore fallback_score{kernels.dist_with_query_norm, vec, dim, query_norm_sq};
-        CHECK(build_dataset_heap_with_optional_stored_norms(
-            dataset, count, stored_norm_score, fallback_score, func, &heap, bitset));
+        CHECK(scan_dataset_heap_with_optional_cosine_norms(
+            dataset, count, &heap, kernels.dot, kernels.dist_with_query_norm,
+            vec, dim, query_inv, query_norm_sq, func, bitset));
     } else if (func == DistFunc::L2 && kernels.squared_norm && kernels.dot) {
         assert(kernels.dist);
         const double query_norm_sq = kernels.squared_norm(vec, dim);
-        const FnPtrStoredSquaredNormL2Score stored_norm_score{kernels.dot, vec, dim, query_norm_sq};
-        const FnPtrDistScore fallback_score{kernels.dist, vec, dim};
-        CHECK(build_dataset_heap_with_optional_stored_norms(
-            dataset, count, stored_norm_score, fallback_score, func, &heap, bitset));
+        CHECK(scan_dataset_heap_with_optional_l2_norms(
+            dataset, count, &heap, kernels.dot, kernels.dist, vec, dim,
+            query_norm_sq, func, bitset));
     } else {
         assert(kernels.dist);
-        const FnPtrDistScore score{kernels.dist, vec, dim};
-        CHECK(build_dataset_heap_with_score(dataset, count, score, func, &heap, bitset));
+        CHECK(scan_dataset_heap_with_dist(
+            dataset, count, &heap, kernels.dist, vec, dim, func, bitset));
     }
 
     log_query(dataset.name(), func, dataset.type(), dim, count, CalcEngine::highway, timer.elapsed_ms());

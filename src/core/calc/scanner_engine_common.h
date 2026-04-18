@@ -101,9 +101,9 @@ inline double finalize_squared_l2_distance_from_squared_norms(
 
 constexpr size_t kPrefetchCacheLineBytes = 64;
 
-template <typename Iterator>
-inline void prefetch_next_vector_record(const Iterator& it, size_t vector_size_bytes) {
-    Iterator next_it = it;
+inline void prefetch_next_vector_record(const DataReader::OrderedIterator& it,
+        size_t vector_size_bytes) {
+    DataReader::OrderedIterator next_it = it;
     next_it.next();
     if (next_it.eof()) {
         return;
@@ -136,60 +136,8 @@ inline bool bitset_allows_id(const BitsetFilter* bitset, uint64_t id) {
     return (bitset->data[byte_index] & mask) != 0u;
 }
 
-struct FnPtrDistScore {
-    CalcDistFn fn;
-    const uint8_t* vec;
-    size_t dim;
-
-    template <typename Iterator>
-    double operator()(const Iterator& it) const {
-        return fn(it.data(), vec, dim);
-    }
-};
-
-struct FnPtrQueryNormScore {
-    CalcDistWithQueryNormFn fn;
-    const uint8_t* vec;
-    size_t dim;
-    double query_norm_sq;
-
-    template <typename Iterator>
-    double operator()(const Iterator& it) const {
-        return fn(it.data(), vec, dim, query_norm_sq);
-    }
-};
-
-struct FnPtrInvNormScore {
-    CalcDotFn fn;
-    const uint8_t* vec;
-    size_t dim;
-    double query_inv_norm;
-
-    template <typename Iterator>
-    double operator()(const Iterator& it) const {
-        assert(query_inv_norm >= 0.0);
-        const double dot = fn(it.data(), vec, dim);
-        return finalize_cosine_distance_from_inverse_norms(
-            dot, static_cast<double>(it.get_norm()), query_inv_norm);
-    }
-};
-
-struct FnPtrStoredSquaredNormL2Score {
-    CalcDotFn fn;
-    const uint8_t* vec;
-    size_t dim;
-    double query_norm_sq;
-
-    template <typename Iterator>
-    double operator()(const Iterator& it) const {
-        const double dot = fn(it.data(), vec, dim);
-        return finalize_squared_l2_distance_from_squared_norms(
-            dot, static_cast<double>(it.get_norm()), query_norm_sq);
-    }
-};
-
-template <typename Iterator, typename ScoreFn>
-inline void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, const ScoreFn& score,
+inline void scan_ordered_iterator_with_dist(DataReader::OrderedIterator it, size_t count,
+        DistHeap* heap, CalcDistFn dist_fn, const uint8_t* vec, size_t dim,
         size_t vector_size_bytes, const BitsetFilter* bitset = nullptr) {
     for (; !it.eof(); it.next()) {
         const uint64_t id = it.id();
@@ -198,9 +146,11 @@ inline void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, cons
         }
 #ifndef DUMMY_CALC
         prefetch_next_vector_record(it, vector_size_bytes);
-        push_result(heap, count, id, score(it));
+        push_result(heap, count, id, dist_fn(it.data(), vec, dim));
 #else
-        (void)score;
+        (void)dist_fn;
+        (void)vec;
+        (void)dim;
         const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
         uint64_t byte_sum = 0;
         for (size_t i = 0; i < vector_size_bytes; i += 4096) {
@@ -211,28 +161,144 @@ inline void scan_iterator_scored(Iterator it, size_t count, DistHeap* heap, cons
     }
 }
 
-template <typename ScoreFn>
-inline void scan_data_reader_scored(const DataReader& reader, size_t count, DistHeap* heap,
-        const ScoreFn& score, const BitsetFilter* bitset = nullptr) {
-    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
-    scan_iterator_scored(reader.base_begin(), count, heap, score, vector_size_bytes, bitset);
-    scan_iterator_scored(reader.delta_begin(), count, heap, score, vector_size_bytes, bitset);
+inline void scan_ordered_iterator_with_query_norm(DataReader::OrderedIterator it, size_t count,
+        DistHeap* heap, CalcDistWithQueryNormFn dist_fn, const uint8_t* vec, size_t dim,
+        double query_norm_sq, size_t vector_size_bytes, const BitsetFilter* bitset = nullptr) {
+    for (; !it.eof(); it.next()) {
+        const uint64_t id = it.id();
+        if (!bitset_allows_id(bitset, id)) {
+            continue;
+        }
+#ifndef DUMMY_CALC
+        prefetch_next_vector_record(it, vector_size_bytes);
+        push_result(heap, count, id, dist_fn(it.data(), vec, dim, query_norm_sq));
+#else
+        (void)dist_fn;
+        (void)vec;
+        (void)dim;
+        (void)query_norm_sq;
+        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
+        uint64_t byte_sum = 0;
+        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
+            byte_sum ^= vec_data[i];
+        }
+        push_result(heap, count, id, static_cast<double>(byte_sum));
+#endif
+    }
 }
 
-template <typename ReaderScanFn>
-inline Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, DistHeap* heap,
-        const ReaderScanFn& scan_reader, DistFunc func, const BitsetFilter* bitset = nullptr) {
+inline void scan_ordered_iterator_with_cos_stored_norms(DataReader::OrderedIterator it, size_t count,
+        DistHeap* heap, CalcDotFn dot_fn, const uint8_t* vec, size_t dim, double query_inv_norm,
+        size_t vector_size_bytes, const BitsetFilter* bitset = nullptr) {
+    for (; !it.eof(); it.next()) {
+        const uint64_t id = it.id();
+        if (!bitset_allows_id(bitset, id)) {
+            continue;
+        }
+#ifndef DUMMY_CALC
+        prefetch_next_vector_record(it, vector_size_bytes);
+        const double dot = dot_fn(it.data(), vec, dim);
+        push_result(heap, count, id, finalize_cosine_distance_from_inverse_norms(
+            dot, static_cast<double>(it.get_norm()), query_inv_norm));
+#else
+        (void)dot_fn;
+        (void)vec;
+        (void)dim;
+        (void)query_inv_norm;
+        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
+        uint64_t byte_sum = 0;
+        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
+            byte_sum ^= vec_data[i];
+        }
+        push_result(heap, count, id, static_cast<double>(byte_sum));
+#endif
+    }
+}
+
+inline void scan_ordered_iterator_with_l2_stored_norms(DataReader::OrderedIterator it, size_t count,
+        DistHeap* heap, CalcDotFn dot_fn, const uint8_t* vec, size_t dim, double query_norm_sq,
+        size_t vector_size_bytes, const BitsetFilter* bitset = nullptr) {
+    for (; !it.eof(); it.next()) {
+        const uint64_t id = it.id();
+        if (!bitset_allows_id(bitset, id)) {
+            continue;
+        }
+#ifndef DUMMY_CALC
+        prefetch_next_vector_record(it, vector_size_bytes);
+        const double dot = dot_fn(it.data(), vec, dim);
+        push_result(heap, count, id, finalize_squared_l2_distance_from_squared_norms(
+            dot, static_cast<double>(it.get_norm()), query_norm_sq));
+#else
+        (void)dot_fn;
+        (void)vec;
+        (void)dim;
+        (void)query_norm_sq;
+        const volatile uint8_t* vec_data = static_cast<const volatile uint8_t*>(it.data());
+        uint64_t byte_sum = 0;
+        for (size_t i = 0; i < vector_size_bytes; i += 4096) {
+            byte_sum ^= vec_data[i];
+        }
+        push_result(heap, count, id, static_cast<double>(byte_sum));
+#endif
+    }
+}
+
+inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, DistHeap* heap,
+        CalcDistFn dist_fn, const uint8_t* vec, size_t dim, const BitsetFilter* bitset = nullptr) {
+    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+    scan_ordered_iterator_with_dist(
+        reader.base_begin(), count, heap, dist_fn, vec, dim, vector_size_bytes, bitset);
+    scan_ordered_iterator_with_dist(
+        reader.delta_begin(), count, heap, dist_fn, vec, dim, vector_size_bytes, bitset);
+}
+
+inline void scan_data_reader_with_query_norm(const DataReader& reader, size_t count, DistHeap* heap,
+        CalcDistWithQueryNormFn dist_fn, const uint8_t* vec, size_t dim, double query_norm_sq,
+        const BitsetFilter* bitset = nullptr) {
+    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+    scan_ordered_iterator_with_query_norm(
+        reader.base_begin(), count, heap, dist_fn, vec, dim, query_norm_sq, vector_size_bytes, bitset);
+    scan_ordered_iterator_with_query_norm(
+        reader.delta_begin(), count, heap, dist_fn, vec, dim, query_norm_sq, vector_size_bytes, bitset);
+}
+
+inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, size_t count,
+        DistHeap* heap, CalcDotFn dot_fn, const uint8_t* vec, size_t dim, double query_inv_norm,
+        const BitsetFilter* bitset = nullptr) {
+    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+    scan_ordered_iterator_with_cos_stored_norms(
+        reader.base_begin(), count, heap, dot_fn, vec, dim, query_inv_norm, vector_size_bytes, bitset);
+    scan_ordered_iterator_with_cos_stored_norms(
+        reader.delta_begin(), count, heap, dot_fn, vec, dim, query_inv_norm, vector_size_bytes, bitset);
+}
+
+inline void scan_data_reader_with_l2_stored_norms(const DataReader& reader, size_t count,
+        DistHeap* heap, CalcDotFn dot_fn, const uint8_t* vec, size_t dim, double query_norm_sq,
+        const BitsetFilter* bitset = nullptr) {
+    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+    scan_ordered_iterator_with_l2_stored_norms(
+        reader.base_begin(), count, heap, dot_fn, vec, dim, query_norm_sq, vector_size_bytes, bitset);
+    scan_ordered_iterator_with_l2_stored_norms(
+        reader.delta_begin(), count, heap, dot_fn, vec, dim, query_norm_sq, vector_size_bytes, bitset);
+}
+
+inline Ret collect_dataset_readers(const DatasetReader& dataset, std::vector<DataReaderPtr>* readers) {
+    readers->clear();
     auto drs = dataset.reader();
-    std::vector<DataReaderPtr> readers;
     while (true) {
         auto [reader, ret] = drs->next();
         CHECK(ret);
         if (!reader) {
             break;
         }
-        readers.push_back(std::move(reader));
+        readers->push_back(std::move(reader));
     }
+    return Ret(0);
+}
 
+template <typename ReaderScanFn>
+inline Ret scan_dataset_readers(const std::vector<DataReaderPtr>& readers, size_t count, DistHeap* heap,
+        const ReaderScanFn& scan_reader, DistFunc func, const BitsetFilter* bitset = nullptr) {
     const auto& pool = get_singleton().thread_pool();
     if (!pool || readers.size() < 2) {
         for (const auto& reader : readers) {
@@ -295,39 +361,78 @@ inline Ret scan_dataset_heap_custom(const DatasetReader& dataset, size_t count, 
     return Ret(0);
 }
 
-template <typename ScoreFn>
-inline Ret build_dataset_heap_with_score(const DatasetReader& dataset, size_t count,
-        const ScoreFn& score, DistFunc func, DistHeap* heap, const BitsetFilter* bitset = nullptr) {
-    return scan_dataset_heap_custom(
-        dataset, count, heap,
-        [score](const DataReader& reader, size_t local_count, DistHeap* local_heap,
+inline Ret scan_dataset_heap_with_dist(const DatasetReader& dataset, size_t count, DistHeap* heap,
+        CalcDistFn dist_fn, const uint8_t* vec, size_t dim, DistFunc func,
+        const BitsetFilter* bitset = nullptr) {
+    std::vector<DataReaderPtr> readers;
+    CHECK(collect_dataset_readers(dataset, &readers));
+    return scan_dataset_readers(
+        readers, count, heap,
+        [dist_fn, vec, dim](const DataReader& reader, size_t local_count, DistHeap* local_heap,
                 const BitsetFilter* bitset_filter) {
-            scan_data_reader_scored(reader, local_count, local_heap, score, bitset_filter);
+            scan_data_reader_with_dist(reader, local_count, local_heap, dist_fn, vec, dim, bitset_filter);
         },
         func,
         bitset);
 }
 
-template <typename StoredNormScoreFn, typename FallbackScoreFn>
-inline Ret build_dataset_heap_with_optional_stored_norms(const DatasetReader& dataset, size_t count,
-        const StoredNormScoreFn& stored_norm_score, const FallbackScoreFn& fallback_score,
-        DistFunc func, DistHeap* heap, const BitsetFilter* bitset = nullptr) {
-    const bool supports_optional_stored_norms = (func == DistFunc::COS || func == DistFunc::L2);
-    assert(supports_optional_stored_norms);
-    if (!supports_optional_stored_norms) {
-        throw std::invalid_argument(
-            std::string("stored-norm scoring is only supported for COS/L2, got ") +
-            scanner_dist_func_name(func));
-    }
-
-    return scan_dataset_heap_custom(
-        dataset, count, heap,
-        [stored_norm_score, fallback_score, func](const DataReader& reader, size_t local_count,
+inline Ret scan_dataset_heap_with_query_norm(const DatasetReader& dataset, size_t count, DistHeap* heap,
+        CalcDistWithQueryNormFn dist_fn, const uint8_t* vec, size_t dim, double query_norm_sq,
+        DistFunc func, const BitsetFilter* bitset = nullptr) {
+    std::vector<DataReaderPtr> readers;
+    CHECK(collect_dataset_readers(dataset, &readers));
+    return scan_dataset_readers(
+        readers, count, heap,
+        [dist_fn, vec, dim, query_norm_sq](const DataReader& reader, size_t local_count,
                 DistHeap* local_heap, const BitsetFilter* bitset_filter) {
+            scan_data_reader_with_query_norm(
+                reader, local_count, local_heap, dist_fn, vec, dim, query_norm_sq, bitset_filter);
+        },
+        func,
+        bitset);
+}
+
+inline Ret scan_dataset_heap_with_optional_cosine_norms(const DatasetReader& dataset, size_t count,
+        DistHeap* heap, CalcDotFn dot_fn, CalcDistWithQueryNormFn fallback_dist_fn,
+        const uint8_t* vec, size_t dim, double query_inv_norm, double query_norm_sq,
+        DistFunc func, const BitsetFilter* bitset = nullptr) {
+    assert(func == DistFunc::COS);
+    std::vector<DataReaderPtr> readers;
+    CHECK(collect_dataset_readers(dataset, &readers));
+    return scan_dataset_readers(
+        readers, count, heap,
+        [dot_fn, fallback_dist_fn, vec, dim, query_inv_norm, query_norm_sq, func](
+                const DataReader& reader, size_t local_count, DistHeap* local_heap,
+                const BitsetFilter* bitset_filter) {
             if (reader.has_matching_stored_norms(func)) {
-                scan_data_reader_scored(reader, local_count, local_heap, stored_norm_score, bitset_filter);
+                scan_data_reader_with_cos_stored_norms(
+                    reader, local_count, local_heap, dot_fn, vec, dim, query_inv_norm, bitset_filter);
             } else {
-                scan_data_reader_scored(reader, local_count, local_heap, fallback_score, bitset_filter);
+                scan_data_reader_with_query_norm(
+                    reader, local_count, local_heap, fallback_dist_fn, vec, dim, query_norm_sq, bitset_filter);
+            }
+        },
+        func,
+        bitset);
+}
+
+inline Ret scan_dataset_heap_with_optional_l2_norms(const DatasetReader& dataset, size_t count,
+        DistHeap* heap, CalcDotFn dot_fn, CalcDistFn fallback_dist_fn, const uint8_t* vec,
+        size_t dim, double query_norm_sq, DistFunc func, const BitsetFilter* bitset = nullptr) {
+    assert(func == DistFunc::L2);
+    std::vector<DataReaderPtr> readers;
+    CHECK(collect_dataset_readers(dataset, &readers));
+    return scan_dataset_readers(
+        readers, count, heap,
+        [dot_fn, fallback_dist_fn, vec, dim, query_norm_sq, func](
+                const DataReader& reader, size_t local_count, DistHeap* local_heap,
+                const BitsetFilter* bitset_filter) {
+            if (reader.has_matching_stored_norms(func)) {
+                scan_data_reader_with_l2_stored_norms(
+                    reader, local_count, local_heap, dot_fn, vec, dim, query_norm_sq, bitset_filter);
+            } else {
+                scan_data_reader_with_dist(
+                    reader, local_count, local_heap, fallback_dist_fn, vec, dim, bitset_filter);
             }
         },
         func,
