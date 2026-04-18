@@ -10,7 +10,7 @@
 #include "core/calc/calc_engine.h"
 #include "core/calc/hwy_kernels.h"
 #include "core/calc/nk_kernels.h"
-#include "core/compute/utest_compute_helpers.h"
+#include "core/calc/utest_calc_helpers.h"
 #include "numkong/capabilities.h"
 
 using namespace sketch2;

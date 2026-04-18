@@ -1,14 +1,14 @@
-// Shared helper utilities for compute unit tests.
+// Shared helper utilities for calc kernel unit tests.
 
 #pragma once
-#include <gtest/gtest.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-#include "core/utils/arch_detection.h"
-#include "core/compute/compute.h"
+
+#include "core/utils/shared_types.h"
 
 namespace sketch2 {
 namespace test {
@@ -16,7 +16,7 @@ namespace test {
 template <typename T>
 struct TestBuffer {
     std::vector<uint8_t> storage;
-    T *ptr = nullptr;
+    T* ptr = nullptr;
 };
 
 template <typename T>
@@ -26,14 +26,12 @@ TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
     uintptr_t p = reinterpret_cast<uintptr_t>(out.storage.data());
     p = (p + 31u) & ~uintptr_t(31u);
     p += misalign_bytes;
-    out.ptr = reinterpret_cast<T *>(p);
+    out.ptr = reinterpret_cast<T*>(p);
     return out;
 }
 
-// --- Reference Implementations ---
-
 template <typename T>
-double reference_l2(const T *a, const T *b, size_t dim) {
+double reference_l2(const T* a, const T* b, size_t dim) {
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
         const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
@@ -43,7 +41,7 @@ double reference_l2(const T *a, const T *b, size_t dim) {
 }
 
 template <>
-inline double reference_l2<int16_t>(const int16_t *a, const int16_t *b, size_t dim) {
+inline double reference_l2<int16_t>(const int16_t* a, const int16_t* b, size_t dim) {
     double sum = 0.0;
     for (size_t i = 0; i < dim; ++i) {
         const int64_t d = static_cast<int64_t>(a[i]) - static_cast<int64_t>(b[i]);
@@ -53,7 +51,7 @@ inline double reference_l2<int16_t>(const int16_t *a, const int16_t *b, size_t d
 }
 
 template <typename T>
-double reference_dot(const T *a, const T *b, size_t dim) {
+double reference_dot(const T* a, const T* b, size_t dim) {
     double dot = 0.0;
     for (size_t i = 0; i < dim; ++i) {
         dot += static_cast<double>(a[i]) * static_cast<double>(b[i]);
@@ -62,7 +60,7 @@ double reference_dot(const T *a, const T *b, size_t dim) {
 }
 
 template <typename T>
-double reference_squared_norm(const T *a, size_t dim) {
+double reference_squared_norm(const T* a, size_t dim) {
     double norm = 0.0;
     for (size_t i = 0; i < dim; ++i) {
         const double ai = static_cast<double>(a[i]);
@@ -72,7 +70,7 @@ double reference_squared_norm(const T *a, size_t dim) {
 }
 
 template <typename T>
-double reference_cosine_distance(const T *a, const T *b, size_t dim) {
+double reference_cosine_distance(const T* a, const T* b, size_t dim) {
     const double dot = reference_dot(a, b, dim);
     const double norm_a = reference_squared_norm(a, dim);
     const double norm_b = reference_squared_norm(b, dim);
@@ -88,9 +86,7 @@ double reference_cosine_distance(const T *a, const T *b, size_t dim) {
     return 1.0 - cosine;
 }
 
-// --- Data Generation ---
-
-inline void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
+inline void fill_f32(float* a, float* b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {
         const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
         const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
@@ -99,7 +95,7 @@ inline void fill_f32(float *a, float *b, size_t dim, uint32_t seed) {
     }
 }
 
-inline void fill_i16(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
+inline void fill_i16(int16_t* a, int16_t* b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {
         const int32_t ai = static_cast<int32_t>((i * 977 + seed * 131) % 65536) - 32768;
         const int32_t bi = static_cast<int32_t>((i * 733 + seed * 191) % 65536) - 32768;
@@ -108,12 +104,14 @@ inline void fill_i16(int16_t *a, int16_t *b, size_t dim, uint32_t seed) {
     }
 }
 
-inline void fill_f16(float16 *a, float16 *b, size_t dim, uint32_t seed) {
+inline void fill_f16(float16* a, float16* b, size_t dim, uint32_t seed) {
     for (size_t i = 0; i < dim; ++i) {
         const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
         const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float16>(static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f);
-        b[i] = static_cast<float16>(static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f);
+        a[i] = static_cast<float16>(
+            static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f);
+        b[i] = static_cast<float16>(
+            static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f);
     }
 }
 

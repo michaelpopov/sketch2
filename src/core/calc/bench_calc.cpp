@@ -1,15 +1,13 @@
-// Direct kernel benchmark for calc engines, including CalcEngine::compute.
+// Direct kernel benchmark for calc engines.
 
 #include "core/calc/calc_engine.h"
 #include "core/calc/nk_kernels.h"
-#include "core/compute/compute_cos.h"
-#include "core/compute/compute_dot.h"
-#include "core/compute/compute_l2.h"
 #include "core/utils/shared_types.h"
 #include "core/utils/singleton.h"
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -220,72 +218,24 @@ std::vector<CaseStats> run_calc_bench(const Args& args, const uint8_t* a, const 
     return results;
 }
 
-std::vector<CaseStats> run_compute_bench(const Args& args, const uint8_t* a, const uint8_t* b) {
-    std::vector<CaseStats> results;
-    if (args.dist == DistFunc::DOT) {
-        const auto fn = ComputeDOT::resolve_dist(args.type);
-        results.push_back(benchmark_case("dist", args.warmup_iterations, args.iterations, args.repeats, [&] {
-            return fn(a, b, args.dim);
-        }));
-        return results;
-    }
-    if (args.dist == DistFunc::L2) {
-        const auto fn = ComputeL2::resolve_dist(args.type);
-        results.push_back(benchmark_case("dist", args.warmup_iterations, args.iterations, args.repeats, [&] {
-            return fn(a, b, args.dim);
-        }));
-        return results;
-    }
-
-    const auto dist_fn = ComputeCos::resolve_dist(args.type);
-    const auto dot_fn = ComputeDotNorm::resolve_dot(args.type);
-    const auto norm_fn = ComputeDotNorm::resolve_squared_norm(args.type);
-    const auto dist_qn_fn = ComputeCos::resolve_dist_with_query_norm(args.type);
-    const double query_norm_sq = norm_fn(b, args.dim);
-
-    results.push_back(benchmark_case("dist", args.warmup_iterations, args.iterations, args.repeats, [&] {
-        return dist_fn(a, b, args.dim);
-    }));
-    results.push_back(benchmark_case("dot", args.warmup_iterations, args.iterations, args.repeats, [&] {
-        return dot_fn(a, b, args.dim);
-    }));
-    results.push_back(benchmark_case("squared_norm", args.warmup_iterations, args.iterations, args.repeats, [&] {
-        return norm_fn(b, args.dim);
-    }));
-    results.push_back(benchmark_case(
-        "dist_with_query_norm", args.warmup_iterations, args.iterations, args.repeats, [&] {
-            return dist_qn_fn(a, b, args.dim, query_norm_sq);
-        }));
-    return results;
-}
-
 std::vector<CaseStats> run_benchmarks(const Args& args) {
     switch (args.type) {
         case DataType::f32: {
             std::vector<float> a;
             std::vector<float> b;
             const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
-            if (args.engine == "auto" || args.engine == "scalar") {
-                return run_compute_bench(args, av, bv);
-            }
             return run_calc_bench(args, av, bv);
         }
         case DataType::f16: {
             std::vector<float16> a;
             std::vector<float16> b;
             const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
-            if (args.engine == "auto" || args.engine == "scalar") {
-                return run_compute_bench(args, av, bv);
-            }
             return run_calc_bench(args, av, bv);
         }
         case DataType::i16: {
             std::vector<int16_t> a;
             std::vector<int16_t> b;
             const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
-            if (args.engine == "auto" || args.engine == "scalar") {
-                return run_compute_bench(args, av, bv);
-            }
             return run_calc_bench(args, av, bv);
         }
     }

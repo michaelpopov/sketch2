@@ -1,7 +1,6 @@
 #include "internal.h"
 
 #include "core/calc/scanner_ex.h"
-#include "core/compute/compute_cos.h"
 #include "core/storage/input_generator.h"
 #include "core/utils/compute_unit.h"
 #include "core/utils/log.h"

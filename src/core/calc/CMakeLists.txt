@@ -1,6 +1,5 @@
 add_library(calc STATIC
   calc_engine.cpp
-  compute_kernels.cpp
   hwy_kernels.cpp
   nk_kernels.cpp
   scanner_hw.cpp

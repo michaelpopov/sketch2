@@ -12,7 +12,6 @@
 namespace sketch2 {
 
 enum class CalcEngine : uint8_t {
-    compute,
     highway,
     numkong,
 };

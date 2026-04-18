@@ -26,12 +26,6 @@ ComputeUnit ComputeUnit::detect_best() {
 
 bool ComputeUnit::is_supported(ComputeBackendKind kind) {
     switch (kind) {
-        case ComputeBackendKind::scalar:
-        case ComputeBackendKind::avx2:
-        case ComputeBackendKind::avx512f:
-        case ComputeBackendKind::avx512_vnni:
-        case ComputeBackendKind::neon:
-            return false;
         case ComputeBackendKind::highway:
         case ComputeBackendKind::nk:
             return true;
@@ -61,16 +55,6 @@ ComputeBackendKind ComputeUnit::kind() const {
 
 const char* ComputeUnit::name() const {
     switch (kind_) {
-        case ComputeBackendKind::scalar:
-            return "scalar";
-        case ComputeBackendKind::avx2:
-            return "avx2";
-        case ComputeBackendKind::avx512f:
-            return "avx512f";
-        case ComputeBackendKind::avx512_vnni:
-            return "avx512_vnni";
-        case ComputeBackendKind::neon:
-            return "neon";
         case ComputeBackendKind::highway:
             return "highway";
         case ComputeBackendKind::nk:
