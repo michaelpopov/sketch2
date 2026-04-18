@@ -584,6 +584,7 @@ CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
 
 Ret ScannerHw::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
+    result.clear();
     try {
         std::vector<DistItem> items;
         CHECK(find_items(dataset, count, vec, items, nullptr));
@@ -596,6 +597,7 @@ Ret ScannerHw::find(const DatasetReader& dataset, size_t count, const uint8_t* v
 
 Ret ScannerHw::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result, const BitsetFilter* bitset) const {
+    result.clear();
     try {
         return find_items_hw(dataset, count, vec, &result, bitset);
     } catch (const std::exception& ex) {

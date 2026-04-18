@@ -213,6 +213,34 @@ TEST_F(ScannerExTest, FindFailsOnUnknownFunction) {
     EXPECT_NE(0, s.find(reader, 1, q.data(), result).code());
 }
 
+TEST_F(ScannerExTest, FindClearsReusedResultBufferOnFailure) {
+    generate(3, 0, DataType::f32, 4);
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
+    ScannerEx s;
+    auto q = f32_vec(0.0f, 4);
+    std::vector<uint64_t> result;
+
+    ASSERT_EQ(0, s.find(*reader, 2, q.data(), result).code());
+    ASSERT_FALSE(result.empty());
+
+    EXPECT_NE(0, s.find(*reader, 0, q.data(), result).code());
+    EXPECT_TRUE(result.empty());
+}
+
+TEST_F(ScannerExTest, FindItemsClearsReusedResultBufferOnFailure) {
+    generate(3, 0, DataType::f32, 4);
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
+    ScannerEx s;
+    auto q = f32_vec(0.0f, 4);
+    std::vector<DistItem> result;
+
+    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
+    ASSERT_FALSE(result.empty());
+
+    EXPECT_NE(0, s.find_items(*reader, 1, nullptr, result).code());
+    EXPECT_TRUE(result.empty());
+}
+
 // ---------------------------------------------------------------------------
 // DOT metric
 // ---------------------------------------------------------------------------

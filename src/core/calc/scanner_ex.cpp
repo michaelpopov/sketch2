@@ -26,6 +26,7 @@ ScannerEx::ScannerEx(CalcEngine engine) : engine_(engine) {}
 
 Ret ScannerEx::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
+    result.clear();
     try {
         std::vector<DistItem> items;
         CHECK(find_items(dataset, count, vec, items, nullptr));
@@ -38,6 +39,7 @@ Ret ScannerEx::find(const DatasetReader& dataset, size_t count, const uint8_t* v
 
 Ret ScannerEx::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result, const BitsetFilter* bitset) const {
+    result.clear();
     try {
         switch (engine_) {
 #if SKETCH_CALC_ENGINE_HIGHWAY
