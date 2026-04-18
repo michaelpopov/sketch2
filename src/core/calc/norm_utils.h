@@ -10,36 +10,32 @@
 
 namespace sketch2 {
 
-inline double compute_cosine_inverse_norm(const uint8_t* data, DataType type, size_t dim) {
+template <typename T>
+inline double sum_squares(const uint8_t* data, size_t dim) {
+    const auto* values = reinterpret_cast<const T*>(data);
     double norm_sq = 0.0;
-    switch (type) {
-        case DataType::f32: {
-            const auto* values = reinterpret_cast<const float*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        case DataType::f16: {
-            const auto* values = reinterpret_cast<const float16*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        case DataType::i16: {
-            const auto* values = reinterpret_cast<const int16_t*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        default:
-            throw std::runtime_error("compute_cosine_inverse_norm: unsupported data type");
+    for (size_t i = 0; i < dim; ++i) {
+        const double value = static_cast<double>(values[i]);
+        norm_sq += value * value;
     }
+    return norm_sq;
+}
+
+inline double compute_norm_sq(const uint8_t* data, DataType type, size_t dim, const char* context) {
+    switch (type) {
+        case DataType::f32:
+            return sum_squares<float>(data, dim);
+        case DataType::f16:
+            return sum_squares<float16>(data, dim);
+        case DataType::i16:
+            return sum_squares<int16_t>(data, dim);
+        default:
+            throw std::runtime_error(std::string(context) + ": unsupported data type");
+    }
+}
+
+inline double compute_cosine_inverse_norm(const uint8_t* data, DataType type, size_t dim) {
+    const double norm_sq = compute_norm_sq(data, type, dim, "compute_cosine_inverse_norm");
 
     if (norm_sq == 0.0) {
         return 0.0;
@@ -48,36 +44,7 @@ inline double compute_cosine_inverse_norm(const uint8_t* data, DataType type, si
 }
 
 inline double compute_squared_norm(const uint8_t* data, DataType type, size_t dim) {
-    double norm_sq = 0.0;
-    switch (type) {
-        case DataType::f32: {
-            const auto* values = reinterpret_cast<const float*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        case DataType::f16: {
-            const auto* values = reinterpret_cast<const float16*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        case DataType::i16: {
-            const auto* values = reinterpret_cast<const int16_t*>(data);
-            for (size_t i = 0; i < dim; ++i) {
-                const double value = static_cast<double>(values[i]);
-                norm_sq += value * value;
-            }
-            break;
-        }
-        default:
-            throw std::runtime_error("compute_squared_norm: unsupported data type");
-    }
-    return norm_sq;
+    return compute_norm_sq(data, type, dim, "compute_squared_norm");
 }
 
 } // namespace sketch2

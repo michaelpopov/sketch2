@@ -28,20 +28,7 @@ Ret ScannerEx::find(const DatasetReader& dataset, size_t count, const uint8_t* v
         std::vector<uint64_t>& result) const {
     try {
         std::vector<DistItem> items;
-        switch (engine_) {
-#if SKETCH_CALC_ENGINE_HIGHWAY
-            case CalcEngine::highway:
-                CHECK(find_items_hw(dataset, count, vec, &items, nullptr));
-                break;
-#endif
-#if SKETCH_CALC_ENGINE_NUMKONG
-            case CalcEngine::numkong:
-                CHECK(find_items_nk(dataset, count, vec, &items, nullptr));
-                break;
-#endif
-            default:
-                return Ret("ScannerEx::find: unsupported calc engine.");
-        }
+        CHECK(find_items(dataset, count, vec, items, nullptr));
         extract_ids_from_items(items, &result);
         return Ret(0);
     } catch (const std::exception& ex) {
