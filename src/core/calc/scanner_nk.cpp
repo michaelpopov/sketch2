@@ -33,20 +33,20 @@ Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec
     if (func == DistFunc::COS) {
         assert(kernels.squared_norm && kernels.dot && kernels.dist_with_query_norm);
         const double query_norm_sq = kernels.squared_norm(vec, dim);
-        const double query_inv = query_inverse_norm(query_norm_sq);
+        const QueryCosContext query{vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)};
         CHECK(scan_dataset_heap_with_optional_cosine_norms(
             dataset, count, &heap, kernels.dot, kernels.dist_with_query_norm,
-            vec, dim, query_inv, query_norm_sq, func, bitset));
+            query, func, bitset));
     } else if (func == DistFunc::L2 && kernels.squared_norm && kernels.dot) {
         assert(kernels.dist);
-        const double query_norm_sq = kernels.squared_norm(vec, dim);
+        const QueryL2Context query{vec, dim, kernels.squared_norm(vec, dim)};
         CHECK(scan_dataset_heap_with_optional_l2_norms(
-            dataset, count, &heap, kernels.dot, kernels.dist, vec, dim,
-            query_norm_sq, func, bitset));
+            dataset, count, &heap, kernels.dot, kernels.dist, query, func, bitset));
     } else {
         assert(kernels.dist);
+        const QueryDistContext query{vec, dim};
         CHECK(scan_dataset_heap_with_dist(
-            dataset, count, &heap, kernels.dist, vec, dim, func, bitset));
+            dataset, count, &heap, kernels.dist, query, func, bitset));
     }
 
     log_query(dataset.name(), func, dataset.type(), dim, count, CalcEngine::numkong, timer.elapsed_ms());
