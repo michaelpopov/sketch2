@@ -25,6 +25,9 @@ Ret ScannerNk::find(const DatasetReader& dataset, size_t count, const uint8_t* v
 Ret ScannerNk::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result, const BitsetFilter* bitset) const {
     try {
+        if (dataset.type() == DataType::i16) {
+            return Ret("ScannerNk::find_items: NumKong does not support i16 datasets.");
+        }
         const CalcKernels kernels = resolve_nk_kernels(dataset.dist_func(), dataset.type());
         return scanner_find_items_with_kernels(
             CalcEngine::numkong, dataset, count, vec, kernels, &result, bitset);

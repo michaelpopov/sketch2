@@ -717,17 +717,17 @@ TEST_F(ScannerExTest, FindI16AllSortedByDistance) {
     EXPECT_EQ(2u, result[2]);
 }
 
-TEST_F(ScannerExTest, FindI16FallsBackToHighwayWhenNumKongRequested) {
+TEST_F(ScannerExTest, FindI16RejectsNumKong) {
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     ScannerEx s(CalcEngine::numkong);
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
-    ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(0u, result[0]);
-    EXPECT_EQ(1u, result[1]);
-    EXPECT_EQ(2u, result[2]);
+    const Ret ret = s.find(*reader, 3, q.data(), result);
+    EXPECT_NE(0, ret.code());
+    EXPECT_TRUE(result.empty());
+    EXPECT_NE(std::string(ret.message()).find("NumKong does not support i16"),
+              std::string::npos);
 }
 
 TEST_F(ScannerExTest, FindF16Works) {

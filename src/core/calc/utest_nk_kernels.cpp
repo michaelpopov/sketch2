@@ -1,4 +1,4 @@
-// Unit tests for NumKong distance kernels and resolver fallback behavior.
+// Unit tests for NumKong distance kernels and resolver validation behavior.
 
 #include <gtest/gtest.h>
 
@@ -98,20 +98,13 @@ TEST(NumKongKernelsTest, DOTUsesNumKongForF32AndF16) {
         EXPECT_EQ(nullptr, nk.squared_norm);
         EXPECT_EQ(nullptr, nk.dist_with_query_norm);
     }
-    // i16 still falls back to Highway
-    const CalcKernels nk_i16 = resolve_nk_kernels(DistFunc::DOT, DataType::i16);
-    const CalcKernels hwy_i16 = resolve_hwy_kernels(DistFunc::DOT, DataType::i16);
-    EXPECT_EQ(hwy_i16.dist, nk_i16.dist);
+    EXPECT_THROW(resolve_nk_kernels(DistFunc::DOT, DataType::i16), std::runtime_error);
 }
 
-TEST(NumKongKernelsTest, I16FallsBackToHighwayForAllMetrics) {
+TEST(NumKongKernelsTest, I16IsRejectedForAllMetrics) {
     for (DistFunc func : {DistFunc::DOT, DistFunc::L2, DistFunc::COS}) {
-        const CalcKernels nk = resolve_nk_kernels(func, DataType::i16);
-        const CalcKernels hwy = resolve_hwy_kernels(func, DataType::i16);
-        EXPECT_EQ(hwy.dist, nk.dist) << "func=" << static_cast<int>(func);
-        EXPECT_EQ(hwy.dot, nk.dot) << "func=" << static_cast<int>(func);
-        EXPECT_EQ(hwy.squared_norm, nk.squared_norm) << "func=" << static_cast<int>(func);
-        EXPECT_EQ(hwy.dist_with_query_norm, nk.dist_with_query_norm) << "func=" << static_cast<int>(func);
+        EXPECT_THROW(resolve_nk_kernels(func, DataType::i16), std::runtime_error)
+            << "func=" << static_cast<int>(func);
     }
 }
 
