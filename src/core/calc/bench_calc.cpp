@@ -1,9 +1,11 @@
 // Direct kernel benchmark for calc engines.
 
 #include "core/calc/calc_engine.h"
+#include "core/calc/cosine_distance.h"
 #if SKETCH_CALC_ENGINE_NUMKONG
 #include "core/calc/scanner_nk.h"
 #endif
+#include "core/calc/scanner_query_context.h"
 #include "core/utils/shared_types.h"
 #include "core/utils/singleton.h"
 
@@ -206,18 +208,41 @@ std::vector<CaseStats> run_calc_bench(const Args& args, const uint8_t* a, const 
         return kernels.dist(a, b, args.dim);
     }));
 
-    if (args.dist == DistFunc::COS) {
-        const double query_norm_sq = kernels.squared_norm(b, args.dim);
+    if (kernels.dot) {
         results.push_back(benchmark_case("dot", args.warmup_iterations, args.iterations, args.repeats, [&] {
             return kernels.dot(a, b, args.dim);
         }));
+    }
+
+    if (kernels.squared_norm) {
         results.push_back(benchmark_case(
             "squared_norm", args.warmup_iterations, args.iterations, args.repeats, [&] {
                 return kernels.squared_norm(b, args.dim);
             }));
+    }
+
+    if (args.dist == DistFunc::COS && kernels.dot && kernels.squared_norm && kernels.dist_with_query_norm) {
+        const double query_norm_sq = kernels.squared_norm(b, args.dim);
+        const double query_inv_norm = query_inverse_norm(query_norm_sq);
+        const double stored_inv_norm = query_inverse_norm(kernels.squared_norm(a, args.dim));
         results.push_back(benchmark_case(
             "dist_with_query_norm", args.warmup_iterations, args.iterations, args.repeats, [&] {
                 return kernels.dist_with_query_norm(a, b, args.dim, query_norm_sq);
+            }));
+        results.push_back(benchmark_case(
+            "dist_with_stored_norms", args.warmup_iterations, args.iterations, args.repeats, [&] {
+                return finalize_cosine_distance_from_inverse_norms(
+                    kernels.dot(a, b, args.dim), stored_inv_norm, query_inv_norm);
+            }));
+    }
+
+    if (args.dist == DistFunc::L2 && kernels.dot && kernels.squared_norm) {
+        const double query_norm_sq = kernels.squared_norm(b, args.dim);
+        const double stored_norm_sq = kernels.squared_norm(a, args.dim);
+        results.push_back(benchmark_case(
+            "dist_with_stored_norms", args.warmup_iterations, args.iterations, args.repeats, [&] {
+                return finalize_squared_l2_distance_from_squared_norms(
+                    kernels.dot(a, b, args.dim), stored_norm_sq, query_norm_sq);
             }));
     }
 

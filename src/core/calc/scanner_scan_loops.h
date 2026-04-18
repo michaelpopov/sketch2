@@ -14,6 +14,7 @@
 namespace sketch2 {
 
 constexpr size_t kPrefetchCacheLineBytes = 64;
+constexpr size_t kPrefetchDistance = 1;
 
 inline void prefetch_vector_record(const uint8_t* data, size_t vector_size_bytes) {
     if (data == nullptr) {
@@ -22,6 +23,16 @@ inline void prefetch_vector_record(const uint8_t* data, size_t vector_size_bytes
 
     for (size_t offset = 0; offset < vector_size_bytes; offset += kPrefetchCacheLineBytes) {
         __builtin_prefetch(data + offset, 0, 1);
+    }
+}
+
+inline void prefetch_ordered_iterator_lookahead(DataReader::OrderedIterator it,
+        size_t lookahead_distance, size_t vector_size_bytes) {
+    for (size_t step = 0; step < lookahead_distance && !it.eof(); ++step) {
+        it.next();
+    }
+    if (!it.eof()) {
+        prefetch_vector_record(it.data(), vector_size_bytes);
     }
 }
 
@@ -49,9 +60,7 @@ inline void scan_ordered_iterator(DataReader::OrderedIterator it, size_t vector_
         const uint64_t id = it.id();
         DataReader::OrderedIterator next_it = it;
         next_it.next();
-        if (!next_it.eof()) {
-            prefetch_vector_record(next_it.data(), vector_size_bytes);
-        }
+        prefetch_ordered_iterator_lookahead(it, kPrefetchDistance, vector_size_bytes);
         if constexpr (HasBitset) {
             if (!bitset_contains_id(bitset, id)) {
                 it = next_it;
