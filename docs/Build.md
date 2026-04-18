@@ -21,6 +21,9 @@ Practical tools used by this repository:
 - `make`
 - `python3` for the Python wrapper, shell, and demo scripts
 
+A fresh machine also needs normal outbound network access during the first
+configure because GoogleTest is downloaded as part of the standard build.
+
 On Ubuntu, the repository `Makefile` provides:
 
 ```bash
@@ -39,6 +42,10 @@ If `python3` is not already installed on the machine, install it separately.
 
 The project uses CMake as the primary build system. The root `Makefile` is a
 thin convenience layer over the main CMake commands.
+
+Build directories are engine-specific because `SKETCH_CALC_ENGINE` is cached at
+configure time. If you want a NumKong build, configure a fresh build directory
+for it instead of reusing a previously configured `highway` tree.
 
 Important build types:
 
@@ -66,6 +73,15 @@ configure with:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_ARM_SVE=ON
+```
+
+To build the NumKong engine explicitly from a fresh clone or on another
+machine, use a dedicated build directory:
+
+```bash
+cmake -S . -B build-nk-dbg -DCMAKE_BUILD_TYPE=Debug -DSKETCH_CALC_ENGINE=numkong
+cmake --build build-nk-dbg
+ctest --test-dir build-nk-dbg --output-on-failure
 ```
 
 ## Main Artifacts

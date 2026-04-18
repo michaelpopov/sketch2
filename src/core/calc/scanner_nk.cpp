@@ -14,6 +14,7 @@
 #include "core/utils/timer.h"
 
 #include "numkong/capabilities.h"
+#include "numkong/cast/serial.h"
 #include "numkong/reduce.h"
 #include "numkong/dot/serial.h"
 #include "numkong/spatial/serial.h"
@@ -63,13 +64,23 @@ using NkSpatialF16Fn = void (*)(const nk_f16_t*, const nk_f16_t*, nk_size_t, nk_
 using NkNormF32Fn = void (*)(const nk_f32_t*, nk_size_t, nk_size_t, nk_f64_t*, nk_f64_t*);
 using NkNormF16Fn = void (*)(const nk_f16_t*, nk_size_t, nk_size_t, nk_f32_t*, nk_f32_t*);
 
+inline nk_f64_t to_f64(nk_f32_t value) {
+    return static_cast<nk_f64_t>(value);
+}
+
+inline nk_f64_t to_f64(nk_f16_t value) {
+    nk_f64_t converted = 0;
+    nk_f16_to_f64_serial(&value, &converted);
+    return converted;
+}
+
 template <typename T, typename Acc>
 inline void fused_dot_and_squared_norm(const T* a, const T* b, size_t dim, Acc* dot_out, Acc* norm_out) {
     Acc dot = 0;
     Acc norm = 0;
     for (size_t i = 0; i < dim; ++i) {
-        const Acc av = static_cast<Acc>(a[i]);
-        dot += av * static_cast<Acc>(b[i]);
+        const Acc av = static_cast<Acc>(to_f64(a[i]));
+        dot += av * static_cast<Acc>(to_f64(b[i]));
         norm += av * av;
     }
     *dot_out = dot;
@@ -410,12 +421,13 @@ double nk_dist_cos_qn_f32(const uint8_t* a, const uint8_t* b, size_t dim, double
 }
 
 double nk_dist_cos_qn_f16(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
-    nk_f32_t dot_result = 0;
-    nk_f32_t a_norm_sq = 0;
+    nk_f64_t dot_result = 0;
+    nk_f64_t a_norm_sq = 0;
     fused_dot_and_squared_norm(reinterpret_cast<const nk_f16_t*>(a),
                                reinterpret_cast<const nk_f16_t*>(b),
                                dim, &dot_result, &a_norm_sq);
-    return finalize_cosine_distance(static_cast<double>(dot_result), static_cast<double>(a_norm_sq),
+    return finalize_cosine_distance(static_cast<double>(dot_result),
+                                    static_cast<double>(a_norm_sq),
                                     query_norm_sq);
 }
 

@@ -87,6 +87,26 @@ TEST(NumKongKernelsTest, CosHelpersF32MatchReference) {
     }
 }
 
+TEST(NumKongKernelsTest, CosWithQueryNormF16MatchesReference) {
+    for (size_t dim : {1, 3, 7, 15, 17, 33, 100, 128, 257, 4096}) {
+        auto ba = make_buffer<float16>(dim, 0);
+        auto bb = make_buffer<float16>(dim, 0);
+        fill_f16(ba.ptr, bb.ptr, dim, 42);
+        const CalcKernels k = resolve_nk_kernels(DistFunc::COS, DataType::f16);
+        ASSERT_NE(k.squared_norm, nullptr);
+        ASSERT_NE(k.dist_with_query_norm, nullptr);
+
+        const double expected_dist = reference_cosine_distance(ba.ptr, bb.ptr, dim);
+        const double query_norm_sq = k.squared_norm(reinterpret_cast<const uint8_t*>(bb.ptr), dim);
+
+        EXPECT_NEAR(expected_dist,
+                    k.dist_with_query_norm(reinterpret_cast<const uint8_t*>(ba.ptr),
+                                           reinterpret_cast<const uint8_t*>(bb.ptr), dim, query_norm_sq),
+                    1e-5)
+            << "dim=" << dim;
+    }
+}
+
 TEST(NumKongKernelsTest, DOTUsesNumKongForF32AndF16) {
     for (DataType type : {DataType::f32, DataType::f16}) {
         const CalcKernels nk = resolve_nk_kernels(DistFunc::DOT, type);
