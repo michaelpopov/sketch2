@@ -11,6 +11,26 @@ enum class ComputeBackendKind : uint8_t {
     nk,
 };
 
+constexpr ComputeBackendKind compiled_compute_backend_kind() {
+#if SKETCH_CALC_ENGINE_HIGHWAY
+    return ComputeBackendKind::highway;
+#elif SKETCH_CALC_ENGINE_NUMKONG
+    return ComputeBackendKind::nk;
+#else
+#error "Exactly one calc engine must be compiled."
+#endif
+}
+
+constexpr const char* compiled_compute_backend_name() {
+#if SKETCH_CALC_ENGINE_HIGHWAY
+    return "highway";
+#elif SKETCH_CALC_ENGINE_NUMKONG
+    return "numkong";
+#else
+#error "Exactly one calc engine must be compiled."
+#endif
+}
+
 class ComputeUnit {
 public:
     ComputeUnit() = default;
@@ -24,7 +44,7 @@ public:
     const char* name() const;
 
 private:
-    ComputeBackendKind kind_ = ComputeBackendKind::highway;
+    ComputeBackendKind kind_ = compiled_compute_backend_kind();
 };
 
 } // namespace sketch2

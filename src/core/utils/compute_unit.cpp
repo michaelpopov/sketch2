@@ -12,7 +12,7 @@ namespace sketch2 {
 namespace {
 
 ComputeBackendKind detect_best_backend() {
-    return ComputeBackendKind::highway;
+    return compiled_compute_backend_kind();
 }
 
 } // namespace
@@ -25,25 +25,15 @@ ComputeUnit ComputeUnit::detect_best() {
 }
 
 bool ComputeUnit::is_supported(ComputeBackendKind kind) {
-    switch (kind) {
-        case ComputeBackendKind::highway:
-        case ComputeBackendKind::nk:
-            return true;
-        default:
-            return false;
-    }
+    return kind == compiled_compute_backend_kind();
 }
 
 bool ComputeUnit::parse(const char* name, ComputeBackendKind* kind) {
     if (name == nullptr || kind == nullptr) {
         return false;
     }
-    if (std::strcmp(name, "highway") == 0) {
-        *kind = ComputeBackendKind::highway;
-        return true;
-    }
-    if (std::strcmp(name, "numkong") == 0) {
-        *kind = ComputeBackendKind::nk;
+    if (std::strcmp(name, compiled_compute_backend_name()) == 0) {
+        *kind = compiled_compute_backend_kind();
         return true;
     }
     return false;
@@ -59,9 +49,8 @@ const char* ComputeUnit::name() const {
             return "highway";
         case ComputeBackendKind::nk:
             return "numkong";
-        default:
-            return "unknown";
     }
+    return "unknown";
 }
 
 } // namespace sketch2

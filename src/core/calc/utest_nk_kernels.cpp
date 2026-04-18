@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "core/calc/calc_engine.h"
-#include "core/calc/hwy_kernels.h"
 #include "core/calc/nk_kernels.h"
 #include "core/calc/utest_calc_helpers.h"
 #include "numkong/capabilities.h"
@@ -91,9 +90,7 @@ TEST(NumKongKernelsTest, CosHelpersF32MatchReference) {
 TEST(NumKongKernelsTest, DOTUsesNumKongForF32AndF16) {
     for (DataType type : {DataType::f32, DataType::f16}) {
         const CalcKernels nk = resolve_nk_kernels(DistFunc::DOT, type);
-        const CalcKernels hwy = resolve_hwy_kernels(DistFunc::DOT, type);
         EXPECT_NE(nullptr, nk.dist) << "type=" << static_cast<int>(type);
-        EXPECT_NE(hwy.dist, nk.dist) << "type=" << static_cast<int>(type);
         EXPECT_EQ(nullptr, nk.dot);
         EXPECT_EQ(nullptr, nk.squared_norm);
         EXPECT_EQ(nullptr, nk.dist_with_query_norm);
@@ -124,7 +121,7 @@ TEST(NumKongKernelsTest, DynamicDispatchMetadataIsConsistent) {
 
     EXPECT_NE(0u, compiled & static_cast<uint64_t>(nk_cap_serial_k));
     EXPECT_EQ(0u, available & ~compiled);
-    EXPECT_STRNE("highway", nk_calc_backend_name(DistFunc::L2, DataType::f32));
+    EXPECT_STRNE("unsupported", nk_calc_backend_name(DistFunc::L2, DataType::f32));
 }
 
 #if defined(__x86_64__) || defined(_M_X64)

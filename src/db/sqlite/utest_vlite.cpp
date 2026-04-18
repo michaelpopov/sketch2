@@ -37,6 +37,16 @@ using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
 constexpr const char* kScenarioEnv = "SKETCH2API_VLITE_COMPUTE_SCENARIO";
 constexpr const char* kComputeEngineEnv = "SKETCH2_COMPUTE_ENGINE";
 
+#if SKETCH_CALC_ENGINE_HIGHWAY
+constexpr const char* kCompiledEngine = "highway";
+constexpr const char* kOtherEngine = "numkong";
+#elif SKETCH_CALC_ENGINE_NUMKONG
+constexpr const char* kCompiledEngine = "numkong";
+constexpr const char* kOtherEngine = "highway";
+#else
+#error "Exactly one calc engine must be compiled."
+#endif
+
 class EnvVarGuard {
 public:
     explicit EnvVarGuard(const char* name) : name_(name) {
@@ -303,13 +313,11 @@ TEST_F(VliteTest, ChildScenario) {
                 "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     create_dataset(DataType::f32, 4, 100, DistFunc::COS);
 
-    std::string expected_engine = "compute";
-    if (std::string_view(scenario) == "env_highway") {
-        ASSERT_EQ(0, setenv(kComputeEngineEnv, "highway", 1));
-        expected_engine = "highway";
-    } else if (std::string_view(scenario) == "env_numkong") {
-        ASSERT_EQ(0, setenv(kComputeEngineEnv, "numkong", 1));
-        expected_engine = "numkong";
+    std::string expected_engine = kCompiledEngine;
+    if (std::string_view(scenario) == "env_compiled") {
+        ASSERT_EQ(0, setenv(kComputeEngineEnv, kCompiledEngine, 1));
+    } else if (std::string_view(scenario) == "env_other_is_advisory") {
+        ASSERT_EQ(0, setenv(kComputeEngineEnv, kOtherEngine, 1));
     } else {
         FAIL() << "Unknown scenario: " << scenario;
     }
@@ -350,12 +358,12 @@ void run_child_scenario(const char* scenario) {
     ASSERT_EQ(0, WEXITSTATUS(status));
 }
 
-TEST_F(VliteTest, EnvHighwayUsesCalcEngine) {
-    run_child_scenario("env_highway");
+TEST_F(VliteTest, EnvCompiledEngineUsesCalcEngine) {
+    run_child_scenario("env_compiled");
 }
 
-TEST_F(VliteTest, EnvNumKongUsesCalcEngine) {
-    run_child_scenario("env_numkong");
+TEST_F(VliteTest, InvalidOtherEngineEnvRemainsAdvisory) {
+    run_child_scenario("env_other_is_advisory");
 }
 
 TEST_F(VliteTest, UsesDatasetScoreFunctionForL2Queries) {
@@ -380,6 +388,9 @@ TEST_F(VliteTest, UsesDatasetScoreFunctionForL2Queries) {
 }
 
 TEST_F(VliteTest, SupportsI16Datasets) {
+#if SKETCH_CALC_ENGINE_NUMKONG
+    GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
+#endif
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");
@@ -702,6 +713,9 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF32L2Dataset) {
 }
 
 TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
+#if SKETCH_CALC_ENGINE_NUMKONG
+    GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
+#endif
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");
@@ -810,6 +824,9 @@ TEST_F(VliteTest, AtPrefixLoadsVectorFromSpaceDelimitedFile) {
 }
 
 TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
+#if SKETCH_CALC_ENGINE_NUMKONG
+    GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
+#endif
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");

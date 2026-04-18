@@ -1,7 +1,9 @@
 // Direct kernel benchmark for calc engines.
 
 #include "core/calc/calc_engine.h"
+#if SKETCH_CALC_ENGINE_NUMKONG
 #include "core/calc/nk_kernels.h"
+#endif
 #include "core/utils/shared_types.h"
 #include "core/utils/singleton.h"
 
@@ -188,8 +190,12 @@ std::pair<const uint8_t*, const uint8_t*> prepare_bytes(std::vector<T>* a, std::
 }
 
 CalcEngine calc_engine_from_string(const std::string& engine) {
+#if SKETCH_CALC_ENGINE_HIGHWAY
     if (engine == "highway") return CalcEngine::highway;
+#endif
+#if SKETCH_CALC_ENGINE_NUMKONG
     if (engine == "numkong") return CalcEngine::numkong;
+#endif
     throw std::runtime_error("unsupported calc engine: " + engine);
 }
 
@@ -253,9 +259,11 @@ void print_json(const Args& args, const std::vector<CaseStats>& cases) {
     std::cout << "  \"warmup_iterations\": " << args.warmup_iterations << ",\n";
     std::cout << "  \"repeats\": " << args.repeats << ",\n";
     std::cout << "  \"active_compute_backend\": \"" << json_escape(get_singleton().compute_unit().name()) << "\"";
+ #if SKETCH_CALC_ENGINE_NUMKONG
     if (args.engine == "numkong") {
         std::cout << ",\n  \"numkong_backend\": \"" << json_escape(nk_calc_backend_name(args.dist, args.type)) << "\"";
     }
+ #endif
     std::cout << ",\n  \"cases\": [\n";
     for (size_t i = 0; i < cases.size(); ++i) {
         const auto& entry = cases[i];

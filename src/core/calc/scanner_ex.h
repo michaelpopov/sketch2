@@ -19,7 +19,7 @@ const char* calc_engine_name(CalcEngine engine);
 // Singleton-dispatched hand-written SIMD kernels.
 class ScannerEx {
 public:
-    explicit ScannerEx(CalcEngine engine = CalcEngine::highway);
+    explicit ScannerEx(CalcEngine engine = compiled_calc_engine());
 
     Ret find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;

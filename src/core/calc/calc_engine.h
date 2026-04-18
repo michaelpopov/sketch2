@@ -16,6 +16,16 @@ enum class CalcEngine : uint8_t {
     numkong,
 };
 
+constexpr CalcEngine compiled_calc_engine() {
+#if SKETCH_CALC_ENGINE_HIGHWAY
+    return CalcEngine::highway;
+#elif SKETCH_CALC_ENGINE_NUMKONG
+    return CalcEngine::numkong;
+#else
+#error "Exactly one calc engine must be compiled."
+#endif
+}
+
 // Function pointer types matching the existing compute kernel conventions.
 using CalcDistFn             = double (*)(const uint8_t*, const uint8_t*, size_t);
 using CalcDistWithQueryNormFn = double (*)(const uint8_t*, const uint8_t*, size_t, double);
