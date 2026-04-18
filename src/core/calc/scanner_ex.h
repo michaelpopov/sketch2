@@ -2,7 +2,7 @@
 
 #pragma once
 #include "core/calc/calc_engine.h"
-#include "core/compute/compute.h"
+#include "core/calc/dist_item.h"
 #include "core/utils/bitset_filter.h"
 #include "utils/shared_types.h"
 #include <cstdint>
