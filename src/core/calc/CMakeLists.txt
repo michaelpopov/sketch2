@@ -3,6 +3,8 @@ add_library(calc STATIC
   compute_kernels.cpp
   hwy_kernels.cpp
   nk_kernels.cpp
+  scanner_hw.cpp
+  scanner_nk.cpp
   scanner_ex.cpp
 )
 set_target_properties(calc PROPERTIES OUTPUT_NAME "calc")
