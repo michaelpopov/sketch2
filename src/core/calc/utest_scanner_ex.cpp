@@ -25,34 +25,13 @@ namespace fs = std::filesystem;
 
 namespace {
 
-class ComputeUnitOverrideGuard {
-public:
-    explicit ComputeUnitOverrideGuard(ComputeBackendKind kind)
-        : original_(get_singleton().compute_unit().kind()),
-          supported_(ComputeUnit::is_supported(kind)),
-          active_(false) {
-        if (!supported_) {
-            return;
-        }
-        active_ = Singleton::force_compute_unit_for_testing(kind);
-    }
+constexpr CalcEngine kCompiledEngine = compiled_calc_engine();
 
-    ~ComputeUnitOverrideGuard() {
-        if (active_) {
-            EXPECT_TRUE(Singleton::force_compute_unit_for_testing(original_));
-        }
-    }
+ScannerEx make_compiled_scanner() {
+    return ScannerEx(kCompiledEngine);
+}
 
-    bool supported() const { return supported_; }
-    bool active() const { return active_; }
-
-private:
-    ComputeBackendKind original_;
-    bool supported_;
-    bool active_;
-};
-
-} // namespace
+}
 
 class ScannerExTest : public ::testing::Test {
 protected:
@@ -228,10 +207,38 @@ TEST_F(ScannerExTest, FindFailsOnNullQueryPointer) {
 
 TEST_F(ScannerExTest, FindFailsOnUnknownFunction) {
     DatasetReader reader;
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
     EXPECT_NE(0, s.find(reader, 1, q.data(), result).code());
+}
+
+TEST_F(ScannerExTest, FindClearsReusedResultBufferOnFailure) {
+    generate(3, 0, DataType::f32, 4);
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
+    ScannerEx s;
+    auto q = f32_vec(0.0f, 4);
+    std::vector<uint64_t> result;
+
+    ASSERT_EQ(0, s.find(*reader, 2, q.data(), result).code());
+    ASSERT_FALSE(result.empty());
+
+    EXPECT_NE(0, s.find(*reader, 0, q.data(), result).code());
+    EXPECT_TRUE(result.empty());
+}
+
+TEST_F(ScannerExTest, FindItemsClearsReusedResultBufferOnFailure) {
+    generate(3, 0, DataType::f32, 4);
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
+    ScannerEx s;
+    auto q = f32_vec(0.0f, 4);
+    std::vector<DistItem> result;
+
+    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
+    ASSERT_FALSE(result.empty());
+
+    EXPECT_NE(0, s.find_items(*reader, 1, nullptr, result).code());
+    EXPECT_TRUE(result.empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -251,10 +258,11 @@ TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
-TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrderWithComputeEngine) {
+#if SKETCH_CALC_ENGINE_HIGHWAY
+TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrderWithHighway) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -263,6 +271,22 @@ TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrderWithComputeEngine) {
     EXPECT_EQ(3u, result[1]);
     EXPECT_EQ(2u, result[2]);
 }
+#endif
+
+#if SKETCH_CALC_ENGINE_NUMKONG
+TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrderWithNumKong) {
+    generate(5, 0, DataType::f32, 4);
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
+    ScannerEx s(CalcEngine::numkong);
+    auto q = f32_vec(3.2f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(4u, result[0]);
+    EXPECT_EQ(3u, result[1]);
+    EXPECT_EQ(2u, result[2]);
+}
+#endif
 
 TEST_F(ScannerExTest, FindCountExceedsTotalReturnsCapped) {
     const size_t total = 3;
@@ -325,6 +349,7 @@ TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
+#if SKETCH_CALC_ENGINE_NUMKONG
 TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithNumKong) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
@@ -337,11 +362,13 @@ TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithNumKong) {
     EXPECT_EQ(4u, result[1]);
     EXPECT_EQ(2u, result[2]);
 }
+#endif
 
-TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithComputeEngine) {
+#if SKETCH_CALC_ENGINE_HIGHWAY
+TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithHighway) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -350,254 +377,7 @@ TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithComputeEngine) {
     EXPECT_EQ(4u, result[1]);
     EXPECT_EQ(2u, result[2]);
 }
-
-TEST_F(ScannerExTest, FindItemsF32L2WithComputeAvx2MatchesExpectedScores) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "AVX2 is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f32,4\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF32L2WithComputeAvx2UsesFiniteCutoffWhenKIsGreaterThanOne) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "AVX2 is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f32,4\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
-    ASSERT_EQ(2u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-    EXPECT_EQ(20u, result[1].id);
-    EXPECT_DOUBLE_EQ(1.0, result[1].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF16L2WithComputeAvx2MatchesExpectedScores) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "AVX2 is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f16,4\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f16_vec(0.0f, 4);
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF16L2WithComputeAvx2UsesFiniteCutoffWhenKIsGreaterThanOne) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "AVX2 is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f16,4\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f16_vec(0.0f, 4);
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
-    ASSERT_EQ(2u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-    EXPECT_EQ(20u, result[1].id);
-    EXPECT_DOUBLE_EQ(1.0, result[1].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF32L2WithComputeAvx2MatchesExpectedScoresDim36) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "AVX2 is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f32,36\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f32, 36, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF16L2WithComputeAvx2MatchesExpectedScoresDim36) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::avx2);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "AVX2 is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f16,36\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f16, 36, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f16_vec(0.0f, 36);
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF32L2WithComputeNeonMatchesExpectedScores) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "NEON is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f32,4\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF32L2WithComputeNeonUsesFiniteCutoffWhenKIsGreaterThanOne) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "NEON is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f32,4\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
-    ASSERT_EQ(2u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-    EXPECT_EQ(20u, result[1].id);
-    EXPECT_DOUBLE_EQ(1.0, result[1].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF16L2WithComputeNeonMatchesExpectedScores) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "NEON is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f16,4\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f16_vec(0.0f, 4);
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 1, q.data(), result).code());
-    ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-}
-
-TEST_F(ScannerExTest, FindItemsF16L2WithComputeNeonUsesFiniteCutoffWhenKIsGreaterThanOne) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
-    if (!guard.supported()) {
-        GTEST_SKIP() << "NEON is not supported on this CPU";
-    }
-    ASSERT_TRUE(guard.active());
-
-    write_input_raw(
-        input_path_,
-        "f16,4\n"
-        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_});
-
-    ScannerEx s(CalcEngine::compute);
-    auto q = f16_vec(0.0f, 4);
-    std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
-    ASSERT_EQ(2u, result.size());
-    EXPECT_EQ(10u, result[0].id);
-    EXPECT_DOUBLE_EQ(0.0, result[0].score);
-    EXPECT_EQ(20u, result[1].id);
-    EXPECT_DOUBLE_EQ(1.0, result[1].score);
-}
+#endif
 
 // ---------------------------------------------------------------------------
 // Cosine metric
@@ -621,6 +401,7 @@ TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrder) {
     EXPECT_EQ(30u, result[2]);
 }
 
+#if SKETCH_CALC_ENGINE_NUMKONG
 TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithNumKong) {
     write_input_raw(
         input_path_,
@@ -638,8 +419,10 @@ TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithNumKong) {
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
 }
+#endif
 
-TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithComputeEngine) {
+#if SKETCH_CALC_ENGINE_HIGHWAY
+TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithHighway) {
     write_input_raw(
         input_path_,
         "f32,4\n"
@@ -647,7 +430,7 @@ TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithComputeEngine) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -656,6 +439,7 @@ TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithComputeEngine) {
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
 }
+#endif
 
 TEST_F(ScannerExTest, FindF32CosStoredCosineValuesHandleZeroVectors) {
     write_input_raw(
@@ -665,7 +449,7 @@ TEST_F(ScannerExTest, FindF32CosStoredCosineValuesHandleZeroVectors) {
         "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
     std::vector<DistItem> result;
     ASSERT_EQ(0, s.find_items(*reader, 2, q.data(), result).code());
@@ -689,7 +473,7 @@ TEST_F(ScannerExTest, FindF32CosStoredPathsMatchRanking) {
     auto reader_a = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
     auto reader_b = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result_a;
     std::vector<uint64_t> result_b;
@@ -705,6 +489,7 @@ TEST_F(ScannerExTest, FindF32CosStoredPathsMatchRanking) {
 // ---------------------------------------------------------------------------
 
 TEST_F(ScannerExTest, FindI16AllSortedByDistance) {
+#if SKETCH_CALC_ENGINE_HIGHWAY
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     ScannerEx s;
@@ -715,19 +500,26 @@ TEST_F(ScannerExTest, FindI16AllSortedByDistance) {
     EXPECT_EQ(0u, result[0]);
     EXPECT_EQ(1u, result[1]);
     EXPECT_EQ(2u, result[2]);
+#else
+    GTEST_SKIP() << "i16 is not supported in NumKong builds";
+#endif
 }
 
-TEST_F(ScannerExTest, FindI16FallsBackToHighwayWhenNumKongRequested) {
+TEST_F(ScannerExTest, FindI16RejectsNumKong) {
+#if SKETCH_CALC_ENGINE_NUMKONG
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     ScannerEx s(CalcEngine::numkong);
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
-    ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(0u, result[0]);
-    EXPECT_EQ(1u, result[1]);
-    EXPECT_EQ(2u, result[2]);
+    const Ret ret = s.find(*reader, 3, q.data(), result);
+    EXPECT_NE(0, ret.code());
+    EXPECT_TRUE(result.empty());
+    EXPECT_NE(std::string(ret.message()).find("NumKong does not support i16"),
+              std::string::npos);
+#else
+    GTEST_SKIP() << "NumKong-only rejection is only relevant in NumKong builds";
+#endif
 }
 
 TEST_F(ScannerExTest, FindF16Works) {
@@ -741,17 +533,20 @@ TEST_F(ScannerExTest, FindF16Works) {
     EXPECT_EQ(2u, result[0]);
 }
 
-TEST_F(ScannerExTest, FindF16WorksWithComputeEngine) {
+#if SKETCH_CALC_ENGINE_HIGHWAY
+TEST_F(ScannerExTest, FindF16WorksWithHighway) {
     generate(3, 0, DataType::f16, 4);
     auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::DOT, {input_path_});
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f16_vec(1.1f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(2u, result[0]);
 }
+#endif
 
+#if SKETCH_CALC_ENGINE_NUMKONG
 TEST_F(ScannerExTest, FindF16CosWorksWithNumKong) {
     write_input_raw(
         input_path_,
@@ -770,8 +565,10 @@ TEST_F(ScannerExTest, FindF16CosWorksWithNumKong) {
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
 }
+#endif
 
-TEST_F(ScannerExTest, FindF16CosWorksWithComputeEngine) {
+#if SKETCH_CALC_ENGINE_HIGHWAY
+TEST_F(ScannerExTest, FindF16CosWorksWithHighway) {
     write_input_raw(
         input_path_,
         "f16,4\n"
@@ -779,7 +576,7 @@ TEST_F(ScannerExTest, FindF16CosWorksWithComputeEngine) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::COS, {input_path_});
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f16_vec(0.0f, 4);
     reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16(1.0f);
     std::vector<uint64_t> result;
@@ -789,6 +586,7 @@ TEST_F(ScannerExTest, FindF16CosWorksWithComputeEngine) {
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // Delta tests
@@ -837,7 +635,7 @@ TEST_F(ScannerExTest, DeltaDeletingAllVectorsReturnsEmptyResult) {
 
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_, delta_input_path_});
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(1.1f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -872,7 +670,7 @@ TEST_F(ScannerExTest, FindDatasetItemsReturnsIdsAndDistancesInOrder) {
     generate_input_file(input, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input}, 100);
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(15.2f, 4);
     std::vector<DistItem> result;
     ASSERT_EQ(0, s.find_items(*reader, 3, q.data(), result).code());
@@ -889,7 +687,7 @@ TEST_F(ScannerExTest, FindDatasetL2Works) {
     generate_input_file(input_path_, GeneratorConfig{PatternType::Sequential, 30, 0, DataType::f32, 4, 1000});
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_}, 10);
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(15.2f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -899,7 +697,7 @@ TEST_F(ScannerExTest, FindDatasetL2Works) {
     EXPECT_EQ(14u, result[2]);
 }
 
-TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsAcrossEngines) {
+TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsForHighwayAndNumKong) {
     const std::string dataset_dir =
         tmp_dir() + "/sketch2_utest_scanner_ex_l2_stored_norms_" + std::to_string(getpid());
     const std::string config_path = dataset_dir + ".ini";
@@ -913,7 +711,7 @@ TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsAcrossEngines) {
         input_path_,
         "f32,4\n"
         "10 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
-        "20 : [ 2.0, 0.0, 0.0, 0.0 ]\n");
+        "20 : [ 0.0, 1.0, 0.0, 0.0 ]\n");
 
     DatasetNode ds;
     ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 100, DataType::f32, 4, DistFunc::L2).code());
@@ -934,17 +732,15 @@ TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsAcrossEngines) {
     ASSERT_EQ(0, reader.init(config_path).code());
 
     const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
-    for (CalcEngine engine : {CalcEngine::compute, CalcEngine::highway, CalcEngine::numkong}) {
-        ScannerEx s(engine);
-        std::vector<DistItem> result;
-        ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code())
-            << "engine=" << calc_engine_name(engine);
-        ASSERT_EQ(2u, result.size());
-        EXPECT_EQ(20u, result[0].id) << "engine=" << calc_engine_name(engine);
-        EXPECT_NEAR(1.0, result[0].score, 1e-6) << "engine=" << calc_engine_name(engine);
-        EXPECT_EQ(10u, result[1].id) << "engine=" << calc_engine_name(engine);
-        EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << calc_engine_name(engine);
-    }
+    ScannerEx s = make_compiled_scanner();
+    std::vector<DistItem> result;
+    ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code())
+        << "engine=" << calc_engine_name(kCompiledEngine);
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(20u, result[0].id) << "engine=" << calc_engine_name(kCompiledEngine);
+    EXPECT_NEAR(2.0, result[0].score, 1e-6) << "engine=" << calc_engine_name(kCompiledEngine);
+    EXPECT_EQ(10u, result[1].id) << "engine=" << calc_engine_name(kCompiledEngine);
+    EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << calc_engine_name(kCompiledEngine);
 }
 
 TEST_F(ScannerExTest, FindDatasetCosWorks) {
@@ -956,7 +752,7 @@ TEST_F(ScannerExTest, FindDatasetCosWorks) {
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_}, 100);
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -999,7 +795,7 @@ TEST_F(ScannerExTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
     DatasetReader reader;
     ASSERT_EQ(0, reader.init(cfg).code());
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
     const Ret ret = s.find(reader, 3, q.data(), result);
@@ -1041,7 +837,7 @@ TEST_F(ScannerExTest, FindDatasetL2RejectsFilesMissingStoredNorms) {
     DatasetReader reader;
     ASSERT_EQ(0, reader.init(cfg).code());
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
     const Ret ret = s.find(reader, 3, q.data(), result);
@@ -1053,7 +849,7 @@ TEST_F(ScannerExTest, FindDatasetL2RejectsFilesMissingStoredNorms) {
 TEST_F(ScannerExTest, FindDatasetFailsOnNullQueryPointer) {
     generate(3, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_}, 100);
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     std::vector<uint64_t> result;
     EXPECT_NE(0, s.find(*reader, 1, nullptr, result).code());
 }
@@ -1061,7 +857,7 @@ TEST_F(ScannerExTest, FindDatasetFailsOnNullQueryPointer) {
 TEST_F(ScannerExTest, FindDatasetFailsOnZeroCount) {
     generate(3, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_}, 100);
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(1.0f, 4);
     std::vector<uint64_t> result;
     EXPECT_NE(0, s.find(*reader, 0, q.data(), result).code());
@@ -1086,7 +882,7 @@ TEST_F(ScannerExTest, FindDatasetSkipsDeletedVectorsFromDelta) {
     ASSERT_EQ(0, ds.store(input_path_).code());
     ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(2.1f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(ds, 5, q.data(), result).code());
@@ -1116,7 +912,7 @@ TEST_F(ScannerExTest, FindDatasetUsesUpdatedVectorFromDelta) {
     ASSERT_EQ(0, ds.store(input_path_).code());
     ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(ds, 1, q.data(), result).code());
@@ -1149,7 +945,7 @@ TEST_F(ScannerExConcurrentTest, DOTTopKSpansMultipleReaders) {
     generate(30, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_}, 10);
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(9.5f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -1163,7 +959,7 @@ TEST_F(ScannerExConcurrentTest, L2TopKSpansMultipleReaders) {
     generate(30, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_}, 10);
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(9.5f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -1177,7 +973,7 @@ TEST_F(ScannerExConcurrentTest, FindItemsSpansMultipleReaders) {
     generate(30, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_}, 10);
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(15.2f, 4);
     std::vector<DistItem> result;
     ASSERT_EQ(0, s.find_items(*reader, 3, q.data(), result).code());
@@ -1194,7 +990,7 @@ TEST_F(ScannerExConcurrentTest, SingleReaderWithPoolFallsBackToSequential) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_}, 1000);
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_vec(2.2f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -1213,7 +1009,7 @@ TEST_F(ScannerExConcurrentTest, CosineTopKSpansMultipleReaders) {
         "25 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_}, 10);
 
-    ScannerEx s(CalcEngine::compute);
+    ScannerEx s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());

@@ -15,15 +15,13 @@
 // - sk_new_handle() in the Parasol C API
 // - sqlite3_sketch2_init() when the SQLite extension is loaded directly
 //
-// Compute backend selection is also process-wide. The singleton chooses the
-// best supported ComputeUnit when it is first created, optionally honoring the
-// SKETCH2_COMPUTE_BACKEND environment override. Queries then reuse that fixed
-// selection. Tests may override the selected backend explicitly.
+// The top-level calc engine is selected at build time and does not participate
+// in runtime configuration. The singleton just exposes the compiled
+// ComputeUnit together with the rest of the process-wide state.
 //
 // Configuration precedence is:
 // - start from built-in defaults
 // - if SKETCH2_CONFIG points to a readable ini file, read values from it
-// - if SKETCH2_COMPUTE_ENGINE is set, it overrides compute.engine
 // - if SKETCH2_LOG_LEVEL is set, it overrides log.level
 // - if SKETCH2_THREAD_POOL_SIZE is set, it overrides thread_pool.size
 // - if SKETCH2_LOG_FILE is set, it selects the log sink
@@ -60,7 +58,6 @@ public:
     static bool runtime_init();
     static bool apply_config_from_env();
     static bool apply_config_file(const std::string& path);
-    static bool force_compute_unit_for_testing(ComputeBackendKind kind);
     // Install (threads > 1) or remove (threads <= 1) the process-wide thread pool.
     // Bypasses the initialized flag so tests can install and tear down a pool
     // around individual test cases regardless of singleton initialization order.
@@ -85,20 +82,17 @@ private:
         std::string level;
         std::string thread_pool_size;
         std::string log_file;
-        std::string compute_engine;
     };
 
     bool runtime_init_();
     bool apply_config_from_env_();
     bool apply_config_file_(const std::string& path);
-    bool force_compute_unit_for_testing_(ComputeBackendKind kind);
     bool collect_config_values_(const std::string* path, ConfigValues* values);
     bool apply_config_values_(const ConfigValues& values, bool allow_defaults);
     bool apply_log_level_(const std::string& level);
     bool apply_default_thread_pool_size_();
     bool apply_thread_pool_size_(const std::string& size);
     bool apply_log_file_(const std::string& path);
-    bool apply_compute_engine_(const std::string& str);
 
     std::mutex mutex_;
     ComputeUnit compute_unit_;

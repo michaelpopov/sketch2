@@ -92,7 +92,7 @@ Important fields:
 - `range_size`: id-range partition size
 - `dim`: vector dimension
 - `type`: `f32`, `f16`, or `i16`
-- `dist_func`: `l1`, `l2`, or `cos`
+- `dist_func`: `dot`, `l2`, or `cos`
 
 ## Loading The Extension
 

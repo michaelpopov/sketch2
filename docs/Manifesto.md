@@ -30,7 +30,7 @@ The nice thing about doing greenfield development without business constraints
 is that you can experiment with the best possible design decisions. That is
 what I am doing here.
 
-I am building a vector storage engine with a built-in compute layer. It is a
+I am building a vector storage engine with a built-in calc layer. It is a
 library that can be integrated with existing databases and provide the best
 technical solution for storing vectors and running specialized computations on
 this data.
@@ -40,10 +40,9 @@ it can achieve high I/O performance. The vectors are laid out in memory to
 allow frictionless flow of data to CPU caches for processing. They are aligned
 in memory in a way that allows efficient SIMD operations on the vector data.
 
-There are "compute units" that use the most efficient SIMD operations on
-different platforms. It runs on Intel CPUs, AMD CPUs, and ARM-based CPUs. It
-can select the appropriate set of instructions to get the best out of the
-available hardware.
+The query path now lives in a dedicated `core/calc` layer with a build-selected
+compute engine. Within that engine, the kernels still specialize for the hardware
+they run on so the project can get the best out of Intel, AMD, and ARM CPUs.
 
 ## Integrations And Direction
 

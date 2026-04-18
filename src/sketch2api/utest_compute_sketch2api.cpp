@@ -1,8 +1,7 @@
-// End-to-end tests for compute.engine selection through sketch2api.
+// End-to-end tests for build-selected calc-engine behavior through sketch2api.
 
 #include "internal.h"
 #include "sketch2.h"
-#include "core/utils/compute_unit.h"
 
 #include <cstdlib>
 #include <experimental/scope>
@@ -22,28 +21,14 @@ namespace {
 
 constexpr const char* kScenarioEnv = "SKETCH2API_COMPUTE_SCENARIO";
 constexpr const char* kConfigEnv = "SKETCH2_CONFIG";
-constexpr const char* kComputeEngineEnv = "SKETCH2_COMPUTE_ENGINE";
 
-const char* unsupported_legacy_backend_name() {
-    struct Candidate {
-        const char* name;
-        sketch2::ComputeBackendKind kind;
-    };
-
-    constexpr Candidate kCandidates[] = {
-        {"avx512_vnni", sketch2::ComputeBackendKind::avx512_vnni},
-        {"avx512f", sketch2::ComputeBackendKind::avx512f},
-        {"avx2", sketch2::ComputeBackendKind::avx2},
-        {"neon", sketch2::ComputeBackendKind::neon},
-    };
-
-    for (const Candidate& candidate : kCandidates) {
-        if (!sketch2::ComputeUnit::is_supported(candidate.kind)) {
-            return candidate.name;
-        }
-    }
-    return nullptr;
-}
+#if SKETCH_CALC_ENGINE_HIGHWAY
+constexpr const char* kCompiledEngine = "highway";
+#elif SKETCH_CALC_ENGINE_NUMKONG
+constexpr const char* kCompiledEngine = "numkong";
+#else
+#error "Exactly one calc engine must be compiled."
+#endif
 
 std::filesystem::path make_temp_dir() {
     const std::filesystem::path base = std::filesystem::temp_directory_path();
@@ -101,11 +86,13 @@ private:
     std::string original_;
 };
 
-void write_compute_config(const std::filesystem::path& path, const char* engine) {
+void write_runtime_config(const std::filesystem::path& path) {
     std::ofstream out(path);
     ASSERT_TRUE(out.is_open());
-    out << "[compute]\n";
-    out << "engine=" << engine << "\n";
+    out << "[log]\n";
+    out << "level=INFO\n";
+    out << "[thread_pool]\n";
+    out << "size=2\n";
 }
 
 void populate_dataset(sk_handle_t* handle, const char* dataset_name, const char* dist_func,
@@ -137,72 +124,22 @@ void run_compute_chain_assertions() {
         std::filesystem::remove_all(root);
         unsetenv(kScenarioEnv);
         unsetenv(kConfigEnv);
-        unsetenv(kComputeEngineEnv);
     });
 
-    std::string expected_engine = "compute";
     bool write_config = false;
     bool use_missing_config_path = false;
-    std::string config_engine;
-    std::string env_engine;
-    const char* unsupported_backend = unsupported_legacy_backend_name();
-    ASSERT_NE(nullptr, unsupported_backend);
 
-    if (std::string_view(scenario) == "config_highway") {
+    if (std::string_view(scenario) == "config_file_is_ignored_for_engine_selection") {
         write_config = true;
-        config_engine = "highway";
-        expected_engine = "highway";
-    } else if (std::string_view(scenario) == "config_numkong") {
-        write_config = true;
-        config_engine = "numkong";
-        expected_engine = "numkong";
-    } else if (std::string_view(scenario) == "env_highway") {
-        env_engine = "highway";
-        expected_engine = "highway";
-    } else if (std::string_view(scenario) == "env_numkong") {
-        env_engine = "numkong";
-        expected_engine = "numkong";
-    } else if (std::string_view(scenario) == "env_overrides_config") {
-        write_config = true;
-        config_engine = "highway";
-        env_engine = "numkong";
-        expected_engine = "numkong";
-    } else if (std::string_view(scenario) == "config_auto") {
-        write_config = true;
-        config_engine = "auto";
-    } else if (std::string_view(scenario) == "env_auto") {
-        env_engine = "auto";
-    } else if (std::string_view(scenario) == "env_auto_overrides_config_highway") {
-        write_config = true;
-        config_engine = "highway";
-        env_engine = "auto";
-    } else if (std::string_view(scenario) == "env_auto_overrides_config_numkong") {
-        write_config = true;
-        config_engine = "numkong";
-        env_engine = "auto";
-    } else if (std::string_view(scenario) == "missing_defaults_compute") {
-    } else if (std::string_view(scenario) == "invalid_is_advisory") {
-        write_config = true;
-        config_engine = "bogus";
-    } else if (std::string_view(scenario) == "invalid_env_is_advisory") {
-        env_engine = "bogus";
-    } else if (std::string_view(scenario) == "unsupported_config_is_advisory") {
-        write_config = true;
-        config_engine = unsupported_backend;
-    } else if (std::string_view(scenario) == "unsupported_env_is_advisory") {
-        env_engine = unsupported_backend;
-    } else if (std::string_view(scenario) == "missing_config_file_defaults_compute") {
+    } else if (std::string_view(scenario) == "missing_defaults_compiled") {
+    } else if (std::string_view(scenario) == "missing_config_file_defaults_compiled") {
         use_missing_config_path = true;
-    } else if (std::string_view(scenario) == "env_overrides_missing_config_file") {
-        use_missing_config_path = true;
-        env_engine = "highway";
-        expected_engine = "highway";
     } else {
         FAIL() << "Unknown scenario: " << scenario;
     }
 
     if (write_config) {
-        write_compute_config(config_path, config_engine.c_str());
+        write_runtime_config(config_path);
         set_env_or_unset(kConfigEnv, config_path.c_str());
     } else if (use_missing_config_path) {
         const std::filesystem::path missing_path = root / "missing-sketch2.ini";
@@ -210,11 +147,10 @@ void run_compute_chain_assertions() {
     } else {
         unsetenv(kConfigEnv);
     }
-    set_env_or_unset(kComputeEngineEnv, env_engine.empty() ? nullptr : env_engine.c_str());
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
     ASSERT_NE(nullptr, handle);
-    ASSERT_STREQ(expected_engine.c_str(), sketch2api::detail::sk_knn_engine_name_for_testing_());
+    ASSERT_STREQ(kCompiledEngine, sketch2api::detail::sk_knn_engine_name_for_testing_());
 
     populate_dataset(handle, "l2_ds", "l2", {
         {10, "0.0, 0.0, 0.0, 0.0"},
@@ -236,7 +172,6 @@ void run_compute_chain_assertions() {
 void run_child_scenario(const char* scenario) {
     EnvVarGuard scenario_guard(kScenarioEnv);
     EnvVarGuard config_guard(kConfigEnv);
-    EnvVarGuard engine_guard(kComputeEngineEnv);
 
     ASSERT_EQ(0, setenv(kScenarioEnv, scenario, 1));
 
@@ -265,66 +200,14 @@ TEST(sketch2api_compute_chain, ChildScenario) {
     run_compute_chain_assertions();
 }
 
-TEST(sketch2api_compute_chain, ConfigHighway) {
-    run_child_scenario("config_highway");
+TEST(sketch2api_compute_chain, ConfigFileDoesNotAffectCompiledEngine) {
+    run_child_scenario("config_file_is_ignored_for_engine_selection");
 }
 
-TEST(sketch2api_compute_chain, ConfigNumKong) {
-    run_child_scenario("config_numkong");
+TEST(sketch2api_compute_chain, MissingConfigDefaultsToCompiledEngine) {
+    run_child_scenario("missing_defaults_compiled");
 }
 
-TEST(sketch2api_compute_chain, EnvHighway) {
-    run_child_scenario("env_highway");
-}
-
-TEST(sketch2api_compute_chain, EnvNumKong) {
-    run_child_scenario("env_numkong");
-}
-
-TEST(sketch2api_compute_chain, EnvOverridesConfig) {
-    run_child_scenario("env_overrides_config");
-}
-
-TEST(sketch2api_compute_chain, ConfigAutoUsesComputeScanner) {
-    run_child_scenario("config_auto");
-}
-
-TEST(sketch2api_compute_chain, EnvAutoUsesComputeScanner) {
-    run_child_scenario("env_auto");
-}
-
-TEST(sketch2api_compute_chain, EnvAutoOverridesConfigHighway) {
-    run_child_scenario("env_auto_overrides_config_highway");
-}
-
-TEST(sketch2api_compute_chain, EnvAutoOverridesConfigNumKong) {
-    run_child_scenario("env_auto_overrides_config_numkong");
-}
-
-TEST(sketch2api_compute_chain, MissingConfigDefaultsToComputeScanner) {
-    run_child_scenario("missing_defaults_compute");
-}
-
-TEST(sketch2api_compute_chain, InvalidConfigRemainsAdvisory) {
-    run_child_scenario("invalid_is_advisory");
-}
-
-TEST(sketch2api_compute_chain, InvalidEnvRemainsAdvisory) {
-    run_child_scenario("invalid_env_is_advisory");
-}
-
-TEST(sketch2api_compute_chain, UnsupportedConfigRemainsAdvisory) {
-    run_child_scenario("unsupported_config_is_advisory");
-}
-
-TEST(sketch2api_compute_chain, UnsupportedEnvRemainsAdvisory) {
-    run_child_scenario("unsupported_env_is_advisory");
-}
-
-TEST(sketch2api_compute_chain, MissingConfigFileDefaultsToComputeScanner) {
-    run_child_scenario("missing_config_file_defaults_compute");
-}
-
-TEST(sketch2api_compute_chain, EnvOverridesMissingConfigFile) {
-    run_child_scenario("env_overrides_missing_config_file");
+TEST(sketch2api_compute_chain, MissingConfigFileDefaultsToCompiledEngine) {
+    run_child_scenario("missing_config_file_defaults_compiled");
 }

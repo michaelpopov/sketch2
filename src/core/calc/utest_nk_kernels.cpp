@@ -1,4 +1,4 @@
-// Unit tests for NumKong distance kernels and resolver fallback behavior.
+// Unit tests for NumKong distance kernels and resolver validation behavior.
 
 #include <gtest/gtest.h>
 
@@ -8,9 +8,8 @@
 #include <vector>
 
 #include "core/calc/calc_engine.h"
-#include "core/calc/hwy_kernels.h"
-#include "core/calc/nk_kernels.h"
-#include "core/compute/utest_compute_helpers.h"
+#include "core/calc/scanner_nk.h"
+#include "core/calc/utest_calc_helpers.h"
 #include "numkong/capabilities.h"
 
 using namespace sketch2;
@@ -88,30 +87,41 @@ TEST(NumKongKernelsTest, CosHelpersF32MatchReference) {
     }
 }
 
+TEST(NumKongKernelsTest, CosWithQueryNormF16MatchesReference) {
+    for (size_t dim : {1, 3, 7, 15, 17, 33, 100, 128, 257, 4096}) {
+        auto ba = make_buffer<float16>(dim, 0);
+        auto bb = make_buffer<float16>(dim, 0);
+        fill_f16(ba.ptr, bb.ptr, dim, 42);
+        const CalcKernels k = resolve_nk_kernels(DistFunc::COS, DataType::f16);
+        ASSERT_NE(k.squared_norm, nullptr);
+        ASSERT_NE(k.dist_with_query_norm, nullptr);
+
+        const double expected_dist = reference_cosine_distance(ba.ptr, bb.ptr, dim);
+        const double query_norm_sq = k.squared_norm(reinterpret_cast<const uint8_t*>(bb.ptr), dim);
+
+        EXPECT_NEAR(expected_dist,
+                    k.dist_with_query_norm(reinterpret_cast<const uint8_t*>(ba.ptr),
+                                           reinterpret_cast<const uint8_t*>(bb.ptr), dim, query_norm_sq),
+                    1e-5)
+            << "dim=" << dim;
+    }
+}
+
 TEST(NumKongKernelsTest, DOTUsesNumKongForF32AndF16) {
     for (DataType type : {DataType::f32, DataType::f16}) {
         const CalcKernels nk = resolve_nk_kernels(DistFunc::DOT, type);
-        const CalcKernels hwy = resolve_hwy_kernels(DistFunc::DOT, type);
         EXPECT_NE(nullptr, nk.dist) << "type=" << static_cast<int>(type);
-        EXPECT_NE(hwy.dist, nk.dist) << "type=" << static_cast<int>(type);
         EXPECT_EQ(nullptr, nk.dot);
         EXPECT_EQ(nullptr, nk.squared_norm);
         EXPECT_EQ(nullptr, nk.dist_with_query_norm);
     }
-    // i16 still falls back to Highway
-    const CalcKernels nk_i16 = resolve_nk_kernels(DistFunc::DOT, DataType::i16);
-    const CalcKernels hwy_i16 = resolve_hwy_kernels(DistFunc::DOT, DataType::i16);
-    EXPECT_EQ(hwy_i16.dist, nk_i16.dist);
+    EXPECT_THROW(resolve_nk_kernels(DistFunc::DOT, DataType::i16), std::runtime_error);
 }
 
-TEST(NumKongKernelsTest, I16FallsBackToHighwayForAllMetrics) {
+TEST(NumKongKernelsTest, I16IsRejectedForAllMetrics) {
     for (DistFunc func : {DistFunc::DOT, DistFunc::L2, DistFunc::COS}) {
-        const CalcKernels nk = resolve_nk_kernels(func, DataType::i16);
-        const CalcKernels hwy = resolve_hwy_kernels(func, DataType::i16);
-        EXPECT_EQ(hwy.dist, nk.dist) << "func=" << static_cast<int>(func);
-        EXPECT_EQ(hwy.dot, nk.dot) << "func=" << static_cast<int>(func);
-        EXPECT_EQ(hwy.squared_norm, nk.squared_norm) << "func=" << static_cast<int>(func);
-        EXPECT_EQ(hwy.dist_with_query_norm, nk.dist_with_query_norm) << "func=" << static_cast<int>(func);
+        EXPECT_THROW(resolve_nk_kernels(func, DataType::i16), std::runtime_error)
+            << "func=" << static_cast<int>(func);
     }
 }
 
@@ -131,7 +141,7 @@ TEST(NumKongKernelsTest, DynamicDispatchMetadataIsConsistent) {
 
     EXPECT_NE(0u, compiled & static_cast<uint64_t>(nk_cap_serial_k));
     EXPECT_EQ(0u, available & ~compiled);
-    EXPECT_STRNE("highway", nk_calc_backend_name(DistFunc::L2, DataType::f32));
+    EXPECT_STRNE("unsupported", nk_calc_backend_name(DistFunc::L2, DataType::f32));
 }
 
 #if defined(__x86_64__) || defined(_M_X64)

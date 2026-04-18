@@ -1,7 +1,6 @@
 // Declares dataset metadata and the lean Dataset base class.
 
 #pragma once
-#include "core/compute/compute.h"
 #include "utils/shared_consts.h"
 #include "utils/shared_types.h"
 #include <string>

@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <vector>
 #include "core/calc/calc_engine.h"
-#include "core/calc/hwy_kernels.h"
-#include "core/compute/utest_compute_helpers.h"
+#include "core/calc/scanner_hw.h"
+#include "core/calc/utest_calc_helpers.h"
 
 using namespace sketch2;
 using namespace sketch2::test;

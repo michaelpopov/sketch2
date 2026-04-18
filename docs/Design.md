@@ -15,13 +15,13 @@ That gives the project room to optimize for:
 - compact persisted vector storage
 - predictable scans over stored vectors
 - efficient batched ingestion and merge flows
-- runtime SIMD dispatch across supported CPUs
+- build-selected compute backends with hardware-specialized kernels
 - integration points for other systems instead of a full database surface
 
 This boundary is visible across the repository:
 
 - the core storage layer owns data files, deltas, and crash recovery
-- the compute layer owns metric kernels and top-k scanning
+- the compute layer under `core/calc` owns metric kernels and top-k scanning
 - the `Sketch2api` API exposes a shared library interface
 - `vlite` exposes read-only SQLite integration
 - Python support exists as a thin wrapper used for demos, tests, and scripting
@@ -35,8 +35,8 @@ should be shaped around the actual hardware:
   packed into generic database pages
 - data is laid out to keep scans sequential and cheap
 - alignment is preserved so SIMD kernels can process vectors efficiently
-- runtime backend selection chooses the best supported implementation on the
-  current CPU without requiring separate binaries
+- the build selects one top-level compute engine, and that engine keeps
+  hardware-specific specialization close to the kernels that use it
 
 The design goal is to reduce unnecessary translation layers between persisted
 bytes, CPU caches, and the hot score-calculation loop.
@@ -200,15 +200,25 @@ Sketch2 keeps compute specialization explicit. Score computation is not a
 generic callback invoked inside the innermost loop. Instead, the scanner
 dispatches once per query across three axes:
 
-- backend
+- calc engine
 - score function
 - vector element type
 
 After that, the search runs on one specialized path.
 
+The current compute layer is organized around:
+
+- `ScannerEx` as the facade used by higher-level callers
+- backend-specific scanner and kernel implementations in `scanner_hw.cpp` and
+  `scanner_nk.cpp`
+- shared scan helpers split by responsibility, such as
+  `scanner_dataset_scan.h`, `scanner_scan_loops.h`, and `scanner_heap_utils.h`
+- small shared data structures such as `DistItem` and the query-context helper
+  types used to keep the hot path explicit
+
 Supported score functions today:
 
-- `l1`
+- `dot`
 - `l2`
 - `cos`
 
@@ -218,31 +228,30 @@ Supported vector element types today:
 - `f16`
 - `i16`
 
-## Runtime SIMD Dispatch
+## Calc Engine Selection
 
-One binary is expected to run on different machines. The project therefore
-separates build-time availability of optimized kernels from runtime backend
-selection.
+Sketch2 now selects one top-level calc engine at configure time through
+`SKETCH_CALC_ENGINE`.
 
-Current runtime backends are:
+Current engines are:
 
-- `scalar`
-- `avx512_vnni`
-- `avx512f`
-- `avx2`
-- `neon`
+- `highway`
+- `numkong`
 
-The selected backend is process-wide and detected once during runtime
-initialization. On x86, the build keeps the baseline portable and compiles
-higher-ISA code through per-function target attributes, which is why GCC or
-Clang are required for the x86 runtime-dispatch model. On AArch64, the build
-enables the architecture options needed for NEON and fp16 support.
+That choice is reflected in the build tree, tests, and benchmark binaries: a
+given build contains one compute engine, not a runtime-switchable mix of
+top-level engines.
 
-This avoids the two common failure modes of vector libraries:
+Within the selected engine, hardware specialization still happens close to the
+kernels:
 
-- shipping one binary that crashes or traps on older CPUs
-- shipping multiple architecture-specific binaries and pushing selection to the
-  operator
+- Highway builds use Google Highway multi-target compilation so one Highway
+  binary can resolve the active ISA at runtime.
+- NumKong builds resolve capability-specific kernels inside the NumKong backend,
+  for example per-thread capability dispatch on supported CPUs.
+
+This keeps the top-level architecture explicit without giving up CPU-specific
+specialization inside the chosen engine.
 
 ## Integration Strategy
 
@@ -289,7 +298,7 @@ become a relational database.
 Sketch2 is Linux-only today. That is a deliberate scope decision rather than an
 oversight. Supporting multiple operating systems would dilute effort in the
 parts of the system that matter most right now: file layout, mmap-based access,
-runtime dispatch, and correctness of the core data path.
+calc-engine architecture, and correctness of the core data path.
 
 At the same time, CPU portability matters. The project is intended to run well
 on multiple CPU families because vector workloads benefit directly from
@@ -299,7 +308,7 @@ architecture-specific SIMD support.
 
 The current system is centered on brute-force KNN over the stored
 representation. That is intentional: the project first establishes a strong
-base for storage layout, mutable-state handling, and runtime-specialized
+base for storage layout, mutable-state handling, and hardware-specialized
 compute.
 
 Planned next steps build on that base:

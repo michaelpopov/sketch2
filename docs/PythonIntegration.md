@@ -167,7 +167,7 @@ Returns the current numeric error code from the native handle.
 
 Returns the current error message string from the native handle.
 
-### `create(name, type_name="f32", dim=4, range_size=1000, dist_func="l1")`
+### `create(name, type_name="f32", dim=4, range_size=1000, dist_func="dot")`
 
 Creates a dataset and opens it on the current handle.
 
@@ -177,7 +177,7 @@ Arguments:
 - `type_name`: vector element type, such as `f32`, `f16`, or `i16`
 - `dim`: vector dimension
 - `range_size`: id-range partition size
-- `dist_func`: score function, such as `l1`, `l2`, or `cos`
+- `dist_func`: score function, such as `dot`, `l2`, or `cos`
 
 ### `drop(name)`
 

@@ -1,6 +1,12 @@
-# Performance Test Harness for Compute Engines
+# Performance Test Harness for Calc Engines
 
-The `compute_perf` test harness evaluates the performance and correctness of various Sketch2 compute engines (e.g., `scalar`, `auto`, `highway`, `numkong`) across different score functions (`cos`, `l1`, `l2`).
+The `compute_perf` test harness evaluates the performance and correctness of
+the current Sketch2 calc path across different score functions (`cos`, `dot`,
+`l2`).
+
+After the compute redesign, the top-level engine is selected at build time via
+`SKETCH_CALC_ENGINE`. In practice that means a given build benchmarks
+either `highway` or `numkong`.
 
 It performs repeated K-Nearest Neighbor (KNN) queries on a large, stable dataset and compares the results against a pre-calculated ground truth to ensure that performance optimizations do not compromise accuracy.
 
@@ -13,7 +19,7 @@ The harness consists of six main components:
 3.  **`runner.py`**: Executes the actual benchmarks. For each compute engine, it benchmarks each score function in its own child process. It can run two complementary benchmark layers:
     - a **kernel-only** layer that times direct metric kernels without scanner traversal
     - a **scan** layer that performs full KNN queries through the existing dataset/scanner path
-4.  **`bench_calc`**: A native benchmark executable under `src/core/calc` that measures direct kernel calls for the selected engine, metric, type, and dimension. For cosine it reports not only `dist`, but also `dot`, `squared_norm`, and `dist_with_query_norm` to isolate where time is spent.
+4.  **`bench_calc`**: A native benchmark executable under `src/core/calc` that measures the direct kernels and composed scan-time score paths for the selected engine, metric, type, and dimension. It always reports `dist`, adds `dot` and `squared_norm` whenever those kernels are available, and includes composed stored-norm paths (`dist_with_stored_norms`) plus the cosine query-norm fallback (`dist_with_query_norm`) when supported.
 5.  **`common.py`**: Shared utility library containing configuration logic, binary discovery, ground truth calculation, and **robust validation** (handling tie-breaking via score comparison). It imports shared vector logic from the central `sketch2_test_vectors.py` module.
 6.  **`sketch2_test_vectors.py`**: (Located in `src/pytest`) The authoritative source for all shared vector generation, quantization, formatting, and score functions used across tests and demos.
 
@@ -29,7 +35,7 @@ The driver is a Bash script that manages the lifecycle of a performance run.
     1.  Runs `initializer.py` once to build the dataset and ground truth, unless `COMPUTE_PERF_SKIP_INIT=1` is set.
     2.  Verifies the existence of all generated dataset directories and ground truth JSON files.
     3.  Iterates through the list of engines in `COMPUTE_PERF_TEST_ENGINES`.
-    4.  For each engine, sets `SKETCH2_COMPUTE_ENGINE` and executes `runner.py`. The special engine value `auto` leaves the environment variable unset so Sketch2 can use its default engine selection.
+    4.  For each engine label, sets `SKETCH2_COMPUTE_ENGINE` and executes `runner.py`. The special engine value `auto` leaves the environment variable unset so Sketch2 can use its default compiled-engine selection. Explicit engine names must match the configured build.
     5.  Captures stdout and stderr for each runner into separate log files. Initializer output is always streamed to stdout, and the driver recreates the log and diagnostic directories after initialization in case the initializer rebuilt the temporary database root.
 - **Crash Diagnostics**: Requests core dumps when the platform allows them, logs the current core-dump limit and core pattern, writes a `run_env.txt` snapshot of the exported harness variables, and points to per-engine diagnostic files and repro scripts when a runner fails.
 - **Cleanup**: Preserves the temporary database root and logs by default for inspection. Set `COMPUTE_PERF_TEST_CLEANUP=1` to delete it automatically on completion or interruption.
@@ -42,9 +48,9 @@ The initializer prepares the database for benchmarking.
 - **Safety**: Before initializing, it performs a safety check on the database directory. It only wipes the directory if it looks like a harness-owned temporary location (`/tmp/sketch2_COMPUTE_PERF.*`) or if it already contains an existing Sketch2 configuration, preventing accidental data loss.
 - **Dataset Creation**: Creates one dataset for each score function specified in `COMPUTE_PERF_TEST_DIST`. Each dataset is explicitly closed after initialization to allow sequential processing.
 - **Data Generation**:
-    - **L1/L2**: Uses the optimized `sketch2.generate_test_data()` (native C++ generator) to create unique, non-periodic vectors.
+    - **DOT/L2**: Uses the optimized `sketch2.generate_test_data()` (native C++ generator) to create unique, non-periodic vectors.
     - **COS**: Uses a Python-based parallel generator to produce vectors with a specific value distribution (period 6545) suitable for cosine similarity testing.
-- **Ground Truth**: Calculates the exact Top-K results for each score function and saves them as JSON files in the database root to be shared across all engine runners. For L1/L2, it uses `native_sequential_vector` to match the native generator's output. If `DUMMY_CALC=1` is set, this expensive calculation is skipped and an empty ground truth file is saved instead.
+    - **Ground Truth**: Calculates the exact Top-K results for each score function and saves them as JSON files in the database root to be shared across all engine runners. For DOT/L2, it uses `native_sequential_vector` to match the native generator's output.
 
 ## 3. Runner (`runner.py`)
 
@@ -64,11 +70,11 @@ These modules ensure consistency between the initializer and the runner.
 
 - **Vector Generation (`sketch2_test_vectors.py`)**:
     - `cosine_demo_vector`: Generates vectors optimized for cosine similarity (period 6545).
-    - `native_sequential_vector`: Produces unique vectors matching the native `sk_generate_test_data` pattern for L1/L2 score functions.
+    - `native_sequential_vector`: Produces unique vectors matching the native `sk_generate_test_data` pattern for DOT/L2 score functions.
     - `quantize_value`/`quantize_values`: Ensures consistent floating-point behavior across different data types (`f32`, `f16`, `i16`).
 - **Ground Truth & Persistence (`common.py`)**:
-    - Implements pure-Python versions of `cosine_distance`, `l1_distance`, and `l2_distance_sq`.
-    - `get_ground_truth_knn`: Efficiently calculates the exact top-K indices and scores. For L1/L2, it processes the full dataset to account for unique vectors.
+    - Implements pure-Python versions of `cosine_distance`, `dot_distance`, and `l2_distance_sq`.
+    - `get_ground_truth_knn`: Efficiently calculates the exact top-K indices and scores. For DOT/L2, it processes the full dataset to account for unique vectors.
     - `save_ground_truth`/`load_ground_truth`: Handles JSON serialization of ground truth data.
 - **Robust Validation**: `validate_knn_results` handles score ties to ensure correctness verification is reliable across different SIMD-optimized engines.
 - **Configuration**: `load_config` parses environment variables into a `PerfConfig` dataclass, ensuring type safety and providing defaults.
@@ -89,9 +95,9 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_TEST_REPEAT` | Number of query iterations per engine. | `10` |
 | `COMPUTE_PERF_TEST_K` | Number of nearest neighbors to find. | `20` |
 | `COMPUTE_PERF_TEST_TYPE` | Data type of vectors (`f32`, `f16`, `i16`). | `f32` |
-| `COMPUTE_PERF_TEST_DIST` | Comma-separated list of score functions. | `cos,l2,l1` |
+| `COMPUTE_PERF_TEST_DIST` | Comma-separated list of score functions. | `cos,l2,dot` |
 | `COMPUTE_PERF_TEST_RANGE_SIZE` | Dataset range size used at creation time. | `10000` |
-| `COMPUTE_PERF_TEST_ENGINES` | Comma-separated list of engines to test. Use `auto` for the library default selection. | `scalar,auto,highway,numkong` |
+| `COMPUTE_PERF_TEST_ENGINES` | Comma-separated list of engine labels to test. Use `auto` for the library default selection. After the calc redesign, set this to a build-compatible list such as `auto,highway` or `auto,numkong`. | `scalar,auto,highway,numkong` |
 | `COMPUTE_PERF_TEST_BENCHMARKS` | Comma-separated benchmark layers to run. Supported values: `scan`, `kernel`. | `scan,kernel` |
 | `COMPUTE_PERF_TEST_LOG_LEVEL` | Log level for the Sketch2 engine. | `ERROR` |
 | `COMPUTE_PERF_TEST_THREAD_POOL_SIZE` | Internal thread pool size for Sketch2. | `1` |
@@ -112,6 +118,19 @@ Simply execute the driver script from the repository root:
 ./tests/compute_perf/driver.sh
 ```
 
+For calc-redesign builds, it is usually clearer to set the engine list
+explicitly:
+
+```bash
+COMPUTE_PERF_TEST_ENGINES=auto,highway ./tests/compute_perf/driver.sh
+```
+
+or:
+
+```bash
+COMPUTE_PERF_TEST_ENGINES=auto,numkong ./tests/compute_perf/driver.sh
+```
+
 Logs and timing reports will be printed to stdout and saved in `${SKETCH2_CONFIG_ROOT}/logs`.
 
 The final reporter prints two summary tables:
@@ -123,55 +142,13 @@ The driver also writes `${SKETCH2_CONFIG_ROOT}/logs/run_env.txt`, which captures
 
 When investigating a crash, inspect `${COMPUTE_PERF_DIAG_DIR}/diag_<engine>_<dist>.json` for the last recorded stage, then rerun the generated `${COMPUTE_PERF_DIAG_DIR}/repro_<engine>_<dist>.sh` or `${COMPUTE_PERF_DIAG_DIR}/repro_loop_<engine>_<dist>.sh`. On failure, `driver.sh` prints the diagnostic directory and the matching generated artifact paths to make that handoff explicit.
 
-## Performance Test Results on Arm
+## Notes After The Calc Redesign
 
-Observations:
-1. Custom SIMD functions in src/core/compute perform better than library functions in Google Highway or NumKong.
-2. Main outlier is COS score calculations using NumKong. It's surprisingly underperforming.
-
-Conclusion:
-1. Let's keep "auto" compute engine implmented in src/core/compute.
-2. The processing time is dominated by calculations. I/O time seems practically negligible. The size of test data
-   was ~31GB, which is significantly larger than available RAM on the machine. The system had to release memory
-   pages in mmap file and read new ones. Still out of 5 seconds of data processing only 0.2 seconds were spent
-   on I/O.
-
-
-On Azure Arm machine with local NVME disk:
-```
-Vectors count: 10'000'000
-Range size: 2'000'000
-Dimensions: 1536
-Data type: f16
-
-Single thread measurments
-
---- PERFORMANCE SUMMARY (avg time) ---
-engine  | cos       | l2         | dot
---------+-----------+------------+----------
-scalar  | 9.443766s | 13.590877s | 9.342076s
-auto    | 4.953242s | 3.410262s  | 4.930582s
-highway | 5.019967s | 5.177855s  | 4.970532s
-numkong | 4.954877s | 5.077667s  | 4.927953s
-
-Four threads measurements
-
---- PERFORMANCE SUMMARY (avg time) ---
-engine  | cos       | l2        | dot
---------+-----------+-----------+----------
-scalar  | 3.784321s | 5.461211s | 3.764609s
-auto    | 1.969133s | 1.345363s | 1.963899s
-highway | 2.006224s | 2.060801s | 1.974892s
-numkong | 1.978719s | 2.023283s | 1.998383s
-
-Single thread DUMMY_CALC
-
---- PERFORMANCE SUMMARY (avg time) ---
-engine  | cos       | l2        | dot
---------+-----------+-----------+----------
-scalar  | 0.211405s | 0.194796s | 0.181385s
-auto    | 0.198669s | 0.182348s | 0.177676s
-highway | 0.209576s | 0.192189s | 0.176791s
-numkong | 0.205842s | 0.184703s | 0.176402s
-
-```
+- Historical observations about `src/core/compute` no longer describe the
+  current code path. The active query implementation now lives under
+  `src/core/calc`.
+- Use separate build directories if you want to compare Highway and NumKong.
+  The redesign made top-level engine choice a configure-time decision, not a
+  broad runtime matrix inside one build tree.
+- `bench_calc` is the authoritative native microbenchmark entry point for the
+  current calc layer.

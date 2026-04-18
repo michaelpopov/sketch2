@@ -1,7 +1,7 @@
 // Implements conversion from text or binary input records into the binary data-file format.
 
 #include "data_writer.h"
-#include "core/compute/compute.h"
+#include "core/calc/norm_utils.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/compact_ids_ext.h"
@@ -71,12 +71,12 @@ Ret write_vector_section(
     const auto append_norm = [&](const uint8_t* vector_data) {
         switch (dist_func) {
             case DistFunc::COS:
-                norms->push_back(
-                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
+                norms->push_back(static_cast<float>(
+                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim())));
                 return;
             case DistFunc::L2:
-                norms->push_back(
-                    compute_squared_norm(vector_data, reader.type(), reader.dim()));
+                norms->push_back(static_cast<float>(
+                    compute_squared_norm(vector_data, reader.type(), reader.dim())));
                 return;
             case DistFunc::DOT:
                 return;

@@ -1,10 +1,11 @@
-// Declares the calc-engine-backed top-k scanner API.
+// Declares the Highway-backed scanner implementation and kernel resolver.
 
 #pragma once
+
 #include "core/calc/calc_engine.h"
 #include "core/calc/dist_item.h"
 #include "core/utils/bitset_filter.h"
-#include "utils/shared_types.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -12,21 +13,18 @@ namespace sketch2 {
 
 class DatasetReader;
 
-// ScannerEx provides the same top-k search as Scanner but delegates metric
-// score computation to the calc engine layer instead of the
-// Singleton-dispatched hand-written SIMD kernels.
-class ScannerEx {
+class ScannerHw {
 public:
-    explicit ScannerEx(CalcEngine engine = compiled_calc_engine());
-
     Ret find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
 
     Ret find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result, const BitsetFilter* bitset = nullptr) const;
-
-private:
-    CalcEngine engine_;
 };
+
+Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec,
+    std::vector<DistItem>* result, const BitsetFilter* bitset = nullptr);
+
+CalcKernels resolve_hwy_kernels(DistFunc func, DataType type);
 
 } // namespace sketch2

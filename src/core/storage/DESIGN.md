@@ -186,27 +186,30 @@ For files with cosine metadata, iterator also exposes the stored inverse norm fo
 
 Scanner
 -------------------------
-Add an interface ICompute in compute/compute.h
-It has function 
-   virtual double dist(const u8*, const u8*, type, dim) = 0
+The query path now lives under `core/calc`.
 
-Add class ComputeL1 in compute/compute_l1.h
-It implements ICompute
-It implements dist()
-It has private functions that convert u8* to corresponding types based on type parameter.
-They implement L1 distance calculation for the type.
-dist() calls one of these internal functions and return result.
+`ScannerEx` is the main facade used by higher-level code. It delegates a query
+to the configured compute engine and then runs one specialized path for:
 
-A class that can find K nearest neighbors in data that is provided by Data Reader.
-This class is required for closing testing loop and making sure that data interfaces
-make sense.
-Interface:
-    init(path)
-    find(func, count, vector)
-        return array of ids
-        func enum of distance functions L1, L2, ...
-        count a requested number of ids in a returned array
-        vector u8* a query vector
+  - distance function
+  - vector element type
+  - backend-specific kernel set
+
+The current backend implementations are:
+
+  - `scanner_hw.cpp` for the Highway-backed build
+  - `scanner_nk.cpp` for the NumKong-backed build
+
+Shared scanner helpers are split by responsibility instead of being folded into
+one monolithic implementation. For example:
+
+  - dataset traversal and visible-row handling live in `scanner_dataset_scan.h`
+  - hot scan loops live in `scanner_scan_loops.h`
+  - heap/result extraction helpers live in `scanner_heap_utils.h`
+
+Public scanner operations return either ids or `(id, score)` pairs and clear
+caller-provided output buffers before reporting a failure so failed queries do
+not leave stale results behind.
 
 For cosine datasets scanner precomputes the query norm once per search. If a data file
 or accumulator entry contains stored cosine inverse norms, scanner uses:

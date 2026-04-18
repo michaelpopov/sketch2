@@ -2,6 +2,9 @@
 BUILD_DBG := build-dbg
 BUILD_REL := build
 BUILD_SAN := build-san
+BUILD_DBG_NK := build-nk-dbg
+BUILD_REL_NK := build-nk
+BUILD_SAN_NK := build-nk-san
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
 GBENCH_ESSENTIAL_MIN_TIME ?= 0.005s
 GBENCH_EXTENDED_MIN_TIME ?= 0.05s
@@ -25,13 +28,25 @@ prepare:
 initdbg:
 	cmake -S . -B $(BUILD_DBG) -DCMAKE_BUILD_TYPE=Debug
 
+.PHONY: initdbg-nk
+initdbg-nk:
+	cmake -S . -B $(BUILD_DBG_NK) -DCMAKE_BUILD_TYPE=Debug -DSKETCH_CALC_ENGINE=numkong
+
 .PHONY: initrel
 initrel:
 	cmake -S . -B $(BUILD_REL) -DCMAKE_BUILD_TYPE=Release
 
+.PHONY: initrel-nk
+initrel-nk:
+	cmake -S . -B $(BUILD_REL_NK) -DCMAKE_BUILD_TYPE=Release -DSKETCH_CALC_ENGINE=numkong
+
 .PHONY: initsan
 initsan:
 	cmake -S . -B $(BUILD_SAN) -DCMAKE_BUILD_TYPE=Sanitizer
+
+.PHONY: initsan-nk
+initsan-nk:
+	cmake -S . -B $(BUILD_SAN_NK) -DCMAKE_BUILD_TYPE=Sanitizer -DSKETCH_CALC_ENGINE=numkong
 
 # Compiles the project in debug build (initializes build-dbg if needed)
 .PHONY: build
@@ -40,6 +55,12 @@ build: initdbg
 	@test -d "$(BUILD_DBG)" || mkdir -p "$(BUILD_DBG)"
 	cmake --build $(BUILD_DBG) --parallel $(JOBS)
 
+.PHONY: build-nk
+build-nk: initdbg-nk
+	@test -d bin-dbg || mkdir -p bin-dbg
+	@test -d "$(BUILD_DBG_NK)" || mkdir -p "$(BUILD_DBG_NK)"
+	cmake --build $(BUILD_DBG_NK) --parallel $(JOBS)
+
 # Compiles the project in release build (initializes build if needed)
 .PHONY: rel
 rel: initrel
@@ -47,16 +68,31 @@ rel: initrel
 	@test -d "$(BUILD_REL)" || mkdir -p "$(BUILD_REL)"
 	cmake --build $(BUILD_REL) --parallel $(JOBS)
 
+.PHONY: rel-nk
+rel-nk: initrel-nk
+	@test -d bin || mkdir -p bin
+	@test -d "$(BUILD_REL_NK)" || mkdir -p "$(BUILD_REL_NK)"
+	cmake --build $(BUILD_REL_NK) --parallel $(JOBS)
+
 # Compiles the project in sanitizer build (initializes build-san if needed)
 .PHONY: san
 san: initsan
 	@test -d "$(BUILD_SAN)" || mkdir -p "$(BUILD_SAN)"
 	cmake --build $(BUILD_SAN) --parallel $(JOBS)
 
+.PHONY: san-nk
+san-nk: initsan-nk
+	@test -d "$(BUILD_SAN_NK)" || mkdir -p "$(BUILD_SAN_NK)"
+	cmake --build $(BUILD_SAN_NK) --parallel $(JOBS)
+
 # Runs the test suite with failure output enabled
 .PHONY: test
 test: build
 	ctest --test-dir $(BUILD_DBG) --output-on-failure
+
+.PHONY: test-nk
+test-nk: build-nk
+	ctest --test-dir $(BUILD_DBG_NK) --output-on-failure
 
 # Runs the standalone thread-pool unit tests on demand
 .PHONY: tpooltest
@@ -73,6 +109,10 @@ sketch2test: build
 rtest: rel
 	ctest --test-dir $(BUILD_REL) --output-on-failure
 
+.PHONY: rtest-nk
+rtest-nk: rel-nk
+	ctest --test-dir $(BUILD_REL_NK) --output-on-failure
+
 # Installs the public header and release shared library under install/
 .PHONY: install
 install: rtest
@@ -84,6 +124,10 @@ install: rtest
 .PHONY: santest
 santest: san
 	ctest --test-dir $(BUILD_SAN) --output-on-failure
+
+.PHONY: santest-nk
+santest-nk: san-nk
+	ctest --test-dir $(BUILD_SAN_NK) --output-on-failure
 
 # Runs Python API tests
 .PHONY: pytest
@@ -122,35 +166,35 @@ benchcfg:
 # Builds the release benchmark binaries.
 .PHONY: benchbuild
 benchbuild: benchcfg
-	cmake --build $(BUILD_REL) --parallel $(JOBS) --target bench_comp gbench_comp
+	cmake --build $(BUILD_REL) --parallel $(JOBS) --target bench_calc
 
-# Runs the Google Benchmark-based compute/scanner benchmark suite in release mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: bench
 bench: benchrel
 
 .PHONY: benchrel
 benchrel: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
+	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
 
-# Runs the extended Google Benchmark suite in release mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: benchext
 benchext: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=extended bin/gbench_comp --benchmark_min_time=$(GBENCH_EXTENDED_MIN_TIME)
+	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
 
-# Runs the lightweight compute benchmark in release mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: benchcomp
 benchcomp: benchbuild
-	bin/bench_comp
+	@echo "bench_comp was removed; use bin/bench_calc with explicit arguments"
 
-# Runs the essential Google Benchmark suite restricted to the dataset_persisted scanner mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: ds_bench
 ds_bench: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential SKETCH2_GBENCH_SCANNER_MODE=dataset_persisted bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
+	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
 
-# Runs the essential Google Benchmark suite restricted to the dataset_mixed scanner mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: ds_mix_bench
 ds_mix_bench: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential SKETCH2_GBENCH_SCANNER_MODE=dataset_mixed bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
+	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
 
 # Runs full local coverage flow:
 # - debug unit tests

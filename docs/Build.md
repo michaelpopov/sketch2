@@ -11,8 +11,7 @@ Minimum build requirements:
 
 - CMake 3.20 or newer
 - a C++20 compiler
-- GCC or Clang on x86/x86_64 if AVX2 or AVX-512 runtime backends are enabled
-- AArch64 is supported with the architecture options needed for NEON and fp16
+- GCC or Clang on x86/x86_64 and AArch64 for the Google Highway and NumKong multi-target build
 
 Practical tools used by this repository:
 
@@ -20,6 +19,9 @@ Practical tools used by this repository:
 - `ninja-build`
 - `make`
 - `python3` for the Python wrapper, shell, and demo scripts
+
+A fresh machine also needs normal outbound network access during the first
+configure because GoogleTest is downloaded as part of the standard build.
 
 On Ubuntu, the repository `Makefile` provides:
 
@@ -40,6 +42,13 @@ If `python3` is not already installed on the machine, install it separately.
 The project uses CMake as the primary build system. The root `Makefile` is a
 thin convenience layer over the main CMake commands.
 
+Build directories are engine-specific because `SKETCH_CALC_ENGINE` is cached at
+configure time. If you want a NumKong build, configure a fresh build directory
+for it instead of reusing a previously configured `highway` tree.
+
+The default calc engine is `highway`. Set `-DSKETCH_CALC_ENGINE=numkong` at
+configure time if you want the NumKong-backed build instead.
+
 Important build types:
 
 - `Debug`
@@ -49,7 +58,7 @@ Important build types:
 If no build type is provided, the top-level CMake configuration defaults to
 `Debug`.
 
-On x86/x86_64, the build enables runtime-dispatched SIMD backends through these
+On x86/x86_64, Highway builds can compile higher-ISA targets through these
 options:
 
 - `SKETCH_ENABLE_AVX2`
@@ -66,6 +75,15 @@ configure with:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_ARM_SVE=ON
+```
+
+To build the NumKong engine explicitly from a fresh clone or on another
+machine, use a dedicated build directory:
+
+```bash
+cmake -S . -B build-nk-dbg -DCMAKE_BUILD_TYPE=Debug -DSKETCH_CALC_ENGINE=numkong
+cmake --build build-nk-dbg
+ctest --test-dir build-nk-dbg --output-on-failure
 ```
 
 ## Main Artifacts
@@ -171,7 +189,7 @@ If you want benchmark binaries as part of a release build, configure with:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_BENCHMARKS=ON
-cmake --build build --target bench_comp gbench_comp
+cmake --build build --target bench_calc
 ```
 
 ## Using Sketch2 From Another Project
@@ -303,5 +321,7 @@ export SKETCH2_LOG_FILE=/tmp/sketch2.log
 - `Release` uses the compiler's standard CMake release flags, which typically
   means optimized code with `-DNDEBUG`
 - `Sanitizer` builds use AddressSanitizer, UndefinedBehaviorSanitizer, and LeakSanitizer
-- on x86, higher SIMD backends are compiled into one binary and selected at
-  runtime on supported CPUs
+- each configured build contains one top-level compute engine selected by
+  `SKETCH_CALC_ENGINE`
+- Highway builds can still contain multiple ISA targets inside that engine,
+  while NumKong builds keep their own internal capability-specific dispatch

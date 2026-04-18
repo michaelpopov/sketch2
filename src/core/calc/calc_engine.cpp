@@ -1,32 +1,27 @@
 #include "core/calc/calc_engine.h"
 
-#include "core/calc/compute_kernels.h"
-#include "core/calc/hwy_kernels.h"
-#include "core/calc/nk_kernels.h"
+#if SKETCH_CALC_ENGINE_HIGHWAY
+#include "core/calc/scanner_hw.h"
+#elif SKETCH_CALC_ENGINE_NUMKONG
+#include "core/calc/scanner_nk.h"
+#endif
 
 namespace sketch2 {
 
 CalcKernels resolve_calc_kernels(CalcEngine engine, DistFunc func, DataType type) {
     switch (engine) {
-        case CalcEngine::compute:
-            return resolve_compute_kernels(func, type);
+#if SKETCH_CALC_ENGINE_HIGHWAY
         case CalcEngine::highway:
             return resolve_hwy_kernels(func, type);
+#endif
+#if SKETCH_CALC_ENGINE_NUMKONG
         case CalcEngine::numkong:
             return resolve_nk_kernels(func, type);
+#endif
+        default:
+            break;
     }
     throw std::runtime_error("resolve_calc_kernels: unsupported engine.");
-}
-
-CalcEngine selected_calc_engine(ComputeBackendKind kind) {
-    switch (kind) {
-        case ComputeBackendKind::highway:
-            return CalcEngine::highway;
-        case ComputeBackendKind::nk:
-            return CalcEngine::numkong;
-        default:
-            return CalcEngine::compute;
-    }
 }
 
 } // namespace sketch2

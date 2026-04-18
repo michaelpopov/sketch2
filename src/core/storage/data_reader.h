@@ -9,6 +9,7 @@
 #include "core/storage/data_file_layout.h"
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 namespace sketch2 {
@@ -45,11 +46,61 @@ public:
     // sorted-id order without interleaving the two streams.
     class OrderedIterator {
     public:
-        void           next();
-        bool           eof()  const;
-        const uint8_t* data() const;
-        float          get_norm() const;
-        uint64_t       id()   const;
+        inline void next() {
+            ++index_;
+            if (!reader_ || source_ != Source::Base) {
+                return;
+            }
+            while (index_ < reader_->count() && reader_->is_hidden(index_)) {
+                ++index_;
+            }
+        }
+
+        inline bool eof() const {
+            if (!reader_) {
+                return true;
+            }
+            if (source_ == Source::Base) {
+                return index_ >= reader_->count();
+            }
+            return !reader_->delta_ || index_ >= reader_->delta_->count();
+        }
+
+        inline const uint8_t* data() const {
+            if (eof()) {
+                throw std::out_of_range("DataReader::OrderedIterator::data: index out of range");
+            }
+
+            if (source_ == Source::Base) {
+                return reader_->at(index_);
+            }
+
+            return reader_->delta_->at(index_);
+        }
+
+        inline float get_norm() const {
+            if (eof()) {
+                throw std::out_of_range("DataReader::OrderedIterator::get_norm: index out of range");
+            }
+
+            if (source_ == Source::Base) {
+                return reader_->get_norm(index_);
+            }
+
+            return reader_->delta_->get_norm(index_);
+        }
+
+        inline uint64_t id() const {
+            if (eof()) {
+                throw std::out_of_range("DataReader::OrderedIterator::id: index out of range");
+            }
+
+            if (source_ == Source::Base) {
+                return reader_->ids_.id(index_);
+            }
+
+            return reader_->delta_->ids_.id(index_);
+        }
 
     private:
         enum class Source {
@@ -74,7 +125,12 @@ public:
     size_t dim() const;
     size_t size() const;  // size of one vector in bytes
     size_t stride() const { return stride_; } // distance between persisted vector records in bytes
-    size_t count() const; // number of vectors
+    inline size_t count() const { // number of vectors
+        if (!initialized_) {
+            throw std::runtime_error("DataReader::count: reader is not initialized");
+        }
+        return static_cast<size_t>(hdr_.count);
+    }
     uint32_t norm_flags() const;
     bool has_norms() const;
     bool has_matching_stored_norms(DistFunc dist_func) const;
@@ -83,10 +139,30 @@ public:
     OrderedIterator base_begin() const;
     OrderedIterator delta_begin() const;
     uint64_t       id(size_t index) const;
-    float          get_norm(size_t index) const;
+    inline float   get_norm(size_t index) const {
+        if (index >= count()) {
+            throw std::out_of_range("DataReader::get_norm: index out of range");
+        }
+        if (!norms_) {
+            throw std::logic_error("DataReader::get_norm: norms section is absent");
+        }
+        return norms_[index];
+    }
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
-    const uint8_t* at(size_t index) const;   // lookup by position; might return nullptr if the vector is deleted
-    bool           is_hidden(size_t index) const;
+    inline const uint8_t* at(size_t index) const {   // lookup by position; might return nullptr if the vector is deleted
+        if (index >= count()) {
+            throw std::out_of_range("DataReader::at: index out of range");
+        }
+
+        if (index < changed_bitset_.size() && changed_bitset_.get(index)) {
+            return nullptr;
+        }
+
+        return vectors_region_.data() + index * stride_;
+    }
+    inline bool    is_hidden(size_t index) const {
+        return (index < changed_bitset_.size() && changed_bitset_.get(index));
+    }
     std::string    path() const { return path_; }
 
     size_t deleted_count() const { return deleted_ids_.count(); }

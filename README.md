@@ -33,7 +33,7 @@ Sketch2 is a great fit for:
 Sketch2 combines:
 
 - a custom persisted storage format for vector data
-- runtime-dispatched SIMD compute backends
+- a compute engine for efficient vector calculations using industry-stanadard libraries
 - integration surfaces for host applications and tools
 
 The current system is centered on brute-force KNN over stored vectors. Support
@@ -56,11 +56,11 @@ The project emphasizes:
 
 - storage and compute designed together
 - predictable read behavior with batched write and merge flows
-- support for multiple CPU backends in one binary
+- compile-time compute engine selection with hardware specialization inside the selected engine
 - integration with existing systems
 
 It currently targets Linux and supports `f32`, `f16`, and `i16` vector data
-with `l1`, `l2`, and `cos` distance functions.
+with `dot`, `l2`, and `cos` distance functions.
 
 ## Documentation
 
