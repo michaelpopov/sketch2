@@ -58,10 +58,6 @@ bool Singleton::apply_config_file(const std::string& path) {
     return instance().apply_config_file_(path);
 }
 
-bool Singleton::force_compute_unit_for_testing(ComputeBackendKind kind) {
-    return instance().force_compute_unit_for_testing_(kind);
-}
-
 void Singleton::force_thread_pool_for_testing(size_t threads) {
     std::lock_guard<std::mutex> lock(instance().mutex_);
     if (threads > 1) {
@@ -140,19 +136,6 @@ bool Singleton::apply_config_file_(const std::string& path) {
     return applied;
 }
 
-// Tests are allowed to force the active calc engine after initialization so
-// resolver selection can be verified without rebuilding the whole binary.
-bool Singleton::force_compute_unit_for_testing_(ComputeBackendKind kind) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!ComputeUnit::is_supported(kind)) {
-        return false;
-    }
-    compute_unit_ = ComputeUnit(kind);
-    LOG_INFO << "Compute backend set to '" << compute_unit_.name()
-             << "' because tests explicitly forced this runtime override.";
-    return true;
-}
-
 // Merge configuration in precedence order: optional file first, then direct
 // environment overrides. The merged struct is returned instead of mutating
 // state incrementally so callers can decide when to seal the singleton.
@@ -180,17 +163,10 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
             merged.level = reader.get_str("log.level", "");
             merged.log_file = reader.get_str("log.path", "");
             merged.thread_pool_size = reader.get_str("thread_pool.size", "");
-            merged.compute_engine = reader.get_str("compute.engine", "");
         } else {
             LOG_WARN << "Failed to read SKETCH2_CONFIG from " << config_path
                      << ": " << ret.message();
         }
-    }
-
-    const char* compute_engine = std::getenv("SKETCH2_COMPUTE_ENGINE");
-    if (compute_engine != nullptr && compute_engine[0] != '\0') {
-        LOG_INFO << "Compute engine is set in env var: " << compute_engine;
-        merged.compute_engine = compute_engine;
     }
 
     const char* env_level = std::getenv("SKETCH2_LOG_LEVEL");
@@ -234,35 +210,7 @@ bool Singleton::apply_config_values_(const ConfigValues& values, bool allow_defa
         applied = apply_default_thread_pool_size_() || applied;
     }
 
-    if (!values.compute_engine.empty()) {
-        applied = apply_compute_engine_(values.compute_engine) || applied;
-    }
-
     return applied;
-}
-
-bool Singleton::apply_compute_engine_(const std::string& str) {
-    if (str.empty()) {
-        return false;
-    }
-
-    ComputeBackendKind kind = ComputeBackendKind::highway;
-    if (!ComputeUnit::parse(str.c_str(), &kind)) {
-        LOG_ERROR << "Ignoring invalid compute.engine value '" << str
-                  << "' and degrading to the default compute engine selection.";
-        return true;
-    }
-    if (!ComputeUnit::is_supported(kind)) {
-        LOG_ERROR << "Ignoring unsupported compute.engine value '" << str
-                  << "' because that engine/backend is not supported on this build/CPU; "
-                  << "degrading to the default compute engine selection.";
-        return true;
-    }
-
-    compute_unit_ = ComputeUnit{kind};
-    LOG_INFO << "Compute engine set to '" << compute_unit_.name()
-             << "' because configuration explicitly requested it.";
-    return true;
 }
 
 bool Singleton::apply_log_level_(const std::string& level) {

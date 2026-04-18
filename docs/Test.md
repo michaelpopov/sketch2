@@ -90,7 +90,7 @@ These binaries cover:
   and the update notifier
 - storage components such as input generation, input parsing, data file
   layout, readers, writers, and dataset logic
-- compute kernels, engine-specific scanner logic, and compute engine resolver behavior
+- compute kernels, engine-specific scanner logic, and build-selected engine behavior
 - the `sketch2api` C API, including compute-oriented API coverage
 - the SQLite integration layer
 

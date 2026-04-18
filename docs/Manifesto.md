@@ -41,7 +41,7 @@ allow frictionless flow of data to CPU caches for processing. They are aligned
 in memory in a way that allows efficient SIMD operations on the vector data.
 
 The query path now lives in a dedicated `core/calc` layer with a build-selected
-calc engine. Within that engine, the kernels still specialize for the hardware
+compute engine. Within that engine, the kernels still specialize for the hardware
 they run on so the project can get the best out of Intel, AMD, and ARM CPUs.
 
 ## Integrations And Direction

@@ -35,14 +35,11 @@ struct SqliteDbCloser {
 using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
 
 constexpr const char* kScenarioEnv = "SKETCH2API_VLITE_COMPUTE_SCENARIO";
-constexpr const char* kComputeEngineEnv = "SKETCH2_COMPUTE_ENGINE";
 
 #if SKETCH_CALC_ENGINE_HIGHWAY
 constexpr const char* kCompiledEngine = "highway";
-constexpr const char* kOtherEngine = "numkong";
 #elif SKETCH_CALC_ENGINE_NUMKONG
 constexpr const char* kCompiledEngine = "numkong";
-constexpr const char* kOtherEngine = "highway";
 #else
 #error "Exactly one calc engine must be compiled."
 #endif
@@ -305,27 +302,20 @@ TEST_F(VliteTest, ChildScenario) {
     }
 
     EnvVarGuard scenario_guard(kScenarioEnv);
-    EnvVarGuard engine_guard(kComputeEngineEnv);
-
     write_input("f32,4\n"
                 "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
                 "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
                 "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     create_dataset(DataType::f32, 4, 100, DistFunc::COS);
 
-    std::string expected_engine = kCompiledEngine;
-    if (std::string_view(scenario) == "env_compiled") {
-        ASSERT_EQ(0, setenv(kComputeEngineEnv, kCompiledEngine, 1));
-    } else if (std::string_view(scenario) == "env_other_is_advisory") {
-        ASSERT_EQ(0, setenv(kComputeEngineEnv, kOtherEngine, 1));
-    } else {
+    if (std::string_view(scenario) != "compiled_engine") {
         FAIL() << "Unknown scenario: " << scenario;
     }
 
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
 
-    EXPECT_EQ(expected_engine, loaded_knn_engine_name());
+    EXPECT_EQ(kCompiledEngine, loaded_knn_engine_name());
 
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "
@@ -340,7 +330,6 @@ TEST_F(VliteTest, ChildScenario) {
 
 void run_child_scenario(const char* scenario) {
     EnvVarGuard scenario_guard(kScenarioEnv);
-    EnvVarGuard engine_guard(kComputeEngineEnv);
 
     ASSERT_EQ(0, setenv(kScenarioEnv, scenario, 1));
 
@@ -358,12 +347,8 @@ void run_child_scenario(const char* scenario) {
     ASSERT_EQ(0, WEXITSTATUS(status));
 }
 
-TEST_F(VliteTest, EnvCompiledEngineUsesCalcEngine) {
-    run_child_scenario("env_compiled");
-}
-
-TEST_F(VliteTest, InvalidOtherEngineEnvRemainsAdvisory) {
-    run_child_scenario("env_other_is_advisory");
+TEST_F(VliteTest, UsesCompiledEngine) {
+    run_child_scenario("compiled_engine");
 }
 
 TEST_F(VliteTest, UsesDatasetScoreFunctionForL2Queries) {

@@ -133,24 +133,16 @@ Configuration sources and precedence:
 
 1. built-in defaults
 2. `SKETCH2_CONFIG` ini file, if present and readable
-3. `SKETCH2_COMPUTE_ENGINE`, overriding `compute.engine`
-4. `SKETCH2_LOG_LEVEL`, overriding `log.level`
-5. `SKETCH2_THREAD_POOL_SIZE`, overriding `thread_pool.size`
-6. `SKETCH2_LOG_FILE`, selecting the log sink
+3. `SKETCH2_LOG_LEVEL`, overriding `log.level`
+4. `SKETCH2_THREAD_POOL_SIZE`, overriding `thread_pool.size`
+5. `SKETCH2_LOG_FILE`, selecting the log sink
 
 If `SKETCH2_CONFIG` is missing, that is fine. Defaults and env overrides still
  work. If it is set but unreadable, startup logs a warning and continues with
  direct env overrides.
 
-Compute selection values are:
-
-- `highway`: use `ScannerEx` backed by Google Highway
-- `numkong`: use `ScannerEx` backed by NumKong
-- `auto`, `avx2`, `avx512f`, `avx512_vnni`, `neon`, `scalar`: use `ScannerEx` backed by `CalcEngine::compute`
-
-Malformed `compute.engine` / `SKETCH2_COMPUTE_ENGINE` values log an `ERROR`
-message and degrade to the default compute path instead of aborting the
-host process.
+The top-level compute engine is not part of runtime configuration. It is baked
+into the library at build time through `SKETCH_CALC_ENGINE`.
 
 After the first successful initialization, the runtime is sealed:
 

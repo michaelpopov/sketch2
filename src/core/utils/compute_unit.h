@@ -1,4 +1,4 @@
-// Declares the runtime-selected calc backend used by query dispatch.
+// Declares the process-wide calc backend identity used by query dispatch.
 
 #pragma once
 
@@ -17,7 +17,7 @@ constexpr ComputeBackendKind compiled_compute_backend_kind() {
 #elif SKETCH_CALC_ENGINE_NUMKONG
     return ComputeBackendKind::nk;
 #else
-#error "Exactly one calc engine must be compiled."
+#error "Exactly one compute engine must be compiled."
 #endif
 }
 
