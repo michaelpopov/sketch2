@@ -5,7 +5,11 @@
 #include "core/calc/scanner_hw.h"
 
 #include "core/calc/cosine_distance.h"
-#include "core/calc/scanner_engine_common.h"
+#include "core/calc/scanner_dataset_scan.h"
+#include "core/calc/scanner_heap_utils.h"
+#include "core/calc/scanner_log_utils.h"
+#include "core/calc/scanner_query_context.h"
+#include "core/utils/timer.h"
 
 #undef HWY_TARGET_INCLUDE
 #define HWY_TARGET_INCLUDE "core/calc/scanner_hw.cpp"
