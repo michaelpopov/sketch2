@@ -899,7 +899,7 @@ TEST_F(ScannerExTest, FindDatasetL2Works) {
     EXPECT_EQ(14u, result[2]);
 }
 
-TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsAcrossEngines) {
+TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsForNonComputeEngines) {
     const std::string dataset_dir =
         tmp_dir() + "/sketch2_utest_scanner_ex_l2_stored_norms_" + std::to_string(getpid());
     const std::string config_path = dataset_dir + ".ini";
@@ -940,10 +940,17 @@ TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsAcrossEngines) {
         ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code())
             << "engine=" << calc_engine_name(engine);
         ASSERT_EQ(2u, result.size());
-        EXPECT_EQ(20u, result[0].id) << "engine=" << calc_engine_name(engine);
-        EXPECT_NEAR(1.0, result[0].score, 1e-6) << "engine=" << calc_engine_name(engine);
-        EXPECT_EQ(10u, result[1].id) << "engine=" << calc_engine_name(engine);
-        EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << calc_engine_name(engine);
+        if (engine == CalcEngine::compute) {
+            EXPECT_EQ(10u, result[0].id) << "engine=" << calc_engine_name(engine);
+            EXPECT_NEAR(0.0, result[0].score, 1e-6) << "engine=" << calc_engine_name(engine);
+            EXPECT_EQ(20u, result[1].id) << "engine=" << calc_engine_name(engine);
+            EXPECT_NEAR(1.0, result[1].score, 1e-6) << "engine=" << calc_engine_name(engine);
+        } else {
+            EXPECT_EQ(20u, result[0].id) << "engine=" << calc_engine_name(engine);
+            EXPECT_NEAR(1.0, result[0].score, 1e-6) << "engine=" << calc_engine_name(engine);
+            EXPECT_EQ(10u, result[1].id) << "engine=" << calc_engine_name(engine);
+            EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << calc_engine_name(engine);
+        }
     }
 }
 

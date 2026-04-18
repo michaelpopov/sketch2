@@ -370,6 +370,19 @@ Ret build_dataset_heap_with_score(const DatasetReader& dataset, size_t count, co
         bitset);
 }
 
+template <typename ScoreFn>
+Ret build_dataset_heap_with_cutoff_score(const DatasetReader& dataset, size_t count, const ScoreFn& score,
+        DistFunc func, DistHeap* heap, const BitsetFilter* bitset = nullptr) {
+    return scan_dataset_heap_custom(
+        dataset, count, heap,
+        [score](const DataReader& reader, size_t local_count, DistHeap* local_heap,
+                const BitsetFilter* bitset) {
+            scan_data_reader_scored_with_cutoff(reader, local_count, local_heap, score, bitset);
+        },
+        func,
+        bitset);
+}
+
 template <typename StoredNormScoreFn, typename CutoffScoreFn>
 Ret build_dataset_heap_with_optional_stored_norms_and_cutoff(
         const DatasetReader& dataset, size_t count,
@@ -467,13 +480,13 @@ Ret build_heap(CalcEngine engine, const DatasetReader& dataset, DistFunc func,
 
     if (func == DistFunc::L2 && k.squared_norm && k.dot) {
         assert(k.dist);
-        const double query_norm_sq = k.squared_norm(vec, dim);
-        const FnPtrStoredSquaredNormL2Score stored_norm_score{k.dot, vec, dim, query_norm_sq};
         if (use_compute_l2_cutoff) {
             const FnPtrDistLimitScore cutoff_score{ComputeL2::resolve_dist_with_limit(type), vec, dim};
-            return build_dataset_heap_with_optional_stored_norms_and_cutoff(
-                dataset, count, stored_norm_score, cutoff_score, func, heap, bitset);
+            return build_dataset_heap_with_cutoff_score(
+                dataset, count, cutoff_score, func, heap, bitset);
         }
+        const double query_norm_sq = k.squared_norm(vec, dim);
+        const FnPtrStoredSquaredNormL2Score stored_norm_score{k.dot, vec, dim, query_norm_sq};
         const FnPtrDistScore fallback_score{k.dist, vec, dim};
         return build_dataset_heap_with_optional_stored_norms(
             dataset, count, stored_norm_score, fallback_score, func, heap, bitset);
