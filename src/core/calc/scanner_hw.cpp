@@ -117,13 +117,6 @@ double DistL2I16(const uint8_t* a, const uint8_t* b, size_t dim) {
 double DotF32(const uint8_t* a, const uint8_t* b, size_t dim) {
     const float* va = AsElements<float>(a);
     const float* vb = AsElements<float>(b);
-#if HWY_TARGET == HWY_SCALAR
-    double sum = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
-    }
-    return sum;
-#else
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto acc = hn::Zero(df);
@@ -138,19 +131,11 @@ double DotF32(const uint8_t* a, const uint8_t* b, size_t dim) {
         sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
-#endif
 }
 
 double DotF16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const auto* va = AsElements<hwy::float16_t>(a);
     const auto* vb = AsElements<hwy::float16_t>(b);
-#if HWY_TARGET == HWY_SCALAR
-    double sum = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
-    }
-    return sum;
-#else
     const hn::ScalableTag<float> df;
     const size_t N = hn::Lanes(df);
     auto acc = hn::Zero(df);
@@ -165,7 +150,6 @@ double DotF16(const uint8_t* a, const uint8_t* b, size_t dim) {
         sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
     }
     return sum;
-#endif
 }
 
 double DotI16(const uint8_t* a, const uint8_t* b, size_t dim) {

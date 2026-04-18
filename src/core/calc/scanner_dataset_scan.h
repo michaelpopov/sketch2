@@ -12,7 +12,6 @@
 #include <exception>
 #include <future>
 #include <limits>
-#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -47,14 +46,13 @@ inline Ret scan_dataset_readers(const std::vector<DataReaderPtr>& readers, size_
         return Ret(0);
     }
 
-    const auto scan_reader_shared = std::make_shared<ReaderScanFn>(scan_reader);
     std::vector<std::future<DistHeap>> futures;
     futures.reserve(readers.size());
     for (const auto& reader : readers) {
-        futures.push_back(pool->submit([scan_reader_shared, count, reader, func, bitset]() {
+        futures.push_back(pool->submit([scan_reader, count, reader, func, bitset]() {
             DistHeap local_heap(DistItemCompare{func});
             local_heap.reserve(count);
-            (*scan_reader_shared)(*reader, count, &local_heap, bitset);
+            scan_reader(*reader, count, &local_heap, bitset);
             return local_heap;
         }));
     }

@@ -72,18 +72,21 @@ inline void scan_data_reader(const DataReader& reader, size_t vector_size_bytes,
         reader.delta_begin(), vector_size_bytes, bitset, push_fn);
 }
 
-inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, DistHeap* heap,
-        CalcDistFn dist_fn, const QueryDistContext& query, const BitsetFilter* bitset = nullptr) {
-    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+template <typename PushFn>
+inline void scan_data_reader_with_optional_bitset(const DataReader& reader,
+        size_t vector_size_bytes, const BitsetFilter* bitset, const PushFn& push_fn) {
     if (bitset == nullptr) {
-        scan_data_reader<false>(reader, vector_size_bytes, nullptr,
-            [heap, count, dist_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
-                push_result(heap, count, id, dist_fn(curr_it.data(), query.vec, query.dim));
-            });
+        scan_data_reader<false>(reader, vector_size_bytes, nullptr, push_fn);
         return;
     }
 
-    scan_data_reader<true>(reader, vector_size_bytes, bitset,
+    scan_data_reader<true>(reader, vector_size_bytes, bitset, push_fn);
+}
+
+inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, DistHeap* heap,
+        CalcDistFn dist_fn, const QueryDistContext& query, const BitsetFilter* bitset = nullptr) {
+    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
         [heap, count, dist_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             push_result(heap, count, id, dist_fn(curr_it.data(), query.vec, query.dim));
         });
@@ -93,16 +96,7 @@ inline void scan_data_reader_with_query_norm(const DataReader& reader, size_t co
         CalcDistWithQueryNormFn dist_fn, const QueryCosContext& query,
         const BitsetFilter* bitset = nullptr) {
     const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
-    if (bitset == nullptr) {
-        scan_data_reader<false>(reader, vector_size_bytes, nullptr,
-            [heap, count, dist_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
-                push_result(heap, count, id,
-                    dist_fn(curr_it.data(), query.vec, query.dim, query.norm_sq));
-            });
-        return;
-    }
-
-    scan_data_reader<true>(reader, vector_size_bytes, bitset,
+    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
         [heap, count, dist_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             push_result(heap, count, id,
                 dist_fn(curr_it.data(), query.vec, query.dim, query.norm_sq));
@@ -113,17 +107,7 @@ inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, siz
         DistHeap* heap, CalcDotFn dot_fn, const QueryCosContext& query,
         const BitsetFilter* bitset = nullptr) {
     const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
-    if (bitset == nullptr) {
-        scan_data_reader<false>(reader, vector_size_bytes, nullptr,
-            [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
-                const double dot = dot_fn(curr_it.data(), query.vec, query.dim);
-                push_result(heap, count, id, finalize_cosine_distance_from_inverse_norms(
-                    dot, static_cast<double>(curr_it.get_norm()), query.inv_norm));
-            });
-        return;
-    }
-
-    scan_data_reader<true>(reader, vector_size_bytes, bitset,
+    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
         [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             const double dot = dot_fn(curr_it.data(), query.vec, query.dim);
             push_result(heap, count, id, finalize_cosine_distance_from_inverse_norms(
@@ -135,17 +119,7 @@ inline void scan_data_reader_with_l2_stored_norms(const DataReader& reader, size
         DistHeap* heap, CalcDotFn dot_fn, const QueryL2Context& query,
         const BitsetFilter* bitset = nullptr) {
     const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
-    if (bitset == nullptr) {
-        scan_data_reader<false>(reader, vector_size_bytes, nullptr,
-            [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
-                const double dot = dot_fn(curr_it.data(), query.vec, query.dim);
-                push_result(heap, count, id, finalize_squared_l2_distance_from_squared_norms(
-                    dot, static_cast<double>(curr_it.get_norm()), query.norm_sq));
-            });
-        return;
-    }
-
-    scan_data_reader<true>(reader, vector_size_bytes, bitset,
+    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
         [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             const double dot = dot_fn(curr_it.data(), query.vec, query.dim);
             push_result(heap, count, id, finalize_squared_l2_distance_from_squared_norms(
