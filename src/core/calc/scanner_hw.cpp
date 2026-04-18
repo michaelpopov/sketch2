@@ -49,81 +49,6 @@ HWY_INLINE hn::VFromD<DI32> LoadI16AsI32(DI32 di32, const uint8_t* ptr) {
     return hn::PromoteTo(di32, hn::LoadU(di16, AsElements<int16_t>(ptr)));
 }
 
-double DistDOTF32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const float* va = AsElements<float>(a);
-    const float* vb = AsElements<float>(b);
-#if HWY_TARGET == HWY_SCALAR
-    double sum = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
-    }
-    return sum;
-#else
-    const hn::ScalableTag<float> df;
-    const size_t N = hn::Lanes(df);
-    auto acc = hn::Zero(df);
-    size_t i = 0;
-    for (; i + N <= dim; i += N) {
-        const auto av = hn::LoadU(df, va + i);
-        const auto bv = hn::LoadU(df, vb + i);
-        acc = hn::MulAdd(av, bv, acc);
-    }
-    double sum = hn::ReduceSum(df, acc);
-    for (; i < dim; ++i) {
-        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
-    }
-    return sum;
-#endif
-}
-
-double DistDOTF16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const auto* va = AsElements<hwy::float16_t>(a);
-    const auto* vb = AsElements<hwy::float16_t>(b);
-#if HWY_TARGET == HWY_SCALAR
-    double sum = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
-    }
-    return sum;
-#else
-    const hn::ScalableTag<float> df;
-    const size_t N = hn::Lanes(df);
-    auto acc = hn::Zero(df);
-    size_t i = 0;
-    for (; i + N <= dim; i += N) {
-        const auto av = LoadF16AsF32(df, a + i * 2);
-        const auto bv = LoadF16AsF32(df, b + i * 2);
-        acc = hn::MulAdd(av, bv, acc);
-    }
-    double sum = hn::ReduceSum(df, acc);
-    for (; i < dim; ++i) {
-        sum += static_cast<double>(va[i]) * static_cast<double>(vb[i]);
-    }
-    return sum;
-#endif
-}
-
-double DistDOTI16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const int16_t* va = AsElements<int16_t>(a);
-    const int16_t* vb = AsElements<int16_t>(b);
-    const hn::ScalableTag<int32_t> di32;
-    const hn::ScalableTag<int64_t> di64;
-    const size_t N = hn::Lanes(di32);
-    auto acc_lo = hn::Zero(di64);
-    auto acc_hi = hn::Zero(di64);
-    size_t i = 0;
-    for (; i + N <= dim; i += N) {
-        const auto av = LoadI16AsI32(di32, a + i * 2);
-        const auto bv = LoadI16AsI32(di32, b + i * 2);
-        acc_lo = hn::WidenMulAccumulate(di64, av, bv, acc_lo, acc_hi);
-    }
-    int64_t sum = hn::ReduceSum(di64, acc_lo) + hn::ReduceSum(di64, acc_hi);
-    for (; i < dim; ++i) {
-        sum += static_cast<int64_t>(va[i]) * static_cast<int64_t>(vb[i]);
-    }
-    return static_cast<double>(sum);
-}
-
 double DistL2F32(const uint8_t* a, const uint8_t* b, size_t dim) {
     const float* va = AsElements<float>(a);
     const float* vb = AsElements<float>(b);
@@ -498,9 +423,6 @@ namespace sketch2 {
 
 namespace {
 
-HWY_EXPORT(DistDOTF32);
-HWY_EXPORT(DistDOTF16);
-HWY_EXPORT(DistDOTI16);
 HWY_EXPORT(DistL2F32);
 HWY_EXPORT(DistL2F16);
 HWY_EXPORT(DistL2I16);
@@ -516,16 +438,6 @@ HWY_EXPORT(DistCosI16);
 HWY_EXPORT(DistCosWithQueryNormF32);
 HWY_EXPORT(DistCosWithQueryNormF16);
 HWY_EXPORT(DistCosWithQueryNormI16);
-
-double hwy_dist_dot_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistDOTF32)(a, b, dim);
-}
-double hwy_dist_dot_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistDOTF16)(a, b, dim);
-}
-double hwy_dist_dot_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistDOTI16)(a, b, dim);
-}
 
 double hwy_dist_l2_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
     return HWY_DYNAMIC_DISPATCH(DistL2F32)(a, b, dim);
@@ -623,9 +535,9 @@ CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
     switch (func) {
         case DistFunc::DOT:
             switch (type) {
-                case DataType::f32: k.dist = &hwy_dist_dot_f32; break;
-                case DataType::f16: k.dist = &hwy_dist_dot_f16; break;
-                case DataType::i16: k.dist = &hwy_dist_dot_i16; break;
+                case DataType::f32: k.dist = &hwy_dot_f32; break;
+                case DataType::f16: k.dist = &hwy_dot_f16; break;
+                case DataType::i16: k.dist = &hwy_dot_i16; break;
                 default:
                     throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for DOT.");
             }
