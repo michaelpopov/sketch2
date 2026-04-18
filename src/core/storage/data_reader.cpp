@@ -70,64 +70,6 @@ uint64_t DataReader::Iterator::id() const {
     return reader_->ids_.id(index_);
 }
 
-// --- OrderedIterator ---
-
-void DataReader::OrderedIterator::next() {
-    ++index_;
-    if (!reader_ || source_ != Source::Base) {
-        return;
-    }
-    while (index_ < reader_->count() && reader_->is_hidden(index_)) {
-        ++index_;
-    }
-}
-
-bool DataReader::OrderedIterator::eof() const {
-    if (!reader_) {
-        return true;
-    }
-    if (source_ == Source::Base) {
-        return index_ >= reader_->count();
-    }
-    return !reader_->delta_ || index_ >= reader_->delta_->count();
-}
-
-const uint8_t* DataReader::OrderedIterator::data() const {
-    if (eof()) {
-        throw std::out_of_range("DataReader::OrderedIterator::data: index out of range");
-    }
-
-    if (source_ == Source::Base) {
-        return reader_->at(index_);
-    }
-
-    return reader_->delta_->at(index_);
-}
-
-float DataReader::OrderedIterator::get_norm() const {
-    if (eof()) {
-        throw std::out_of_range("DataReader::OrderedIterator::get_norm: index out of range");
-    }
-
-    if (source_ == Source::Base) {
-        return reader_->get_norm(index_);
-    }
-
-    return reader_->delta_->get_norm(index_);
-}
-
-uint64_t DataReader::OrderedIterator::id() const {
-    if (eof()) {
-        throw std::out_of_range("DataReader::OrderedIterator::id: index out of range");
-    }
-
-    if (source_ == Source::Base) {
-        return reader_->ids_.id(index_);
-    }
-
-    return reader_->delta_->ids_.id(index_);
-}
-
 Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta) {
     try {
         return init_(path, std::move(delta));
@@ -477,13 +419,6 @@ size_t DataReader::size() const {
     return vector_size_;
 }
 
-size_t DataReader::count() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::count: reader is not initialized");
-    }
-    return static_cast<size_t>(hdr_.count);
-}
-
 uint32_t DataReader::norm_flags() const {
     if (!initialized_) {
         throw std::runtime_error("DataReader::norm_flags: reader is not initialized");
@@ -532,28 +467,6 @@ uint64_t DataReader::id(size_t index) const {
     return ids_.id(index);
 }
 
-float DataReader::get_norm(size_t index) const {
-    if (index >= count()) {
-        throw std::out_of_range("DataReader::get_norm: index out of range");
-    }
-    if (!norms_) {
-        throw std::logic_error("DataReader::get_norm: norms section is absent");
-    }
-    return norms_[index];
-}
-
-const uint8_t* DataReader::at(size_t index) const {
-    if (index >= count()) {
-        throw std::out_of_range("DataReader::at: index out of range");
-    }
-
-    if (index < changed_bitset_.size() && changed_bitset_.get(index)) {
-        return nullptr;
-    }
-
-    return vectors_region_.data() + index * stride_;
-}
-
 // Looks up an id in the base file and falls back to the attached delta when the
 // base row is absent or hidden by newer updates.
 const uint8_t* DataReader::get(uint64_t id) const {
@@ -580,10 +493,6 @@ const uint8_t* DataReader::get(uint64_t id) const {
     }
 
     return vectors_region_.data() + index * stride_;
-}
-
-bool DataReader::is_hidden(size_t index) const {
-    return (index < changed_bitset_.size() && changed_bitset_.get(index));
 }
 
 uint64_t DataReader::deleted_id(size_t index) const {

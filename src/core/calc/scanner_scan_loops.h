@@ -15,18 +15,13 @@ namespace sketch2 {
 
 constexpr size_t kPrefetchCacheLineBytes = 64;
 
-inline void prefetch_next_vector_record(const DataReader::OrderedIterator& it,
-        size_t vector_size_bytes) {
-    DataReader::OrderedIterator next_it = it;
-    next_it.next();
-    if (next_it.eof()) {
+inline void prefetch_vector_record(const uint8_t* data, size_t vector_size_bytes) {
+    if (data == nullptr) {
         return;
     }
 
-    const uint8_t* const next_data = next_it.data();
-    __builtin_prefetch(next_data, 0, 1);
-    if (vector_size_bytes > kPrefetchCacheLineBytes) {
-        __builtin_prefetch(next_data + kPrefetchCacheLineBytes, 0, 1);
+    for (size_t offset = 0; offset < vector_size_bytes; offset += kPrefetchCacheLineBytes) {
+        __builtin_prefetch(data + offset, 0, 1);
     }
 }
 
@@ -53,56 +48,80 @@ inline bool bitset_allows_id(const BitsetFilter* bitset, uint64_t id) {
 inline void scan_ordered_iterator_with_dist(DataReader::OrderedIterator it, size_t count,
         DistHeap* heap, CalcDistFn dist_fn, const QueryDistContext& query,
         size_t vector_size_bytes, const BitsetFilter* bitset = nullptr) {
-    for (; !it.eof(); it.next()) {
+    while (!it.eof()) {
         const uint64_t id = it.id();
+        DataReader::OrderedIterator next_it = it;
+        next_it.next();
+        if (!next_it.eof()) {
+            prefetch_vector_record(next_it.data(), vector_size_bytes);
+        }
         if (!bitset_allows_id(bitset, id)) {
+            it = next_it;
             continue;
         }
-        prefetch_next_vector_record(it, vector_size_bytes);
         push_result(heap, count, id, dist_fn(it.data(), query.vec, query.dim));
+        it = next_it;
     }
 }
 
 inline void scan_ordered_iterator_with_query_norm(DataReader::OrderedIterator it, size_t count,
         DistHeap* heap, CalcDistWithQueryNormFn dist_fn, const QueryCosContext& query,
         size_t vector_size_bytes, const BitsetFilter* bitset = nullptr) {
-    for (; !it.eof(); it.next()) {
+    while (!it.eof()) {
         const uint64_t id = it.id();
+        DataReader::OrderedIterator next_it = it;
+        next_it.next();
+        if (!next_it.eof()) {
+            prefetch_vector_record(next_it.data(), vector_size_bytes);
+        }
         if (!bitset_allows_id(bitset, id)) {
+            it = next_it;
             continue;
         }
-        prefetch_next_vector_record(it, vector_size_bytes);
         push_result(heap, count, id, dist_fn(it.data(), query.vec, query.dim, query.norm_sq));
+        it = next_it;
     }
 }
 
 inline void scan_ordered_iterator_with_cos_stored_norms(DataReader::OrderedIterator it, size_t count,
         DistHeap* heap, CalcDotFn dot_fn, const QueryCosContext& query,
         size_t vector_size_bytes, const BitsetFilter* bitset = nullptr) {
-    for (; !it.eof(); it.next()) {
+    while (!it.eof()) {
         const uint64_t id = it.id();
+        DataReader::OrderedIterator next_it = it;
+        next_it.next();
+        if (!next_it.eof()) {
+            prefetch_vector_record(next_it.data(), vector_size_bytes);
+        }
         if (!bitset_allows_id(bitset, id)) {
+            it = next_it;
             continue;
         }
-        prefetch_next_vector_record(it, vector_size_bytes);
         const double dot = dot_fn(it.data(), query.vec, query.dim);
         push_result(heap, count, id, finalize_cosine_distance_from_inverse_norms(
             dot, static_cast<double>(it.get_norm()), query.inv_norm));
+        it = next_it;
     }
 }
 
 inline void scan_ordered_iterator_with_l2_stored_norms(DataReader::OrderedIterator it, size_t count,
         DistHeap* heap, CalcDotFn dot_fn, const QueryL2Context& query,
         size_t vector_size_bytes, const BitsetFilter* bitset = nullptr) {
-    for (; !it.eof(); it.next()) {
+    while (!it.eof()) {
         const uint64_t id = it.id();
+        DataReader::OrderedIterator next_it = it;
+        next_it.next();
+        if (!next_it.eof()) {
+            prefetch_vector_record(next_it.data(), vector_size_bytes);
+        }
         if (!bitset_allows_id(bitset, id)) {
+            it = next_it;
             continue;
         }
-        prefetch_next_vector_record(it, vector_size_bytes);
         const double dot = dot_fn(it.data(), query.vec, query.dim);
         push_result(heap, count, id, finalize_squared_l2_distance_from_squared_norms(
             dot, static_cast<double>(it.get_norm()), query.norm_sq));
+        it = next_it;
     }
 }
 

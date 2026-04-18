@@ -122,35 +122,35 @@ benchcfg:
 # Builds the release benchmark binaries.
 .PHONY: benchbuild
 benchbuild: benchcfg
-	cmake --build $(BUILD_REL) --parallel $(JOBS) --target bench_comp gbench_comp
+	cmake --build $(BUILD_REL) --parallel $(JOBS) --target bench_calc
 
-# Runs the Google Benchmark-based compute/scanner benchmark suite in release mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: bench
 bench: benchrel
 
 .PHONY: benchrel
 benchrel: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
+	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
 
-# Runs the extended Google Benchmark suite in release mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: benchext
 benchext: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=extended bin/gbench_comp --benchmark_min_time=$(GBENCH_EXTENDED_MIN_TIME)
+	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
 
-# Runs the lightweight compute benchmark in release mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: benchcomp
 benchcomp: benchbuild
-	bin/bench_comp
+	@echo "bench_comp was removed; use bin/bench_calc with explicit arguments"
 
-# Runs the essential Google Benchmark suite restricted to the dataset_persisted scanner mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: ds_bench
 ds_bench: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential SKETCH2_GBENCH_SCANNER_MODE=dataset_persisted bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
+	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
 
-# Runs the essential Google Benchmark suite restricted to the dataset_mixed scanner mode.
+# Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: ds_mix_bench
 ds_mix_bench: benchbuild
-	TMPDIR=$(BENCH_TMPDIR) SKETCH2_GBENCH_PROFILE=essential SKETCH2_GBENCH_SCANNER_MODE=dataset_mixed bin/gbench_comp --benchmark_min_time=$(GBENCH_ESSENTIAL_MIN_TIME)
+	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
 
 # Runs full local coverage flow:
 # - debug unit tests
