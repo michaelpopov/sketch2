@@ -207,6 +207,9 @@ cover:
 	$(MAKE) test
 	$(MAKE) rtest
 	$(MAKE) santest
+	$(MAKE) test-nk
+	$(MAKE) rtest-nk
+	$(MAKE) santest-nk
 	$(MAKE) pytest
 	$(MAKE) demo
 	$(MAKE) ds_bench
@@ -228,3 +231,9 @@ clean:
 	@if [ -d "$(BUILD_DBG)" ]; then \
 		find "$(BUILD_DBG)" -type f \( -name '*.o' -o -name '*.obj' \) -delete; \
 	fi
+
+# Removes debug and release build artifacts so the next make/make rel rebuilds
+# from scratch and repopulates bin-dbg/ and bin/ with fresh binaries.
+.PHONY: clear
+clear:
+	rm -rf "$(BUILD_DBG)" "$(BUILD_REL)" bin-dbg bin
