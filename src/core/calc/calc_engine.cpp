@@ -24,11 +24,4 @@ CalcKernels resolve_calc_kernels(CalcEngine engine, DistFunc func, DataType type
     throw std::runtime_error("resolve_calc_kernels: unsupported engine.");
 }
 
-CalcEngine selected_calc_engine(ComputeBackendKind kind) {
-    if (kind != compiled_compute_backend_kind()) {
-        throw std::runtime_error("selected_calc_engine: backend is not available in this build.");
-    }
-    return compiled_calc_engine();
-}
-
 } // namespace sketch2

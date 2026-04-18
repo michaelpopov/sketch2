@@ -59,7 +59,7 @@ inline Ret scan_dataset_readers(const std::vector<DataReaderPtr>& readers, size_
 
     std::exception_ptr first_error;
     std::vector<DistItem> merged_candidates;
-    if (count > 0 && readers.size() <= (std::numeric_limits<size_t>::max() / count)) {
+    if (readers.size() <= (std::numeric_limits<size_t>::max() / count)) {
         merged_candidates.reserve(readers.size() * count);
     }
     for (auto& fut : futures) {

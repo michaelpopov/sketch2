@@ -463,7 +463,7 @@ Ret run_knn_items_query(
         return ret;
     }
 
-    ScannerEx scanner{selected_calc_engine(get_singleton().compute_unit().kind())};
+    ScannerEx scanner{compiled_calc_engine()};
     return scanner.find_items(dataset.reader_dataset(), k, buf.data(), *items, bitset_filter);
 }
 
@@ -484,7 +484,7 @@ Ret run_knn_items_query(
         return ret;
     }
 
-    ScannerEx scanner{selected_calc_engine(get_singleton().compute_unit().kind())};
+    ScannerEx scanner{compiled_calc_engine()};
     return scanner.find_items(dataset.reader_dataset(), k, buf.data(), *items, bitset_filter);
 }
 
@@ -630,7 +630,7 @@ int sk_score_ascending_is_better_(sk_handle_t* handle, bool* out) {
 }
 
 const char* sk_knn_engine_name_for_testing_() {
-    return calc_engine_name(selected_calc_engine(get_singleton().compute_unit().kind()));
+    return calc_engine_name(compiled_calc_engine());
 }
 
 int sk_merge_delta_(sk_handle_t* handle) {

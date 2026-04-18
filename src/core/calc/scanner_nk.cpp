@@ -14,8 +14,6 @@
 #include "core/utils/timer.h"
 
 #include "numkong/capabilities.h"
-#include "numkong/cast/serial.h"
-#include "numkong/reduce.h"
 #include "numkong/dot/serial.h"
 #include "numkong/spatial/serial.h"
 
@@ -61,36 +59,10 @@ using NkDotF32Fn = void (*)(const nk_f32_t*, const nk_f32_t*, nk_size_t, nk_f64_
 using NkDotF16Fn = void (*)(const nk_f16_t*, const nk_f16_t*, nk_size_t, nk_f32_t*);
 using NkSpatialF32Fn = void (*)(const nk_f32_t*, const nk_f32_t*, nk_size_t, nk_f64_t*);
 using NkSpatialF16Fn = void (*)(const nk_f16_t*, const nk_f16_t*, nk_size_t, nk_f32_t*);
-using NkNormF32Fn = void (*)(const nk_f32_t*, nk_size_t, nk_size_t, nk_f64_t*, nk_f64_t*);
-using NkNormF16Fn = void (*)(const nk_f16_t*, nk_size_t, nk_size_t, nk_f32_t*, nk_f32_t*);
-
-inline nk_f64_t to_f64(nk_f32_t value) {
-    return static_cast<nk_f64_t>(value);
-}
-
-inline nk_f64_t to_f64(nk_f16_t value) {
-    nk_f64_t converted = 0;
-    nk_f16_to_f64_serial(&value, &converted);
-    return converted;
-}
-
-template <typename T, typename Acc>
-inline void fused_dot_and_squared_norm(const T* a, const T* b, size_t dim, Acc* dot_out, Acc* norm_out) {
-    Acc dot = 0;
-    Acc norm = 0;
-    for (size_t i = 0; i < dim; ++i) {
-        const Acc av = static_cast<Acc>(to_f64(a[i]));
-        dot += av * static_cast<Acc>(to_f64(b[i]));
-        norm += av * av;
-    }
-    *dot_out = dot;
-    *norm_out = norm;
-}
 
 #if NK_TARGET_ARM64_ && NK_TARGET_NEON
-template <>
-inline void fused_dot_and_squared_norm<nk_f32_t, nk_f64_t>(const nk_f32_t* a, const nk_f32_t* b, size_t dim,
-                                                          nk_f64_t* dot_out, nk_f64_t* norm_out) {
+inline void fused_dot_and_squared_norm_f32_neon(const nk_f32_t* a, const nk_f32_t* b, size_t dim,
+        nk_f64_t* dot_out, nk_f64_t* norm_out) {
     float64x2_t dot_v = vdupq_n_f64(0);
     float64x2_t norm_v = vdupq_n_f64(0);
     size_t i = 0;
@@ -140,8 +112,6 @@ nk_capability_t thread_capabilities() {
 
 NkResolvedKernel<NkDotF32Fn> resolve_dot_f32_backend(nk_capability_t caps);
 NkResolvedKernel<NkDotF16Fn> resolve_dot_f16_backend(nk_capability_t caps);
-NkResolvedKernel<NkNormF32Fn> resolve_norm_f32_backend(nk_capability_t caps);
-NkResolvedKernel<NkNormF16Fn> resolve_norm_f16_backend(nk_capability_t caps);
 NkResolvedKernel<NkSpatialF32Fn> resolve_l2_f32_backend(nk_capability_t caps);
 NkResolvedKernel<NkSpatialF16Fn> resolve_l2_f16_backend(nk_capability_t caps);
 NkResolvedKernel<NkSpatialF32Fn> resolve_cos_f32_backend(nk_capability_t caps);
@@ -154,16 +124,6 @@ const NkResolvedKernel<NkDotF32Fn>& dot_f32_kernel() {
 
 const NkResolvedKernel<NkDotF16Fn>& dot_f16_kernel() {
     thread_local const auto kernel = resolve_dot_f16_backend(thread_capabilities());
-    return kernel;
-}
-
-const NkResolvedKernel<NkNormF32Fn>& norm_f32_kernel() {
-    thread_local const auto kernel = resolve_norm_f32_backend(thread_capabilities());
-    return kernel;
-}
-
-const NkResolvedKernel<NkNormF16Fn>& norm_f16_kernel() {
-    thread_local const auto kernel = resolve_norm_f16_backend(thread_capabilities());
     return kernel;
 }
 
@@ -226,38 +186,6 @@ NkResolvedKernel<NkDotF16Fn> resolve_dot_f16_backend(nk_capability_t caps) {
     if (caps & nk_cap_v128relaxed_k) return {&nk_dot_f16_v128relaxed, "v128relaxed", nk_cap_v128relaxed_k};
 #endif
     return {&nk_dot_f16_serial, "serial", nk_cap_serial_k};
-}
-
-NkResolvedKernel<NkNormF32Fn> resolve_norm_f32_backend(nk_capability_t caps) {
-#if NK_TARGET_X8664_ && NK_TARGET_SKYLAKE
-    if (caps & nk_cap_skylake_k) return {&nk_reduce_moments_f32_skylake, "skylake", nk_cap_skylake_k};
-#endif
-#if NK_TARGET_X8664_ && NK_TARGET_HASWELL
-    if (caps & nk_cap_haswell_k) return {&nk_reduce_moments_f32_haswell, "haswell", nk_cap_haswell_k};
-#endif
-#if NK_TARGET_ARM64_ && NK_TARGET_NEON
-    if (caps & nk_cap_neon_k) return {&nk_reduce_moments_f32_neon, "neon", nk_cap_neon_k};
-#endif
-#if NK_TARGET_WASM_ && NK_TARGET_V128RELAXED
-    if (caps & nk_cap_v128relaxed_k) return {&nk_reduce_moments_f32_v128relaxed, "v128relaxed", nk_cap_v128relaxed_k};
-#endif
-    return {&nk_reduce_moments_f32_serial, "serial", nk_cap_serial_k};
-}
-
-NkResolvedKernel<NkNormF16Fn> resolve_norm_f16_backend(nk_capability_t caps) {
-#if NK_TARGET_X8664_ && NK_TARGET_SKYLAKE
-    if (caps & nk_cap_skylake_k) return {&nk_reduce_moments_f16_skylake, "skylake", nk_cap_skylake_k};
-#endif
-#if NK_TARGET_X8664_ && NK_TARGET_HASWELL
-    if (caps & nk_cap_haswell_k) return {&nk_reduce_moments_f16_haswell, "haswell", nk_cap_haswell_k};
-#endif
-#if NK_TARGET_ARM64_ && NK_TARGET_NEON
-    if (caps & nk_cap_neon_k) return {&nk_reduce_moments_f16_neon, "neon", nk_cap_neon_k};
-#endif
-#if NK_TARGET_WASM_ && NK_TARGET_V128RELAXED
-    if (caps & nk_cap_v128relaxed_k) return {&nk_reduce_moments_f16_v128relaxed, "v128relaxed", nk_cap_v128relaxed_k};
-#endif
-    return {&nk_reduce_moments_f16_serial, "serial", nk_cap_serial_k};
 }
 
 NkResolvedKernel<NkSpatialF32Fn> resolve_l2_f32_backend(nk_capability_t caps) {
@@ -391,41 +319,41 @@ double nk_dot_product_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
 }
 
 double nk_squared_norm_f32(const uint8_t* a, size_t dim) {
-    nk_f64_t sum = 0;
-    nk_f64_t sumsq = 0;
-    const auto& kernel = norm_f32_kernel();
+    nk_f64_t result = 0;
+    const auto& kernel = dot_f32_kernel();
     kernel.fn(reinterpret_cast<const nk_f32_t*>(a),
-              static_cast<nk_size_t>(dim),
-              sizeof(nk_f32_t), &sum, &sumsq);
-    return static_cast<double>(sumsq);
+              reinterpret_cast<const nk_f32_t*>(a),
+              static_cast<nk_size_t>(dim), &result);
+    return static_cast<double>(result);
 }
 
 double nk_squared_norm_f16(const uint8_t* a, size_t dim) {
-    nk_f32_t sum = 0;
-    nk_f32_t sumsq = 0;
-    const auto& kernel = norm_f16_kernel();
+    nk_f32_t result = 0;
+    const auto& kernel = dot_f16_kernel();
     kernel.fn(reinterpret_cast<const nk_f16_t*>(a),
-              static_cast<nk_size_t>(dim),
-              sizeof(nk_f16_t), &sum, &sumsq);
-    return static_cast<double>(sumsq);
+              reinterpret_cast<const nk_f16_t*>(a),
+              static_cast<nk_size_t>(dim), &result);
+    return static_cast<double>(result);
 }
 
 double nk_dist_cos_qn_f32(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
     nk_f64_t dot_result = 0;
     nk_f64_t a_norm_sq = 0;
-    fused_dot_and_squared_norm(reinterpret_cast<const nk_f32_t*>(a),
-                               reinterpret_cast<const nk_f32_t*>(b),
-                               dim, &dot_result, &a_norm_sq);
+#if NK_TARGET_ARM64_ && NK_TARGET_NEON
+    fused_dot_and_squared_norm_f32_neon(reinterpret_cast<const nk_f32_t*>(a),
+                                        reinterpret_cast<const nk_f32_t*>(b),
+                                        dim, &dot_result, &a_norm_sq);
+#else
+    dot_result = static_cast<nk_f64_t>(nk_dot_product_f32(a, b, dim));
+    a_norm_sq = static_cast<nk_f64_t>(nk_squared_norm_f32(a, dim));
+#endif
     return finalize_cosine_distance(static_cast<double>(dot_result), static_cast<double>(a_norm_sq),
                                     query_norm_sq);
 }
 
 double nk_dist_cos_qn_f16(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
-    nk_f64_t dot_result = 0;
-    nk_f64_t a_norm_sq = 0;
-    fused_dot_and_squared_norm(reinterpret_cast<const nk_f16_t*>(a),
-                               reinterpret_cast<const nk_f16_t*>(b),
-                               dim, &dot_result, &a_norm_sq);
+    const double dot_result = nk_dot_product_f16(a, b, dim);
+    const double a_norm_sq = nk_squared_norm_f16(a, dim);
     return finalize_cosine_distance(static_cast<double>(dot_result),
                                     static_cast<double>(a_norm_sq),
                                     query_norm_sq);
@@ -434,7 +362,7 @@ double nk_dist_cos_qn_f16(const uint8_t* a, const uint8_t* b, size_t dim, double
 Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>* result, const BitsetFilter* bitset) {
     if (vec == nullptr || count == 0 || result == nullptr) {
-        return Ret("ScannerEx::find: invalid arguments.");
+        return Ret("ScannerNk::find_items: invalid arguments.");
     }
     if (dataset.type() == DataType::i16) {
         return Ret("ScannerNk::find_items: NumKong does not support i16 datasets.");

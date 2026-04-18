@@ -7,8 +7,6 @@
 
 namespace sketch2 {
 
-const char* calc_engine_name(CalcEngine engine);
-
 inline const char* scanner_dist_func_name(DistFunc func) {
     switch (func) {
         case DistFunc::DOT: return "DOT";

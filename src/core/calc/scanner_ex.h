@@ -12,8 +12,6 @@ namespace sketch2 {
 
 class DatasetReader;
 
-const char* calc_engine_name(CalcEngine engine);
-
 // ScannerEx provides the same top-k search as Scanner but delegates metric
 // score computation to the calc engine layer instead of the
 // Singleton-dispatched hand-written SIMD kernels.

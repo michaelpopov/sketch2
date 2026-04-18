@@ -476,7 +476,7 @@ double hwy_dist_cos_qn_i16(const uint8_t* a, const uint8_t* b, size_t dim, doubl
 Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>* result, const BitsetFilter* bitset) {
     if (vec == nullptr || count == 0 || result == nullptr) {
-        return Ret("ScannerEx::find: invalid arguments.");
+        return Ret("ScannerHw::find_items: invalid arguments.");
     }
 
     result->clear();
