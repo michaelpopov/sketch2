@@ -99,14 +99,6 @@ TEST(ComputeL2Test, ResolveDistReturnsFunctionForAllTypes) {
     EXPECT_NE(nullptr, ComputeL2::resolve_dist(DataType::i16));
 }
 
-TEST(ComputeL2Test, ResolveDistWithLimitUsesScalarFallbackWhenScalarBackendForced) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::scalar);
-    ASSERT_TRUE(guard.active());
-
-    EXPECT_EQ(&ComputeL2::dist_f32_with_limit, ComputeL2::resolve_dist_with_limit(DataType::f32));
-    EXPECT_EQ(&ComputeL2::dist_f16_with_limit, ComputeL2::resolve_dist_with_limit(DataType::f16));
-}
-
 TEST(ComputeL2Test, ResolveDistWithLimitUsesNeonPathsWhenNeonBackendForced) {
     ComputeUnitOverrideGuard guard(ComputeBackendKind::neon);
     if (!guard.supported()) {

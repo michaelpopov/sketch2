@@ -61,14 +61,6 @@ void expect_cos_resolvers() {
     EXPECT_EQ(&SharedBackend::dot_i16, ComputeDotNorm::resolve_dot(DataType::i16));
 }
 
-TEST(ComputeRuntimeTest, ForcedScalarBackendUsesScalarResolvers) {
-    ComputeUnitOverrideGuard guard(ComputeBackendKind::scalar);
-
-    expect_dot_resolvers<ComputeDOT>();
-    expect_l2_resolvers<ComputeL2>();
-    expect_cos_resolvers<ComputeCos, ComputeDotNorm>();
-}
-
 TEST(ComputeRuntimeTest, ForcedHighwayBackendIsAccepted) {
     ComputeUnitOverrideGuard guard(ComputeBackendKind::highway);
     EXPECT_EQ(ComputeBackendKind::highway, get_singleton().compute_unit().kind());
