@@ -140,8 +140,8 @@ bool Singleton::apply_config_file_(const std::string& path) {
     return applied;
 }
 
-// Tests are allowed to force the active compute backend after initialization so
-// resolver selection can be verified without rebuilding for each ISA variant.
+// Tests are allowed to force the active calc engine after initialization so
+// resolver selection can be verified without rebuilding the whole binary.
 bool Singleton::force_compute_unit_for_testing_(ComputeBackendKind kind) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!ComputeUnit::is_supported(kind)) {
@@ -246,7 +246,7 @@ bool Singleton::apply_compute_engine_(const std::string& str) {
         return false;
     }
 
-    ComputeBackendKind kind = ComputeBackendKind::scalar;
+    ComputeBackendKind kind = ComputeBackendKind::highway;
     if (!ComputeUnit::parse(str.c_str(), &kind)) {
         LOG_ERROR << "Ignoring invalid compute.engine value '" << str
                   << "' and degrading to the default compute engine selection.";

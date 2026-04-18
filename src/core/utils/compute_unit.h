@@ -1,4 +1,4 @@
-// Declares the runtime-selected compute backend used by query dispatch.
+// Declares the runtime-selected calc backend used by query dispatch.
 
 #pragma once
 
@@ -29,7 +29,7 @@ public:
     const char* name() const;
 
 private:
-    ComputeBackendKind kind_ = ComputeBackendKind::scalar;
+    ComputeBackendKind kind_ = ComputeBackendKind::highway;
 };
 
 } // namespace sketch2

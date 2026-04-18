@@ -15,10 +15,10 @@
 // - sk_new_handle() in the Parasol C API
 // - sqlite3_sketch2_init() when the SQLite extension is loaded directly
 //
-// Compute backend selection is also process-wide. The singleton chooses the
-// best supported ComputeUnit when it is first created, optionally honoring the
-// SKETCH2_COMPUTE_BACKEND environment override. Queries then reuse that fixed
-// selection. Tests may override the selected backend explicitly.
+// Calc engine selection is also process-wide. The singleton chooses the
+// default ComputeUnit when it is first created, and config/env may switch it
+// between the supported engines. Queries then reuse that fixed selection.
+// Tests may override the selected engine explicitly.
 //
 // Configuration precedence is:
 // - start from built-in defaults
