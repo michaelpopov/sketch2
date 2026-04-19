@@ -473,6 +473,74 @@ double hwy_dist_cos_qn_i16(const uint8_t* a, const uint8_t* b, size_t dim, doubl
     return HWY_DYNAMIC_DISPATCH(DistCosWithQueryNormI16)(a, b, dim, qn);
 }
 
+Ret validate_hwy_kernel_support(DistFunc func, DataType type) {
+    try {
+        const ComputeKernels kernels = resolve_hwy_kernels(func, type);
+        if (kernels.dist == nullptr) {
+            return Ret(std::string("ScannerHw::find_items: missing dist kernel for ")
+                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
+        }
+        if ((func == DistFunc::L2 || func == DistFunc::COS)
+                && (kernels.dot == nullptr || kernels.squared_norm == nullptr)) {
+            return Ret(std::string("ScannerHw::find_items: missing stored-norm helpers for ")
+                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
+        }
+        if (func == DistFunc::COS && kernels.dist_with_query_norm == nullptr) {
+            return Ret(std::string("ScannerHw::find_items: missing query-norm kernel for ")
+                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
+        }
+        return Ret(0);
+    } catch (const std::exception& ex) {
+        return Ret(ex.what());
+    }
+}
+
+#define HWY_FOR_EACH_DOT_KERNEL(X) \
+    X(f32, hwy_dot_f32) \
+    X(f16, hwy_dot_f16) \
+    X(i16, hwy_dot_i16)
+
+#define HWY_FOR_EACH_L2_KERNEL(X) \
+    X(f32, hwy_dot_f32, hwy_dist_l2_f32, hwy_squared_norm_f32) \
+    X(f16, hwy_dot_f16, hwy_dist_l2_f16, hwy_squared_norm_f16) \
+    X(i16, hwy_dot_i16, hwy_dist_l2_i16, hwy_squared_norm_i16)
+
+#define HWY_FOR_EACH_COS_KERNEL(X) \
+    X(f32, hwy_dot_f32, hwy_dist_cos_f32, hwy_dist_cos_qn_f32, hwy_squared_norm_f32) \
+    X(f16, hwy_dot_f16, hwy_dist_cos_f16, hwy_dist_cos_qn_f16, hwy_squared_norm_f16) \
+    X(i16, hwy_dot_i16, hwy_dist_cos_i16, hwy_dist_cos_qn_i16, hwy_squared_norm_i16)
+
+#define HWY_DISPATCH_COS_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, DIST_QN_KERNEL, SQ_NORM_KERNEL) \
+    case DataType::TYPE_TAG: { \
+        const double query_norm_sq = SQ_NORM_KERNEL(vec, dim); \
+        log_query_branch(query_id, "cos_with_optional_norms", \
+            query_norm_sq, query_norm_sq == 0.0); \
+        const QueryCosContext query{ \
+            vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)}; \
+        CHECK((scan_dataset_heap_with_optional_cosine_norms< \
+            DOT_KERNEL, DIST_QN_KERNEL>( \
+            query_id, dataset, count, &heap, query, func, bitset))); \
+        break; \
+    }
+
+#define HWY_DISPATCH_DOT_CASE(TYPE_TAG, DOT_KERNEL) \
+    case DataType::TYPE_TAG: \
+        CHECK(scan_dataset_heap_with_dot<DOT_KERNEL>( \
+            query_id, dataset, count, &heap, query, func, bitset)); \
+        break;
+
+#define HWY_DISPATCH_L2_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, SQ_NORM_KERNEL) \
+    case DataType::TYPE_TAG: { \
+        const double query_norm_sq = SQ_NORM_KERNEL(vec, dim); \
+        log_query_branch(query_id, "l2_with_optional_norms", \
+            query_norm_sq, query_norm_sq == 0.0); \
+        const QueryL2Context query{vec, dim, query_norm_sq}; \
+        CHECK((scan_dataset_heap_with_optional_l2_norms< \
+            DOT_KERNEL, DIST_KERNEL>( \
+            query_id, dataset, count, &heap, query, func, bitset))); \
+        break; \
+    }
+
 Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
     if (vec == nullptr || count == 0 || result == nullptr) {
@@ -482,11 +550,12 @@ Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t
     result->clear();
     const DistFunc func = dataset.dist_func();
     const size_t dim = dataset.dim();
-    const ComputeKernels kernels = resolve_hwy_kernels(func, dataset.type());
+    const DataType type = dataset.type();
+    CHECK(validate_hwy_kernel_support(func, type));
     if (query_id == 0) {
         query_id = next_scanner_query_id();
     }
-    log_query_start(query_id, dataset.name(), func, dataset.type(), dim, count,
+    log_query_start(query_id, dataset.name(), func, type, dim, count,
         ComputeEngine::highway, bitset != nullptr);
 
     DistHeap heap(DistItemCompare{func});
@@ -494,36 +563,31 @@ Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t
     Timer timer("scanner_hw::query");
 
     if (func == DistFunc::COS) {
-        assert(kernels.squared_norm && kernels.dot && kernels.dist_with_query_norm);
-        const double query_norm_sq = kernels.squared_norm(vec, dim);
-        log_query_branch(query_id, "cos_with_optional_norms", query_norm_sq, query_norm_sq == 0.0);
-        const QueryCosContext query{vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)};
-        CHECK(scan_dataset_heap_with_optional_cosine_norms(
-            query_id, dataset, count, &heap, kernels.dot, kernels.dist_with_query_norm,
-            query, func, bitset));
+        switch (type) {
+            HWY_FOR_EACH_COS_KERNEL(HWY_DISPATCH_COS_CASE);
+            default:
+                return Ret("ScannerHw::find_items: unsupported DataType for COS.");
+        }
     } else if (func == DistFunc::DOT) {
-        assert(kernels.dot);
         log_query_branch(query_id, "dot");
         const QueryDotContext query{vec, dim};
-        CHECK(scan_dataset_heap_with_dot(
-            query_id, dataset, count, &heap, kernels.dot, query, func, bitset));
-    } else if (func == DistFunc::L2 && kernels.squared_norm && kernels.dot) {
-        assert(kernels.dist);
-        const double query_norm_sq = kernels.squared_norm(vec, dim);
-        log_query_branch(query_id, "l2_with_optional_norms", query_norm_sq, query_norm_sq == 0.0);
-        const QueryL2Context query{vec, dim, query_norm_sq};
-        CHECK(scan_dataset_heap_with_optional_l2_norms(
-            query_id, dataset, count, &heap, kernels.dot, kernels.dist, query, func, bitset));
+        switch (type) {
+            HWY_FOR_EACH_DOT_KERNEL(HWY_DISPATCH_DOT_CASE);
+            default:
+                return Ret("ScannerHw::find_items: unsupported DataType for DOT.");
+        }
+    } else if (func == DistFunc::L2) {
+        switch (type) {
+            HWY_FOR_EACH_L2_KERNEL(HWY_DISPATCH_L2_CASE);
+            default:
+                return Ret("ScannerHw::find_items: unsupported DataType for L2.");
+        }
     } else {
-        assert(kernels.dist);
-        log_query_branch(query_id, "raw_dist");
-        const QueryDistContext query{vec, dim};
-        CHECK(scan_dataset_heap_with_dist(
-            query_id, dataset, count, &heap, kernels.dist, query, func, bitset));
+        return Ret("ScannerHw::find_items: unsupported DistFunc.");
     }
 
     extract_items(&heap, result);
-    log_query_finish(query_id, dataset.name(), func, dataset.type(), dim, count,
+    log_query_finish(query_id, dataset.name(), func, type, dim, count,
         ComputeEngine::highway, timer.elapsed_ms(), *result);
     return Ret(0);
 }
@@ -540,54 +604,39 @@ ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type) {
     switch (func) {
         case DistFunc::DOT:
             switch (type) {
-                case DataType::f32: k.dist = &hwy_dot_f32; k.dot = &hwy_dot_f32; break;
-                case DataType::f16: k.dist = &hwy_dot_f16; k.dot = &hwy_dot_f16; break;
-                case DataType::i16: k.dist = &hwy_dot_i16; k.dot = &hwy_dot_i16; break;
+#define HWY_RESOLVE_DOT_CASE(TYPE_TAG, DOT_KERNEL) \
+                case DataType::TYPE_TAG: k.dist = &DOT_KERNEL; k.dot = &DOT_KERNEL; break;
+                HWY_FOR_EACH_DOT_KERNEL(HWY_RESOLVE_DOT_CASE)
+#undef HWY_RESOLVE_DOT_CASE
                 default:
                     throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for DOT.");
             }
             break;
         case DistFunc::L2:
             switch (type) {
-                case DataType::f32:
-                    k.dist = &hwy_dist_l2_f32;
-                    k.squared_norm = &hwy_squared_norm_f32;
-                    k.dot = &hwy_dot_f32;
+#define HWY_RESOLVE_L2_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, SQ_NORM_KERNEL) \
+                case DataType::TYPE_TAG: \
+                    k.dist = &DIST_KERNEL; \
+                    k.squared_norm = &SQ_NORM_KERNEL; \
+                    k.dot = &DOT_KERNEL; \
                     break;
-                case DataType::f16:
-                    k.dist = &hwy_dist_l2_f16;
-                    k.squared_norm = &hwy_squared_norm_f16;
-                    k.dot = &hwy_dot_f16;
-                    break;
-                case DataType::i16:
-                    k.dist = &hwy_dist_l2_i16;
-                    k.squared_norm = &hwy_squared_norm_i16;
-                    k.dot = &hwy_dot_i16;
-                    break;
+                HWY_FOR_EACH_L2_KERNEL(HWY_RESOLVE_L2_CASE)
+#undef HWY_RESOLVE_L2_CASE
                 default:
                     throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for L2.");
             }
             break;
         case DistFunc::COS:
             switch (type) {
-                case DataType::f32:
-                    k.dist = &hwy_dist_cos_f32;
-                    k.dist_with_query_norm = &hwy_dist_cos_qn_f32;
-                    k.squared_norm = &hwy_squared_norm_f32;
-                    k.dot = &hwy_dot_f32;
+#define HWY_RESOLVE_COS_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, DIST_QN_KERNEL, SQ_NORM_KERNEL) \
+                case DataType::TYPE_TAG: \
+                    k.dist = &DIST_KERNEL; \
+                    k.dist_with_query_norm = &DIST_QN_KERNEL; \
+                    k.squared_norm = &SQ_NORM_KERNEL; \
+                    k.dot = &DOT_KERNEL; \
                     break;
-                case DataType::f16:
-                    k.dist = &hwy_dist_cos_f16;
-                    k.dist_with_query_norm = &hwy_dist_cos_qn_f16;
-                    k.squared_norm = &hwy_squared_norm_f16;
-                    k.dot = &hwy_dot_f16;
-                    break;
-                case DataType::i16:
-                    k.dist = &hwy_dist_cos_i16;
-                    k.dist_with_query_norm = &hwy_dist_cos_qn_i16;
-                    k.squared_norm = &hwy_squared_norm_i16;
-                    k.dot = &hwy_dot_i16;
-                    break;
+                HWY_FOR_EACH_COS_KERNEL(HWY_RESOLVE_COS_CASE)
+#undef HWY_RESOLVE_COS_CASE
                 default:
                     throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for COS.");
             }
@@ -597,6 +646,13 @@ ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type) {
     }
     return k;
 }
+
+#undef HWY_DISPATCH_COS_CASE
+#undef HWY_DISPATCH_DOT_CASE
+#undef HWY_DISPATCH_L2_CASE
+#undef HWY_FOR_EACH_DOT_KERNEL
+#undef HWY_FOR_EACH_L2_KERNEL
+#undef HWY_FOR_EACH_COS_KERNEL
 
 Ret ScannerHw::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {

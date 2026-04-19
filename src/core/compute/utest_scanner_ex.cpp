@@ -786,7 +786,7 @@ TEST_F(ScannerTest, L2StoredNormScanSkipsDotWhenNormLowerBoundCannotBeatHeap) {
     heap.reserve(1);
 
     g_counting_dot_calls = 0;
-    scan_data_reader_with_l2_stored_norms(reader, 1, &heap, counting_f32_dot, query);
+    scan_data_reader_with_l2_stored_norms<counting_f32_dot>(reader, 1, &heap, query);
 
     std::vector<DistItem> result;
     extract_items(&heap, &result);
@@ -823,7 +823,7 @@ TEST_F(ScannerTest, L2StoredNormScanRefreshesCachedBoundsWhenHeapThresholdTighte
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
-    scan_data_reader_with_l2_stored_norms(reader, 2, &heap, counting_f32_dot, query);
+    scan_data_reader_with_l2_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
     extract_items(&heap, &result);
@@ -861,7 +861,7 @@ TEST_F(ScannerTest, CosStoredNormScanSkipsDotForZeroStoredVector) {
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
-    scan_data_reader_with_cos_stored_norms(reader, 2, &heap, counting_f32_dot, query);
+    scan_data_reader_with_cos_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
     extract_items(&heap, &result);
@@ -899,7 +899,7 @@ TEST_F(ScannerTest, CosStoredNormScanTreatsBothZeroVectorsAsExactMatchWithoutDot
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
-    scan_data_reader_with_cos_stored_norms(reader, 2, &heap, counting_f32_dot, query);
+    scan_data_reader_with_cos_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
     extract_items(&heap, &result);
