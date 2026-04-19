@@ -220,7 +220,8 @@ public:
     // We intentionally iterate updater base rows only. Merge entry points reject
     // updater files with attached deltas, so base_begin() is equivalent to
     // begin() here and avoids pulling delta semantics into this cursor.
-    explicit DataReaderUpdaterCursor(const DataReader& reader) : iter_(reader.base_begin()) {}
+    explicit DataReaderUpdaterCursor(const DataReader& reader, uint32_t target_norm_flags)
+        : reader_(&reader), iter_(reader.base_begin()), target_norm_flags_(target_norm_flags) {}
 
     bool eof() const { return iter_.eof(); }
     uint64_t id() const { return iter_.id(); }
@@ -240,12 +241,25 @@ public:
     }
 
     Ret write_current(MergeOutputWriter* output) const {
-        const float norm = output->norms_enabled() ? iter_.get_norm() : 0.0f;
+        float norm = 0.0f;
+        if (output->norms_enabled()) {
+            if (reader_->norm_flags() == target_norm_flags_) {
+                norm = iter_.get_norm();
+            } else {
+                norm = compute_stored_norm_for_dist(
+                    iter_.data(),
+                    reader_->type(),
+                    reader_->dim(),
+                    dist_func_for_data_file_norm_flags(target_norm_flags_));
+            }
+        }
         return output->write_binary_record(iter_.id(), iter_.data(), norm);
     }
 
 private:
+    const DataReader* reader_ = nullptr;
     DataReader::OrderedIterator iter_;
+    uint32_t target_norm_flags_ = 0;
 };
 
 class DataReaderDeletedCursor {
@@ -703,7 +717,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     output.reserve(source.count() + updater.count(), false);
     CHECK(merge_records(
         source,
-        DataReaderUpdaterCursor(updater),
+        DataReaderUpdaterCursor(updater, source.norm_flags()),
         DataReaderDeletedCursor(updater),
         DataReaderDeletedCursor(updater),
         source.norm_flags(),
@@ -808,7 +822,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     // Delta-to-delta merge keeps a tombstone section, but it must first remove
     // any old deletes that the updater resurrected as live rows.
     const std::vector<uint64_t> updater_live_ids =
-        collect_updater_live_ids(DataReaderUpdaterCursor(updater), updater.count());
+        collect_updater_live_ids(DataReaderUpdaterCursor(updater, source.norm_flags()), updater.count());
     CompactIdsAccumulator compact_deleted_ids_accum;
     CHECK(build_compact_accumulator(
         make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids),
@@ -827,7 +841,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids);
     CHECK(merge_records(
         source,
-        DataReaderUpdaterCursor(updater),
+        DataReaderUpdaterCursor(updater, source.norm_flags()),
         merge_deleted_cursor,
         merge_deleted_cursor,
         source.norm_flags(),

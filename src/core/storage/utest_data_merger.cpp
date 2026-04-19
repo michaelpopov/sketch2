@@ -615,10 +615,35 @@ TEST_F(DataMergerTest, MergeDataFilePreservesCosineValuesSection) {
     ASSERT_EQ(0, merger.merge_data_file(source_reader, updater_reader, out_path).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_TRUE(out_reader.has_norms());
     EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);
     EXPECT_NEAR(1.0 / (5.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(1)), 1e-6);
     EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(2)), 1e-6);
+}
+
+TEST_F(DataMergerTest, MergeDataFilePreservesL2NormsAndInlineLayout) {
+    const std::string source_path = p("source_l2.data");
+    const std::string updater_path = p("updater_l2.data");
+    const std::string out_path = p("merged_l2.data");
+
+    write_f32_file(source_path, FileType::Data, {{1, 3.0f}, {3, 4.0f}}, {}, kDim, true, DistFunc::L2);
+    write_f32_file(updater_path, FileType::Data, {{2, 5.0f}, {3, 8.0f}}, {}, kDim, true, DistFunc::L2);
+
+    DataReader source_reader, updater_reader, out_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, updater_reader, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
+    ASSERT_TRUE(out_reader.has_norms());
+    ASSERT_TRUE(data_file_has_squared_norms(read_header(out_path)));
+    EXPECT_FLOAT_EQ(36.0f, out_reader.get_norm(0));
+    EXPECT_FLOAT_EQ(100.0f, out_reader.get_norm(1));
+    EXPECT_FLOAT_EQ(256.0f, out_reader.get_norm(2));
 }
 
 TEST_F(DataMergerTest, MergeDataFileAllDeletedProducesEmptyFile) {
@@ -1215,6 +1240,39 @@ TEST_F(DataMergerTest, MergeDeltaFilePreservesCosineValuesSection) {
     EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);
     EXPECT_NEAR(1.0 / (3.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(1)), 1e-6);
     EXPECT_NEAR(1.0 / (8.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(2)), 1e-6);
+    EXPECT_EQ((std::vector<uint64_t>{1u, 5u}),
+        [&]() {
+            std::vector<uint64_t> ids;
+            for (size_t i = 0; i < out_reader.deleted_count(); ++i) {
+                ids.push_back(out_reader.deleted_id(i));
+            }
+            return ids;
+        }());
+}
+
+TEST_F(DataMergerTest, MergeDeltaFilePreservesL2NormsAndInlineLayout) {
+    const std::string source_path = p("source_l2.delta");
+    const std::string updater_path = p("updater_l2.delta");
+    const std::string out_path = p("merged_l2.delta");
+
+    write_f32_file(source_path, FileType::Data, {{2, 2.0f}, {4, 4.0f}}, {1}, kDim, true, DistFunc::L2);
+    write_f32_file(updater_path, FileType::Data, {{3, 3.0f}, {4, 8.0f}}, {5}, kDim, true, DistFunc::L2);
+
+    DataReader source_reader, updater_reader, out_reader;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
+
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
+    ASSERT_TRUE(out_reader.has_norms());
+    ASSERT_TRUE(data_file_has_squared_norms(read_header(out_path)));
+    ASSERT_EQ(3u, out_reader.count());
+    EXPECT_FLOAT_EQ(16.0f, out_reader.get_norm(0));
+    EXPECT_FLOAT_EQ(36.0f, out_reader.get_norm(1));
+    EXPECT_FLOAT_EQ(256.0f, out_reader.get_norm(2));
     EXPECT_EQ((std::vector<uint64_t>{1u, 5u}),
         [&]() {
             std::vector<uint64_t> ids;
