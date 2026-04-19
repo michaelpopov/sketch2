@@ -12,12 +12,14 @@
 namespace sketch2 {
 
 UpdateNotifier::~UpdateNotifier() {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (fd_ >= 0) {
         (void)close(fd_);
     }
 }
 
 Ret UpdateNotifier::init_updater(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
     path_ = path;
     is_updater_ = true;
 
@@ -47,6 +49,7 @@ Ret UpdateNotifier::init_updater(const std::string& path) {
 }
 
 Ret UpdateNotifier::update() {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!is_updater_ || fd_ < 0) {
         return Ret("UpdateNotifier: update() called without init_updater()");
     }
@@ -65,12 +68,14 @@ Ret UpdateNotifier::update() {
 }
 
 Ret UpdateNotifier::init_checker(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
     path_ = path;
     is_updater_ = false;
     return Ret(0);
 }
 
 bool UpdateNotifier::check_updated() {
+    std::lock_guard<std::mutex> lock(mutex_);
     // First call (or file not opened yet): open and read.
     if (fd_ < 0) {
         fd_ = open(path_.c_str(), O_RDONLY);

@@ -5,6 +5,7 @@
 #include "core/utils/rw_lock.h"
 #include "core/utils/update_notifier.h"
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -56,13 +57,13 @@ protected:
     void invalidate_data_caches_();
 
 private:
+    mutable std::mutex update_notifier_mutex_;
     mutable std::unique_ptr<UpdateNotifier> update_notifier_;
 
     Ret ensure_update_notifier_() const;
-    // PRECONDITION: caller holds cache_lock_ (read or write).
-    Ret ensure_items_cache_() const;
-    // PRECONDITION: caller holds cache_lock_.
-    const DatasetItem* find_item_(uint64_t file_id) const;
+    // Returns a shared immutable snapshot of dataset items, refreshing caches
+    // only when the notifier reports an update or the cache is absent.
+    std::pair<std::shared_ptr<const std::vector<DatasetItem>>, Ret> get_items_snapshot_() const;
     std::pair<DataReaderPtr, Ret> open_reader_(const DatasetItem& item) const;
     std::pair<DataReaderPtr, Ret> get_cached_reader_(const DatasetItem& item) const;
 };

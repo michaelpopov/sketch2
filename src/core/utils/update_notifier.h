@@ -6,16 +6,18 @@
 #include "utils/shared_types.h"
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 namespace sketch2 {
 
 // UpdateNotifier uses an 8-byte counter stored in the dataset owner lock file
 // to let reader processes detect that writer processes have changed data/delta
-// files.  The writer side calls init_updater() + update(); the reader side
-// calls init_checker() + check_updated().
+// files. The writer side calls init_updater() + update(); the reader side calls
+// init_checker() + check_updated().
 //
-// Each instance must be used from a single thread.
+// Instance methods are internally synchronized, so callers may share a single
+// notifier across threads as long as object lifetime is managed externally.
 class UpdateNotifier {
 public:
     UpdateNotifier() = default;
@@ -42,6 +44,7 @@ public:
     bool check_updated();
 
 private:
+    mutable std::mutex mutex_;
     int fd_ = -1;
     uint64_t counter_ = 0;
     std::string path_;

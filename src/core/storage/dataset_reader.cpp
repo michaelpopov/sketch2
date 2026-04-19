@@ -144,6 +144,7 @@ Ret collect_dataset_items(const std::string& name, const DatasetMetadata& metada
  */
 
 Ret DatasetReader::ensure_update_notifier_() const {
+    std::lock_guard<std::mutex> lock(update_notifier_mutex_);
     if (update_notifier_) {
         return Ret(0);
     }
@@ -156,31 +157,36 @@ Ret DatasetReader::ensure_update_notifier_() const {
     return update_notifier_->init_checker(path);
 }
 
-Ret DatasetReader::ensure_items_cache_() const {
-    // Caller holds cache_lock_. This method mutates items_cache_ and reader_cache_
-    // when the notifier signals a dataset update.
-    CHECK(ensure_update_notifier_());
-    if (update_notifier_ && update_notifier_->check_updated()) {
+std::pair<std::shared_ptr<const std::vector<DatasetItem>>, Ret> DatasetReader::get_items_snapshot_() const {
+    const Ret notifier_ret = ensure_update_notifier_();
+    if (notifier_ret.code() != 0) {
+        return {nullptr, notifier_ret};
+    }
+
+    const bool cache_updated = update_notifier_ && update_notifier_->check_updated();
+    if (!cache_updated) {
+        sketch::ReadGuard rg(cache_lock_);
+        if (items_cache_) {
+            return {items_cache_, Ret(0)};
+        }
+    }
+
+    sketch::WriteGuard wg(cache_lock_);
+    if (cache_updated) {
         items_cache_.reset();
         reader_cache_.clear();
     }
 
-    if (items_cache_) {
-        return Ret(0);
-    }
-    std::vector<DatasetItem> items;
-    CHECK(collect_dataset_items(name_, metadata_, &items));
-    items_cache_ = std::make_shared<const std::vector<DatasetItem>>(std::move(items));
-    return Ret(0);
-}
-
-const DatasetItem* DatasetReader::find_item_(uint64_t file_id) const {
-    // Caller holds cache_lock_. items_cache_ may be reset/replaced by writers.
     if (!items_cache_) {
-        return nullptr;
+        std::vector<DatasetItem> items;
+        const Ret collect_ret = collect_dataset_items(name_, metadata_, &items);
+        if (collect_ret.code() != 0) {
+            return {nullptr, collect_ret};
+        }
+        items_cache_ = std::make_shared<const std::vector<DatasetItem>>(std::move(items));
     }
 
-    return find_item_by_id(*items_cache_, file_id);
+    return {items_cache_, Ret(0)};
 }
 
 // Lazily opens and caches the DataReader for a dataset file pair, attaching the
@@ -243,16 +249,16 @@ std::pair<DataReaderPtr, Ret> DatasetReader::get_cached_reader_(const DatasetIte
             sketch::WriteGuard wg(cache_lock_);
             items_cache_.reset();
             reader_cache_.erase(item.id);
-            const Ret cache_ret = ensure_items_cache_();
-            if (cache_ret.code() != 0) {
-                return {nullptr, cache_ret};
-            }
-            const DatasetItem* found = find_item_(item.id);
-            if (!found) {
-                return {nullptr, Ret(0)};
-            }
-            refreshed = *found;
         }
+        auto [items_snapshot, cache_ret] = get_items_snapshot_();
+        if (cache_ret.code() != 0) {
+            return {nullptr, cache_ret};
+        }
+        const DatasetItem* found = find_item_by_id(*items_snapshot, item.id);
+        if (!found) {
+            return {nullptr, Ret(0)};
+        }
+        refreshed = *found;
         std::tie(reader, ret) = open_reader_(refreshed);
         if (ret.code() != 0) {
             return {nullptr, ret};
@@ -272,14 +278,9 @@ void DatasetReader::invalidate_data_caches_() {
 
 DatasetRangeReaderPtr DatasetReader::reader() const {
     DatasetRangeReaderPtr result = std::make_unique<DatasetRangeReader>();
-    std::shared_ptr<const std::vector<DatasetItem>> items_snapshot;
-    {
-        sketch::WriteGuard wg(cache_lock_);
-        const Ret cache_ret = ensure_items_cache_();
-        if (cache_ret.code() != 0) {
-            throw std::runtime_error(cache_ret.message());
-        }
-        items_snapshot = items_cache_;
+    auto [items_snapshot, cache_ret] = get_items_snapshot_();
+    if (cache_ret.code() != 0) {
+        throw std::runtime_error(cache_ret.message());
     }
     const auto ret = result->init(this, std::move(items_snapshot));
     if (ret.code() != 0) {
@@ -289,19 +290,15 @@ DatasetRangeReaderPtr DatasetReader::reader() const {
 }
 
 std::pair<DataReaderPtr, Ret> DatasetReader::get(uint64_t id) const {
-    DatasetItem item;
-    {
-        sketch::WriteGuard wg(cache_lock_);
-        const Ret ret = ensure_items_cache_();
-        if (ret.code() != 0) {
-            return {nullptr, ret};
-        }
-        const DatasetItem* found = find_item_(id / metadata_.range_size);
-        if (!found) {
-            return {nullptr, Ret(0)};
-        }
-        item = *found;
+    auto [items_snapshot, ret] = get_items_snapshot_();
+    if (ret.code() != 0) {
+        return {nullptr, ret};
     }
+    const DatasetItem* found = find_item_by_id(*items_snapshot, id / metadata_.range_size);
+    if (!found) {
+        return {nullptr, Ret(0)};
+    }
+    const DatasetItem item = *found;
     return get_cached_reader_(item);
 }
 

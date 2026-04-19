@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <unistd.h>
 
 #include <gtest/gtest.h>
@@ -125,6 +126,27 @@ TEST_F(UpdateNotifierTest, CheckerReturnsTrueWhenFileMissing) {
     EXPECT_TRUE(checker.check_updated());
     // File still does not exist — fd was not opened, so still true.
     EXPECT_TRUE(checker.check_updated());
+}
+
+TEST_F(UpdateNotifierTest, CheckerSupportsConcurrentCalls) {
+    UpdateNotifier updater;
+    ASSERT_EQ(0, updater.init_updater(file_path_).code());
+
+    UpdateNotifier checker;
+    ASSERT_EQ(0, checker.init_checker(file_path_).code());
+    EXPECT_TRUE(checker.check_updated());
+
+    ASSERT_EQ(0, updater.update().code());
+
+    bool saw_update_a = false;
+    bool saw_update_b = false;
+    std::thread t1([&]() { saw_update_a = checker.check_updated(); });
+    std::thread t2([&]() { saw_update_b = checker.check_updated(); });
+    t1.join();
+    t2.join();
+
+    EXPECT_NE(saw_update_a, saw_update_b);
+    EXPECT_FALSE(checker.check_updated());
 }
 
 TEST_F(UpdateNotifierTest, UpdaterReadsExistingCounter) {
