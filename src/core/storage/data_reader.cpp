@@ -209,9 +209,10 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
         return Ret("DataReader: dimension too small");
     }
 
-    vector_size_ = dim * elem_size;
-    norm_offset_in_record_ =
-        compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_)).norm_offset;
+    const DataRecordLayout record_layout =
+        compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_));
+    vector_size_ = record_layout.vector_size;
+    norm_offset_in_record_ = record_layout.norm_offset;
     stride_ = static_cast<size_t>(hdr_.vector_stride);
     if ((hdr_.flags & ~kDataFileNormKindMask) != 0u) {
         return Ret("DataReader: unsupported data-file flags");
@@ -226,7 +227,7 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     if (stride_ < vector_size_ || (stride_ % kDataAlignment) != 0) {
         return Ret("DataReader: invalid vector stride");
     }
-    if (data_file_has_norms(hdr_) && stride_ < norm_offset_in_record_ + sizeof(float)) {
+    if (data_file_has_norms(hdr_) && stride_ != record_layout.stride) {
         return Ret("DataReader: invalid inline norm layout");
     }
 

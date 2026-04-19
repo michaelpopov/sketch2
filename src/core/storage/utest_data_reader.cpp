@@ -313,6 +313,71 @@ TEST_F(DataReaderTest, FailsWhenInlineNormDoesNotFitStride) {
     EXPECT_NE(std::string::npos, ret.message().find("invalid inline norm layout"));
 }
 
+TEST_F(DataReaderTest, FailsWhenInlineNormUsesNonCanonicalStride) {
+    const uint16_t dim = 5;
+    const DataType type = DataType::f32;
+    const DataRecordLayout canonical_layout = compute_data_record_layout(type, dim, true);
+    const size_t shifted_norm_offset = canonical_layout.norm_offset + kDataAlignment;
+    const size_t noncanonical_stride = canonical_layout.stride + kDataAlignment;
+
+    CompactIds compact_ids;
+    ASSERT_EQ(0, compact_ids.init(std::vector<uint64_t>{7}).code());
+    CompactIds compact_deleted_ids;
+    ASSERT_EQ(0, compact_deleted_ids.init(std::vector<uint64_t>{}).code());
+
+    DataFileHeader hdr = make_data_header(7, 7, 1, 0, type, dim, kDataFileHasCosineInvNorms);
+    hdr.vector_stride = static_cast<uint32_t>(noncanonical_stride);
+    ASSERT_EQ(0, set_data_header_layout(
+        &hdr, compact_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
+
+    FILE* f = fopen(data_path_.c_str(), "wb");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+    const size_t header_padding = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
+    if (header_padding > 0) {
+        std::vector<uint8_t> pad(header_padding, 0);
+        ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+    }
+
+    const std::vector<float> vector_values = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    ASSERT_EQ(canonical_layout.vector_size, vector_values.size() * sizeof(float));
+    ASSERT_EQ(vector_values.size(), fwrite(vector_values.data(), sizeof(float), vector_values.size(), f));
+    const size_t bytes_before_shifted_norm = shifted_norm_offset - canonical_layout.vector_size;
+    if (bytes_before_shifted_norm > 0) {
+        std::vector<uint8_t> pad(bytes_before_shifted_norm, 0);
+        ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+    }
+    const float norm = static_cast<float>(compute_cosine_inverse_norm(
+        reinterpret_cast<const uint8_t*>(vector_values.data()), type, dim));
+    ASSERT_EQ(1u, fwrite(&norm, sizeof(norm), 1, f));
+    const size_t bytes_after_norm = noncanonical_stride - (shifted_norm_offset + sizeof(norm));
+    if (bytes_after_norm > 0) {
+        std::vector<uint8_t> pad(bytes_after_norm, 0);
+        ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+    }
+
+    const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, 1);
+    if (metadata_layout.vectors_padding > 0) {
+        std::vector<uint8_t> pad(metadata_layout.vectors_padding, 0);
+        ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+    }
+    ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::FailsWhenInlineNormUsesNonCanonicalStride ids").code());
+    const size_t deleted_ids_padding =
+        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_ids.serialized_size_bytes());
+    if (deleted_ids_padding > 0) {
+        std::vector<uint8_t> pad(deleted_ids_padding, 0);
+        ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
+    }
+    ASSERT_EQ(0, compact_deleted_ids.write(
+        f, "DataReaderTest::FailsWhenInlineNormUsesNonCanonicalStride deleted ids").code());
+    fclose(f);
+
+    DataReader r;
+    const Ret ret = r.init(data_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("invalid inline norm layout"));
+}
+
 TEST_F(DataReaderTest, FailsOnLegacyRawIdsTrailer) {
     const std::vector<std::vector<uint8_t>> vecs = {
         std::vector<uint8_t>(4 * sizeof(float), 0),
