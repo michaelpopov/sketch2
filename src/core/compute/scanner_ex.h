@@ -17,7 +17,7 @@ class DatasetReader;
 // Singleton-dispatched hand-written SIMD kernels.
 class ScannerEx {
 public:
-    explicit ScannerEx(CalcEngine engine = compiled_calc_engine());
+    explicit ScannerEx(ComputeEngine engine = compiled_calc_engine());
 
     Ret find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;
@@ -26,7 +26,7 @@ public:
         std::vector<DistItem>& result, const BitsetFilter* bitset = nullptr) const;
 
 private:
-    CalcEngine engine_;
+    ComputeEngine engine_;
 };
 
 } // namespace sketch2

@@ -25,7 +25,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr CalcEngine kCompiledEngine = compiled_calc_engine();
+constexpr ComputeEngine kCompiledEngine = compiled_calc_engine();
 
 ScannerEx make_compiled_scanner() {
     return ScannerEx(kCompiledEngine);
@@ -277,7 +277,7 @@ TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrderWithHighway) {
 TEST_F(ScannerExTest, FindF32DOTK3ReturnsInOrderWithNumKong) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
-    ScannerEx s(CalcEngine::numkong);
+    ScannerEx s(ComputeEngine::numkong);
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -353,7 +353,7 @@ TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrder) {
 TEST_F(ScannerExTest, FindF32L2K3ReturnsInOrderWithNumKong) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
-    ScannerEx s(CalcEngine::numkong);
+    ScannerEx s(ComputeEngine::numkong);
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -410,7 +410,7 @@ TEST_F(ScannerExTest, FindF32CosK3ReturnsInOrderWithNumKong) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
-    ScannerEx s(CalcEngine::numkong);
+    ScannerEx s(ComputeEngine::numkong);
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
     ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
@@ -509,7 +509,7 @@ TEST_F(ScannerExTest, FindI16RejectsNumKong) {
 #if SKETCH_CALC_ENGINE_NUMKONG
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
-    ScannerEx s(CalcEngine::numkong);
+    ScannerEx s(ComputeEngine::numkong);
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
     const Ret ret = s.find(*reader, 3, q.data(), result);
@@ -555,7 +555,7 @@ TEST_F(ScannerExTest, FindF16CosWorksWithNumKong) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::COS, {input_path_});
-    ScannerEx s(CalcEngine::numkong);
+    ScannerEx s(ComputeEngine::numkong);
     auto q = f16_vec(0.0f, 4);
     reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16(1.0f);
     std::vector<uint64_t> result;

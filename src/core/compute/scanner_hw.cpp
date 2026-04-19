@@ -482,7 +482,7 @@ Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t
     result->clear();
     const DistFunc func = dataset.dist_func();
     const size_t dim = dataset.dim();
-    const CalcKernels kernels = resolve_hwy_kernels(func, dataset.type());
+    const ComputeKernels kernels = resolve_hwy_kernels(func, dataset.type());
 
     DistHeap heap(DistItemCompare{func});
     heap.reserve(count);
@@ -507,7 +507,7 @@ Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t
             dataset, count, &heap, kernels.dist, query, func, bitset));
     }
 
-    log_query(dataset.name(), func, dataset.type(), dim, count, CalcEngine::highway, timer.elapsed_ms());
+    log_query(dataset.name(), func, dataset.type(), dim, count, ComputeEngine::highway, timer.elapsed_ms());
     extract_items(&heap, result);
     return Ret(0);
 }
@@ -519,8 +519,8 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
     return find_items_hw_impl(dataset, count, vec, result, bitset);
 }
 
-CalcKernels resolve_hwy_kernels(DistFunc func, DataType type) {
-    CalcKernels k;
+ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type) {
+    ComputeKernels k;
     switch (func) {
         case DistFunc::DOT:
             switch (type) {

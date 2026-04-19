@@ -100,7 +100,7 @@ inline Ret scan_dataset_readers(const std::vector<DataReaderPtr>& readers, size_
 }
 
 inline Ret scan_dataset_heap_with_dist(const DatasetReader& dataset, size_t count, DistHeap* heap,
-        CalcDistFn dist_fn, const QueryDistContext& query, DistFunc func,
+        ComputeDistFn dist_fn, const QueryDistContext& query, DistFunc func,
         const BitsetFilter* bitset = nullptr) {
     std::vector<DataReaderPtr> readers;
     CHECK(collect_dataset_readers(dataset, &readers));
@@ -115,7 +115,7 @@ inline Ret scan_dataset_heap_with_dist(const DatasetReader& dataset, size_t coun
 }
 
 inline Ret scan_dataset_heap_with_query_norm(const DatasetReader& dataset, size_t count, DistHeap* heap,
-        CalcDistWithQueryNormFn dist_fn, const QueryCosContext& query,
+        ComputeDistWithQueryNormFn dist_fn, const QueryCosContext& query,
         DistFunc func, const BitsetFilter* bitset = nullptr) {
     std::vector<DataReaderPtr> readers;
     CHECK(collect_dataset_readers(dataset, &readers));
@@ -131,7 +131,7 @@ inline Ret scan_dataset_heap_with_query_norm(const DatasetReader& dataset, size_
 }
 
 inline Ret scan_dataset_heap_with_optional_cosine_norms(const DatasetReader& dataset, size_t count,
-        DistHeap* heap, CalcDotFn dot_fn, CalcDistWithQueryNormFn fallback_dist_fn,
+        DistHeap* heap, ComputeDotFn dot_fn, ComputeDistWithQueryNormFn fallback_dist_fn,
         const QueryCosContext& query, DistFunc func, const BitsetFilter* bitset = nullptr) {
     assert(func == DistFunc::COS);
     std::vector<DataReaderPtr> readers;
@@ -154,7 +154,7 @@ inline Ret scan_dataset_heap_with_optional_cosine_norms(const DatasetReader& dat
 }
 
 inline Ret scan_dataset_heap_with_optional_l2_norms(const DatasetReader& dataset, size_t count,
-        DistHeap* heap, CalcDotFn dot_fn, CalcDistFn fallback_dist_fn,
+        DistHeap* heap, ComputeDotFn dot_fn, ComputeDistFn fallback_dist_fn,
         const QueryL2Context& query, DistFunc func, const BitsetFilter* bitset = nullptr) {
     assert(func == DistFunc::L2);
     std::vector<DataReaderPtr> readers;

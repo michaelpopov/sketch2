@@ -20,7 +20,7 @@ TEST(HwyKernelsTest, DOTF32MatchesReference) {
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_dot(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::f32);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::f32);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-4) << "dim=" << dim;
@@ -33,7 +33,7 @@ TEST(HwyKernelsTest, DOTF16MatchesReference) {
         auto bb = make_buffer<float16>(dim, 0);
         fill_f16(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_dot(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::f16);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::f16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-1) << "dim=" << dim;
@@ -46,7 +46,7 @@ TEST(HwyKernelsTest, DOTI16MatchesReference) {
         auto bb = make_buffer<int16_t>(dim, 0);
         fill_i16(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_dot(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::i16);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::DOT, DataType::i16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_DOUBLE_EQ(expected, got) << "dim=" << dim;
@@ -63,7 +63,7 @@ TEST(HwyKernelsTest, L2F32MatchesReference) {
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_l2(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::L2, DataType::f32);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::L2, DataType::f32);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         // SIMD accumulation order differs from scalar, allowing small rounding differences.
@@ -77,7 +77,7 @@ TEST(HwyKernelsTest, L2F16MatchesReference) {
         auto bb = make_buffer<float16>(dim, 0);
         fill_f16(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_l2(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::L2, DataType::f16);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::L2, DataType::f16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-1) << "dim=" << dim;
@@ -90,7 +90,7 @@ TEST(HwyKernelsTest, L2I16MatchesReference) {
         auto bb = make_buffer<int16_t>(dim, 0);
         fill_i16(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_l2(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::L2, DataType::i16);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::L2, DataType::i16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         // i16 squared diffs accumulated in float may lose precision for large sums.
@@ -108,7 +108,7 @@ TEST(HwyKernelsTest, CosDotF32MatchesReference) {
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_dot(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f32);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f32);
         const double got = k.dot(reinterpret_cast<const uint8_t*>(ba.ptr),
                                  reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-4) << "dim=" << dim;
@@ -121,7 +121,7 @@ TEST(HwyKernelsTest, CosSquaredNormF32MatchesReference) {
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_squared_norm(ba.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f32);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f32);
         const double got = k.squared_norm(reinterpret_cast<const uint8_t*>(ba.ptr), dim);
         EXPECT_NEAR(expected, got, std::max(1e-4, std::abs(expected) * 1e-6)) << "dim=" << dim;
     }
@@ -133,7 +133,7 @@ TEST(HwyKernelsTest, CosDistF32MatchesReference) {
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_cosine_distance(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f32);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f32);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-6) << "dim=" << dim;
@@ -146,7 +146,7 @@ TEST(HwyKernelsTest, CosDistF16MatchesReference) {
         auto bb = make_buffer<float16>(dim, 0);
         fill_f16(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_cosine_distance(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f16);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-2) << "dim=" << dim;
@@ -159,7 +159,7 @@ TEST(HwyKernelsTest, CosDistI16MatchesReference) {
         auto bb = make_buffer<int16_t>(dim, 0);
         fill_i16(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_cosine_distance(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::i16);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::i16);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         EXPECT_NEAR(expected, got, 1e-4) << "dim=" << dim;
@@ -172,7 +172,7 @@ TEST(HwyKernelsTest, CosDistWithQueryNormF32MatchesReference) {
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
         const double expected = reference_cosine_distance(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f32);
+        const ComputeKernels k = resolve_hwy_kernels(DistFunc::COS, DataType::f32);
         const double query_norm_sq = k.squared_norm(reinterpret_cast<const uint8_t*>(bb.ptr), dim);
         const double got = k.dist_with_query_norm(
             reinterpret_cast<const uint8_t*>(ba.ptr),
@@ -185,10 +185,10 @@ TEST(HwyKernelsTest, CosDistWithQueryNormF32MatchesReference) {
 // resolve_calc_kernels dispatches correctly
 // ---------------------------------------------------------------------------
 
-TEST(HwyKernelsTest, ResolveCalcKernelsReturnsNonNull) {
+TEST(HwyKernelsTest, ResolveComputeKernelsReturnsNonNull) {
     for (DistFunc func : {DistFunc::DOT, DistFunc::L2, DistFunc::COS}) {
         for (DataType type : {DataType::f32, DataType::f16, DataType::i16}) {
-            const CalcKernels k = resolve_calc_kernels(CalcEngine::highway, func, type);
+            const ComputeKernels k = resolve_calc_kernels(ComputeEngine::highway, func, type);
             ASSERT_NE(k.dist, nullptr) << "func=" << static_cast<int>(func)
                                        << " type=" << static_cast<int>(type);
             if (func == DistFunc::L2 || func == DistFunc::COS) {

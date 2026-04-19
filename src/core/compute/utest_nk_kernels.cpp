@@ -25,7 +25,7 @@ void expect_supported_numeric_matches_reference(DataType type, DistFunc func,
         auto bb = make_buffer<T>(dim, 0);
         fill_fn(ba.ptr, bb.ptr, dim, 42);
         const double expected = expected_fn(ba.ptr, bb.ptr, dim);
-        const CalcKernels k = resolve_nk_kernels(func, type);
+        const ComputeKernels k = resolve_nk_kernels(func, type);
         ASSERT_NE(k.dist, nullptr);
         const double got = k.dist(reinterpret_cast<const uint8_t*>(ba.ptr),
                                   reinterpret_cast<const uint8_t*>(bb.ptr), dim);
@@ -60,7 +60,7 @@ TEST(NumKongKernelsTest, CosHelpersF32MatchReference) {
         auto ba = make_buffer<float>(dim, 0);
         auto bb = make_buffer<float>(dim, 0);
         fill_f32(ba.ptr, bb.ptr, dim, 42);
-        const CalcKernels k = resolve_nk_kernels(DistFunc::COS, DataType::f32);
+        const ComputeKernels k = resolve_nk_kernels(DistFunc::COS, DataType::f32);
         ASSERT_NE(k.dot, nullptr);
         ASSERT_NE(k.squared_norm, nullptr);
         ASSERT_NE(k.dist_with_query_norm, nullptr);
@@ -92,7 +92,7 @@ TEST(NumKongKernelsTest, CosWithQueryNormF16MatchesReference) {
         auto ba = make_buffer<float16>(dim, 0);
         auto bb = make_buffer<float16>(dim, 0);
         fill_f16(ba.ptr, bb.ptr, dim, 42);
-        const CalcKernels k = resolve_nk_kernels(DistFunc::COS, DataType::f16);
+        const ComputeKernels k = resolve_nk_kernels(DistFunc::COS, DataType::f16);
         ASSERT_NE(k.squared_norm, nullptr);
         ASSERT_NE(k.dist_with_query_norm, nullptr);
 
@@ -109,7 +109,7 @@ TEST(NumKongKernelsTest, CosWithQueryNormF16MatchesReference) {
 
 TEST(NumKongKernelsTest, DOTUsesNumKongForF32AndF16) {
     for (DataType type : {DataType::f32, DataType::f16}) {
-        const CalcKernels nk = resolve_nk_kernels(DistFunc::DOT, type);
+        const ComputeKernels nk = resolve_nk_kernels(DistFunc::DOT, type);
         EXPECT_NE(nullptr, nk.dist) << "type=" << static_cast<int>(type);
         EXPECT_EQ(nullptr, nk.dot);
         EXPECT_EQ(nullptr, nk.squared_norm);
@@ -125,9 +125,9 @@ TEST(NumKongKernelsTest, I16IsRejectedForAllMetrics) {
     }
 }
 
-TEST(NumKongKernelsTest, ResolveCalcKernelsUsesNumKongBackendWhenRequested) {
-    const CalcKernels resolved = resolve_calc_kernels(CalcEngine::numkong, DistFunc::L2, DataType::f32);
-    const CalcKernels direct = resolve_nk_kernels(DistFunc::L2, DataType::f32);
+TEST(NumKongKernelsTest, ResolveComputeKernelsUsesNumKongBackendWhenRequested) {
+    const ComputeKernels resolved = resolve_calc_kernels(ComputeEngine::numkong, DistFunc::L2, DataType::f32);
+    const ComputeKernels direct = resolve_nk_kernels(DistFunc::L2, DataType::f32);
     EXPECT_EQ(direct.dist, resolved.dist);
     EXPECT_EQ(direct.dot, resolved.dot);
     EXPECT_EQ(direct.squared_norm, resolved.squared_norm);

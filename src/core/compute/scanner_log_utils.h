@@ -17,7 +17,7 @@ inline const char* scanner_dist_func_name(DistFunc func) {
 }
 
 inline void log_query(const std::string& source, DistFunc func, DataType type, size_t dim,
-        size_t count, CalcEngine engine, int64_t elapsed_ms) {
+        size_t count, ComputeEngine engine, int64_t elapsed_ms) {
     LOG_TRACE << "ScannerEx query: source=" << source
               << " engine=" << calc_engine_name(engine)
               << " metric=" << scanner_dist_func_name(func)

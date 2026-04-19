@@ -93,7 +93,7 @@ inline void scan_data_reader_with_optional_bitset(const DataReader& reader,
 }
 
 inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, DistHeap* heap,
-        CalcDistFn dist_fn, const QueryDistContext& query, const BitsetFilter* bitset = nullptr) {
+        ComputeDistFn dist_fn, const QueryDistContext& query, const BitsetFilter* bitset = nullptr) {
     const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
     scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
         [heap, count, dist_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
@@ -102,7 +102,7 @@ inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, D
 }
 
 inline void scan_data_reader_with_query_norm(const DataReader& reader, size_t count, DistHeap* heap,
-        CalcDistWithQueryNormFn dist_fn, const QueryCosContext& query,
+        ComputeDistWithQueryNormFn dist_fn, const QueryCosContext& query,
         const BitsetFilter* bitset = nullptr) {
     const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
     scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
@@ -113,7 +113,7 @@ inline void scan_data_reader_with_query_norm(const DataReader& reader, size_t co
 }
 
 inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, size_t count,
-        DistHeap* heap, CalcDotFn dot_fn, const QueryCosContext& query,
+        DistHeap* heap, ComputeDotFn dot_fn, const QueryCosContext& query,
         const BitsetFilter* bitset = nullptr) {
     const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
     scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
@@ -125,7 +125,7 @@ inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, siz
 }
 
 inline void scan_data_reader_with_l2_stored_norms(const DataReader& reader, size_t count,
-        DistHeap* heap, CalcDotFn dot_fn, const QueryL2Context& query,
+        DistHeap* heap, ComputeDotFn dot_fn, const QueryL2Context& query,
         const BitsetFilter* bitset = nullptr) {
     const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
     scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,

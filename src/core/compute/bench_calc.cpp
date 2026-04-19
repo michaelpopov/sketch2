@@ -191,18 +191,18 @@ std::pair<const uint8_t*, const uint8_t*> prepare_bytes(std::vector<T>* a, std::
     };
 }
 
-CalcEngine calc_engine_from_string(const std::string& engine) {
+ComputeEngine calc_engine_from_string(const std::string& engine) {
 #if SKETCH_CALC_ENGINE_HIGHWAY
-    if (engine == "highway") return CalcEngine::highway;
+    if (engine == "highway") return ComputeEngine::highway;
 #endif
 #if SKETCH_CALC_ENGINE_NUMKONG
-    if (engine == "numkong") return CalcEngine::numkong;
+    if (engine == "numkong") return ComputeEngine::numkong;
 #endif
     throw std::runtime_error("unsupported calc engine: " + engine);
 }
 
 std::vector<CaseStats> run_calc_bench(const Args& args, const uint8_t* a, const uint8_t* b) {
-    const CalcKernels kernels = resolve_calc_kernels(calc_engine_from_string(args.engine), args.dist, args.type);
+    const ComputeKernels kernels = resolve_calc_kernels(calc_engine_from_string(args.engine), args.dist, args.type);
     std::vector<CaseStats> results;
     results.push_back(benchmark_case("dist", args.warmup_iterations, args.iterations, args.repeats, [&] {
         return kernels.dist(a, b, args.dim);

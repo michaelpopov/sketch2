@@ -371,7 +371,7 @@ Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t
     result->clear();
     const DistFunc func = dataset.dist_func();
     const size_t dim = dataset.dim();
-    const CalcKernels kernels = resolve_nk_kernels(func, dataset.type());
+    const ComputeKernels kernels = resolve_nk_kernels(func, dataset.type());
 
     DistHeap heap(DistItemCompare{func});
     heap.reserve(count);
@@ -396,7 +396,7 @@ Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t
             dataset, count, &heap, kernels.dist, query, func, bitset));
     }
 
-    log_query(dataset.name(), func, dataset.type(), dim, count, CalcEngine::numkong, timer.elapsed_ms());
+    log_query(dataset.name(), func, dataset.type(), dim, count, ComputeEngine::numkong, timer.elapsed_ms());
     extract_items(&heap, result);
     return Ret(0);
 }
@@ -453,12 +453,12 @@ const char* nk_calc_backend_name(DistFunc func, DataType type) {
     return nk_calc_backend_name_for_capabilities(func, type, nk_calc_available_capabilities());
 }
 
-CalcKernels resolve_nk_kernels(DistFunc func, DataType type) {
+ComputeKernels resolve_nk_kernels(DistFunc func, DataType type) {
     if (type == DataType::i16) {
         throw std::runtime_error("resolve_nk_kernels: i16 is not supported by NumKong.");
     }
 
-    CalcKernels k;
+    ComputeKernels k;
     switch (func) {
         case DistFunc::DOT:
             switch (type) {

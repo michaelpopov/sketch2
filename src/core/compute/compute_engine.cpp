@@ -8,14 +8,14 @@
 
 namespace sketch2 {
 
-CalcKernels resolve_calc_kernels(CalcEngine engine, DistFunc func, DataType type) {
+ComputeKernels resolve_calc_kernels(ComputeEngine engine, DistFunc func, DataType type) {
     switch (engine) {
 #if SKETCH_CALC_ENGINE_HIGHWAY
-        case CalcEngine::highway:
+        case ComputeEngine::highway:
             return resolve_hwy_kernels(func, type);
 #endif
 #if SKETCH_CALC_ENGINE_NUMKONG
-        case CalcEngine::numkong:
+        case ComputeEngine::numkong:
             return resolve_nk_kernels(func, type);
 #endif
         default:

@@ -14,15 +14,15 @@
 
 namespace sketch2 {
 
-const char* calc_engine_name(CalcEngine engine) {
+const char* calc_engine_name(ComputeEngine engine) {
     switch (engine) {
-        case CalcEngine::highway: return "highway";
-        case CalcEngine::numkong: return "numkong";
+        case ComputeEngine::highway: return "highway";
+        case ComputeEngine::numkong: return "numkong";
         default: return "unknown";
     }
 }
 
-ScannerEx::ScannerEx(CalcEngine engine) : engine_(engine) {}
+ScannerEx::ScannerEx(ComputeEngine engine) : engine_(engine) {}
 
 Ret ScannerEx::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
@@ -43,11 +43,11 @@ Ret ScannerEx::find_items(const DatasetReader& dataset, size_t count, const uint
     try {
         switch (engine_) {
 #if SKETCH_CALC_ENGINE_HIGHWAY
-            case CalcEngine::highway:
+            case ComputeEngine::highway:
                 return find_items_hw(dataset, count, vec, &result, bitset);
 #endif
 #if SKETCH_CALC_ENGINE_NUMKONG
-            case CalcEngine::numkong:
+            case ComputeEngine::numkong:
                 return find_items_nk(dataset, count, vec, &result, bitset);
 #endif
             default:
