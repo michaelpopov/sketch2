@@ -22,9 +22,9 @@ namespace {
 constexpr const char* kScenarioEnv = "SKETCH2API_COMPUTE_SCENARIO";
 constexpr const char* kConfigEnv = "SKETCH2_CONFIG";
 
-#if SKETCH_CALC_ENGINE_HIGHWAY
+#if SKETCH_COMPUTE_ENGINE_HIGHWAY
 constexpr const char* kCompiledEngine = "highway";
-#elif SKETCH_CALC_ENGINE_NUMKONG
+#elif SKETCH_COMPUTE_ENGINE_NUMKONG
 constexpr const char* kCompiledEngine = "numkong";
 #else
 #error "Exactly one calc engine must be compiled."

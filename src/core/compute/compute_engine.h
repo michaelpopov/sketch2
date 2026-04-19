@@ -15,9 +15,9 @@ enum class ComputeEngine : uint8_t {
 };
 
 constexpr ComputeEngine compiled_compute_engine() {
-#if SKETCH_CALC_ENGINE_HIGHWAY
+#if SKETCH_COMPUTE_ENGINE_HIGHWAY
     return ComputeEngine::highway;
-#elif SKETCH_CALC_ENGINE_NUMKONG
+#elif SKETCH_COMPUTE_ENGINE_NUMKONG
     return ComputeEngine::numkong;
 #else
 #error "Exactly one compute engine must be compiled."

@@ -36,9 +36,9 @@ using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
 
 constexpr const char* kScenarioEnv = "SKETCH2API_VLITE_COMPUTE_SCENARIO";
 
-#if SKETCH_CALC_ENGINE_HIGHWAY
+#if SKETCH_COMPUTE_ENGINE_HIGHWAY
 constexpr const char* kCompiledEngine = "highway";
-#elif SKETCH_CALC_ENGINE_NUMKONG
+#elif SKETCH_COMPUTE_ENGINE_NUMKONG
 constexpr const char* kCompiledEngine = "numkong";
 #else
 #error "Exactly one calc engine must be compiled."
@@ -373,7 +373,7 @@ TEST_F(VliteTest, UsesDatasetScoreFunctionForL2Queries) {
 }
 
 TEST_F(VliteTest, SupportsI16Datasets) {
-#if SKETCH_CALC_ENGINE_NUMKONG
+#if SKETCH_COMPUTE_ENGINE_NUMKONG
     GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
 #endif
     write_input("i16,4\n"
@@ -698,7 +698,7 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF32L2Dataset) {
 }
 
 TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
-#if SKETCH_CALC_ENGINE_NUMKONG
+#if SKETCH_COMPUTE_ENGINE_NUMKONG
     GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
 #endif
     write_input("i16,4\n"
@@ -809,7 +809,7 @@ TEST_F(VliteTest, AtPrefixLoadsVectorFromSpaceDelimitedFile) {
 }
 
 TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
-#if SKETCH_CALC_ENGINE_NUMKONG
+#if SKETCH_COMPUTE_ENGINE_NUMKONG
     GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
 #endif
     write_input("i16,4\n"

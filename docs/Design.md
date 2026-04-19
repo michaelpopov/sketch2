@@ -200,7 +200,7 @@ Sketch2 keeps compute specialization explicit. Score computation is not a
 generic callback invoked inside the innermost loop. Instead, the scanner
 dispatches once per query across three axes:
 
-- calc engine
+- compute engine
 - score function
 - vector element type
 
@@ -228,9 +228,9 @@ Supported vector element types today:
 - `f16`
 - `i16`
 
-## Calc Engine Selection
+## Compute Engine Selection
 
-Sketch2 now selects one top-level calc engine at configure time through
+Sketch2 now selects one top-level compute engine at configure time through
 `SKETCH_CALC_ENGINE`.
 
 Current engines are:
@@ -298,7 +298,7 @@ become a relational database.
 Sketch2 is Linux-only today. That is a deliberate scope decision rather than an
 oversight. Supporting multiple operating systems would dilute effort in the
 parts of the system that matter most right now: file layout, mmap-based access,
-calc-engine architecture, and correctness of the core data path.
+compute-engine architecture, and correctness of the core data path.
 
 At the same time, CPU portability matters. The project is intended to run well
 on multiple CPU families because vector workloads benefit directly from

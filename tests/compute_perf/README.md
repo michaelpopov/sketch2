@@ -1,7 +1,7 @@
-# Performance Test Harness for Calc Engines
+# Performance Test Harness for Compute Engines
 
 The `compute_perf` test harness evaluates the performance and correctness of
-the current Sketch2 calc path across different score functions (`cos`, `dot`,
+the current Sketch2 compute path across different score functions (`cos`, `dot`,
 `l2`).
 
 After the compute redesign, the top-level engine is selected at build time via
@@ -97,7 +97,7 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_TEST_TYPE` | Data type of vectors (`f32`, `f16`, `i16`). | `f32` |
 | `COMPUTE_PERF_TEST_DIST` | Comma-separated list of score functions. | `cos,l2,dot` |
 | `COMPUTE_PERF_TEST_RANGE_SIZE` | Dataset range size used at creation time. | `10000` |
-| `COMPUTE_PERF_TEST_ENGINES` | Comma-separated list of engine labels to test. Use `auto` for the library default selection. After the calc redesign, set this to a build-compatible list such as `auto,highway` or `auto,numkong`. | `scalar,auto,highway,numkong` |
+| `COMPUTE_PERF_TEST_ENGINES` | Comma-separated list of engine labels to test. Use `auto` for the library default selection. After the compute redesign, set this to a build-compatible list such as `auto,highway` or `auto,numkong`. | `scalar,auto,highway,numkong` |
 | `COMPUTE_PERF_TEST_BENCHMARKS` | Comma-separated benchmark layers to run. Supported values: `scan`, `kernel`. | `scan,kernel` |
 | `COMPUTE_PERF_TEST_LOG_LEVEL` | Log level for the Sketch2 engine. | `ERROR` |
 | `COMPUTE_PERF_TEST_THREAD_POOL_SIZE` | Internal thread pool size for Sketch2. | `1` |
@@ -118,7 +118,7 @@ Simply execute the driver script from the repository root:
 ./tests/compute_perf/driver.sh
 ```
 
-For calc-redesign builds, it is usually clearer to set the engine list
+For compute-redesign builds, it is usually clearer to set the engine list
 explicitly:
 
 ```bash
@@ -142,7 +142,7 @@ The driver also writes `${SKETCH2_CONFIG_ROOT}/logs/run_env.txt`, which captures
 
 When investigating a crash, inspect `${COMPUTE_PERF_DIAG_DIR}/diag_<engine>_<dist>.json` for the last recorded stage, then rerun the generated `${COMPUTE_PERF_DIAG_DIR}/repro_<engine>_<dist>.sh` or `${COMPUTE_PERF_DIAG_DIR}/repro_loop_<engine>_<dist>.sh`. On failure, `driver.sh` prints the diagnostic directory and the matching generated artifact paths to make that handoff explicit.
 
-## Notes After The Calc Redesign
+## Notes After The Compute Redesign
 
 - Historical observations about `src/core/compute` no longer describe the
   current code path. The active query implementation now lives under
@@ -151,4 +151,4 @@ When investigating a crash, inspect `${COMPUTE_PERF_DIAG_DIR}/diag_<engine>_<dis
   The redesign made top-level engine choice a configure-time decision, not a
   broad runtime matrix inside one build tree.
 - `bench_compute` is the authoritative native microbenchmark entry point for the
-  current calc layer.
+  current compute layer.

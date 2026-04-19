@@ -4,9 +4,9 @@
 
 #include "core/compute/scanner_heap_utils.h"
 
-#if SKETCH_CALC_ENGINE_HIGHWAY
+#if SKETCH_COMPUTE_ENGINE_HIGHWAY
 #include "core/compute/scanner_hw.h"
-#elif SKETCH_CALC_ENGINE_NUMKONG
+#elif SKETCH_COMPUTE_ENGINE_NUMKONG
 #include "core/compute/scanner_nk.h"
 #endif
 
@@ -42,11 +42,11 @@ Ret ScannerEx::find_items(const DatasetReader& dataset, size_t count, const uint
     result.clear();
     try {
         switch (engine_) {
-#if SKETCH_CALC_ENGINE_HIGHWAY
+#if SKETCH_COMPUTE_ENGINE_HIGHWAY
             case ComputeEngine::highway:
                 return find_items_hw(dataset, count, vec, &result, bitset);
 #endif
-#if SKETCH_CALC_ENGINE_NUMKONG
+#if SKETCH_COMPUTE_ENGINE_NUMKONG
             case ComputeEngine::numkong:
                 return find_items_nk(dataset, count, vec, &result, bitset);
 #endif

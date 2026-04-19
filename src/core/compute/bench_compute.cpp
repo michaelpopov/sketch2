@@ -2,7 +2,7 @@
 
 #include "core/compute/compute_engine.h"
 #include "core/compute/cosine_distance.h"
-#if SKETCH_CALC_ENGINE_NUMKONG
+#if SKETCH_COMPUTE_ENGINE_NUMKONG
 #include "core/compute/scanner_nk.h"
 #endif
 #include "core/compute/scanner_query_context.h"
@@ -192,10 +192,10 @@ std::pair<const uint8_t*, const uint8_t*> prepare_bytes(std::vector<T>* a, std::
 }
 
 ComputeEngine compute_engine_from_string(const std::string& engine) {
-#if SKETCH_CALC_ENGINE_HIGHWAY
+#if SKETCH_COMPUTE_ENGINE_HIGHWAY
     if (engine == "highway") return ComputeEngine::highway;
 #endif
-#if SKETCH_CALC_ENGINE_NUMKONG
+#if SKETCH_COMPUTE_ENGINE_NUMKONG
     if (engine == "numkong") return ComputeEngine::numkong;
 #endif
     throw std::runtime_error("unsupported compute engine: " + engine);
@@ -284,7 +284,7 @@ void print_json(const Args& args, const std::vector<CaseStats>& cases) {
     std::cout << "  \"warmup_iterations\": " << args.warmup_iterations << ",\n";
     std::cout << "  \"repeats\": " << args.repeats << ",\n";
     std::cout << "  \"active_compute_backend\": \"" << json_escape(get_singleton().compute_unit().name()) << "\"";
- #if SKETCH_CALC_ENGINE_NUMKONG
+ #if SKETCH_COMPUTE_ENGINE_NUMKONG
     if (args.engine == "numkong") {
         std::cout << ",\n  \"numkong_backend\": \"" << json_escape(nk_compute_backend_name(args.dist, args.type)) << "\"";
     }

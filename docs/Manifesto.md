@@ -30,7 +30,7 @@ The nice thing about doing greenfield development without business constraints
 is that you can experiment with the best possible design decisions. That is
 what I am doing here.
 
-I am building a vector storage engine with a built-in calc layer. It is a
+I am building a vector storage engine with a built-in compute layer. It is a
 library that can be integrated with existing databases and provide the best
 technical solution for storing vectors and running specialized computations on
 this data.

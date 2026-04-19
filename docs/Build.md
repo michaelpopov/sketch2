@@ -46,7 +46,7 @@ Build directories are engine-specific because `SKETCH_CALC_ENGINE` is cached at
 configure time. If you want a NumKong build, configure a fresh build directory
 for it instead of reusing a previously configured `highway` tree.
 
-The default calc engine is `highway`. Set `-DSKETCH_CALC_ENGINE=numkong` at
+The default compute engine is `highway`. Set `-DSKETCH_CALC_ENGINE=numkong` at
 configure time if you want the NumKong-backed build instead.
 
 Important build types:
