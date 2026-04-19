@@ -272,12 +272,4 @@ inline Ret write_data_record(FILE* f,
     return Ret(0);
 }
 
-inline Ret write_vector_record_with_optional_norm(FILE* f,
-        const uint8_t* data,
-        const DataRecordLayout& layout,
-        const float* norm,
-        const std::string& context) {
-    return write_data_record(f, data, layout, norm, context);
-}
-
 } // namespace sketch2

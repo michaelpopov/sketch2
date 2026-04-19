@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <vector>
 #include <fstream>
+#include "core/compute/norm_utils.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/input_generator.h"
@@ -113,7 +114,8 @@ protected:
     // Write a minimal valid binary data file with vector bytes and compact id trailer.
     // type_field: 0=f16, 1=f32, 2=i16  (matches DataWriter encoding)
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
-                   const std::vector<std::vector<uint8_t>>& vecs) {
+                   const std::vector<std::vector<uint8_t>>& vecs,
+                   uint32_t norm_flags = 0) {
         CompactIds compact_ids;
         std::vector<uint64_t> ids;
         ids.reserve(vecs.size());
@@ -131,7 +133,8 @@ protected:
             static_cast<uint32_t>(vecs.size()),
             0,
             type_field,
-            dim);
+            dim,
+            norm_flags);
         ASSERT_EQ(0, set_data_header_layout(
             &hdr, compact_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
         FILE* f = fopen(data_path_.c_str(), "wb");
@@ -141,8 +144,22 @@ protected:
             std::vector<uint8_t> pad(pad_size, 0);
             fwrite(pad.data(), 1, pad.size(), f);
         }
+        const DataRecordLayout record_layout = compute_data_record_layout(type_field, dim, norm_flags != 0);
         for (const auto& v : vecs) {
-            ASSERT_EQ(0, write_vector_record(f, v.data(), v.size(), hdr.vector_stride, "DataReaderTest::write_raw").code());
+            float norm = 0.0f;
+            float* norm_ptr = nullptr;
+            if (norm_flags != 0) {
+                if (norm_flags == kDataFileHasCosineInvNorms) {
+                    norm = compute_cosine_inverse_norm(v.data(), type_field, dim);
+                } else if (norm_flags == kDataFileHasSquaredNorms) {
+                    norm = compute_squared_norm(v.data(), type_field, dim);
+                } else {
+                    FAIL() << "write_raw: invalid stored norm flags";
+                }
+                norm_ptr = &norm;
+            }
+            ASSERT_EQ(0, write_data_record(
+                f, v.data(), record_layout, norm_ptr, "DataReaderTest::write_raw").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, vecs.size());
         const size_t ids_pad_size = metadata_layout.vectors_padding;
@@ -462,6 +479,28 @@ TEST_F(DataReaderTest, ReadsL2NormValuesFromInlineRecords) {
     EXPECT_NEAR(static_cast<double>(r.get_norm(0)), static_cast<double>(it.get_norm()), 1e-6);
 }
 
+TEST_F(DataReaderTest, WriteRawSupportsInlineNormsForI16) {
+    const std::vector<int16_t> vec0 = {3, 3, 3, 3};
+    const std::vector<int16_t> vec1 = {4, 4, 4, 4};
+    const std::vector<std::vector<uint8_t>> vecs = {
+        std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(vec0.data()),
+            reinterpret_cast<const uint8_t*>(vec0.data()) + vec0.size() * sizeof(int16_t)),
+        std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(vec1.data()),
+            reinterpret_cast<const uint8_t*>(vec1.data()) + vec1.size() * sizeof(int16_t))
+    };
+
+    write_raw(DataType::i16, 4, 7, vecs, kDataFileHasSquaredNorms);
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    ASSERT_TRUE(r.has_norms());
+    EXPECT_TRUE(r.has_matching_stored_norms(DistFunc::L2));
+    EXPECT_FALSE(r.has_matching_stored_norms(DistFunc::COS));
+    EXPECT_GT(r.stride(), r.size());
+    EXPECT_FLOAT_EQ(36.0f, r.get_norm(0));
+    EXPECT_FLOAT_EQ(64.0f, r.get_norm(1));
+}
+
 TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, DataType::f32, 4);
     CompactIds compact_ids;
@@ -577,13 +616,28 @@ TEST_F(DataReaderTest, AtI16VectorDataIsCorrect) {
     }
 }
 
-TEST_F(DataReaderTest, AtConsecutivePointersSpacedBySize) {
+TEST_F(DataReaderTest, AtConsecutivePointersSpacedByStride) {
     generate(4, 0, DataType::f32, 8);
     DataReader r;
     EXPECT_EQ(0, r.init(data_path_).code());
     for (size_t i = 0; i < 3; ++i) {
         ptrdiff_t gap = r.at(i + 1) - r.at(i);
-        EXPECT_EQ(static_cast<ptrdiff_t>(r.size()), gap) << "at index " << i;
+        EXPECT_EQ(static_cast<ptrdiff_t>(r.stride()), gap) << "at index " << i;
+    }
+}
+
+TEST_F(DataReaderTest, AtConsecutivePointersSpacedByStrideWithInlineNorms) {
+    GeneratorConfig cfg{PatternType::Sequential, 4, 0, DataType::f32, 8, 1000};
+    generate_input_file(input_path_, cfg);
+    DataWriter w;
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, DistFunc::COS).code());
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    ASSERT_GT(r.stride(), r.size());
+    for (size_t i = 0; i < 3; ++i) {
+        ptrdiff_t gap = r.at(i + 1) - r.at(i);
+        EXPECT_EQ(static_cast<ptrdiff_t>(r.stride()), gap) << "at index " << i;
     }
 }
 

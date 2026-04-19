@@ -116,7 +116,7 @@ protected:
                 }
                 norm_ptr = &norm;
             }
-            ASSERT_EQ(0, write_vector_record_with_optional_norm(
+            ASSERT_EQ(0, write_data_record(
                 f,
                 reinterpret_cast<const uint8_t*>(vec.data()),
                 record_layout,
@@ -144,7 +144,9 @@ protected:
                         FileType kind,
                         const std::vector<std::pair<uint64_t, int16_t>>& active,
                         const std::vector<uint64_t>& deleted,
-                        uint16_t dim = kDim) {
+                        uint16_t dim = kDim,
+                        bool has_norms = false,
+                        DistFunc stored_norm_dist_func = DistFunc::COS) {
         std::vector<uint64_t> active_ids;
         active_ids.reserve(active.size());
         for (const auto& item : active) {
@@ -159,7 +161,8 @@ protected:
             static_cast<uint32_t>(active.size()),
             static_cast<uint32_t>(deleted.size()),
             DataType::i16,
-            dim);
+            dim,
+            has_norms ? data_file_norm_flags_for_dist(stored_norm_dist_func) : 0u);
         hdr.base.kind = static_cast<uint16_t>(kind);
         CompactIds compact_active_ids;
         ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
@@ -178,10 +181,30 @@ protected:
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
         }
 
+        const DataRecordLayout record_layout =
+            compute_data_record_layout(DataType::i16, dim, has_norms);
         for (const auto& item : active) {
             std::vector<int16_t> vec(dim, item.second);
-            ASSERT_EQ(0, write_vector_record(f, reinterpret_cast<const uint8_t*>(vec.data()),
-                vec.size() * sizeof(int16_t), hdr.vector_stride, "DataMergerTest::write_i16_file").code());
+            float norm = 0.0f;
+            float* norm_ptr = nullptr;
+            if (has_norms) {
+                if (stored_norm_dist_func == DistFunc::COS) {
+                    norm = compute_cosine_inverse_norm(
+                        reinterpret_cast<const uint8_t*>(vec.data()), DataType::i16, dim);
+                } else if (stored_norm_dist_func == DistFunc::L2) {
+                    norm = compute_squared_norm(
+                        reinterpret_cast<const uint8_t*>(vec.data()), DataType::i16, dim);
+                } else {
+                    FAIL() << "write_i16_file: invalid stored norm distance function";
+                }
+                norm_ptr = &norm;
+            }
+            ASSERT_EQ(0, write_data_record(
+                f,
+                reinterpret_cast<const uint8_t*>(vec.data()),
+                record_layout,
+                norm_ptr,
+                "DataMergerTest::write_i16_file").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
         const size_t ids_pad_size = metadata_layout.vectors_padding;
@@ -743,6 +766,21 @@ TEST_F(DataMergerTest, MergeDataFileRejectsUpdatedIdAlsoDeletedAndCleansOutput) 
     const auto ret = merger.merge_data_file(source_reader, updater_reader, out_path);
     EXPECT_NE(0, ret.code());
     EXPECT_FALSE(fs::exists(out_path));
+}
+
+TEST_F(DataMergerTest, WriteI16FileSupportsInlineNorms) {
+    const std::string path = p("i16_norms.data");
+
+    write_i16_file(path, FileType::Data, {{7, 3}, {8, 4}}, {}, 4, true, DistFunc::L2);
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(path).code());
+    ASSERT_TRUE(reader.has_norms());
+    EXPECT_TRUE(reader.has_matching_stored_norms(DistFunc::L2));
+    EXPECT_FALSE(reader.has_matching_stored_norms(DistFunc::COS));
+    EXPECT_GT(reader.stride(), reader.size());
+    EXPECT_FLOAT_EQ(36.0f, reader.get_norm(0));
+    EXPECT_FLOAT_EQ(64.0f, reader.get_norm(1));
 }
 
 TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsIncompatibleDim) {
