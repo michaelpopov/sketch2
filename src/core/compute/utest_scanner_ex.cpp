@@ -836,6 +836,82 @@ TEST_F(ScannerTest, L2StoredNormScanRefreshesCachedBoundsWhenHeapThresholdTighte
     EXPECT_EQ(3u, g_counting_dot_calls);
 }
 
+TEST_F(ScannerTest, CosStoredNormScanSkipsDotForZeroStoredVector) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n");
+
+    const std::string dataset_dir = data_path_ + ".dataset_" + std::to_string(cleanup_dirs_.size());
+    cleanup_dirs_.push_back(dataset_dir);
+    fs::create_directories(dataset_dir);
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 100, DataType::f32, 4, DistFunc::COS).code());
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(dataset_dir + "/0.data").code());
+
+    const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    const double query_norm_sq = 1.0;
+    const QueryCosContext query{q.data(), 4, query_norm_sq, query_inverse_norm(query_norm_sq)};
+    DistHeap heap(DistItemCompare{DistFunc::COS});
+    heap.reserve(2);
+
+    g_counting_dot_calls = 0;
+    scan_data_reader_with_cos_stored_norms(reader, 2, &heap, counting_f32_dot, query);
+
+    std::vector<DistItem> result;
+    extract_items(&heap, &result);
+
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(20u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+    EXPECT_EQ(10u, result[1].id);
+    EXPECT_DOUBLE_EQ(1.0, result[1].score);
+    EXPECT_EQ(1u, g_counting_dot_calls);
+}
+
+TEST_F(ScannerTest, CosStoredNormScanTreatsBothZeroVectorsAsExactMatchWithoutDot) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n");
+
+    const std::string dataset_dir = data_path_ + ".dataset_" + std::to_string(cleanup_dirs_.size());
+    cleanup_dirs_.push_back(dataset_dir);
+    fs::create_directories(dataset_dir);
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 100, DataType::f32, 4, DistFunc::COS).code());
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(dataset_dir + "/0.data").code());
+
+    const auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
+    const double query_norm_sq = 0.0;
+    const QueryCosContext query{q.data(), 4, query_norm_sq, query_inverse_norm(query_norm_sq)};
+    DistHeap heap(DistItemCompare{DistFunc::COS});
+    heap.reserve(2);
+
+    g_counting_dot_calls = 0;
+    scan_data_reader_with_cos_stored_norms(reader, 2, &heap, counting_f32_dot, query);
+
+    std::vector<DistItem> result;
+    extract_items(&heap, &result);
+
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+    EXPECT_EQ(20u, result[1].id);
+    EXPECT_DOUBLE_EQ(1.0, result[1].score);
+    EXPECT_EQ(1u, g_counting_dot_calls);
+}
+
 TEST_F(ScannerTest, FindDatasetCosWorks) {
     write_input_raw(
         input_path_,

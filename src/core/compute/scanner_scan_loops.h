@@ -156,9 +156,15 @@ inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, siz
     const size_t norm_offset_in_record = reader.norm_offset_in_record_unchecked();
     scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
         [heap, count, dot_fn, query, norm_offset_in_record](uint64_t id, const uint8_t* record) {
-            const double dot = dot_fn(record, query.vec, query.dim);
             float norm = 0.0f;
             std::memcpy(&norm, record + norm_offset_in_record, sizeof(norm));
+            if (norm == 0.0f) {
+                push_result_smaller_better(
+                    heap, count, id, query.inv_norm == 0.0 ? 0.0 : 1.0);
+                return;
+            }
+
+            const double dot = dot_fn(record, query.vec, query.dim);
             push_result_smaller_better(heap, count, id, finalize_cosine_distance_from_inverse_norms(
                 dot, static_cast<double>(norm), query.inv_norm));
         });
