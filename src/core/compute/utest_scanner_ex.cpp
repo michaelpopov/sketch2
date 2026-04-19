@@ -177,10 +177,12 @@ protected:
         ASSERT_LT(index, static_cast<size_t>(hdr.count));
         const DataRecordLayout record_layout = compute_data_record_layout(
             data_type_from_int(static_cast<int>(hdr.type)), hdr.dim, true);
+        ASSERT_GE(static_cast<size_t>(hdr.vector_stride), record_layout.norm_offset + sizeof(value));
 
+        const size_t record_offset =
+            static_cast<size_t>(hdr.data_offset) + index * static_cast<size_t>(hdr.vector_stride);
         const off_t norm_offset =
-            static_cast<off_t>(
-                hdr.data_offset + index * static_cast<size_t>(hdr.vector_stride) + record_layout.norm_offset);
+            static_cast<off_t>(record_offset + record_layout.norm_offset);
         ASSERT_EQ(static_cast<ssize_t>(sizeof(value)),
                   pwrite(fd, &value, sizeof(value), norm_offset));
         ASSERT_EQ(0, close(fd));

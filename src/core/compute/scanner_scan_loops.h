@@ -16,12 +16,12 @@ namespace sketch2 {
 constexpr size_t kPrefetchCacheLineBytes = 64;
 constexpr size_t kPrefetchDistance = 1;
 
-inline void prefetch_vector_record(const uint8_t* data, size_t vector_size_bytes) {
+inline void prefetch_vector_record(const uint8_t* data, size_t record_stride_bytes) {
     if (data == nullptr) {
         return;
     }
 
-    for (size_t offset = 0; offset < vector_size_bytes; offset += kPrefetchCacheLineBytes) {
+    for (size_t offset = 0; offset < record_stride_bytes; offset += kPrefetchCacheLineBytes) {
         __builtin_prefetch(data + offset, 0, 1);
     }
 }
@@ -44,14 +44,14 @@ inline bool bitset_contains_id(const BitsetFilter* bitset, uint64_t id) {
 }
 
 template <bool HasBitset, typename PushFn>
-inline void scan_ordered_iterator(DataReader::OrderedIterator it, size_t vector_size_bytes,
+inline void scan_ordered_iterator(DataReader::OrderedIterator it, size_t record_stride_bytes,
         const BitsetFilter* bitset, const PushFn& push_fn) {
     while (!it.eof()) {
         const uint64_t id = it.id();
         DataReader::OrderedIterator next_it = it;
         next_it.next();
         if (!next_it.eof()) {
-            prefetch_vector_record(next_it.data(), vector_size_bytes);
+            prefetch_vector_record(next_it.data(), record_stride_bytes);
         }
         if constexpr (HasBitset) {
             if (!bitset_contains_id(bitset, id)) {
@@ -65,29 +65,29 @@ inline void scan_ordered_iterator(DataReader::OrderedIterator it, size_t vector_
 }
 
 template <bool HasBitset, typename PushFn>
-inline void scan_data_reader(const DataReader& reader, size_t vector_size_bytes,
+inline void scan_data_reader(const DataReader& reader, size_t record_stride_bytes,
         const BitsetFilter* bitset, const PushFn& push_fn) {
     scan_ordered_iterator<HasBitset>(
-        reader.base_begin(), vector_size_bytes, bitset, push_fn);
+        reader.base_begin(), record_stride_bytes, bitset, push_fn);
     scan_ordered_iterator<HasBitset>(
-        reader.delta_begin(), vector_size_bytes, bitset, push_fn);
+        reader.delta_begin(), record_stride_bytes, bitset, push_fn);
 }
 
 template <typename PushFn>
 inline void scan_data_reader_with_optional_bitset(const DataReader& reader,
-        size_t vector_size_bytes, const BitsetFilter* bitset, const PushFn& push_fn) {
+        size_t record_stride_bytes, const BitsetFilter* bitset, const PushFn& push_fn) {
     if (bitset == nullptr) {
-        scan_data_reader<false>(reader, vector_size_bytes, nullptr, push_fn);
+        scan_data_reader<false>(reader, record_stride_bytes, nullptr, push_fn);
         return;
     }
 
-    scan_data_reader<true>(reader, vector_size_bytes, bitset, push_fn);
+    scan_data_reader<true>(reader, record_stride_bytes, bitset, push_fn);
 }
 
 inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, DistHeap* heap,
         ComputeDistFn dist_fn, const QueryDistContext& query, const BitsetFilter* bitset = nullptr) {
-    const size_t vector_size_bytes = reader.size();
-    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
+    const size_t record_stride_bytes = reader.stride();
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
         [heap, count, dist_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             push_result(heap, count, id, dist_fn(curr_it.data(), query.vec, query.dim));
         });
@@ -95,8 +95,8 @@ inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, D
 
 inline void scan_data_reader_with_dot(const DataReader& reader, size_t count, DistHeap* heap,
         ComputeDotFn dot_fn, const QueryDotContext& query, const BitsetFilter* bitset = nullptr) {
-    const size_t vector_size_bytes = reader.size();
-    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
+    const size_t record_stride_bytes = reader.stride();
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
         [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             push_result(heap, count, id, dot_fn(curr_it.data(), query.vec, query.dim));
         });
@@ -105,8 +105,8 @@ inline void scan_data_reader_with_dot(const DataReader& reader, size_t count, Di
 inline void scan_data_reader_with_query_norm(const DataReader& reader, size_t count, DistHeap* heap,
         ComputeDistWithQueryNormFn dist_fn, const QueryCosContext& query,
         const BitsetFilter* bitset = nullptr) {
-    const size_t vector_size_bytes = reader.size();
-    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
+    const size_t record_stride_bytes = reader.stride();
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
         [heap, count, dist_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             push_result(heap, count, id,
                 dist_fn(curr_it.data(), query.vec, query.dim, query.norm_sq));
@@ -116,8 +116,8 @@ inline void scan_data_reader_with_query_norm(const DataReader& reader, size_t co
 inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, size_t count,
         DistHeap* heap, ComputeDotFn dot_fn, const QueryCosContext& query,
         const BitsetFilter* bitset = nullptr) {
-    const size_t vector_size_bytes = reader.size();
-    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
+    const size_t record_stride_bytes = reader.stride();
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
         [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             const double dot = dot_fn(curr_it.data(), query.vec, query.dim);
             push_result(heap, count, id, finalize_cosine_distance_from_inverse_norms(
@@ -128,8 +128,8 @@ inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, siz
 inline void scan_data_reader_with_l2_stored_norms(const DataReader& reader, size_t count,
         DistHeap* heap, ComputeDotFn dot_fn, const QueryL2Context& query,
         const BitsetFilter* bitset = nullptr) {
-    const size_t vector_size_bytes = reader.size();
-    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
+    const size_t record_stride_bytes = reader.stride();
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
         [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
             const double dot = dot_fn(curr_it.data(), query.vec, query.dim);
             push_result(heap, count, id, finalize_squared_l2_distance_from_squared_norms(
