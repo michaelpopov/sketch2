@@ -100,34 +100,31 @@ protected:
 
         for (const auto& item : active) {
             std::vector<float> vec(dim, item.second);
-            ASSERT_EQ(0, write_vector_record(f, reinterpret_cast<const uint8_t*>(vec.data()),
-                vec.size() * sizeof(float), hdr.vector_stride, "DataMergerTest::write_f32_file").code());
-        }
-        if (has_norms) {
-            std::vector<float> norms;
-            norms.reserve(active.size());
-            for (const auto& item : active) {
-                std::vector<float> vec(dim, item.second);
+            const DataRecordLayout record_layout =
+                compute_data_record_layout(DataType::f32, dim, has_norms);
+            float norm = 0.0f;
+            float* norm_ptr = nullptr;
+            if (has_norms) {
                 if (stored_norm_dist_func == DistFunc::COS) {
-                    norms.push_back(compute_cosine_inverse_norm(
-                        reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim));
+                    norm = compute_cosine_inverse_norm(
+                        reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim);
                 } else if (stored_norm_dist_func == DistFunc::L2) {
-                    norms.push_back(compute_squared_norm(
-                        reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim));
+                    norm = compute_squared_norm(
+                        reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim);
                 } else {
                     FAIL() << "write_f32_file: invalid stored norm distance function";
                 }
+                norm_ptr = &norm;
             }
-            const size_t norms_pad_size = compute_data_metadata_layout(hdr, active.size()).vectors_padding;
-            if (norms_pad_size > 0) {
-                std::vector<uint8_t> pad(norms_pad_size, 0);
-                ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-            }
-            ASSERT_EQ(0, write_f32_array(f, norms,
-                "DataMergerTest::write_f32_file cosine").code());
+            ASSERT_EQ(0, write_vector_record_with_optional_norm(
+                f,
+                reinterpret_cast<const uint8_t*>(vec.data()),
+                record_layout,
+                norm_ptr,
+                "DataMergerTest::write_f32_file").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
-        const size_t ids_pad_size = metadata_layout.ids_trailer_padding;
+        const size_t ids_pad_size = metadata_layout.vectors_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
@@ -187,7 +184,7 @@ protected:
                 vec.size() * sizeof(int16_t), hdr.vector_stride, "DataMergerTest::write_i16_file").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
-        const size_t ids_pad_size = metadata_layout.ids_trailer_padding;
+        const size_t ids_pad_size = metadata_layout.vectors_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));

@@ -7,6 +7,7 @@
 #include "core/utils/mapped_region.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
+#include <cstring>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -143,10 +144,12 @@ public:
         if (index >= count()) {
             throw std::out_of_range("DataReader::get_norm: index out of range");
         }
-        if (!norms_) {
+        if (!data_file_has_norms(hdr_)) {
             throw std::logic_error("DataReader::get_norm: norms section is absent");
         }
-        return norms_[index];
+        float value = 0.0f;
+        std::memcpy(&value, at_unchecked_(index) + norm_offset_, sizeof(value));
+        return value;
     }
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     inline const uint8_t* at(size_t index) const {   // lookup by position; might return nullptr if the vector is deleted
@@ -190,6 +193,7 @@ private:
     const float*             norms_   = nullptr; // optional stored norms in mapped metadata
     DataType                 type_    = DataType::f32;
     size_t                   vector_size_ = 0;    // size of one vector in bytes
+    size_t                   norm_offset_ = 0;    // inline norm slot within one persisted record
     size_t                   stride_  = 0;        // bytes between persisted vectors
     std::string              path_ = "<undefined>";
 

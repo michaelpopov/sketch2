@@ -159,6 +159,7 @@ void DataReader::reset_state_() {
     norms_ = nullptr;
     deleted_ids_.clear();
     vector_size_ = 0;
+    norm_offset_ = 0;
     stride_ = 0;
     changed_bitset_.resize(0);
     delta_.reset();
@@ -211,6 +212,7 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     }
 
     vector_size_ = dim * elem_size;
+    norm_offset_ = compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_)).norm_offset;
     stride_ = static_cast<size_t>(hdr_.vector_stride);
     if ((hdr_.flags & ~kDataFileNormKindMask) != 0u) {
         return Ret("DataReader: unsupported data-file flags");
@@ -224,6 +226,9 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     }
     if (stride_ < vector_size_ || (stride_ % kDataAlignment) != 0) {
         return Ret("DataReader: invalid vector stride");
+    }
+    if (data_file_has_norms(hdr_) && stride_ < norm_offset_ + sizeof(float)) {
+        return Ret("DataReader: invalid inline norm layout");
     }
 
     *metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
@@ -265,9 +270,6 @@ Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout&
     if (metadata_layout.vectors_bytes > 0) {
         CHECK(vectors_region_.init(fd, hdr_.data_offset, metadata_layout.vectors_bytes, true));
     }
-    if (metadata_layout.norms_bytes > 0) {
-        CHECK(norms_region_.init(fd, metadata_layout.norms_offset, metadata_layout.norms_bytes, true));
-    }
 
     CHECK(ids_region_.init(fd, hdr_.ids_offset, hdr_.ids_bytes));
     size_t active_ids_bytes = 0;
@@ -298,8 +300,8 @@ Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout&
         return Ret("DataReader: ids trailer count does not match header");
     }
 
-    norms_ = metadata_layout.norms_bytes > 0
-        ? reinterpret_cast<const float*>(norms_region_.data())
+    norms_ = (data_file_has_norms(hdr_) && hdr_.count > 0)
+        ? reinterpret_cast<const float*>(vectors_region_.data() + norm_offset_)
         : nullptr;
     return Ret(0);
 }
@@ -349,6 +351,7 @@ void DataReader::assert_invariants_() const {
         assert(norms_ == nullptr);
         assert(deleted_ids_.empty());
         assert(vector_size_ == 0);
+        assert(norm_offset_ == 0);
         assert(stride_ == 0);
         return;
     }
@@ -357,6 +360,7 @@ void DataReader::assert_invariants_() const {
     assert(hdr_.base.kind == static_cast<uint16_t>(FileType::Data));
     assert(hdr_.base.version == kVersion);
     assert(vector_size_ == compute_vector_size(type_, hdr_.dim));
+    assert(norm_offset_ == compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_)).norm_offset);
     assert(stride_ == hdr_.vector_stride);
     assert(data_file_has_valid_norm_flags(hdr_));
     assert(stride_ >= vector_size_);
@@ -379,8 +383,8 @@ void DataReader::assert_invariants_() const {
         static_cast<uint64_t>(compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)));
     assert(hdr_.deleted_ids_bytes == deleted_ids_region_.size());
 
-    if (data_file_has_norms(hdr_)) {
-        assert(norms_ == reinterpret_cast<const float*>(norms_region_.data()));
+    if (data_file_has_norms(hdr_) && hdr_.count > 0) {
+        assert(norms_ == reinterpret_cast<const float*>(vectors_region_.data() + norm_offset_));
     } else {
         assert(norms_ == nullptr);
     }

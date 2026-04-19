@@ -24,45 +24,6 @@ namespace sketch2 {
 
 namespace {
 
-class NormOutput {
-public:
-    explicit NormOutput(bool enabled) : enabled_(enabled) {}
-
-    // The norms side-array is optional in the on-disk format. This helper lets
-    // the merge code always "push" norms while internally becoming a no-op when
-    // the current dataset layout does not persist them.
-    void reserve(size_t count) {
-        if (enabled_) {
-            values_.reserve(count);
-        }
-    }
-
-    void push(float value) {
-        if (enabled_) {
-            values_.push_back(value);
-        }
-    }
-
-    void assert_matches(size_t count) const {
-#ifndef NDEBUG
-        assert(!enabled_ || values_.size() == count);
-#else
-        (void)count;
-#endif
-    }
-
-    Ret write(FILE* f, const char* context) const {
-        return write_f32_array(
-            f,
-            values_,
-            std::string(context) + ": failed to write stored norms");
-    }
-
-private:
-    bool enabled_ = false;
-    std::vector<float> values_;
-};
-
 // Small forward declarations so the RAII helpers below can call the low-level
 // file utilities that are defined later in this anonymous namespace.
 void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer);
@@ -145,27 +106,23 @@ public:
         : f_(f),
           type_(data_type_from_int(static_cast<int>(header.type))),
           dim_(header.dim),
-          vector_size_(compute_vector_size(type_, dim_)),
-          vector_stride_(header.vector_stride),
+          record_layout_(compute_data_record_layout(type_, dim_, data_file_has_norms(header))),
           context_(context),
-          norms_enabled_(data_file_has_norms(header)),
-          norms_(data_file_has_norms(header)) {}
+          norms_enabled_(data_file_has_norms(header)) {}
 
     // The merge emits at most source.count() + updater.count() live rows.
     // Reserving once keeps the hot merge loop simple and avoids reallocations.
     // The text scratch buffer is only needed for direct-input text merges.
     void reserve(size_t count, bool needs_text_buffer) {
         output_ids_capacity_ = count;
-        norms_.reserve(count);
         if (needs_text_buffer) {
-            parsed_text_buffer_.resize(vector_size_);
+            parsed_text_buffer_.resize(record_layout_.vector_size);
         }
     }
 
     // Appends one surviving row to the output in the exact order required by
-    // the file format: first vector records, later the optional norms array and
-    // id array. The ids are buffered here until those trailing sections are
-    // written after all vectors.
+    // the file format: vector record first, ids trailer later. The ids are
+    // buffered here until those trailing sections are written after all rows.
     Ret write_binary_record(uint64_t id, const uint8_t* data, float norm) {
         if (!output_ids_initialized_) {
             output_ids_.init(id, output_ids_capacity_);
@@ -182,8 +139,8 @@ public:
             output_ids_max_ = id;
         }
         output_ids_.add(id);
-        CHECK(write_vector_record(f_, data, vector_size_, vector_stride_, context_));
-        norms_.push(norm);
+        CHECK(write_vector_record_with_optional_norm(
+            f_, data, record_layout_, norms_enabled_ ? &norm : nullptr, context_));
         return Ret(0);
     }
 
@@ -195,8 +152,8 @@ public:
         if (end < start) {
             return Ret("MergeOutputWriter: invalid text vector range");
         }
-        if (parsed_text_buffer_.size() != vector_size_) {
-            parsed_text_buffer_.resize(vector_size_);
+        if (parsed_text_buffer_.size() != record_layout_.vector_size) {
+            parsed_text_buffer_.resize(record_layout_.vector_size);
         }
 
         const Ret parse_ret = comma_delimited
@@ -211,23 +168,19 @@ public:
     }
 
     // Writes the trailer that follows the vector-record area in every merged
-    // file: optional stored norms, alignment padding before ids, and then the
-    // compact active/deleted id sections.
+    // file: alignment padding before ids, then the compact active/deleted id
+    // sections.
     Ret write_ids_section(const DataFileHeader& header,
             const CompactIds& deleted_ids,
-            const char* ids_padding_message,
             const char* ids_message,
             const char* deleted_ids_message) {
         CompactIds output_ids_ext;
         output_ids_.complete_adding();
         CHECK(output_ids_ext.init(output_ids_));
         output_ids_bytes_ = output_ids_ext.serialized_size_bytes();
-        norms_.assert_matches(output_ids_.size());
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(header, output_ids_.size());
         CHECK(write_zero_padding(f_, metadata_layout.vectors_padding,
-            std::string(context_) + ": failed to write norms alignment padding"));
-        CHECK(norms_.write(f_, context_));
-        CHECK(write_zero_padding(f_, metadata_layout.ids_trailer_padding, ids_padding_message));
+            std::string(context_) + ": failed to write ids alignment padding"));
         CHECK(output_ids_ext.write(f_, ids_message));
         CHECK(write_zero_padding(
             f_,
@@ -248,11 +201,9 @@ private:
     FILE* f_ = nullptr;
     DataType type_ = DataType::f32;
     uint16_t dim_ = 0;
-    size_t vector_size_ = 0;
-    size_t vector_stride_ = 0;
+    DataRecordLayout record_layout_{};
     const char* context_ = "";
     bool norms_enabled_ = false;
-    NormOutput norms_;
     CompactIdsAccumulator output_ids_;
     size_t output_ids_capacity_ = 0;
     size_t output_ids_bytes_ = 0;
@@ -761,7 +712,6 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     CHECK(output.write_ids_section(
         *merge_file.header(),
         {},
-        "DataMerger::merge_data_files: failed to write id alignment padding",
         "DataMerger::merge_data_files: failed to write ids to merge file",
         "DataMerger::merge_data_files: failed to write deleted_ids to merge file"));
 
@@ -885,7 +835,6 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     CHECK(output.write_ids_section(
         *merge_file.header(),
         compact_deleted_ids,
-        "DataMerger::merge_delta_file: failed to write id alignment padding",
         "DataMerger::merge_delta_file: failed to write ids to merge file",
         "DataMerger::merge_delta_file: failed to write deleted_ids to merge file"));
 
@@ -931,7 +880,6 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
     CHECK(output.write_ids_section(
         *merge_file.header(),
         empty_deleted_ids,
-        "DataMerger::merge_data_files: failed to write id alignment padding",
         "DataMerger::merge_data_files: failed to write ids to merge file",
         "DataMerger::merge_data_files: failed to write deleted_ids to merge file"));
 
@@ -991,7 +939,6 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     CHECK(output.write_ids_section(
         *merge_file.header(),
         compact_deleted_ids,
-        "DataMerger::merge_delta_file: failed to write id alignment padding",
         "DataMerger::merge_delta_file: failed to write ids to merge file",
         "DataMerger::merge_delta_file: failed to write deleted_ids to merge file"));
 

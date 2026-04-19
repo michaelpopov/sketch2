@@ -175,9 +175,12 @@ protected:
         ASSERT_EQ(static_cast<ssize_t>(sizeof(hdr)), pread(fd, &hdr, sizeof(hdr), 0));
         ASSERT_TRUE(data_file_has_norms(hdr));
         ASSERT_LT(index, static_cast<size_t>(hdr.count));
+        const DataRecordLayout record_layout = compute_data_record_layout(
+            data_type_from_int(static_cast<int>(hdr.type)), hdr.dim, true);
 
         const off_t norm_offset =
-            static_cast<off_t>(hdr.norms_offset + index * sizeof(float));
+            static_cast<off_t>(
+                hdr.data_offset + index * static_cast<size_t>(hdr.vector_stride) + record_layout.norm_offset);
         ASSERT_EQ(static_cast<ssize_t>(sizeof(value)),
                   pwrite(fd, &value, sizeof(value), norm_offset));
         ASSERT_EQ(0, close(fd));

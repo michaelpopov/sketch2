@@ -145,7 +145,7 @@ protected:
             ASSERT_EQ(0, write_vector_record(f, v.data(), v.size(), hdr.vector_stride, "DataReaderTest::write_raw").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, vecs.size());
-        const size_t ids_pad_size = metadata_layout.ids_trailer_padding;
+        const size_t ids_pad_size = metadata_layout.vectors_padding;
         if (ids_pad_size > 0) {
             std::vector<uint8_t> pad(ids_pad_size, 0);
             fwrite(pad.data(), 1, pad.size(), f);
@@ -185,8 +185,8 @@ protected:
                       "DataReaderTest::write_raw_with_legacy_id_arrays").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, vecs.size());
-        if (metadata_layout.ids_trailer_padding > 0) {
-            std::vector<uint8_t> pad(metadata_layout.ids_trailer_padding, 0);
+        if (metadata_layout.vectors_padding > 0) {
+            std::vector<uint8_t> pad(metadata_layout.vectors_padding, 0);
             ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
         }
         // Intentionally write legacy raw uint64 arrays to ensure hard cutover rejects them.
@@ -275,6 +275,25 @@ TEST_F(DataReaderTest, FailsOnInvalidCombinedNormFlags) {
     const Ret ret = r.init(data_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos, ret.message().find("invalid stored norm flags"));
+}
+
+TEST_F(DataReaderTest, FailsWhenInlineNormDoesNotFitStride) {
+    generate(2, 0, DataType::f32, 8);
+
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    DataFileHeader hdr{};
+    ASSERT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
+    hdr.flags = kDataFileHasCosineInvNorms;
+    hdr.vector_stride = static_cast<uint32_t>(compute_vector_size(DataType::f32, hdr.dim));
+    rewind(f);
+    ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+    fclose(f);
+
+    DataReader r;
+    const Ret ret = r.init(data_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("invalid inline norm layout"));
 }
 
 TEST_F(DataReaderTest, FailsOnLegacyRawIdsTrailer) {

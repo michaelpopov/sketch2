@@ -62,21 +62,21 @@ Ret write_vector_section(
         FILE* f,
         const InputReaderView& reader,
         const DataFileHeader& hdr,
-        DistFunc dist_func,
-        std::vector<float>* norms) {
+        DistFunc dist_func) {
     const size_t count = reader.count();
-    const size_t vec_size = reader.size();
     const bool binary_input = reader.is_binary();
-    std::vector<uint8_t> buf = binary_input ? std::vector<uint8_t>() : std::vector<uint8_t>(vec_size);
-    const auto append_norm = [&](const uint8_t* vector_data) {
+    const DataRecordLayout record_layout =
+        compute_data_record_layout(reader.type(), static_cast<uint16_t>(reader.dim()), data_file_has_norms(hdr));
+    std::vector<uint8_t> buf = binary_input ? std::vector<uint8_t>() : std::vector<uint8_t>(record_layout.vector_size);
+    const auto compute_norm = [&](const uint8_t* vector_data, float* norm_value) {
         switch (dist_func) {
             case DistFunc::COS:
-                norms->push_back(static_cast<float>(
-                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim())));
+                *norm_value = static_cast<float>(
+                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
                 return;
             case DistFunc::L2:
-                norms->push_back(static_cast<float>(
-                    compute_squared_norm(vector_data, reader.type(), reader.dim())));
+                *norm_value = static_cast<float>(
+                    compute_squared_norm(vector_data, reader.type(), reader.dim()));
                 return;
             case DistFunc::DOT:
                 return;
@@ -94,13 +94,18 @@ Ret write_vector_section(
 
             const uint8_t* vector_data = nullptr;
             CHECK(reader.raw_data(i, &vector_data));
-            CHECK(write_vector_record(
+            float norm_value = 0.0f;
+            float* norm_ptr = nullptr;
+            if (data_file_has_norms(hdr)) {
+                compute_norm(vector_data, &norm_value);
+                norm_ptr = &norm_value;
+            }
+            CHECK(write_data_record(
                 f,
                 vector_data,
-                vec_size,
-                hdr.vector_stride,
+                record_layout,
+                norm_ptr,
                 "DataWriter: failed to write vector data at index " + std::to_string(i)));
-            append_norm(vector_data);
         }
         return Ret(0);
     }
@@ -112,13 +117,18 @@ Ret write_vector_section(
 
         CHECK(reader.data(i, buf.data(), buf.size()));
         const uint8_t* vector_data = buf.data();
-        CHECK(write_vector_record(
+        float norm_value = 0.0f;
+        float* norm_ptr = nullptr;
+        if (data_file_has_norms(hdr)) {
+            compute_norm(vector_data, &norm_value);
+            norm_ptr = &norm_value;
+        }
+        CHECK(write_data_record(
             f,
             vector_data,
-            vec_size,
-            hdr.vector_stride,
+            record_layout,
+            norm_ptr,
             "DataWriter: failed to write vector data at index " + std::to_string(i)));
-        append_norm(vector_data);
     }
 
     return Ret(0);
@@ -225,8 +235,6 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     }
 
     const uint32_t norm_flags = data_file_norm_flags_for_dist(dist_func);
-    const bool is_norms_section = norm_flags != 0u;
-    
     // Build DataFileHeader
     DataFileHeader hdr = make_data_header(
         stats.min_id,
@@ -260,21 +268,9 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     CHECK(write_header_and_data_padding(f, hdr, "DataWriter"));
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, stats.active_count);
-    std::vector<float> norms;
-    if (is_norms_section) {
-        norms.reserve(stats.active_count);
-    }
-    CHECK(write_vector_section(f, reader, hdr, dist_func, &norms));
+    CHECK(write_vector_section(f, reader, hdr, dist_func));
     CHECK(write_zero_padding(f, metadata_layout.vectors_padding,
-        "DataWriter: failed to write norms alignment padding"));
-
-#ifndef NDEBUG
-    assert(!is_norms_section || norms.size() == stats.active_count);
-#endif
-    CHECK(write_f32_array(f, norms,
-        "DataWriter: failed to write norms"));
-    CHECK(write_zero_padding(f, metadata_layout.ids_trailer_padding,
-        "DataWriter: failed to write id alignment padding"));
+        "DataWriter: failed to write ids alignment padding"));
 
     // Write compact id sections (active ids then deleted ids).
     CHECK(active_ids.write(f, "DataWriter: failed to write ids"));
