@@ -79,7 +79,7 @@ Tests are grouped by subsystem into separate executables:
 
 - `utest_utils`
 - `utest_stor`
-- `utest_calc`
+- `utest_compute`
 - `utest_sketch2`
 - `utest_compute_sketch2api`
 - `utest_vlite`

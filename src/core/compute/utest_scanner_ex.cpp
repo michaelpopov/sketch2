@@ -25,10 +25,10 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr ComputeEngine kCompiledEngine = compiled_calc_engine();
+constexpr ComputeEngine kCompiledComputeEngine = compiled_compute_engine();
 
 ScannerEx make_compiled_scanner() {
-    return ScannerEx(kCompiledEngine);
+    return ScannerEx(kCompiledComputeEngine);
 }
 
 }
@@ -735,12 +735,12 @@ TEST_F(ScannerExTest, FindDatasetL2UsesStoredSquaredNormsForHighwayAndNumKong) {
     ScannerEx s = make_compiled_scanner();
     std::vector<DistItem> result;
     ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code())
-        << "engine=" << calc_engine_name(kCompiledEngine);
+        << "engine=" << compute_engine_name(kCompiledComputeEngine);
     ASSERT_EQ(2u, result.size());
-    EXPECT_EQ(20u, result[0].id) << "engine=" << calc_engine_name(kCompiledEngine);
-    EXPECT_NEAR(2.0, result[0].score, 1e-6) << "engine=" << calc_engine_name(kCompiledEngine);
-    EXPECT_EQ(10u, result[1].id) << "engine=" << calc_engine_name(kCompiledEngine);
-    EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << calc_engine_name(kCompiledEngine);
+    EXPECT_EQ(20u, result[0].id) << "engine=" << compute_engine_name(kCompiledComputeEngine);
+    EXPECT_NEAR(2.0, result[0].score, 1e-6) << "engine=" << compute_engine_name(kCompiledComputeEngine);
+    EXPECT_EQ(10u, result[1].id) << "engine=" << compute_engine_name(kCompiledComputeEngine);
+    EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << compute_engine_name(kCompiledComputeEngine);
 }
 
 TEST_F(ScannerExTest, FindDatasetCosWorks) {

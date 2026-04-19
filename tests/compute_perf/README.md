@@ -19,7 +19,7 @@ The harness consists of six main components:
 3.  **`runner.py`**: Executes the actual benchmarks. For each compute engine, it benchmarks each score function in its own child process. It can run two complementary benchmark layers:
     - a **kernel-only** layer that times direct metric kernels without scanner traversal
     - a **scan** layer that performs full KNN queries through the existing dataset/scanner path
-4.  **`bench_calc`**: A native benchmark executable under `src/core/compute` that measures the direct kernels and composed scan-time score paths for the selected engine, metric, type, and dimension. It always reports `dist`, adds `dot` and `squared_norm` whenever those kernels are available, and includes composed stored-norm paths (`dist_with_stored_norms`) plus the cosine query-norm fallback (`dist_with_query_norm`) when supported.
+4.  **`bench_compute`**: A native benchmark executable under `src/core/compute` that measures the direct kernels and composed scan-time score paths for the selected engine, metric, type, and dimension. It always reports `dist`, adds `dot` and `squared_norm` whenever those kernels are available, and includes composed stored-norm paths (`dist_with_stored_norms`) plus the cosine query-norm fallback (`dist_with_query_norm`) when supported.
 5.  **`common.py`**: Shared utility library containing configuration logic, binary discovery, ground truth calculation, and **robust validation** (handling tie-breaking via score comparison). It imports shared vector logic from the central `sketch2_test_vectors.py` module.
 6.  **`sketch2_test_vectors.py`**: (Located in `src/pytest`) The authoritative source for all shared vector generation, quantization, formatting, and score functions used across tests and demos.
 
@@ -57,7 +57,7 @@ The initializer prepares the database for benchmarking.
 The runner performs the measurements for a single compute engine.
 
 - **Per-Metric Isolation**: Launches a child Python process for each score function. This localizes native crashes so the failing engine/metric pair is explicit.
-- **Kernel Benchmark Layer**: When `kernel` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, runs the native `bench_calc` executable first and records direct-kernel timings without any dataset traversal, heap maintenance, or scanner logic. This makes it much easier to distinguish kernel regressions from scan-path overhead.
+- **Kernel Benchmark Layer**: When `kernel` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, runs the native `bench_compute` executable first and records direct-kernel timings without any dataset traversal, heap maintenance, or scanner logic. This makes it much easier to distinguish kernel regressions from scan-path overhead.
 - **Warm-up**: Executes one un-timed KNN query to ensure caches are primed and any lazy-initialization overhead is excluded from the performance report.
 - **Scan Benchmark Layer**: When `scan` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, executes `COMPUTE_PERF_TEST_REPEAT` iterations of a KNN query.
 - **Validation**: Loads the pre-calculated Ground Truth from the JSON file. Every warm-up and timed result is validated. To avoid false positives due to tie-breaking differences between optimized engines, the validator requires unique IDs and compares the sorted returned-score multiset against the expected scores. If `DUMMY_CALC=1` is set, validation is skipped.
@@ -150,5 +150,5 @@ When investigating a crash, inspect `${COMPUTE_PERF_DIAG_DIR}/diag_<engine>_<dis
 - Use separate build directories if you want to compare Highway and NumKong.
   The redesign made top-level engine choice a configure-time decision, not a
   broad runtime matrix inside one build tree.
-- `bench_calc` is the authoritative native microbenchmark entry point for the
+- `bench_compute` is the authoritative native microbenchmark entry point for the
   current calc layer.

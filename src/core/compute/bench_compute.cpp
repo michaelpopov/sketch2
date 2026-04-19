@@ -1,4 +1,4 @@
-// Direct kernel benchmark for calc engines.
+// Direct kernel benchmark for compute engines.
 
 #include "core/compute/compute_engine.h"
 #include "core/compute/cosine_distance.h"
@@ -58,7 +58,7 @@ std::string json_escape(std::string_view input) {
             case '\t': out += "\\t"; break;
             default:
                 if (static_cast<unsigned char>(ch) < 0x20u) {
-                    // bench_calc only emits ASCII control chars here.
+                    // This benchmark only emits ASCII control chars here.
                     out += "?";
                 } else {
                     out += ch;
@@ -191,18 +191,18 @@ std::pair<const uint8_t*, const uint8_t*> prepare_bytes(std::vector<T>* a, std::
     };
 }
 
-ComputeEngine calc_engine_from_string(const std::string& engine) {
+ComputeEngine compute_engine_from_string(const std::string& engine) {
 #if SKETCH_CALC_ENGINE_HIGHWAY
     if (engine == "highway") return ComputeEngine::highway;
 #endif
 #if SKETCH_CALC_ENGINE_NUMKONG
     if (engine == "numkong") return ComputeEngine::numkong;
 #endif
-    throw std::runtime_error("unsupported calc engine: " + engine);
+    throw std::runtime_error("unsupported compute engine: " + engine);
 }
 
-std::vector<CaseStats> run_calc_bench(const Args& args, const uint8_t* a, const uint8_t* b) {
-    const ComputeKernels kernels = resolve_calc_kernels(calc_engine_from_string(args.engine), args.dist, args.type);
+std::vector<CaseStats> run_compute_bench(const Args& args, const uint8_t* a, const uint8_t* b) {
+    const ComputeKernels kernels = resolve_compute_kernels(compute_engine_from_string(args.engine), args.dist, args.type);
     std::vector<CaseStats> results;
     results.push_back(benchmark_case("dist", args.warmup_iterations, args.iterations, args.repeats, [&] {
         return kernels.dist(a, b, args.dim);
@@ -255,19 +255,19 @@ std::vector<CaseStats> run_benchmarks(const Args& args) {
             std::vector<float> a;
             std::vector<float> b;
             const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
-            return run_calc_bench(args, av, bv);
+            return run_compute_bench(args, av, bv);
         }
         case DataType::f16: {
             std::vector<float16> a;
             std::vector<float16> b;
             const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
-            return run_calc_bench(args, av, bv);
+            return run_compute_bench(args, av, bv);
         }
         case DataType::i16: {
             std::vector<int16_t> a;
             std::vector<int16_t> b;
             const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
-            return run_calc_bench(args, av, bv);
+            return run_compute_bench(args, av, bv);
         }
     }
     throw std::runtime_error("unsupported data type");
@@ -286,7 +286,7 @@ void print_json(const Args& args, const std::vector<CaseStats>& cases) {
     std::cout << "  \"active_compute_backend\": \"" << json_escape(get_singleton().compute_unit().name()) << "\"";
  #if SKETCH_CALC_ENGINE_NUMKONG
     if (args.engine == "numkong") {
-        std::cout << ",\n  \"numkong_backend\": \"" << json_escape(nk_calc_backend_name(args.dist, args.type)) << "\"";
+        std::cout << ",\n  \"numkong_backend\": \"" << json_escape(nk_compute_backend_name(args.dist, args.type)) << "\"";
     }
  #endif
     std::cout << ",\n  \"cases\": [\n";

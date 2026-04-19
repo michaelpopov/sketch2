@@ -158,7 +158,7 @@ def kernel_bench_env(engine: str) -> dict[str, str]:
 
 
 def run_kernel_benchmark(config, dist: str) -> dict:
-    bench_path = find_binary("bench_calc")
+    bench_path = find_binary("bench_compute")
     cmd = [
         str(bench_path),
         "--engine", engine_label(),
@@ -179,16 +179,16 @@ def run_kernel_benchmark(config, dist: str) -> dict:
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"bench_calc failed for engine={engine_label()} dist={dist} "
+            f"bench_compute failed for engine={engine_label()} dist={dist} "
             f"with exit code {result.returncode}: {result.stderr.strip() or result.stdout.strip()}"
         )
     json_start = result.stdout.find("{")
     if json_start == -1:
-        raise RuntimeError(f"bench_calc did not emit JSON: {result.stdout}")
+        raise RuntimeError(f"bench_compute did not emit JSON: {result.stdout}")
     try:
         return json.loads(result.stdout[json_start:])
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"bench_calc produced invalid JSON: {result.stdout}") from exc
+        raise RuntimeError(f"bench_compute produced invalid JSON: {result.stdout}") from exc
 
 
 def print_kernel_report(payload: dict) -> None:

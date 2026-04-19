@@ -1,4 +1,4 @@
-// Shared helper utilities for calc kernel unit tests.
+// Shared helper utilities for compute kernel unit tests.
 
 #pragma once
 

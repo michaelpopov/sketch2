@@ -1,4 +1,4 @@
-// Defines scalar norm helpers shared by calc and storage code.
+// Defines scalar norm helpers shared by compute and storage code.
 
 #pragma once
 

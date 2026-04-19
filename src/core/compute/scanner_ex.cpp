@@ -14,7 +14,7 @@
 
 namespace sketch2 {
 
-const char* calc_engine_name(ComputeEngine engine) {
+const char* compute_engine_name(ComputeEngine engine) {
     switch (engine) {
         case ComputeEngine::highway: return "highway";
         case ComputeEngine::numkong: return "numkong";
@@ -51,7 +51,7 @@ Ret ScannerEx::find_items(const DatasetReader& dataset, size_t count, const uint
                 return find_items_nk(dataset, count, vec, &result, bitset);
 #endif
             default:
-                return Ret("ScannerEx::find_items: unsupported calc engine.");
+                return Ret("ScannerEx::find_items: unsupported compute engine.");
         }
     } catch (const std::exception& ex) {
         return Ret(ex.what());

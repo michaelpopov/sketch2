@@ -1,39 +1,39 @@
-set(CALC_SOURCES
+set(COMPUTE_SOURCES
   compute_engine.cpp
   scanner_ex.cpp
 )
 
-set(CALC_UTEST_SOURCES
+set(COMPUTE_UTEST_SOURCES
   utest_scanner_ex.cpp
 )
 
 if(SKETCH_CALC_ENGINE STREQUAL "highway")
-  list(APPEND CALC_SOURCES
+  list(APPEND COMPUTE_SOURCES
     scanner_hw.cpp
   )
-  list(APPEND CALC_UTEST_SOURCES
+  list(APPEND COMPUTE_UTEST_SOURCES
     utest_hwy_kernels.cpp
   )
 elseif(SKETCH_CALC_ENGINE STREQUAL "numkong")
-  list(APPEND CALC_SOURCES
+  list(APPEND COMPUTE_SOURCES
     scanner_nk.cpp
   )
-  list(APPEND CALC_UTEST_SOURCES
+  list(APPEND COMPUTE_UTEST_SOURCES
     utest_nk_kernels.cpp
   )
 else()
   message(FATAL_ERROR "Unsupported SKETCH_CALC_ENGINE='${SKETCH_CALC_ENGINE}'")
 endif()
 
-add_library(compute STATIC ${CALC_SOURCES})
+add_library(compute STATIC ${COMPUTE_SOURCES})
 set_target_properties(compute PROPERTIES OUTPUT_NAME "compute")
 target_link_libraries(compute PUBLIC stor hwy sketch_compile_options Threads::Threads)
 if(SKETCH_CALC_ENGINE STREQUAL "numkong")
   target_include_directories(compute SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/third-party/numkong)
 endif()
 
-add_executable(bench_calc bench_calc.cpp)
-target_link_libraries(bench_calc PRIVATE compute stor Threads::Threads)
+add_executable(bench_compute bench_compute.cpp)
+target_link_libraries(bench_compute PRIVATE compute stor Threads::Threads)
 
 if(SKETCH_CALC_ENGINE STREQUAL "numkong" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   set_source_files_properties(scanner_nk.cpp PROPERTIES
@@ -62,12 +62,12 @@ if(SKETCH_CALC_ENGINE STREQUAL "highway" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(a
   endif()
 endif()
 
-add_executable(utest_calc
+add_executable(utest_compute
   ${SHARED_UTEST_MAIN}
-  ${CALC_UTEST_SOURCES}
+  ${COMPUTE_UTEST_SOURCES}
 )
 if(SKETCH_CALC_ENGINE STREQUAL "numkong")
-  target_include_directories(utest_calc SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/third-party/numkong)
+  target_include_directories(utest_compute SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/third-party/numkong)
 endif()
-target_link_libraries(utest_calc PRIVATE compute stor GTest::gtest Threads::Threads)
-add_test(NAME utest_calc COMMAND utest_calc)
+target_link_libraries(utest_compute PRIVATE compute stor GTest::gtest Threads::Threads)
+add_test(NAME utest_compute COMMAND utest_compute)

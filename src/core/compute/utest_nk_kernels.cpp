@@ -126,7 +126,7 @@ TEST(NumKongKernelsTest, I16IsRejectedForAllMetrics) {
 }
 
 TEST(NumKongKernelsTest, ResolveComputeKernelsUsesNumKongBackendWhenRequested) {
-    const ComputeKernels resolved = resolve_calc_kernels(ComputeEngine::numkong, DistFunc::L2, DataType::f32);
+    const ComputeKernels resolved = resolve_compute_kernels(ComputeEngine::numkong, DistFunc::L2, DataType::f32);
     const ComputeKernels direct = resolve_nk_kernels(DistFunc::L2, DataType::f32);
     EXPECT_EQ(direct.dist, resolved.dist);
     EXPECT_EQ(direct.dot, resolved.dot);
@@ -134,14 +134,14 @@ TEST(NumKongKernelsTest, ResolveComputeKernelsUsesNumKongBackendWhenRequested) {
 }
 
 TEST(NumKongKernelsTest, DynamicDispatchMetadataIsConsistent) {
-    EXPECT_TRUE(nk_calc_uses_dynamic_dispatch());
+    EXPECT_TRUE(nk_compute_uses_dynamic_dispatch());
 
-    const uint64_t compiled = nk_calc_compiled_capabilities();
-    const uint64_t available = nk_calc_available_capabilities();
+    const uint64_t compiled = nk_compute_compiled_capabilities();
+    const uint64_t available = nk_compute_available_capabilities();
 
     EXPECT_NE(0u, compiled & static_cast<uint64_t>(nk_cap_serial_k));
     EXPECT_EQ(0u, available & ~compiled);
-    EXPECT_STRNE("unsupported", nk_calc_backend_name(DistFunc::L2, DataType::f32));
+    EXPECT_STRNE("unsupported", nk_compute_backend_name(DistFunc::L2, DataType::f32));
 }
 
 #if defined(__x86_64__) || defined(_M_X64)
@@ -150,23 +150,23 @@ TEST(NumKongKernelsTest, BackendSelectionPrefersSkylakeOverHaswellWhenAvailable)
     const uint64_t haswell_only = static_cast<uint64_t>(nk_cap_serial_k | nk_cap_haswell_k);
     const uint64_t serial_only = static_cast<uint64_t>(nk_cap_serial_k);
 
-    EXPECT_STREQ("skylake", nk_calc_backend_name_for_capabilities(DistFunc::L2, DataType::f32, both));
-    EXPECT_STREQ("skylake", nk_calc_backend_name_for_capabilities(DistFunc::COS, DataType::f16, both));
-    EXPECT_STREQ("haswell", nk_calc_backend_name_for_capabilities(DistFunc::L2, DataType::f32, haswell_only));
-    EXPECT_STREQ("serial", nk_calc_backend_name_for_capabilities(DistFunc::COS, DataType::f16, serial_only));
+    EXPECT_STREQ("skylake", nk_compute_backend_name_for_capabilities(DistFunc::L2, DataType::f32, both));
+    EXPECT_STREQ("skylake", nk_compute_backend_name_for_capabilities(DistFunc::COS, DataType::f16, both));
+    EXPECT_STREQ("haswell", nk_compute_backend_name_for_capabilities(DistFunc::L2, DataType::f32, haswell_only));
+    EXPECT_STREQ("serial", nk_compute_backend_name_for_capabilities(DistFunc::COS, DataType::f16, serial_only));
 }
 #elif defined(__aarch64__) || defined(_M_ARM64)
 TEST(NumKongKernelsTest, BackendSelectionPrefersSveOverNeonWhenAvailable) {
     const uint64_t sve = static_cast<uint64_t>(nk_cap_serial_k | nk_cap_neon_k | nk_cap_sve_k);
     const uint64_t sve_half = static_cast<uint64_t>(nk_cap_serial_k | nk_cap_neon_k | nk_cap_svehalf_k);
     const uint64_t neon = static_cast<uint64_t>(nk_cap_serial_k | nk_cap_neon_k);
-    const uint64_t compiled = nk_calc_compiled_capabilities();
+    const uint64_t compiled = nk_compute_compiled_capabilities();
 
     const char* expected_f32 = (compiled & static_cast<uint64_t>(nk_cap_sve_k)) != 0 ? "sve" : "neon";
     const char* expected_f16 = (compiled & static_cast<uint64_t>(nk_cap_svehalf_k)) != 0 ? "svehalf" : "neon";
 
-    EXPECT_STREQ(expected_f32, nk_calc_backend_name_for_capabilities(DistFunc::L2, DataType::f32, sve));
-    EXPECT_STREQ(expected_f16, nk_calc_backend_name_for_capabilities(DistFunc::COS, DataType::f16, sve_half));
-    EXPECT_STREQ("neon", nk_calc_backend_name_for_capabilities(DistFunc::L2, DataType::f32, neon));
+    EXPECT_STREQ(expected_f32, nk_compute_backend_name_for_capabilities(DistFunc::L2, DataType::f32, sve));
+    EXPECT_STREQ(expected_f16, nk_compute_backend_name_for_capabilities(DistFunc::COS, DataType::f16, sve_half));
+    EXPECT_STREQ("neon", nk_compute_backend_name_for_capabilities(DistFunc::L2, DataType::f32, neon));
 }
 #endif

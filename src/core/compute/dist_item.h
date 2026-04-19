@@ -1,4 +1,4 @@
-// Defines ranked-result types and ordering helpers shared by calc scanners.
+// Defines ranked-result types and ordering helpers shared by compute scanners.
 
 #pragma once
 

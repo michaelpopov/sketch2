@@ -408,19 +408,19 @@ Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec
     return find_items_nk_impl(dataset, count, vec, result, bitset);
 }
 
-bool nk_calc_uses_dynamic_dispatch() {
+bool nk_compute_uses_dynamic_dispatch() {
     return nk_capabilities_compiled() != nk_cap_serial_k;
 }
 
-uint64_t nk_calc_compiled_capabilities() {
+uint64_t nk_compute_compiled_capabilities() {
     return static_cast<uint64_t>(nk_capabilities_compiled());
 }
 
-uint64_t nk_calc_available_capabilities() {
+uint64_t nk_compute_available_capabilities() {
     return static_cast<uint64_t>(thread_capabilities());
 }
 
-const char* nk_calc_backend_name_for_capabilities(DistFunc func, DataType type, uint64_t capabilities) {
+const char* nk_compute_backend_name_for_capabilities(DistFunc func, DataType type, uint64_t capabilities) {
     const nk_capability_t caps = static_cast<nk_capability_t>(capabilities);
     if (!is_nk_supported(type)) {
         return "unsupported";
@@ -449,8 +449,8 @@ const char* nk_calc_backend_name_for_capabilities(DistFunc func, DataType type, 
     }
 }
 
-const char* nk_calc_backend_name(DistFunc func, DataType type) {
-    return nk_calc_backend_name_for_capabilities(func, type, nk_calc_available_capabilities());
+const char* nk_compute_backend_name(DistFunc func, DataType type) {
+    return nk_compute_backend_name_for_capabilities(func, type, nk_compute_available_capabilities());
 }
 
 ComputeKernels resolve_nk_kernels(DistFunc func, DataType type) {

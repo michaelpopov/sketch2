@@ -189,7 +189,7 @@ If you want benchmark binaries as part of a release build, configure with:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_BENCHMARKS=ON
-cmake --build build --target bench_calc
+cmake --build build --target bench_compute
 ```
 
 ## Using Sketch2 From Another Project

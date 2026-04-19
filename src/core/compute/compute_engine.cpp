@@ -8,7 +8,7 @@
 
 namespace sketch2 {
 
-ComputeKernels resolve_calc_kernels(ComputeEngine engine, DistFunc func, DataType type) {
+ComputeKernels resolve_compute_kernels(ComputeEngine engine, DistFunc func, DataType type) {
     switch (engine) {
 #if SKETCH_CALC_ENGINE_HIGHWAY
         case ComputeEngine::highway:
@@ -21,7 +21,7 @@ ComputeKernels resolve_calc_kernels(ComputeEngine engine, DistFunc func, DataTyp
         default:
             break;
     }
-    throw std::runtime_error("resolve_calc_kernels: unsupported engine.");
+    throw std::runtime_error("resolve_compute_kernels: unsupported engine.");
 }
 
 } // namespace sketch2

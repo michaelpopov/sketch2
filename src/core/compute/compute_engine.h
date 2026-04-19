@@ -1,4 +1,4 @@
-// Defines the calc-engine abstraction: an engine selector enum and a struct of
+// Defines the compute-engine abstraction: an engine selector enum and a struct of
 // resolved distance-kernel function pointers. ScannerEx dispatches through
 // ComputeKernels so the scanning logic is completely decoupled from the concrete
 // SIMD library backend.
@@ -14,17 +14,17 @@ enum class ComputeEngine : uint8_t {
     numkong,
 };
 
-constexpr ComputeEngine compiled_calc_engine() {
+constexpr ComputeEngine compiled_compute_engine() {
 #if SKETCH_CALC_ENGINE_HIGHWAY
     return ComputeEngine::highway;
 #elif SKETCH_CALC_ENGINE_NUMKONG
     return ComputeEngine::numkong;
 #else
-#error "Exactly one calc engine must be compiled."
+#error "Exactly one compute engine must be compiled."
 #endif
 }
 
-const char* calc_engine_name(ComputeEngine engine);
+const char* compute_engine_name(ComputeEngine engine);
 
 // Function pointer types matching the existing compute kernel conventions.
 using ComputeDistFn             = double (*)(const uint8_t*, const uint8_t*, size_t);
@@ -45,6 +45,6 @@ struct ComputeKernels {
 };
 
 // Resolves the kernel set for a given engine, metric, and data type.
-ComputeKernels resolve_calc_kernels(ComputeEngine engine, DistFunc func, DataType type);
+ComputeKernels resolve_compute_kernels(ComputeEngine engine, DistFunc func, DataType type);
 
 } // namespace sketch2

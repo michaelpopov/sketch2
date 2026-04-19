@@ -1,4 +1,4 @@
-// Shared cosine-distance finalizers used across calc and compute backends.
+// Shared cosine-distance finalizers used across compute backends.
 
 #pragma once
 

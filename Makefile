@@ -166,7 +166,7 @@ benchcfg:
 # Builds the release benchmark binaries.
 .PHONY: benchbuild
 benchbuild: benchcfg
-	cmake --build $(BUILD_REL) --parallel $(JOBS) --target bench_calc
+	cmake --build $(BUILD_REL) --parallel $(JOBS) --target bench_compute
 
 # Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: bench
@@ -174,27 +174,27 @@ bench: benchrel
 
 .PHONY: benchrel
 benchrel: benchbuild
-	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
+	@echo "gbench_comp was removed; use bin/bench_compute with explicit arguments"
 
 # Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: benchext
 benchext: benchbuild
-	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
+	@echo "gbench_comp was removed; use bin/bench_compute with explicit arguments"
 
 # Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: benchcomp
 benchcomp: benchbuild
-	@echo "bench_comp was removed; use bin/bench_calc with explicit arguments"
+	@echo "bench_comp was removed; use bin/bench_compute with explicit arguments"
 
 # Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: ds_bench
 ds_bench: benchbuild
-	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
+	@echo "gbench_comp was removed; use bin/bench_compute with explicit arguments"
 
 # Compatibility alias for the remaining calc benchmark workflow.
 .PHONY: ds_mix_bench
 ds_mix_bench: benchbuild
-	@echo "gbench_comp was removed; use bin/bench_calc with explicit arguments"
+	@echo "gbench_comp was removed; use bin/bench_compute with explicit arguments"
 
 # Runs full local coverage flow:
 # - debug unit tests
