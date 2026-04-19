@@ -190,7 +190,7 @@ Ret DataWriter::exec_for_testing(const std::string& input_path, const std::strin
 
 // Converts a sorted text-or-binary input view into the binary on-disk data-file format.
 // It separates live ids from deletions, streams vectors into the aligned data
-// section, optionally persists norms, and then appends both id tables.
+// section, and then appends both id tables.
 Ret DataWriter::write(const InputReaderView& reader, const std::string& output_path, DistFunc dist_func) {
     const size_t count = reader.count();
     if (count == 0) {

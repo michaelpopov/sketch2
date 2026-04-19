@@ -226,9 +226,6 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     if (stride_ < vector_size_ || (stride_ % kDataAlignment) != 0) {
         return Ret("DataReader: invalid vector stride");
     }
-    if (hdr_.norms_offset != 0 || hdr_.norms_bytes != 0) {
-        return Ret("DataReader: v11 data files must not declare a separate norms section");
-    }
     if (data_file_has_norms(hdr_) && stride_ < norm_offset_in_record_ + sizeof(float)) {
         return Ret("DataReader: invalid inline norm layout");
     }
@@ -365,8 +362,6 @@ void DataReader::assert_invariants_() const {
     assert(stride_ >= vector_size_);
     assert((hdr_.data_offset % static_cast<uint64_t>(kDataRegionAlignment)) == 0);
     assert((stride_ % kDataAlignment) == 0);
-    assert(hdr_.norms_offset == 0);
-    assert(hdr_.norms_bytes == 0);
     assert(ids_.count() == hdr_.count);
     assert(deleted_ids_.count() == hdr_.deleted_count);
     assert(!ids_region_.empty());
@@ -375,8 +370,6 @@ void DataReader::assert_invariants_() const {
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
     assert(vectors_region_.size() == metadata_layout.vectors_bytes);
     assert(hdr_.vectors_bytes == metadata_layout.vectors_bytes);
-    assert(hdr_.norms_offset == metadata_layout.norms_offset);
-    assert(hdr_.norms_bytes == metadata_layout.norms_bytes);
     assert(hdr_.ids_offset == metadata_layout.ids_trailer_offset);
     assert(hdr_.ids_bytes == ids_region_.size());
     assert(hdr_.deleted_ids_offset ==

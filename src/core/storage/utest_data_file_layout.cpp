@@ -62,7 +62,7 @@ TEST_F(DataFileLayoutTest, MakeDataHeaderSetsSquaredNormFlagWhenRequested) {
     EXPECT_EQ(kDataFileHasSquaredNorms, hdr.flags);
 }
 
-TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutF32Dim8MatchesIntendedV11StrideMath) {
+TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutF32Dim8MatchesIntendedStrideMath) {
     const auto dot_layout = compute_data_record_layout(DataType::f32, 8, false);
     EXPECT_EQ(8u * sizeof(float), dot_layout.vector_size);
     EXPECT_EQ(8u * sizeof(float), dot_layout.norm_offset);
@@ -79,7 +79,7 @@ TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutF32Dim8MatchesIntendedV11Strid
     EXPECT_EQ(cos_layout.stride, l2_layout.stride);
 }
 
-TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutF32Dim16MatchesIntendedV11StrideMath) {
+TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutF32Dim16MatchesIntendedStrideMath) {
     const auto dot_layout = compute_data_record_layout(DataType::f32, 16, false);
     EXPECT_EQ(16u * sizeof(float), dot_layout.vector_size);
     EXPECT_EQ(16u * sizeof(float), dot_layout.norm_offset);
@@ -134,8 +134,6 @@ TEST_F(DataFileLayoutTest, ComputeMetadataLayoutAlignsIdsTrailerOffsetToRegionBo
     const auto hdr = make_data_header(0, 0, 0, 0, DataType::f32, 5);
     const auto layout = compute_data_metadata_layout(hdr, 1);
     EXPECT_EQ(static_cast<size_t>(hdr.vector_stride), layout.vectors_bytes);
-    EXPECT_EQ(0u, layout.norms_offset);
-    EXPECT_EQ(0u, layout.norms_bytes);
     EXPECT_EQ(0u, layout.ids_trailer_offset % kDataRegionAlignment);
     EXPECT_EQ(layout.ids_trailer_offset - (static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes),
         layout.vectors_padding);
@@ -146,19 +144,15 @@ TEST_F(DataFileLayoutTest, ComputeMetadataLayoutKeepsInlineNormsAndPlacesIdsAfte
     const auto hdr = make_data_header(
         0, 0, 0, 0, DataType::f32, 5, data_file_norm_flags_for_dist(DistFunc::COS));
     const auto layout = compute_data_metadata_layout(hdr, 3);
-    EXPECT_EQ(0u, layout.norms_offset);
-    EXPECT_EQ(0u, layout.norms_bytes);
     EXPECT_EQ(0u, layout.ids_trailer_offset % kDataRegionAlignment);
     EXPECT_EQ(layout.ids_trailer_offset,
         align_up<size_t>(static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes, kDataRegionAlignment));
 }
 
-TEST_F(DataFileLayoutTest, SetDataHeaderLayoutKeepsLegacyStandaloneNormFieldsZeroed) {
+TEST_F(DataFileLayoutTest, SetDataHeaderLayoutComputesVectorAndIdsSections) {
     auto hdr = make_data_header(
         10, 20, 3, 1, DataType::f32, 8, data_file_norm_flags_for_dist(DistFunc::COS));
     ASSERT_EQ(0, set_data_header_layout(&hdr, 48, 16).code());
-    EXPECT_EQ(0u, hdr.norms_offset);
-    EXPECT_EQ(0u, hdr.norms_bytes);
     EXPECT_EQ(hdr.data_offset + static_cast<uint64_t>(hdr.count) * hdr.vector_stride, hdr.data_offset + hdr.vectors_bytes);
     EXPECT_EQ(compute_data_region_offset(static_cast<size_t>(hdr.data_offset) + hdr.vectors_bytes), hdr.ids_offset);
 }
@@ -227,7 +221,7 @@ TEST_F(DataFileLayoutTest, WriteDataRecordPadsToStrideWithoutNorms) {
 
     std::ifstream in(path_, std::ios::binary);
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    ASSERT_EQ(static_cast<size_t>(layout.stride), bytes.size());
+    ASSERT_EQ(layout.stride, bytes.size());
     for (size_t i = values.size() * sizeof(float); i < bytes.size(); ++i) {
         EXPECT_EQ(0u, bytes[i]);
     }
@@ -250,7 +244,7 @@ TEST_F(DataFileLayoutTest, WriteDataRecordStoresInlineNormAndPadding) {
 
     std::ifstream in(path_, std::ios::binary);
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    ASSERT_EQ(static_cast<size_t>(layout.stride), bytes.size());
+    ASSERT_EQ(layout.stride, bytes.size());
 
     float persisted_norm = 0.0f;
     std::memcpy(&persisted_norm, bytes.data() + layout.norm_offset, sizeof(persisted_norm));

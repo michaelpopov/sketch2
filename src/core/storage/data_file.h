@@ -35,8 +35,6 @@ struct DataFileHeader {
     uint64_t vectors_bytes; // total bytes in the vector-record region
     uint32_t vector_stride; // bytes between consecutive persisted records, including inline norm/padding
     uint32_t flags; // optional per-record metadata flags, e.g. stored inline norms
-    uint64_t norms_offset; // legacy standalone norms offset; v11 files keep this at 0
-    uint64_t norms_bytes; // legacy standalone norms size; v11 files keep this at 0
     uint64_t ids_offset; // offset from file start to active ids trailer
     uint64_t ids_bytes; // size of active ids section
     uint64_t deleted_ids_offset; // offset from file start to deleted ids section
@@ -44,9 +42,9 @@ struct DataFileHeader {
     uint64_t reserved = 0;
 };
 
-static_assert(sizeof(DataFileHeader) == 120, "Unexpected DataFileHeader size");
+static_assert(sizeof(DataFileHeader) == 104, "Unexpected DataFileHeader size");
 
-// Data file payload contract (v11):
+// Data file payload contract (v12):
 // 1) aligned vector records with optional inline norm
 // 2) region-alignment padding
 // 3) CompactIdsOffsets(active ids)

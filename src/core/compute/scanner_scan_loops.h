@@ -14,7 +14,6 @@
 namespace sketch2 {
 
 constexpr size_t kPrefetchCacheLineBytes = 64;
-constexpr size_t kPrefetchDistance = 1;
 
 inline void prefetch_vector_record(const uint8_t* data, size_t record_stride_bytes) {
     if (data == nullptr) {

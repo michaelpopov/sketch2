@@ -237,8 +237,7 @@ protected:
 
     void expect_inline_norm_layout(const std::string& path) {
         const DataFileHeader hdr = read_header(path);
-        EXPECT_EQ(0u, hdr.norms_offset);
-        EXPECT_EQ(0u, hdr.norms_bytes);
+        EXPECT_TRUE(data_file_has_norms(hdr));
     }
 
     CompactIdsExtEncoding read_active_ids_encoding(const std::string& path) {

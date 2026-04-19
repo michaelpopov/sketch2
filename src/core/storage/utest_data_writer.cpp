@@ -556,8 +556,6 @@ TEST_F(DataWriterTest, DotOutputDoesNotGrowBeyondNormalStridePadding) {
     EXPECT_FALSE(data_file_has_norms(hdr));
     EXPECT_EQ(layout.stride, hdr.vector_stride);
     EXPECT_EQ(32u, hdr.vector_stride);
-    EXPECT_EQ(0u, hdr.norms_offset);
-    EXPECT_EQ(0u, hdr.norms_bytes);
 }
 
 TEST_F(DataWriterTest, CosineValuesAreWrittenInlineWithVectorRecords) {
