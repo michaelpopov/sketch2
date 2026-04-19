@@ -27,8 +27,14 @@ public:
     std::pair<DataReaderPtr, Ret> get(uint64_t id);
 
 private:
+    std::pair<DataReaderPtr, Ret> get_or_load_reader_(size_t index);
+
     const DatasetReader* dataset_ = nullptr;
     std::shared_ptr<const std::vector<DatasetItem>> items_;
+    // Per-scan cache aligned with items_. Once resolved, next()/get() can reuse
+    // the reader handle without touching DatasetReader's shared cache again.
+    std::vector<DataReaderPtr> readers_;
+    std::vector<uint8_t> reader_resolved_;
     size_t current_ = 0;
 };
 

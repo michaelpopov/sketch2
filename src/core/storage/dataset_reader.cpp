@@ -346,8 +346,29 @@ Ret DatasetRangeReader::init(const DatasetReader* dataset,
     }
     dataset_ = dataset;
     items_ = std::move(items);
+    readers_.assign(items_->size(), nullptr);
+    reader_resolved_.assign(items_->size(), 0);
     current_ = 0;
     return Ret(0);
+}
+
+std::pair<DataReaderPtr, Ret> DatasetRangeReader::get_or_load_reader_(size_t index) {
+    assert(index < readers_.size());
+
+    if (reader_resolved_[index]) {
+        return {readers_[index], Ret(0)};
+    }
+
+    auto [reader, ret] = dataset_->get_cached_reader_((*items_)[index]);
+    if (ret.code() != 0) {
+        return {nullptr, ret};
+    }
+
+    readers_[index] = reader;
+    // Cache both successful opens and "resolved to missing" so repeated get()
+    // calls on a stale snapshot do not re-enter the shared reader cache.
+    reader_resolved_[index] = 1;
+    return {reader, Ret(0)};
 }
 
 std::pair<DataReaderPtr, Ret> DatasetRangeReader::next() {
@@ -361,7 +382,7 @@ std::pair<DataReaderPtr, Ret> DatasetRangeReader::next() {
             return {nullptr, Ret(0)};
         }
 
-        auto [reader, ret] = dataset_->get_cached_reader_(items[current_++]);
+        auto [reader, ret] = get_or_load_reader_(current_++);
         if (ret.code() != 0) {
             return {nullptr, ret};
         }
@@ -382,7 +403,8 @@ std::pair<DataReaderPtr, Ret> DatasetRangeReader::get(uint64_t id) {
         return {nullptr, Ret(0)};
     }
 
-    return dataset_->get_cached_reader_(*found);
+    const size_t index = static_cast<size_t>(found - items_->data());
+    return get_or_load_reader_(index);
 }
 
 } // namespace sketch2

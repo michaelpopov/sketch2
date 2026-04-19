@@ -62,6 +62,19 @@ protected:
     }
 };
 
+class TestDatasetReader : public DatasetReader {
+public:
+    Ret init_for_test(const std::vector<std::string>& dirs, uint64_t range_size,
+            DataType type = DataType::f32, uint64_t dim = 4,
+            DistFunc dist_func = DistFunc::DOT) {
+        return Dataset::init(dirs, range_size, type, dim, dist_func);
+    }
+
+    void invalidate_caches_for_test() {
+        invalidate_data_caches_();
+    }
+};
+
 // --- init error cases ---
 
 TEST_F(DatasetTest, InitFailsOnEmptyDirs) {
@@ -842,6 +855,29 @@ TEST_F(DatasetTest, DatasetRangeReaderSharesDatasetRangeReaderCache) {
     ASSERT_NE(nullptr, reader0);
 
     auto [reader1, ret1] = sc.get(7);
+    ASSERT_EQ(0, ret1.code()) << ret1.message();
+    ASSERT_NE(nullptr, reader1);
+    EXPECT_EQ(reader0.get(), reader1.get());
+}
+
+TEST_F(DatasetTest, DatasetRangeReaderCachesReaderPerSnapshotAfterDatasetCacheInvalidation) {
+    auto dir = make_dir("d_ds_reader_local_cache");
+    TestDatasetReader reader;
+    ASSERT_EQ(0, reader.init_for_test({dir}, 10, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    DatasetNode writer;
+    ASSERT_EQ(0, writer.init_for_test({dir}, 10, DataType::f32, 4).code());
+    ASSERT_EQ(0, writer.store(input_path_).code());
+
+    auto drs = reader.reader();
+    auto [reader0, ret0] = drs->get(5);
+    ASSERT_EQ(0, ret0.code()) << ret0.message();
+    ASSERT_NE(nullptr, reader0);
+
+    reader.invalidate_caches_for_test();
+
+    auto [reader1, ret1] = drs->get(5);
     ASSERT_EQ(0, ret1.code()) << ret1.message();
     ASSERT_NE(nullptr, reader1);
     EXPECT_EQ(reader0.get(), reader1.get());
