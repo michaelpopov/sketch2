@@ -117,10 +117,11 @@ inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, siz
         const BitsetFilter* bitset = nullptr) {
     const size_t record_stride_bytes = reader.stride();
     scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
-        [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
-            const double dot = dot_fn(curr_it.data(), query.vec, query.dim);
+        [heap, count, dot_fn, query, &reader](uint64_t id, DataReader::OrderedIterator curr_it) {
+            const uint8_t* record = curr_it.data();
+            const double dot = dot_fn(record, query.vec, query.dim);
             push_result(heap, count, id, finalize_cosine_distance_from_inverse_norms(
-                dot, static_cast<double>(curr_it.get_norm()), query.inv_norm));
+                dot, static_cast<double>(reader.get_norm_from_record_unchecked(record)), query.inv_norm));
         });
 }
 
@@ -129,10 +130,11 @@ inline void scan_data_reader_with_l2_stored_norms(const DataReader& reader, size
         const BitsetFilter* bitset = nullptr) {
     const size_t record_stride_bytes = reader.stride();
     scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
-        [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
-            const double dot = dot_fn(curr_it.data(), query.vec, query.dim);
+        [heap, count, dot_fn, query, &reader](uint64_t id, DataReader::OrderedIterator curr_it) {
+            const uint8_t* record = curr_it.data();
+            const double dot = dot_fn(record, query.vec, query.dim);
             push_result(heap, count, id, finalize_squared_l2_distance_from_squared_norms(
-                dot, static_cast<double>(curr_it.get_norm()), query.norm_sq));
+                dot, static_cast<double>(reader.get_norm_from_record_unchecked(record)), query.norm_sq));
         });
 }
 

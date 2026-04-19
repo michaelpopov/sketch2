@@ -502,6 +502,8 @@ TEST_F(DataReaderTest, ReadsCosineValuesFromInlineRecords) {
     auto it = r.base_begin();
     ASSERT_FALSE(it.eof());
     EXPECT_NEAR(static_cast<double>(r.get_norm(0)), static_cast<double>(it.get_norm()), 1e-6);
+    EXPECT_NEAR(static_cast<double>(r.get_norm(0)),
+        static_cast<double>(r.get_norm_from_record_unchecked(it.data())), 1e-6);
 }
 
 TEST_F(DataReaderTest, ReadsL2NormValuesFromInlineRecords) {

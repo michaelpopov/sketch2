@@ -7,6 +7,7 @@
 #include "core/utils/mapped_region.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
+#include <cassert>
 #include <cstring>
 #include <cstdint>
 #include <memory>
@@ -140,6 +141,15 @@ public:
     OrderedIterator base_begin() const;
     OrderedIterator delta_begin() const;
     uint64_t       id(size_t index) const;
+    inline float   get_norm_from_record_unchecked(const uint8_t* record) const {
+        assert(initialized_);
+        assert(record != nullptr);
+        assert(data_file_has_norms(hdr_));
+
+        float value = 0.0f;
+        std::memcpy(&value, record + norm_offset_in_record_, sizeof(value));
+        return value;
+    }
     inline float   get_norm(size_t index) const {
         if (index >= count()) {
             throw std::out_of_range("DataReader::get_norm: index out of range");
@@ -150,9 +160,7 @@ public:
         if (is_hidden(index)) {
             throw std::logic_error("DataReader::get_norm: index points to hidden row");
         }
-        float value = 0.0f;
-        std::memcpy(&value, vectors_region_.data() + index * stride_ + norm_offset_in_record_, sizeof(value));
-        return value;
+        return get_norm_from_record_unchecked(vectors_region_.data() + index * stride_);
     }
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     inline const uint8_t* at(size_t index) const {   // lookup by position; might return nullptr if the vector is deleted
