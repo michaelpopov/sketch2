@@ -409,7 +409,7 @@ TEST_F(DataReaderTest, CountIsCorrect) {
     EXPECT_EQ(7u, r.count());
 }
 
-TEST_F(DataReaderTest, GetNormThrowsWhenNormsSectionIsAbsent) {
+TEST_F(DataReaderTest, GetNormThrowsWhenInlineNormsAreAbsent) {
     generate(2, 0, DataType::f32, 4);
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_).code());
@@ -422,7 +422,7 @@ TEST_F(DataReaderTest, GetNormThrowsWhenNormsSectionIsAbsent) {
     EXPECT_THROW(static_cast<void>(it.get_norm()), std::logic_error);
 }
 
-TEST_F(DataReaderTest, ReadsCosineValuesWhenSectionIsPresent) {
+TEST_F(DataReaderTest, ReadsCosineValuesFromInlineRecords) {
     GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
@@ -442,7 +442,7 @@ TEST_F(DataReaderTest, ReadsCosineValuesWhenSectionIsPresent) {
     EXPECT_NEAR(static_cast<double>(r.get_norm(0)), static_cast<double>(it.get_norm()), 1e-6);
 }
 
-TEST_F(DataReaderTest, ReadsL2NormValuesWhenSectionIsPresent) {
+TEST_F(DataReaderTest, ReadsL2NormValuesFromInlineRecords) {
     GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;

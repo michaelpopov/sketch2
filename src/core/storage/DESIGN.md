@@ -114,20 +114,20 @@ DataWriter
 A class that gets generates sealed data file based on the content of InputReader.
 Format:
 
-|--------|-----------------------------|-------------------|-------------|-------------|
-  header       array of vectors          array of cosine    array of ids   array of
-                                         inverse norms                      deleted ids
+|--------|------------------------------------------|-------------|-------------|
+  header       aligned vector records with optional    array of ids   array of
+               inline stored norm                                     deleted ids
 
 header is a struct DataFileHeader.
-vector is data (see below).
+Each vector record stores the vector payload plus optional inline norm data in the same stride-sized slot.
 ids is an array of u64.
-cosine inverse norms is an optional array of f32 values present only for cosine datasets.
-Each value is `1.0 / ||vector||` for the matching active vector. Zero vectors store `0.0`.
-The values are intentionally stored as `f32` instead of `f64` to keep the section compact and
+For cosine datasets each active record also stores an inline `f32` inverse norm, `1.0 / ||vector||`.
+Zero vectors store `0.0`.
+The values are intentionally stored as `f32` instead of `f64` to keep each record compact and
 cheap to stream during scans. This is a precision/performance tradeoff: cosine distances that use
-the stored section can differ slightly from recomputing norms in `double`, especially for near-ties.
-For files managed as part of a cosine dataset, Sketch2 requires this section to be present on every
-persisted data/delta file.
+the stored inline value can differ slightly from recomputing norms in `double`, especially for near-ties.
+For files managed as part of a cosine dataset, Sketch2 requires this inline value to be present on every
+persisted data/delta record.
 
 |----------------------------|
       data
@@ -136,16 +136,15 @@ Interface:
     init(input_path, output_path)
     exec()
 
-Position of id in array ids matches position of a corresponding vector
-in array of vectors and, when present, in the cosine inverse-norm array.
+Position of id in array ids matches position of the corresponding vector record.
 
 Create an instance of InputReader and init it with input_path.
 Create a vector<u64>, resize it with InputReader::count() and populate with ids.
 Init DataFileHeader (data_file.h)
 Write output file:
   - write header
-  - iterate over all data(index) in InputReader and write each vector
-  - for cosine datasets, compute one inverse norm per active vector and write the cosine section
+  - iterate over all data(index) in InputReader and write each vector record
+  - for cosine datasets, compute one inverse norm per active vector and store it inline in that record
   - write vector of ids.
 
 
@@ -160,7 +159,7 @@ Interface:
     size()  vector size
     count() number of vectors
     begin() get iterator
-    get_norm(index) f32 stored norm for the matching active vector; throws when the section is absent
+    get_norm(index) f32 stored inline norm for the matching active vector; throws when inline norms are absent
     get(id) u8*
     at(index) u8*
 
@@ -181,7 +180,7 @@ If it is not found, then the vector is deleted.
 Bitset and the map are populated only if a delta DataReader is provided.
 
 Iterator skips deleted vectors by checking the bitset and look up in the map.
-For files with cosine metadata, iterator also exposes the stored inverse norm for each visible vector.
+For files with cosine metadata, iterator also exposes the stored inline inverse norm for each visible vector.
 
 
 Scanner
@@ -212,26 +211,26 @@ caller-provided output buffers before reporting a failure so failed queries do
 not leave stale results behind.
 
 For cosine datasets scanner precomputes the query norm once per search. If a data file
-or accumulator entry contains stored cosine inverse norms, scanner uses:
+or accumulator entry contains stored inline cosine inverse norms, scanner uses:
 
     cosine_distance = 1 - dot(a, q) * inv_norm(a) * inv_norm(q)
 
 That avoids recomputing the stored-vector norm inside the hot scan loop.
-Because persisted inverse norms are stored as `f32`, this fast path may produce slightly different
+Because persisted inverse norms are stored inline as `f32`, this fast path may produce slightly different
 results than recomputing norms in `double`. The expected benefit is lower storage cost and lower
 per-candidate work in cosine-heavy scans.
-Cosine datasets reject persisted files that do not contain the inverse-norm section.
+Cosine datasets reject persisted files that do not contain inline inverse norms.
 
 For L2 datasets scanner likewise precomputes the query squared norm once per search. If a data file
-or accumulator entry contains stored squared norms, scanner uses:
+or accumulator entry contains stored inline squared norms, scanner uses:
 
     l2_distance_sq = norm_sq(a) + norm_sq(q) - 2 * dot(a, q)
 
 That avoids recomputing the stored-vector squared norm inside the hot scan loop.
-Because persisted squared norms are stored as `f32`, this fast path may produce slightly different
+Because persisted squared norms are stored inline as `f32`, this fast path may produce slightly different
 results than recomputing norms in `double`. The expected benefit is lower per-candidate work in
 L2-heavy scans.
-L2 datasets reject persisted files that do not contain the squared-norm section.
+L2 datasets reject persisted files that do not contain inline squared norms.
 
 
 Dataset

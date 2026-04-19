@@ -599,7 +599,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewWithSpaceSeparatedTextParsesAnd
     EXPECT_FLOAT_EQ(5.0f, first_f32(out_reader, 5));
 }
 
-TEST_F(DataMergerTest, MergeDataFilePreservesCosineValuesSection) {
+TEST_F(DataMergerTest, MergeDataFilePreservesInlineCosineValues) {
     const std::string source_path = p("source_cos.data");
     const std::string updater_path = p("updater_cos.data");
     const std::string out_path = p("merged_cos.data");
@@ -1218,7 +1218,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsIncompatibleType) {
     EXPECT_FALSE(fs::exists(out_path));
 }
 
-TEST_F(DataMergerTest, MergeDeltaFilePreservesCosineValuesSection) {
+TEST_F(DataMergerTest, MergeDeltaFilePreservesInlineCosineValues) {
     const std::string source_path = p("source_cos.delta");
     const std::string updater_path = p("updater_cos.delta");
     const std::string out_path = p("merged_cos.delta");

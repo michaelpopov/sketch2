@@ -31,13 +31,13 @@ struct DataFileHeader {
     uint32_t deleted_count;
     uint16_t type;     // data type
     uint16_t dim;
-    uint64_t data_offset; // offset from file start to vectors section
-    uint64_t vectors_bytes; // total bytes in the vectors section
-    uint32_t vector_stride; // bytes between consecutive persisted vectors, including padding
-    uint32_t flags; // optional section flags, e.g. stored norms
-    uint64_t norms_offset; // offset from file start to the optional norms section
-    uint64_t norms_bytes; // size of the optional norms section
-    uint64_t ids_offset; // offset from file start to active ids section
+    uint64_t data_offset; // offset from file start to the aligned vector-record region
+    uint64_t vectors_bytes; // total bytes in the vector-record region
+    uint32_t vector_stride; // bytes between consecutive persisted records, including inline norm/padding
+    uint32_t flags; // optional per-record metadata flags, e.g. stored inline norms
+    uint64_t norms_offset; // legacy standalone norms offset; v11 files keep this at 0
+    uint64_t norms_bytes; // legacy standalone norms size; v11 files keep this at 0
+    uint64_t ids_offset; // offset from file start to active ids trailer
     uint64_t ids_bytes; // size of active ids section
     uint64_t deleted_ids_offset; // offset from file start to deleted ids section
     uint64_t deleted_ids_bytes; // size of deleted ids section

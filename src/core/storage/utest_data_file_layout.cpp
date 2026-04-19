@@ -153,7 +153,7 @@ TEST_F(DataFileLayoutTest, ComputeMetadataLayoutKeepsInlineNormsAndPlacesIdsAfte
         align_up<size_t>(static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes, kDataRegionAlignment));
 }
 
-TEST_F(DataFileLayoutTest, SetDataHeaderLayoutZerosStandaloneNormSectionFields) {
+TEST_F(DataFileLayoutTest, SetDataHeaderLayoutKeepsLegacyStandaloneNormFieldsZeroed) {
     auto hdr = make_data_header(
         10, 20, 3, 1, DataType::f32, 8, data_file_norm_flags_for_dist(DistFunc::COS));
     ASSERT_EQ(0, set_data_header_layout(&hdr, 48, 16).code());

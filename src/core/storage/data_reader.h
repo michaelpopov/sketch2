@@ -145,7 +145,7 @@ public:
             throw std::out_of_range("DataReader::get_norm: index out of range");
         }
         if (!data_file_has_norms(hdr_)) {
-            throw std::logic_error("DataReader::get_norm: norms section is absent");
+            throw std::logic_error("DataReader::get_norm: inline norms are absent");
         }
         float value = 0.0f;
         std::memcpy(&value, vectors_region_.data() + index * stride_ + norm_offset_in_record_, sizeof(value));

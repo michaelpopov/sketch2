@@ -39,8 +39,8 @@ inline constexpr uint64_t kDataRegionAlignment = 4096;
 // Id section alignment used by data-file layout code when placing CompactIdsOffsets trailer sections.
 inline constexpr uint32_t kIdsAlignment = 8;
 
-// Data-file header flags describing which float values are persisted in the
-// optional norms section for active vectors.
+// Data-file header flags describing which float values are persisted inline in
+// active vector records.
 inline constexpr uint32_t kDataFileHasCosineInvNorms = 1u;
 inline constexpr uint32_t kDataFileHasSquaredNorms = 2u;
 inline constexpr uint32_t kDataFileNormKindMask =

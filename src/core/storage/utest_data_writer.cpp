@@ -233,7 +233,7 @@ protected:
         return data;
     }
 
-    std::vector<float> read_norms(size_t count) {
+    std::vector<float> read_inline_norms(size_t count) {
         std::vector<float> values(count);
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
@@ -560,13 +560,13 @@ TEST_F(DataWriterTest, DotOutputDoesNotGrowBeyondNormalStridePadding) {
     EXPECT_EQ(0u, hdr.norms_bytes);
 }
 
-TEST_F(DataWriterTest, CosineValuesAreWrittenInlineWithVectors) {
+TEST_F(DataWriterTest, CosineValuesAreWrittenInlineWithVectorRecords) {
     ASSERT_EQ(0, run(2, 0, DataType::f32, 4, 0, DistFunc::COS).code());
     const auto hdr = read_header();
     ASSERT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
 
-    const auto norms = read_norms(hdr.count);
+    const auto norms = read_inline_norms(hdr.count);
     ASSERT_EQ(2u, norms.size());
     const float inv_norm0 = 1.0f / std::sqrt(4.0f * 0.1f * 0.1f);
     const float inv_norm1 = 1.0f / std::sqrt(4.0f * 1.1f * 1.1f);
@@ -589,19 +589,19 @@ TEST_F(DataWriterTest, CosineValuesAreWrittenInlineWithVectors) {
     }
 }
 
-TEST_F(DataWriterTest, CosineValuesAreWrittenInlineForI16) {
+TEST_F(DataWriterTest, CosineValuesAreWrittenInlineForI16Records) {
     ASSERT_EQ(0, run(2, 0, DataType::i16, 4, 0, DistFunc::COS).code());
     const auto hdr = read_header();
     ASSERT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
 
-    const auto norms = read_norms(hdr.count);
+    const auto norms = read_inline_norms(hdr.count);
     ASSERT_EQ(2u, norms.size());
     EXPECT_FLOAT_EQ(0.0f, norms[0]);
     EXPECT_NEAR(1.0f / std::sqrt(4.0f), norms[1], 1e-6f);
 }
 
-TEST_F(DataWriterTest, L2ValuesAreWrittenInlineWithVectors) {
+TEST_F(DataWriterTest, L2ValuesAreWrittenInlineWithVectorRecords) {
     GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
@@ -611,7 +611,7 @@ TEST_F(DataWriterTest, L2ValuesAreWrittenInlineWithVectors) {
     ASSERT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_squared_norms(hdr));
 
-    const auto norms = read_norms(hdr.count);
+    const auto norms = read_inline_norms(hdr.count);
     ASSERT_EQ(2u, norms.size());
     EXPECT_NEAR(4.0f * 0.1f * 0.1f, norms[0], 1e-6f);
     EXPECT_NEAR(4.0f * 1.1f * 1.1f, norms[1], 1e-6f);
