@@ -60,7 +60,7 @@ The runner performs the measurements for a single compute engine.
 - **Kernel Benchmark Layer**: When `kernel` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, runs the native `bench_compute` executable first and records direct-kernel timings without any dataset traversal, heap maintenance, or scanner logic. This makes it much easier to distinguish kernel regressions from scan-path overhead.
 - **Warm-up**: Executes one un-timed KNN query to ensure caches are primed and any lazy-initialization overhead is excluded from the performance report.
 - **Scan Benchmark Layer**: When `scan` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, executes `COMPUTE_PERF_TEST_REPEAT` iterations of a KNN query.
-- **Validation**: Loads the pre-calculated Ground Truth from the JSON file. Every warm-up and timed result is validated. To avoid false positives due to tie-breaking differences between optimized engines, the validator requires unique IDs and compares the sorted returned-score multiset against the expected scores. If `DUMMY_CALC=1` is set, validation is skipped.
+- **Validation**: Loads the pre-calculated Ground Truth from the JSON file. Every warm-up and timed result is validated. To avoid false positives due to tie-breaking differences between optimized engines, the validator requires unique IDs and compares the sorted returned-score multiset against the expected scores.
 - **Reporting**: Prints a kernel performance report when kernel mode is enabled, and a scan performance report containing Min, Max, and Average query times when scan mode is enabled.
 - **Crash Diagnostics**: Writes a per-engine/per-metric JSON state file containing the last completed stage, dataset paths, query digest, expected-ID preview, PID, timing summary, and generated repro scripts. If a child process segfaults, the state file still shows the last stage reached before the crash. The runner also emits one-shot and loop-based repro shell scripts for the exact engine/metric pair.
 
@@ -105,7 +105,6 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS` | Un-timed warm-up calls before kernel measurement. | `5000` |
 | `COMPUTE_PERF_KERNEL_REPEATS` | Number of kernel timing samples per case. | `7` |
 | `COMPUTE_PERF_TEST_CLEANUP` | Delete the temporary database root after the run (`1`) or preserve it (`0`). | `0` |
-| `DUMMY_CALC` | If `1`, skips ground truth calculation and scan results validation. | `0` |
 | `COMPUTE_PERF_DIAG_DIR` | Directory where per-metric diagnostic JSON files and repro scripts are written. | `${SKETCH2_CONFIG_ROOT}/logs/diag` |
 
 ---

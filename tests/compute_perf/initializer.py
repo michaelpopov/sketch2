@@ -181,24 +181,20 @@ def main() -> None:
             log("initializer", f"calculating ground truth for {dist}")
             query_vals = query_values_for_dist(dist, config.dims, config.type_name)
 
-            if os.environ.get("DUMMY_CALC") == "1":
-                log("initializer", f"skipping ground truth calculation for {dist} (DUMMY_CALC=1)")
-                save_ground_truth(config, dist, [], [])
-            else:
-                # Ground truth comes from the library's default engine selection.
-                # We then compute only the returned scores in Python so tie-aware
-                # validation can still compare score multisets cheaply.
-                os.environ.pop("SKETCH2_COMPUTE_ENGINE", None)
-                query_str = fmt_typed_vector(query_vals, config.type_name)
-                expected_ids = sketch2.knn(query_str, config.knn_count)
-                expected_scores = expected_dists_for_ids(
-                    expected_ids,
-                    config.dims,
-                    config.type_name,
-                    dist,
-                    query_vals,
-                )
-                save_ground_truth(config, dist, expected_ids, expected_scores)
+            # Ground truth comes from the library's default engine selection.
+            # We then compute only the returned scores in Python so tie-aware
+            # validation can still compare score multisets cheaply.
+            os.environ.pop("SKETCH2_COMPUTE_ENGINE", None)
+            query_str = fmt_typed_vector(query_vals, config.type_name)
+            expected_ids = sketch2.knn(query_str, config.knn_count)
+            expected_scores = expected_dists_for_ids(
+                expected_ids,
+                config.dims,
+                config.type_name,
+                dist,
+                query_vals,
+            )
+            save_ground_truth(config, dist, expected_ids, expected_scores)
             
             log("initializer", f"dataset {dataset_name} is ready")
             sketch2.close()
