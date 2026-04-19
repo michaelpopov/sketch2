@@ -204,11 +204,14 @@ ComputeEngine compute_engine_from_string(const std::string& engine) {
 std::vector<CaseStats> run_compute_bench(const Args& args, const uint8_t* a, const uint8_t* b) {
     const ComputeKernels kernels = resolve_compute_kernels(compute_engine_from_string(args.engine), args.dist, args.type);
     std::vector<CaseStats> results;
-    results.push_back(benchmark_case("dist", args.warmup_iterations, args.iterations, args.repeats, [&] {
-        return kernels.dist(a, b, args.dim);
-    }));
+    const bool is_dot = args.dist == DistFunc::DOT;
+    results.push_back(benchmark_case(
+        is_dot ? "dot" : "dist",
+        args.warmup_iterations, args.iterations, args.repeats, [&] {
+            return is_dot && kernels.dot ? kernels.dot(a, b, args.dim) : kernels.dist(a, b, args.dim);
+        }));
 
-    if (kernels.dot) {
+    if (kernels.dot && !is_dot) {
         results.push_back(benchmark_case("dot", args.warmup_iterations, args.iterations, args.repeats, [&] {
             return kernels.dot(a, b, args.dim);
         }));

@@ -26,6 +26,11 @@ struct QueryDistContext {
     size_t dim = 0;
 };
 
+struct QueryDotContext {
+    const uint8_t* vec = nullptr;
+    size_t dim = 0;
+};
+
 struct QueryCosContext {
     const uint8_t* vec = nullptr;
     size_t dim = 0;

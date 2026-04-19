@@ -124,6 +124,23 @@ inline Ret scan_dataset_heap_with_dist(uint64_t query_id, const DatasetReader& d
         bitset);
 }
 
+inline Ret scan_dataset_heap_with_dot(uint64_t query_id, const DatasetReader& dataset, size_t count,
+        DistHeap* heap, ComputeDotFn dot_fn, const QueryDotContext& query, DistFunc func,
+        const BitsetFilter* bitset = nullptr) {
+    assert(func == DistFunc::DOT);
+    std::vector<DataReaderPtr> readers;
+    CHECK(collect_dataset_readers(dataset, query_id, &readers));
+    return scan_dataset_readers(
+        query_id, readers, count, heap,
+        [dot_fn, query, query_id](const DataReader& reader, size_t local_count, DistHeap* local_heap,
+                const BitsetFilter* bitset_filter) {
+            log_reader_scan_plan(query_id, reader, "dot", false, bitset_filter != nullptr);
+            scan_data_reader_with_dot(reader, local_count, local_heap, dot_fn, query, bitset_filter);
+        },
+        func,
+        bitset);
+}
+
 inline Ret scan_dataset_heap_with_query_norm(uint64_t query_id, const DatasetReader& dataset, size_t count,
         DistHeap* heap, ComputeDistWithQueryNormFn dist_fn, const QueryCosContext& query,
         DistFunc func, const BitsetFilter* bitset = nullptr) {

@@ -33,7 +33,8 @@ using ComputeSquaredNormFn      = double (*)(const uint8_t*, size_t);
 using ComputeDotFn              = double (*)(const uint8_t*, const uint8_t*, size_t);
 
 // Holds all resolved function pointers for one (metric, DataType) combination.
-// For DOT only `dist` is populated.
+// For DOT, both `dist` and `dot` are populated with the same kernel so callers
+// can use explicit dot-oriented names on the DOT execution path.
 // For L2, `dist` is always populated and `dot`/`squared_norm` may also be
 // populated so scanners can reuse persisted squared norms.
 // For COS all four fields are populated.

@@ -101,6 +101,15 @@ inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, D
         });
 }
 
+inline void scan_data_reader_with_dot(const DataReader& reader, size_t count, DistHeap* heap,
+        ComputeDotFn dot_fn, const QueryDotContext& query, const BitsetFilter* bitset = nullptr) {
+    const size_t vector_size_bytes = reader.dim() * data_type_size(reader.type());
+    scan_data_reader_with_optional_bitset(reader, vector_size_bytes, bitset,
+        [heap, count, dot_fn, query](uint64_t id, DataReader::OrderedIterator curr_it) {
+            push_result(heap, count, id, dot_fn(curr_it.data(), query.vec, query.dim));
+        });
+}
+
 inline void scan_data_reader_with_query_norm(const DataReader& reader, size_t count, DistHeap* heap,
         ComputeDistWithQueryNormFn dist_fn, const QueryCosContext& query,
         const BitsetFilter* bitset = nullptr) {

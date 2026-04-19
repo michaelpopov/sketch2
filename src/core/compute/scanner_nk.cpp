@@ -391,6 +391,12 @@ Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t
         CHECK(scan_dataset_heap_with_optional_cosine_norms(
             query_id, dataset, count, &heap, kernels.dot, kernels.dist_with_query_norm,
             query, func, bitset));
+    } else if (func == DistFunc::DOT) {
+        assert(kernels.dot);
+        log_query_branch(query_id, "dot");
+        const QueryDotContext query{vec, dim};
+        CHECK(scan_dataset_heap_with_dot(
+            query_id, dataset, count, &heap, kernels.dot, query, func, bitset));
     } else if (func == DistFunc::L2 && kernels.squared_norm && kernels.dot) {
         assert(kernels.dist);
         const double query_norm_sq = kernels.squared_norm(vec, dim);
@@ -473,8 +479,8 @@ ComputeKernels resolve_nk_kernels(DistFunc func, DataType type) {
     switch (func) {
         case DistFunc::DOT:
             switch (type) {
-                case DataType::f32: k.dist = &nk_dot_product_f32; break;
-                case DataType::f16: k.dist = &nk_dot_product_f16; break;
+                case DataType::f32: k.dist = &nk_dot_product_f32; k.dot = &nk_dot_product_f32; break;
+                case DataType::f16: k.dist = &nk_dot_product_f16; k.dot = &nk_dot_product_f16; break;
                 default:
                     throw std::runtime_error("resolve_nk_kernels: unsupported DataType for DOT.");
             }

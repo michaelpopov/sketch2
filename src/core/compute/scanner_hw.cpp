@@ -501,6 +501,12 @@ Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t
         CHECK(scan_dataset_heap_with_optional_cosine_norms(
             query_id, dataset, count, &heap, kernels.dot, kernels.dist_with_query_norm,
             query, func, bitset));
+    } else if (func == DistFunc::DOT) {
+        assert(kernels.dot);
+        log_query_branch(query_id, "dot");
+        const QueryDotContext query{vec, dim};
+        CHECK(scan_dataset_heap_with_dot(
+            query_id, dataset, count, &heap, kernels.dot, query, func, bitset));
     } else if (func == DistFunc::L2 && kernels.squared_norm && kernels.dot) {
         assert(kernels.dist);
         const double query_norm_sq = kernels.squared_norm(vec, dim);
@@ -534,9 +540,9 @@ ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type) {
     switch (func) {
         case DistFunc::DOT:
             switch (type) {
-                case DataType::f32: k.dist = &hwy_dot_f32; break;
-                case DataType::f16: k.dist = &hwy_dot_f16; break;
-                case DataType::i16: k.dist = &hwy_dot_i16; break;
+                case DataType::f32: k.dist = &hwy_dot_f32; k.dot = &hwy_dot_f32; break;
+                case DataType::f16: k.dist = &hwy_dot_f16; k.dot = &hwy_dot_f16; break;
+                case DataType::i16: k.dist = &hwy_dot_i16; k.dot = &hwy_dot_i16; break;
                 default:
                     throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for DOT.");
             }
