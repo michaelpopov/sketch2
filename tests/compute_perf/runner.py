@@ -157,11 +157,31 @@ def kernel_bench_env(engine: str) -> dict[str, str]:
     return env
 
 
+def kernel_engine_label(config) -> str:
+    engine = engine_label()
+    if engine != "auto":
+        return engine
+
+    compiled_engine = os.environ.get("COMPUTE_PERF_COMPILED_ENGINE", "").strip().lower()
+    if compiled_engine:
+        return compiled_engine
+
+    concrete_engines = [candidate for candidate in config.compute_engines if candidate != "auto"]
+    if len(concrete_engines) == 1:
+        return concrete_engines[0]
+
+    raise RuntimeError(
+        "kernel benchmark requires a concrete compute engine; "
+        "set COMPUTE_PERF_COMPILED_ENGINE or SKETCH2_COMPUTE_ENGINE"
+    )
+
+
 def run_kernel_benchmark(config, dist: str) -> dict:
+    kernel_engine = kernel_engine_label(config)
     bench_path = find_binary("bench_compute")
     cmd = [
         str(bench_path),
-        "--engine", engine_label(),
+        "--engine", kernel_engine,
         "--dist", dist,
         "--type", config.type_name,
         "--dim", str(config.dims),
@@ -171,7 +191,7 @@ def run_kernel_benchmark(config, dist: str) -> dict:
     ]
     result = subprocess.run(
         cmd,
-        env=kernel_bench_env(engine_label()),
+        env=kernel_bench_env(kernel_engine),
         cwd=str(bench_path.parent),
         capture_output=True,
         text=True,
@@ -179,7 +199,7 @@ def run_kernel_benchmark(config, dist: str) -> dict:
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"bench_compute failed for engine={engine_label()} dist={dist} "
+            f"bench_compute failed for engine={kernel_engine} dist={dist} "
             f"with exit code {result.returncode}: {result.stderr.strip() or result.stdout.strip()}"
         )
     json_start = result.stdout.find("{")
