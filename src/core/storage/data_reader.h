@@ -3,7 +3,7 @@
 #pragma once
 #include "utils/shared_types.h"
 #include "core/utils/dynamic_bitset.h"
-#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids.h"
 #include "core/utils/mapped_region.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
@@ -185,8 +185,8 @@ private:
     MappedRegion             norms_region_;
     DataFileHeader           hdr_     = {};
     bool                     initialized_ = false;
-    CompactIdsExt            ids_;
-    CompactIdsExt            deleted_ids_;
+    CompactIds               ids_;
+    CompactIds               deleted_ids_;
     const float*             norms_   = nullptr; // optional stored norms in mapped metadata
     DataType                 type_    = DataType::f32;
     size_t                   vector_size_ = 0;    // size of one vector in bytes

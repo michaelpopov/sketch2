@@ -29,7 +29,7 @@ MappedRegion::~MappedRegion() {
     reset();
 }
 
-Ret MappedRegion::init(int fd, size_t offset, size_t size, MappedRegionAccess access) {
+Ret MappedRegion::init(int fd, size_t offset, size_t size, bool is_seq, MappedRegionAccess access) {
     if (data_ != nullptr) {
         return Ret("MappedRegion::init: region is initialized already");
     }
@@ -57,7 +57,7 @@ Ret MappedRegion::init(int fd, size_t offset, size_t size, MappedRegionAccess ac
     if (region == MAP_FAILED) {
         return Ret("MappedRegion::init: failed to mmap region");
     }
-    if (madvise(region, size, MADV_SEQUENTIAL) != 0) {
+    if (is_seq && madvise(region, size, MADV_SEQUENTIAL) != 0) {
         munmap(region, size);
         return Ret("MappedRegion::init: failed to madvise region");
     }

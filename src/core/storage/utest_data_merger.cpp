@@ -15,7 +15,7 @@
 #include "core/storage/data_merger.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/input_reader.h"
-#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids.h"
 #include "core/storage/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 
@@ -81,9 +81,9 @@ protected:
             dim,
             has_norms ? data_file_norm_flags_for_dist(stored_norm_dist_func) : 0u);
         hdr.base.kind = static_cast<uint16_t>(kind);
-        CompactIdsExt compact_active_ids;
+        CompactIds compact_active_ids;
         ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
-        CompactIdsExt compact_deleted_ids;
+        CompactIds compact_deleted_ids;
         std::vector<uint64_t> deleted_ids = deleted;
         ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
         ASSERT_EQ(0, set_data_header_layout(
@@ -164,9 +164,9 @@ protected:
             DataType::i16,
             dim);
         hdr.base.kind = static_cast<uint16_t>(kind);
-        CompactIdsExt compact_active_ids;
+        CompactIds compact_active_ids;
         ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
-        CompactIdsExt compact_deleted_ids;
+        CompactIds compact_deleted_ids;
         std::vector<uint64_t> deleted_ids = deleted;
         ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
         ASSERT_EQ(0, set_data_header_layout(

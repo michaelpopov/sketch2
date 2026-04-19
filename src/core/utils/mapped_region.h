@@ -26,7 +26,7 @@ public:
 
     ~MappedRegion();
 
-    Ret init(int fd, size_t offset, size_t size,
+    Ret init(int fd, size_t offset, size_t size, bool is_seq = false,
         MappedRegionAccess access = MappedRegionAccess::ReadOnly);
 
     const uint8_t* data() const { return data_; }

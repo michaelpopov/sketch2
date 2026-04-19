@@ -18,12 +18,12 @@ namespace sketch2 {
 
 class CompactIdsAccumulator;
 
-class CompactIdsExt {
+class CompactIds {
 public:
     static constexpr size_t npos = std::numeric_limits<size_t>::max();
 
     class Iterator {
-        friend class CompactIdsExt;
+        friend class CompactIds;
     public:
         void next();
         bool eof() const;
@@ -31,10 +31,10 @@ public:
         size_t index() const;
 
     private:
-        explicit Iterator(const CompactIdsExt* ids)
+        explicit Iterator(const CompactIds* ids)
             : ids_(ids) {}
 
-        const CompactIdsExt* ids_ = nullptr;
+        const CompactIds* ids_ = nullptr;
         size_t index_ = 0;
     };
 

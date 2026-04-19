@@ -1,6 +1,6 @@
-// Implements CompactIdsExt.
+// Implements CompactIds.
 
-#include "compact_ids_ext.h"
+#include "compact_ids.h"
 #include "compact_ids_shared.h"
 
 #include <algorithm>
@@ -11,18 +11,18 @@
 namespace sketch2 {
 
 template <typename T>
-T& CompactIdsExt::storage_as() {
+T& CompactIds::storage_as() {
     assert(std::holds_alternative<T>(storage_));
     return std::get<T>(storage_);
 }
 
 template <typename T>
-const T& CompactIdsExt::storage_as() const {
+const T& CompactIds::storage_as() const {
     assert(std::holds_alternative<T>(storage_));
     return std::get<T>(storage_);
 }
 
-void CompactIdsExt::set_storage_kind(StorageKind kind) {
+void CompactIds::set_storage_kind(StorageKind kind) {
     storage_kind_ = kind;
     switch (storage_kind_) {
         case StorageKind::Offsets:
@@ -43,32 +43,32 @@ void CompactIdsExt::set_storage_kind(StorageKind kind) {
     }
 }
 
-void CompactIdsExt::Iterator::next() {
+void CompactIds::Iterator::next() {
     if (eof()) {
         return;
     }
     ++index_;
 }
 
-bool CompactIdsExt::Iterator::eof() const {
+bool CompactIds::Iterator::eof() const {
     return ids_ == nullptr || index_ >= ids_->count();
 }
 
-uint64_t CompactIdsExt::Iterator::id() const {
+uint64_t CompactIds::Iterator::id() const {
     if (eof()) {
-        throw std::out_of_range("CompactIdsExt::Iterator::id: index out of range");
+        throw std::out_of_range("CompactIds::Iterator::id: index out of range");
     }
     return ids_->id(index_);
 }
 
-size_t CompactIdsExt::Iterator::index() const {
+size_t CompactIds::Iterator::index() const {
     if (eof()) {
-        throw std::out_of_range("CompactIdsExt::Iterator::index: index out of range");
+        throw std::out_of_range("CompactIds::Iterator::index: index out of range");
     }
     return index_;
 }
 
-CompactIdsExt::StorageKind CompactIdsExt::detect_storage_kind(const uint64_t* ids, size_t size) {
+CompactIds::StorageKind CompactIds::detect_storage_kind(const uint64_t* ids, size_t size) {
     const CompactIdsExtEncoding encoding =
         size == 0 ? CompactIdsExtEncoding::Offsets32
                   : choose_compact_ids_encoding(size, ids[size - 1] - ids[0]);
@@ -80,9 +80,9 @@ CompactIdsExt::StorageKind CompactIdsExt::detect_storage_kind(const uint64_t* id
     return StorageKind::Offsets;
 }
 
-Ret CompactIdsExt::init(const CompactIdsAccumulator& accumulator) {
+Ret CompactIds::init(const CompactIdsAccumulator& accumulator) {
     if (!accumulator.is_sorted()) {
-        return Ret("CompactIdsExt::init: accumulator not sorted.");
+        return Ret("CompactIds::init: accumulator not sorted.");
     }
 
     switch (accumulator.encoding()) {
@@ -96,24 +96,24 @@ Ret CompactIdsExt::init(const CompactIdsAccumulator& accumulator) {
             set_storage_kind(StorageKind::Misses);
             return storage_as<CompactIdsMisses>().init(accumulator);
     }
-    return Ret("CompactIdsExt::init: unknown encoding");
+    return Ret("CompactIds::init: unknown encoding");
 }
 
-Ret CompactIdsExt::init(const std::vector<uint64_t>& ids) {
+Ret CompactIds::init(const std::vector<uint64_t>& ids) {
     return init(ids.data(), ids.size());
 }
 
-Ret CompactIdsExt::init(const uint64_t* ids, size_t size) {
+Ret CompactIds::init(const uint64_t* ids, size_t size) {
     if (size == 0) {
         set_storage_kind(StorageKind::Offsets);
         return storage_as<CompactIdsOffsets>().init(ids, size);
     }
     if (ids == nullptr) {
-        return Ret("CompactIdsExt::init: ids pointer is null");
+        return Ret("CompactIds::init: ids pointer is null");
     }
 
     if (!std::is_sorted(ids, ids + size)) {
-        return Ret("CompactIdsExt::init: ids not sorted");
+        return Ret("CompactIds::init: ids not sorted");
     }
 
     set_storage_kind(detect_storage_kind(ids, size));
@@ -125,7 +125,7 @@ Ret CompactIdsExt::init(const uint64_t* ids, size_t size) {
     return Ret(0);
 }
 
-void CompactIdsExt::clear() {
+void CompactIds::clear() {
     switch (storage_kind_) {
         case StorageKind::Offsets: storage_as<CompactIdsOffsets>().clear(); break;
         case StorageKind::Bitset: storage_as<CompactIdsBitset>().clear(); break;
@@ -134,7 +134,7 @@ void CompactIdsExt::clear() {
     set_storage_kind(StorageKind::Offsets);
 }
 
-size_t CompactIdsExt::count() const {
+size_t CompactIds::count() const {
     switch (storage_kind_) {
         case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().count();
         case StorageKind::Misses: return storage_as<CompactIdsMisses>().count();
@@ -143,7 +143,7 @@ size_t CompactIdsExt::count() const {
     return 0;
 }
 
-bool CompactIdsExt::empty() const {
+bool CompactIds::empty() const {
     switch (storage_kind_) {
         case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().empty();
         case StorageKind::Misses: return storage_as<CompactIdsMisses>().empty();
@@ -152,7 +152,7 @@ bool CompactIdsExt::empty() const {
     return true;
 }
 
-size_t CompactIdsExt::serialized_size_bytes() const {
+size_t CompactIds::serialized_size_bytes() const {
     switch (storage_kind_) {
         case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().serialized_size_bytes();
         case StorageKind::Misses: return storage_as<CompactIdsMisses>().serialized_size_bytes();
@@ -161,7 +161,7 @@ size_t CompactIdsExt::serialized_size_bytes() const {
     return 0;
 }
 
-uint64_t CompactIdsExt::id(size_t index) const {
+uint64_t CompactIds::id(size_t index) const {
     switch (storage_kind_) {
         case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().id(index);
         case StorageKind::Misses: return storage_as<CompactIdsMisses>().id(index);
@@ -170,7 +170,7 @@ uint64_t CompactIdsExt::id(size_t index) const {
     return 0;
 }
 
-uint64_t CompactIdsExt::id_unchecked(size_t index) const {
+uint64_t CompactIds::id_unchecked(size_t index) const {
     switch (storage_kind_) {
         case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().id_unchecked(index);
         case StorageKind::Misses: return storage_as<CompactIdsMisses>().id_unchecked(index);
@@ -179,7 +179,7 @@ uint64_t CompactIdsExt::id_unchecked(size_t index) const {
     return 0;
 }
 
-size_t CompactIdsExt::lower_bound_index(uint64_t id) const {
+size_t CompactIds::lower_bound_index(uint64_t id) const {
     switch (storage_kind_) {
         case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().lower_bound_index(id);
         case StorageKind::Misses: return storage_as<CompactIdsMisses>().lower_bound_index(id);
@@ -188,7 +188,7 @@ size_t CompactIdsExt::lower_bound_index(uint64_t id) const {
     return 0;
 }
 
-Ret CompactIdsExt::write(FILE* f, const std::string& error_message) const {
+Ret CompactIds::write(FILE* f, const std::string& error_message) const {
     switch (storage_kind_) {
         case StorageKind::Offsets: return storage_as<CompactIdsOffsets>().write(f, error_message);
         case StorageKind::Misses: return storage_as<CompactIdsMisses>().write(f, error_message);
@@ -197,15 +197,15 @@ Ret CompactIdsExt::write(FILE* f, const std::string& error_message) const {
     return Ret(0);
 }
 
-Ret CompactIdsExt::map(const uint8_t* data, size_t size, size_t* bytes_consumed) {
+Ret CompactIds::map(const uint8_t* data, size_t size, size_t* bytes_consumed) {
     if (bytes_consumed != nullptr) {
         *bytes_consumed = 0;
     }
     if (data == nullptr) {
-        return Ret("CompactIdsExt::map: data pointer is null");
+        return Ret("CompactIds::map: data pointer is null");
     }
     if (size < sizeof(CompactIdsHeader)) {
-        return Ret("CompactIdsExt::map: buffer too small to contain header");
+        return Ret("CompactIds::map: buffer too small to contain header");
     }
 
     CompactIdsHeader hdr{};
@@ -225,12 +225,12 @@ Ret CompactIdsExt::map(const uint8_t* data, size_t size, size_t* bytes_consumed)
             CHECK(storage_as<CompactIdsMisses>().map(data, size, bytes_consumed));
             return Ret(0);
         default:
-            return Ret("CompactIdsExt::map: unknown encoding");
+            return Ret("CompactIds::map: unknown encoding");
     }
     return Ret(0);
 }
 
-CompactIdsExt::Iterator CompactIdsExt::begin() const {
+CompactIds::Iterator CompactIds::begin() const {
     return Iterator(this);
 }
 

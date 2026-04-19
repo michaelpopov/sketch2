@@ -141,7 +141,7 @@ TEST_F(MappedRegionTest, WritableMappingAllowsModification) {
     ASSERT_GE(fd, 0);
 
     MappedRegion region;
-    ASSERT_EQ(0, region.init(fd, 0, 4096, MappedRegionAccess::Writable).code());
+    ASSERT_EQ(0, region.init(fd, 0, 4096, false, MappedRegionAccess::Writable).code());
     uint8_t* writable = const_cast<uint8_t*>(region.data());
     writable[0] = 42;
     writable[1] = 77;

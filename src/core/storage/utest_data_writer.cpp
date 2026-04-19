@@ -14,7 +14,7 @@
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset_writer.h"
-#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids.h"
 #include "core/storage/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 #include <filesystem>
@@ -164,7 +164,7 @@ protected:
             if (trailer_offset > bytes.size()) {
                 return {};
             }
-            CompactIdsExt compact_ids;
+            CompactIds compact_ids;
             size_t consumed = 0;
             if (compact_ids.map(bytes.data() + trailer_offset, bytes.size() - trailer_offset, &consumed).code() != 0) {
                 return {};
@@ -190,13 +190,13 @@ protected:
             if (trailer_offset > bytes.size()) {
                 return {};
             }
-            CompactIdsExt compact_ids;
+            CompactIds compact_ids;
             size_t active_consumed = 0;
             if (compact_ids.map(bytes.data() + trailer_offset, bytes.size() - trailer_offset,
                     &active_consumed).code() != 0) {
                 return {};
             }
-            CompactIdsExt compact_deleted_ids;
+            CompactIds compact_deleted_ids;
             if (active_consumed > bytes.size() - trailer_offset) {
                 return {};
             }
@@ -350,10 +350,10 @@ TEST_F(DataWriterTest, OutputFileSize) {
     run(count, 0, DataType::f32, dim);
     const DataFileHeader hdr = read_header();
     const size_t ids_off = ids_offset(count, dim * sizeof(float), hdr);
-    CompactIdsExt compact_ids;
+    CompactIds compact_ids;
     std::vector<uint64_t> ids{0, 1, 2, 3, 4};
     ASSERT_EQ(0, compact_ids.init(ids).code());
-    CompactIdsExt compact_deleted_ids;
+    CompactIds compact_deleted_ids;
     std::vector<uint64_t> deleted_ids;
     ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
     size_t expected = sizeof(DataFileHeader)

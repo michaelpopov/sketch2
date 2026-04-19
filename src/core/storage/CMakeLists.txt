@@ -12,7 +12,7 @@ add_library(stor STATIC
   compact_ids_offsets.cpp
   compact_ids_misses.cpp
   compact_ids_bitset.cpp
-  compact_ids_ext.cpp
+  compact_ids.cpp
   compact_ids_shared.cpp
 )
 

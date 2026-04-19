@@ -263,11 +263,10 @@ Ret DataReader::validate_delta_(const std::unique_ptr<DataReader>& delta) const 
 
 Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout& metadata_layout) {
     if (metadata_layout.vectors_bytes > 0) {
-        CHECK(vectors_region_.init(fd, hdr_.data_offset, metadata_layout.vectors_bytes));
+        CHECK(vectors_region_.init(fd, hdr_.data_offset, metadata_layout.vectors_bytes, true));
     }
     if (metadata_layout.norms_bytes > 0) {
-        CHECK(norms_region_.init(fd, metadata_layout.norms_offset,
-            metadata_layout.norms_bytes));
+        CHECK(norms_region_.init(fd, metadata_layout.norms_offset, metadata_layout.norms_bytes, true));
     }
 
     CHECK(ids_region_.init(fd, hdr_.ids_offset, hdr_.ids_bytes));
@@ -312,7 +311,7 @@ Ret DataReader::init_delta() {
         return Ret("DataReader::init_delta: reader is not initialized");
     }
 
-    auto mark_hidden = [this](const CompactIdsExt& other_ids) {
+    auto mark_hidden = [this](const CompactIds& other_ids) {
         const size_t base_count = ids_.count();
         const size_t other_count = other_ids.count();
         for (size_t i = 0, j = 0; i < base_count; ++i) {

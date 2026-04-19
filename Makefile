@@ -30,7 +30,7 @@ initdbg:
 
 .PHONY: initdbg-nk
 initdbg-nk:
-	cmake -S . -B $(BUILD_DBG_NK) -DCMAKE_BUILD_TYPE=Debug -DSKETCH_CALC_ENGINE=numkong
+	cmake -S . -B $(BUILD_DBG_NK) -DCMAKE_BUILD_TYPE=Debug -DSKETCH_COMPUTE_ENGINE=numkong
 
 .PHONY: initrel
 initrel:
@@ -38,7 +38,7 @@ initrel:
 
 .PHONY: initrel-nk
 initrel-nk:
-	cmake -S . -B $(BUILD_REL_NK) -DCMAKE_BUILD_TYPE=Release -DSKETCH_CALC_ENGINE=numkong
+	cmake -S . -B $(BUILD_REL_NK) -DCMAKE_BUILD_TYPE=Release -DSKETCH_COMPUTE_ENGINE=numkong
 
 .PHONY: initsan
 initsan:
@@ -46,7 +46,7 @@ initsan:
 
 .PHONY: initsan-nk
 initsan-nk:
-	cmake -S . -B $(BUILD_SAN_NK) -DCMAKE_BUILD_TYPE=Sanitizer -DSKETCH_CALC_ENGINE=numkong
+	cmake -S . -B $(BUILD_SAN_NK) -DCMAKE_BUILD_TYPE=Sanitizer -DSKETCH_COMPUTE_ENGINE=numkong
 
 # Compiles the project in debug build (initializes build-dbg if needed)
 .PHONY: build
@@ -57,7 +57,7 @@ build: initdbg
 
 .PHONY: build-nk
 build-nk: initdbg-nk
-	@test -d bin-dbg || mkdir -p bin-dbg
+	@test -d bin-dbg-nk || mkdir -p bin-dbg-nk
 	@test -d "$(BUILD_DBG_NK)" || mkdir -p "$(BUILD_DBG_NK)"
 	cmake --build $(BUILD_DBG_NK) --parallel $(JOBS)
 
@@ -70,7 +70,7 @@ rel: initrel
 
 .PHONY: rel-nk
 rel-nk: initrel-nk
-	@test -d bin || mkdir -p bin
+	@test -d bin-nk || mkdir -p bin-nk
 	@test -d "$(BUILD_REL_NK)" || mkdir -p "$(BUILD_REL_NK)"
 	cmake --build $(BUILD_REL_NK) --parallel $(JOBS)
 
@@ -82,6 +82,7 @@ san: initsan
 
 .PHONY: san-nk
 san-nk: initsan-nk
+	@test -d bin-san-nk || mkdir -p bin-san-nk
 	@test -d "$(BUILD_SAN_NK)" || mkdir -p "$(BUILD_SAN_NK)"
 	cmake --build $(BUILD_SAN_NK) --parallel $(JOBS)
 

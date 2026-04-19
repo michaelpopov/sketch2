@@ -4,7 +4,7 @@
 #include "core/compute/norm_utils.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/input_reader.h"
-#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids.h"
 #include "core/storage/compact_ids_shared.h"
 #include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
@@ -214,11 +214,11 @@ public:
     // file: optional stored norms, alignment padding before ids, and then the
     // compact active/deleted id sections.
     Ret write_ids_section(const DataFileHeader& header,
-            const CompactIdsExt& deleted_ids,
+            const CompactIds& deleted_ids,
             const char* ids_padding_message,
             const char* ids_message,
             const char* deleted_ids_message) {
-        CompactIdsExt output_ids_ext;
+        CompactIds output_ids_ext;
         output_ids_.complete_adding();
         CHECK(output_ids_ext.init(output_ids_));
         output_ids_bytes_ = output_ids_ext.serialized_size_bytes();
@@ -765,7 +765,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         "DataMerger::merge_data_files: failed to write ids to merge file",
         "DataMerger::merge_data_files: failed to write deleted_ids to merge file"));
 
-    const CompactIdsExt empty_deleted_ids;
+    const CompactIds empty_deleted_ids;
     set_output_id_range(output, merge_file.header());
     CHECK(set_data_header_layout(
         merge_file.header(), output.output_ids_bytes(), empty_deleted_ids.serialized_size_bytes()));
@@ -863,7 +863,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         "DataMerger::merge_delta_file: deleted ids",
         source.deleted_count() + updater.deleted_count(),
         &compact_deleted_ids_accum));
-    CompactIdsExt compact_deleted_ids;
+    CompactIds compact_deleted_ids;
     compact_deleted_ids_accum.complete_adding();
     CHECK(compact_deleted_ids.init(compact_deleted_ids_accum));
     MergeFile merge_file;
@@ -910,7 +910,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
     }
 
     Timer timer("merge_data_file");
-    const CompactIdsExt empty_deleted_ids;
+    const CompactIds empty_deleted_ids;
     const uint32_t target_norm_flags = data_file_norm_flags_for_dist(dist_func);
     MergeFile merge_file;
     CHECK(merge_file.open(source, target_norm_flags, path, "DataMerger::merge_data_files"));
@@ -967,7 +967,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
         "DataMerger::merge_delta_file: deleted ids",
         source.deleted_count() + updater_deleted_count,
         &compact_deleted_ids_accum));
-    CompactIdsExt compact_deleted_ids;
+    CompactIds compact_deleted_ids;
     compact_deleted_ids_accum.complete_adding();
     CHECK(compact_deleted_ids.init(compact_deleted_ids_accum));
     MergeFile merge_file;

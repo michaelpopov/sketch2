@@ -111,7 +111,8 @@ TEST(NumKongKernelsTest, DOTUsesNumKongForF32AndF16) {
     for (DataType type : {DataType::f32, DataType::f16}) {
         const ComputeKernels nk = resolve_nk_kernels(DistFunc::DOT, type);
         EXPECT_NE(nullptr, nk.dist) << "type=" << static_cast<int>(type);
-        EXPECT_EQ(nullptr, nk.dot);
+        EXPECT_NE(nullptr, nk.dot) << "type=" << static_cast<int>(type);
+        EXPECT_EQ(nk.dist, nk.dot) << "type=" << static_cast<int>(type);
         EXPECT_EQ(nullptr, nk.squared_norm);
         EXPECT_EQ(nullptr, nk.dist_with_query_norm);
     }

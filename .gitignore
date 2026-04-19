@@ -11,7 +11,9 @@ install/
 build-nk-dbg/
 build-nk-san/
 build-nk/
-
+bin-dbg-nk/
+bin-nk/
+bin-san-nk/
 
 # CMake
 CMakeCache.txt

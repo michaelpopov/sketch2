@@ -15,7 +15,7 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
-#include "core/storage/compact_ids_ext.h"
+#include "core/storage/compact_ids.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -114,14 +114,14 @@ protected:
     // type_field: 0=f16, 1=f32, 2=i16  (matches DataWriter encoding)
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs) {
-        CompactIdsExt compact_ids;
+        CompactIds compact_ids;
         std::vector<uint64_t> ids;
         ids.reserve(vecs.size());
         for (size_t i = 0; i < vecs.size(); ++i) {
             ids.push_back(min_id + static_cast<uint64_t>(i));
         }
         ASSERT_EQ(0, compact_ids.init(ids).code());
-        CompactIdsExt compact_deleted_ids;
+        CompactIds compact_deleted_ids;
         std::vector<uint64_t> deleted_ids;
         ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
 
@@ -425,10 +425,10 @@ TEST_F(DataReaderTest, ReadsL2NormValuesWhenSectionIsPresent) {
 
 TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, DataType::f32, 4);
-    CompactIdsExt compact_ids;
+    CompactIds compact_ids;
     std::vector<uint64_t> ids;
     ASSERT_EQ(0, compact_ids.init(ids).code());
-    CompactIdsExt compact_deleted_ids;
+    CompactIds compact_deleted_ids;
     std::vector<uint64_t> deleted_ids;
     ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
     ASSERT_EQ(0, set_data_header_layout(
@@ -955,12 +955,12 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
 
     const std::vector<uint8_t> bytes = read_file_bytes(data_path_);
     ASSERT_FALSE(bytes.empty());
-    CompactIdsExt active_ids;
+    CompactIds active_ids;
     size_t active_ids_size = 0;
     ASSERT_EQ(0, active_ids.map(bytes.data() + ids_offset, bytes.size() - ids_offset, &active_ids_size).code());
     const size_t deleted_ids_offset = compute_deleted_ids_offset(ids_offset, active_ids_size);
 
-    CompactIdsExt deleted_ids;
+    CompactIds deleted_ids;
     ASSERT_EQ(0, deleted_ids.map(bytes.data() + deleted_ids_offset, bytes.size() - deleted_ids_offset, nullptr).code());
     const size_t original_deleted_serialized_size = deleted_ids.serialized_size_bytes();
     std::vector<uint64_t> overlapping_deleted;
@@ -968,7 +968,7 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     for (size_t i = 0; i < deleted_ids.count(); ++i) {
         overlapping_deleted.push_back(deleted_ids.id(i) + 1u);
     }
-    CompactIdsExt overlapping_deleted_ids;
+    CompactIds overlapping_deleted_ids;
     ASSERT_EQ(0, overlapping_deleted_ids.init(overlapping_deleted).code());
     ASSERT_EQ(original_deleted_serialized_size, overlapping_deleted_ids.serialized_size_bytes());
 

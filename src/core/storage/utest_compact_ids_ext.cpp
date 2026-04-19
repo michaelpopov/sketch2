@@ -1,6 +1,6 @@
-// Unit tests for CompactIdsMisses and CompactIdsBitset.
+// Unit tests for CompactIds and its payload backends.
 
-#include "compact_ids_ext.h"
+#include "compact_ids.h"
 #include "compact_ids_shared.h"
 
 #include <gtest/gtest.h>
@@ -73,7 +73,7 @@ CompactIdsHeader read_header_or_die(const std::vector<uint8_t>& serialized) {
     return hdr;
 }
 
-std::vector<uint8_t> serialize_auto_ids_to_bytes(const CompactIdsExt& ids) {
+std::vector<uint8_t> serialize_auto_ids_to_bytes(const CompactIds& ids) {
     const std::string path =
         tmp_dir() + "/sketch2_utest_compact_ids_ext_auto_" + std::to_string(getpid()) + ".bin";
     std::remove(path.c_str());
@@ -388,8 +388,8 @@ TEST(compact_ids_misses, map_accepts_aligned_misses_payload) {
     }
 }
 
-TEST(compact_ids_ext_auto, init_prefers_miss_list_for_sparse_ids) {
-    CompactIdsExt ids;
+TEST(compact_ids_auto, init_prefers_miss_list_for_sparse_ids) {
+    CompactIds ids;
     std::vector<uint64_t> values = {100, 200, 300};
     ASSERT_EQ(0, ids.init(values).code());
 
@@ -399,27 +399,27 @@ TEST(compact_ids_ext_auto, init_prefers_miss_list_for_sparse_ids) {
     EXPECT_EQ(3u, ids.count());
 }
 
-TEST(compact_ids_ext_auto, init_from_pointer_rejects_unsorted_ids) {
-    CompactIdsExt ids;
+TEST(compact_ids_auto, init_from_pointer_rejects_unsorted_ids) {
+    CompactIds ids;
     const uint64_t values[] = {300, 100, 200};
 
     const Ret ret = ids.init(values, 3);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIdsExt::init: ids not sorted", ret.message());
+    EXPECT_EQ("CompactIds::init: ids not sorted", ret.message());
 }
 
-TEST(compact_ids_ext_auto, init_from_null_pointer_rejects_non_empty_input) {
-    CompactIdsExt ids;
+TEST(compact_ids_auto, init_from_null_pointer_rejects_non_empty_input) {
+    CompactIds ids;
 
     const Ret ret = ids.init(nullptr, 1);
 
     EXPECT_NE(0, ret.code());
-    EXPECT_EQ("CompactIdsExt::init: ids pointer is null", ret.message());
+    EXPECT_EQ("CompactIds::init: ids pointer is null", ret.message());
 }
 
-TEST(compact_ids_ext_auto, init_from_accumulator_prefers_offsets_for_sparse_ids) {
-    CompactIdsExt ids;
+TEST(compact_ids_auto, init_from_accumulator_prefers_offsets_for_sparse_ids) {
+    CompactIds ids;
     CompactIdsAccumulator accumulator = make_accumulator({100, 200, 300});
 
     accumulator.complete_adding();
@@ -433,8 +433,8 @@ TEST(compact_ids_ext_auto, init_from_accumulator_prefers_offsets_for_sparse_ids)
     EXPECT_EQ(2u, ids.lower_bound_index(201));
 }
 
-TEST(compact_ids_ext_auto, init_prefers_bitset_for_dense_ids) {
-    CompactIdsExt ids;
+TEST(compact_ids_auto, init_prefers_bitset_for_dense_ids) {
+    CompactIds ids;
     std::vector<uint64_t> values = {100, 101, 103, 108, 109};
     ASSERT_EQ(0, ids.init(values).code());
 
@@ -444,8 +444,8 @@ TEST(compact_ids_ext_auto, init_prefers_bitset_for_dense_ids) {
     EXPECT_EQ(5u, ids.count());
 }
 
-TEST(compact_ids_ext_auto, init_from_accumulator_prefers_bitset_for_dense_ids) {
-    CompactIdsExt ids;
+TEST(compact_ids_auto, init_from_accumulator_prefers_bitset_for_dense_ids) {
+    CompactIds ids;
     CompactIdsAccumulator accumulator = make_accumulator({100, 101, 103, 108, 109});
 
     accumulator.complete_adding();
@@ -459,8 +459,8 @@ TEST(compact_ids_ext_auto, init_from_accumulator_prefers_bitset_for_dense_ids) {
     EXPECT_EQ(108u, ids.id(3));
 }
 
-TEST(compact_ids_ext_auto, init_from_accumulator_prefers_misses_for_dense_interior_gap) {
-    CompactIdsExt ids;
+TEST(compact_ids_auto, init_from_accumulator_prefers_misses_for_dense_interior_gap) {
+    CompactIds ids;
     std::vector<uint64_t> values;
     values.reserve(40);
     for (uint64_t id = 100; id <= 140; ++id) {
@@ -481,23 +481,23 @@ TEST(compact_ids_ext_auto, init_from_accumulator_prefers_misses_for_dense_interi
     EXPECT_EQ(121u, ids.id(20));
 }
 
-TEST(compact_ids_ext_auto, map_dispatches_by_encoding) {
-    CompactIdsExt sparse_ids;
+TEST(compact_ids_auto, map_dispatches_by_encoding) {
+    CompactIds sparse_ids;
     std::vector<uint64_t> sparse_values = {100, 200, 300};
     ASSERT_EQ(0, sparse_ids.init(sparse_values).code());
     const std::vector<uint8_t> sparse_serialized = serialize_auto_ids_to_bytes(sparse_ids);
 
-    CompactIdsExt misses_ids;
+    CompactIds misses_ids;
     std::vector<uint64_t> misses_values = {100, 101, 102, 104, 105, 106};
     ASSERT_EQ(0, misses_ids.init(misses_values).code());
     const std::vector<uint8_t> misses_serialized = serialize_auto_ids_to_bytes(misses_ids);
 
-    CompactIdsExt dense_ids;
+    CompactIds dense_ids;
     std::vector<uint64_t> dense_values = {100, 101, 103, 108, 109};
     ASSERT_EQ(0, dense_ids.init(dense_values).code());
     const std::vector<uint8_t> dense_serialized = serialize_auto_ids_to_bytes(dense_ids);
 
-    CompactIdsExt sparse_mapped;
+    CompactIds sparse_mapped;
     size_t sparse_consumed = 0;
     ASSERT_EQ(0, sparse_mapped.map(sparse_serialized.data(), sparse_serialized.size(), &sparse_consumed).code());
     EXPECT_EQ(sparse_serialized.size(), sparse_consumed);
@@ -505,7 +505,7 @@ TEST(compact_ids_ext_auto, map_dispatches_by_encoding) {
     EXPECT_EQ(1u, sparse_mapped.lower_bound_index(200));
     EXPECT_EQ(2u, sparse_mapped.lower_bound_index(201));
 
-    CompactIdsExt misses_mapped;
+    CompactIds misses_mapped;
     size_t misses_consumed = 0;
     ASSERT_EQ(0, misses_mapped.map(misses_serialized.data(), misses_serialized.size(), &misses_consumed).code());
     EXPECT_EQ(misses_serialized.size(), misses_consumed);
@@ -513,7 +513,7 @@ TEST(compact_ids_ext_auto, map_dispatches_by_encoding) {
     EXPECT_EQ(3u, misses_mapped.lower_bound_index(104));
     EXPECT_EQ(3u, misses_mapped.lower_bound_index(103));
 
-    CompactIdsExt dense_mapped;
+    CompactIds dense_mapped;
     size_t dense_consumed = 0;
     ASSERT_EQ(0, dense_mapped.map(dense_serialized.data(), dense_serialized.size(), &dense_consumed).code());
     EXPECT_EQ(dense_serialized.size(), dense_consumed);
@@ -522,22 +522,22 @@ TEST(compact_ids_ext_auto, map_dispatches_by_encoding) {
     EXPECT_EQ(3u, dense_mapped.lower_bound_index(104));
 }
 
-TEST(compact_ids_ext_auto, map_rejects_unknown_encoding) {
+TEST(compact_ids_auto, map_rejects_unknown_encoding) {
     CompactIdsHeader hdr{};
     hdr.encoding = 99;
 
     std::vector<uint8_t> serialized(sizeof(hdr), 0);
     std::memcpy(serialized.data(), &hdr, sizeof(hdr));
 
-    CompactIdsExt ids;
+    CompactIds ids;
     const Ret ret = ids.map(serialized.data(), serialized.size(), nullptr);
 
     ASSERT_NE(0, ret.code());
-    EXPECT_EQ("CompactIdsExt::map: unknown encoding", ret.message());
+    EXPECT_EQ("CompactIds::map: unknown encoding", ret.message());
 }
 
-TEST(compact_ids_ext_auto, clear_resets_to_empty_offsets_state) {
-    CompactIdsExt ids;
+TEST(compact_ids_auto, clear_resets_to_empty_offsets_state) {
+    CompactIds ids;
     std::vector<uint64_t> values = {100, 101, 102, 104, 105, 106};
     ASSERT_EQ(0, ids.init(values).code());
 
