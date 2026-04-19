@@ -186,7 +186,7 @@ For files with cosine metadata, iterator also exposes the stored inverse norm fo
 
 Scanner
 -------------------------
-The query path now lives under `core/calc`.
+The query path now lives under `core/compute`.
 
 `ScannerEx` is the main facade used by higher-level code. It delegates a query
 to the configured compute engine and then runs one specialized path for:

@@ -1,8 +1,8 @@
 // Declares the calc-engine-backed top-k scanner API.
 
 #pragma once
-#include "core/calc/calc_engine.h"
-#include "core/calc/dist_item.h"
+#include "core/compute/compute_engine.h"
+#include "core/compute/dist_item.h"
 #include "core/utils/bitset_filter.h"
 #include "utils/shared_types.h"
 #include <cstdint>

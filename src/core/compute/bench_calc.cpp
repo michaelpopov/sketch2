@@ -1,11 +1,11 @@
 // Direct kernel benchmark for calc engines.
 
-#include "core/calc/calc_engine.h"
-#include "core/calc/cosine_distance.h"
+#include "core/compute/compute_engine.h"
+#include "core/compute/cosine_distance.h"
 #if SKETCH_CALC_ENGINE_NUMKONG
-#include "core/calc/scanner_nk.h"
+#include "core/compute/scanner_nk.h"
 #endif
-#include "core/calc/scanner_query_context.h"
+#include "core/compute/scanner_query_context.h"
 #include "core/utils/shared_types.h"
 #include "core/utils/singleton.h"
 

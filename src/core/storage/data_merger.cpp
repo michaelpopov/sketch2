@@ -1,7 +1,7 @@
 // Implements merge operations for base data files and delta files.
 
 #include "data_merger.h"
-#include "core/calc/norm_utils.h"
+#include "core/compute/norm_utils.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/compact_ids_ext.h"

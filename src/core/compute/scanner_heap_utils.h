@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "core/calc/dist_item.h"
+#include "core/compute/dist_item.h"
 
 #include <queue>
 #include <vector>

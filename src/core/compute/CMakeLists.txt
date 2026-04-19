@@ -1,5 +1,5 @@
 set(CALC_SOURCES
-  calc_engine.cpp
+  compute_engine.cpp
   scanner_ex.cpp
 )
 
@@ -25,15 +25,15 @@ else()
   message(FATAL_ERROR "Unsupported SKETCH_CALC_ENGINE='${SKETCH_CALC_ENGINE}'")
 endif()
 
-add_library(calc STATIC ${CALC_SOURCES})
-set_target_properties(calc PROPERTIES OUTPUT_NAME "calc")
-target_link_libraries(calc PUBLIC stor hwy sketch_compile_options Threads::Threads)
+add_library(compute STATIC ${CALC_SOURCES})
+set_target_properties(compute PROPERTIES OUTPUT_NAME "compute")
+target_link_libraries(compute PUBLIC stor hwy sketch_compile_options Threads::Threads)
 if(SKETCH_CALC_ENGINE STREQUAL "numkong")
-  target_include_directories(calc SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/third-party/numkong)
+  target_include_directories(compute SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/third-party/numkong)
 endif()
 
 add_executable(bench_calc bench_calc.cpp)
-target_link_libraries(bench_calc PRIVATE calc stor Threads::Threads)
+target_link_libraries(bench_calc PRIVATE compute stor Threads::Threads)
 
 if(SKETCH_CALC_ENGINE STREQUAL "numkong" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   set_source_files_properties(scanner_nk.cpp PROPERTIES
@@ -69,5 +69,5 @@ add_executable(utest_calc
 if(SKETCH_CALC_ENGINE STREQUAL "numkong")
   target_include_directories(utest_calc SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/third-party/numkong)
 endif()
-target_link_libraries(utest_calc PRIVATE calc stor GTest::gtest Threads::Threads)
+target_link_libraries(utest_calc PRIVATE compute stor GTest::gtest Threads::Threads)
 add_test(NAME utest_calc COMMAND utest_calc)

@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "core/calc/calc_engine.h"
+#include "core/compute/compute_engine.h"
 #include "core/utils/log.h"
 
 namespace sketch2 {

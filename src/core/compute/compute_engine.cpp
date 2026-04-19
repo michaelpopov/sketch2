@@ -1,9 +1,9 @@
-#include "core/calc/calc_engine.h"
+#include "core/compute/compute_engine.h"
 
 #if SKETCH_CALC_ENGINE_HIGHWAY
-#include "core/calc/scanner_hw.h"
+#include "core/compute/scanner_hw.h"
 #elif SKETCH_CALC_ENGINE_NUMKONG
-#include "core/calc/scanner_nk.h"
+#include "core/compute/scanner_nk.h"
 #endif
 
 namespace sketch2 {

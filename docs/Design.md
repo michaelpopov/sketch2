@@ -21,7 +21,7 @@ That gives the project room to optimize for:
 This boundary is visible across the repository:
 
 - the core storage layer owns data files, deltas, and crash recovery
-- the compute layer under `core/calc` owns metric kernels and top-k scanning
+- the compute layer under `core/compute` owns metric kernels and top-k scanning
 - the `Sketch2api` API exposes a shared library interface
 - `vlite` exposes read-only SQLite integration
 - Python support exists as a thin wrapper used for demos, tests, and scripting

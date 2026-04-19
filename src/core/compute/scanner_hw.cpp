@@ -2,17 +2,17 @@
 // Uses the foreach_target pattern for automatic multi-target compilation
 // and runtime dispatch.
 
-#include "core/calc/scanner_hw.h"
+#include "core/compute/scanner_hw.h"
 
-#include "core/calc/cosine_distance.h"
-#include "core/calc/scanner_dataset_scan.h"
-#include "core/calc/scanner_heap_utils.h"
-#include "core/calc/scanner_log_utils.h"
-#include "core/calc/scanner_query_context.h"
+#include "core/compute/cosine_distance.h"
+#include "core/compute/scanner_dataset_scan.h"
+#include "core/compute/scanner_heap_utils.h"
+#include "core/compute/scanner_log_utils.h"
+#include "core/compute/scanner_query_context.h"
 #include "core/utils/timer.h"
 
 #undef HWY_TARGET_INCLUDE
-#define HWY_TARGET_INCLUDE "core/calc/scanner_hw.cpp"
+#define HWY_TARGET_INCLUDE "core/compute/scanner_hw.cpp"
 #include "hwy/foreach_target.h"  // IWYU pragma: keep
 #include "hwy/highway.h"
 

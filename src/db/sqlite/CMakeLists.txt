@@ -29,7 +29,7 @@ target_include_directories(utest_vlite
 target_link_libraries(utest_vlite
   PRIVATE
     sketch2api
-    calc
+    compute
     utils
     sqlite3_lib
     GTest::gtest

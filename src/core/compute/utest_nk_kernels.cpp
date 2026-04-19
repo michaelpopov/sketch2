@@ -7,9 +7,9 @@
 #include <cstdint>
 #include <vector>
 
-#include "core/calc/calc_engine.h"
-#include "core/calc/scanner_nk.h"
-#include "core/calc/utest_calc_helpers.h"
+#include "core/compute/compute_engine.h"
+#include "core/compute/scanner_nk.h"
+#include "core/compute/utest_computer_helpers.h"
 #include "numkong/capabilities.h"
 
 using namespace sketch2;

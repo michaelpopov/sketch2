@@ -11,7 +11,7 @@
 #include <memory>
 #include <filesystem>
 #include <experimental/scope>
-#include "core/calc/scanner_ex.h"
+#include "core/compute/scanner_ex.h"
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"
 #include "core/storage/input_generator.h"

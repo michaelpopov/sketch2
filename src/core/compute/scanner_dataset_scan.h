@@ -2,9 +2,9 @@
 
 #pragma once
 
-#include "core/calc/scanner_heap_utils.h"
-#include "core/calc/scanner_query_context.h"
-#include "core/calc/scanner_scan_loops.h"
+#include "core/compute/scanner_heap_utils.h"
+#include "core/compute/scanner_query_context.h"
+#include "core/compute/scanner_scan_loops.h"
 #include "core/storage/dataset_reader.h"
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"

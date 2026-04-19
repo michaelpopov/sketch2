@@ -4,13 +4,13 @@
 // squared Euclidean, and angular (cosine) distances. i16 is intentionally
 // unsupported and must be rejected by callers.
 
-#include "core/calc/scanner_nk.h"
+#include "core/compute/scanner_nk.h"
 
-#include "core/calc/cosine_distance.h"
-#include "core/calc/scanner_dataset_scan.h"
-#include "core/calc/scanner_heap_utils.h"
-#include "core/calc/scanner_log_utils.h"
-#include "core/calc/scanner_query_context.h"
+#include "core/compute/cosine_distance.h"
+#include "core/compute/scanner_dataset_scan.h"
+#include "core/compute/scanner_heap_utils.h"
+#include "core/compute/scanner_log_utils.h"
+#include "core/compute/scanner_query_context.h"
 #include "core/utils/timer.h"
 
 #include "numkong/capabilities.h"

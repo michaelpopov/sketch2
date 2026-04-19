@@ -3,9 +3,9 @@
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <vector>
-#include "core/calc/calc_engine.h"
-#include "core/calc/scanner_hw.h"
-#include "core/calc/utest_calc_helpers.h"
+#include "core/compute/compute_engine.h"
+#include "core/compute/scanner_hw.h"
+#include "core/compute/utest_computer_helpers.h"
 
 using namespace sketch2;
 using namespace sketch2::test;

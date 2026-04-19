@@ -19,7 +19,7 @@ The harness consists of six main components:
 3.  **`runner.py`**: Executes the actual benchmarks. For each compute engine, it benchmarks each score function in its own child process. It can run two complementary benchmark layers:
     - a **kernel-only** layer that times direct metric kernels without scanner traversal
     - a **scan** layer that performs full KNN queries through the existing dataset/scanner path
-4.  **`bench_calc`**: A native benchmark executable under `src/core/calc` that measures the direct kernels and composed scan-time score paths for the selected engine, metric, type, and dimension. It always reports `dist`, adds `dot` and `squared_norm` whenever those kernels are available, and includes composed stored-norm paths (`dist_with_stored_norms`) plus the cosine query-norm fallback (`dist_with_query_norm`) when supported.
+4.  **`bench_calc`**: A native benchmark executable under `src/core/compute` that measures the direct kernels and composed scan-time score paths for the selected engine, metric, type, and dimension. It always reports `dist`, adds `dot` and `squared_norm` whenever those kernels are available, and includes composed stored-norm paths (`dist_with_stored_norms`) plus the cosine query-norm fallback (`dist_with_query_norm`) when supported.
 5.  **`common.py`**: Shared utility library containing configuration logic, binary discovery, ground truth calculation, and **robust validation** (handling tie-breaking via score comparison). It imports shared vector logic from the central `sketch2_test_vectors.py` module.
 6.  **`sketch2_test_vectors.py`**: (Located in `src/pytest`) The authoritative source for all shared vector generation, quantization, formatting, and score functions used across tests and demos.
 
@@ -146,7 +146,7 @@ When investigating a crash, inspect `${COMPUTE_PERF_DIAG_DIR}/diag_<engine>_<dis
 
 - Historical observations about `src/core/compute` no longer describe the
   current code path. The active query implementation now lives under
-  `src/core/calc`.
+  `src/core/compute`.
 - Use separate build directories if you want to compare Highway and NumKong.
   The redesign made top-level engine choice a configure-time decision, not a
   broad runtime matrix inside one build tree.

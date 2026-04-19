@@ -8,7 +8,7 @@ target_link_libraries(sketch2
     sketch2api
     sk2sqlite
     -Wl,--no-whole-archive
-    calc
+    compute
     stor
     utils
     hwy

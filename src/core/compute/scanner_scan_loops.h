@@ -2,10 +2,10 @@
 
 #pragma once
 
-#include "core/calc/calc_engine.h"
-#include "core/calc/cosine_distance.h"
-#include "core/calc/scanner_heap_utils.h"
-#include "core/calc/scanner_query_context.h"
+#include "core/compute/compute_engine.h"
+#include "core/compute/cosine_distance.h"
+#include "core/compute/scanner_heap_utils.h"
+#include "core/compute/scanner_query_context.h"
 #include "core/storage/data_reader.h"
 #include "core/utils/bitset_filter.h"
 
