@@ -5,7 +5,7 @@ the current Sketch2 compute path across different score functions (`cos`, `dot`,
 `l2`).
 
 After the compute redesign, the top-level engine is selected at build time via
-`SKETCH_CALC_ENGINE`. In practice that means a given build benchmarks
+`SKETCH2_COMPUTE_ENGINE`. In practice that means a given build benchmarks
 either `highway` or `numkong`.
 
 It performs repeated K-Nearest Neighbor (KNN) queries on a large, stable dataset and compares the results against a pre-calculated ground truth to ensure that performance optimizations do not compromise accuracy.

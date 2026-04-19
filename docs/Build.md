@@ -42,11 +42,11 @@ If `python3` is not already installed on the machine, install it separately.
 The project uses CMake as the primary build system. The root `Makefile` is a
 thin convenience layer over the main CMake commands.
 
-Build directories are engine-specific because `SKETCH_CALC_ENGINE` is cached at
+Build directories are engine-specific because `SKETCH_COMPUTE_ENGINE` is cached at
 configure time. If you want a NumKong build, configure a fresh build directory
 for it instead of reusing a previously configured `highway` tree.
 
-The default compute engine is `highway`. Set `-DSKETCH_CALC_ENGINE=numkong` at
+The default compute engine is `highway`. Set `-DSKETCH_COMPUTE_ENGINE=numkong` at
 configure time if you want the NumKong-backed build instead.
 
 Important build types:
@@ -81,7 +81,7 @@ To build the NumKong engine explicitly from a fresh clone or on another
 machine, use a dedicated build directory:
 
 ```bash
-cmake -S . -B build-nk-dbg -DCMAKE_BUILD_TYPE=Debug -DSKETCH_CALC_ENGINE=numkong
+cmake -S . -B build-nk-dbg -DCMAKE_BUILD_TYPE=Debug -DSKETCH_COMPUTE_ENGINE=numkong
 cmake --build build-nk-dbg
 ctest --test-dir build-nk-dbg --output-on-failure
 ```
@@ -322,6 +322,6 @@ export SKETCH2_LOG_FILE=/tmp/sketch2.log
   means optimized code with `-DNDEBUG`
 - `Sanitizer` builds use AddressSanitizer, UndefinedBehaviorSanitizer, and LeakSanitizer
 - each configured build contains one top-level compute engine selected by
-  `SKETCH_CALC_ENGINE`
+  `SKETCH_COMPUTE_ENGINE`
 - Highway builds can still contain multiple ISA targets inside that engine,
   while NumKong builds keep their own internal capability-specific dispatch

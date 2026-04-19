@@ -8,7 +8,7 @@ Sketch2 does not ship a runtime-switchable mix of top-level compute engines in
 one binary.
 
 Each configured build selects exactly one top-level engine through
-`SKETCH_CALC_ENGINE`:
+`SKETCH2_COMPUTE_ENGINE`:
 
 - `highway`
 - `numkong`
