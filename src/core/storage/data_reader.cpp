@@ -19,8 +19,8 @@ DataReader::Iterator::Iterator(const DataReader* reader, const DataReader* delta
 
 void DataReader::Iterator::next() {
     ++index_;
-    while (index_ < reader_->count() && reader_->is_hidden(index_)) {
-        ++index_;
+    if (index_ < reader_->count_unchecked()) {
+        index_ = reader_->next_visible_base_index_unchecked(index_);
     }
 }
 
@@ -160,6 +160,7 @@ void DataReader::reset_state_() {
     norm_offset_in_record_ = 0;
     stride_ = 0;
     changed_bitset_.resize(0);
+    has_hidden_rows_ = false;
     delta_.reset();
 }
 
@@ -311,6 +312,7 @@ Ret DataReader::init_delta() {
         return Ret("DataReader::init_delta: reader is not initialized");
     }
 
+    has_hidden_rows_ = false;
     auto mark_hidden = [this](const CompactIds& other_ids) {
         const size_t base_count = ids_.count();
         const size_t other_count = other_ids.count();
@@ -326,6 +328,7 @@ Ret DataReader::init_delta() {
 
             if (other_ids.id_unchecked(j) == id) {
                 changed_bitset_.set(i);
+                has_hidden_rows_ = true;
             }
         }
     };
@@ -383,6 +386,7 @@ void DataReader::assert_invariants_() const {
 
     if (delta_) {
         assert(changed_bitset_.size() == hdr_.count);
+        assert(has_hidden_rows_ == changed_bitset_.any());
         assert(type_ == delta_->type());
         assert(vector_size_ == delta_->size());
         assert(stride_ == delta_->stride());
@@ -390,6 +394,7 @@ void DataReader::assert_invariants_() const {
         assert(norm_flags() == delta_->norm_flags());
     } else {
         assert(changed_bitset_.size() == 0);
+        assert(!has_hidden_rows_);
     }
 #endif
 }
@@ -437,19 +442,11 @@ bool DataReader::has_matching_stored_norms(DistFunc dist_func) const {
 }
 
 DataReader::Iterator DataReader::begin() const {
-    size_t index = 0;
-    while (index < count() && is_hidden(index)) {
-        ++index;
-    }
-    return Iterator(this, delta_ ? delta_.get() : nullptr, index);
+    return Iterator(this, delta_ ? delta_.get() : nullptr, first_visible_base_index_unchecked());
 }
 
 DataReader::OrderedIterator DataReader::base_begin() const {
-    size_t index = 0;
-    while (index < count() && is_hidden(index)) {
-        ++index;
-    }
-    return OrderedIterator(this, OrderedIterator::Source::Base, index);
+    return OrderedIterator(this, OrderedIterator::Source::Base, first_visible_base_index_unchecked());
 }
 
 DataReader::OrderedIterator DataReader::delta_begin() const {
@@ -460,7 +457,7 @@ uint64_t DataReader::id(size_t index) const {
     if (index >= count()) {
         throw std::out_of_range("DataReader::id: index out of range");
     }
-    return ids_.id(index);
+    return id_unchecked(index);
 }
 
 // Looks up an id in the base file and falls back to the attached delta when the

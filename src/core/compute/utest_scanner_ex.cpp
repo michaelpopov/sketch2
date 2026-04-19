@@ -12,6 +12,8 @@
 #include <filesystem>
 #include <experimental/scope>
 #include "core/compute/scanner.h"
+#include "core/compute/scanner_query_context.h"
+#include "core/compute/scanner_scan_loops.h"
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"
 #include "core/storage/input_generator.h"
@@ -26,9 +28,21 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr ComputeEngine kCompiledComputeEngine = compiled_compute_engine();
+size_t g_counting_dot_calls = 0;
 
 Scanner make_compiled_scanner() {
     return Scanner(kCompiledComputeEngine);
+}
+
+double counting_f32_dot(const uint8_t* a, const uint8_t* b, size_t dim) {
+    ++g_counting_dot_calls;
+    const auto* aa = reinterpret_cast<const float*>(a);
+    const auto* bb = reinterpret_cast<const float*>(b);
+    double dot = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        dot += static_cast<double>(aa[i]) * static_cast<double>(bb[i]);
+    }
+    return dot;
 }
 
 }
@@ -746,6 +760,80 @@ TEST_F(ScannerTest, FindDatasetL2UsesStoredSquaredNormsForHighwayAndNumKong) {
     EXPECT_NEAR(2.0, result[0].score, 1e-6) << "engine=" << compute_engine_name(kCompiledComputeEngine);
     EXPECT_EQ(10u, result[1].id) << "engine=" << compute_engine_name(kCompiledComputeEngine);
     EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << compute_engine_name(kCompiledComputeEngine);
+}
+
+TEST_F(ScannerTest, L2StoredNormScanSkipsDotWhenNormLowerBoundCannotBeatHeap) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 10.0, 0.0, 0.0, 0.0 ]\n");
+
+    const std::string dataset_dir = data_path_ + ".dataset_" + std::to_string(cleanup_dirs_.size());
+    cleanup_dirs_.push_back(dataset_dir);
+    fs::create_directories(dataset_dir);
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 100, DataType::f32, 4, DistFunc::L2).code());
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(dataset_dir + "/0.data").code());
+
+    const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
+    const QueryL2Context query{q.data(), 4, 1.0};
+    DistHeap heap(DistItemCompare{DistFunc::L2});
+    heap.reserve(1);
+
+    g_counting_dot_calls = 0;
+    scan_data_reader_with_l2_stored_norms(reader, 1, &heap, counting_f32_dot, query);
+
+    std::vector<DistItem> result;
+    extract_items(&heap, &result);
+
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(10u, result[0].id);
+    EXPECT_DOUBLE_EQ(0.0, result[0].score);
+    EXPECT_EQ(1u, g_counting_dot_calls);
+}
+
+TEST_F(ScannerTest, L2StoredNormScanRefreshesCachedBoundsWhenHeapThresholdTightens) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 10.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 2.0, 0.0, 0.0, 0.0 ]\n"
+        "40 : [ 3.0, 0.0, 0.0, 0.0 ]\n");
+
+    const std::string dataset_dir = data_path_ + ".dataset_" + std::to_string(cleanup_dirs_.size());
+    cleanup_dirs_.push_back(dataset_dir);
+    fs::create_directories(dataset_dir);
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({dataset_dir}, 100, DataType::f32, 4, DistFunc::L2).code());
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(dataset_dir + "/0.data").code());
+
+    const auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
+    const QueryL2Context query{q.data(), 4, 0.0};
+    DistHeap heap(DistItemCompare{DistFunc::L2});
+    heap.reserve(2);
+
+    g_counting_dot_calls = 0;
+    scan_data_reader_with_l2_stored_norms(reader, 2, &heap, counting_f32_dot, query);
+
+    std::vector<DistItem> result;
+    extract_items(&heap, &result);
+
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(20u, result[0].id);
+    EXPECT_DOUBLE_EQ(1.0, result[0].score);
+    EXPECT_EQ(30u, result[1].id);
+    EXPECT_DOUBLE_EQ(4.0, result[1].score);
+    EXPECT_EQ(3u, g_counting_dot_calls);
 }
 
 TEST_F(ScannerTest, FindDatasetCosWorks) {

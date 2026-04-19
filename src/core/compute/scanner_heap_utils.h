@@ -32,6 +32,51 @@ inline void push_result(DistHeap* heap, size_t count, uint64_t id, double score)
     }
 }
 
+inline void push_result_smaller_better(DistHeap* heap, size_t count, uint64_t id, double score) {
+    const DistItem item{id, score};
+    if (heap->size() < count) {
+        heap->push(item);
+        return;
+    }
+
+    const DistItem& top = heap->top();
+    if (score < top.score || (score == top.score && id < top.id)) {
+        heap->pop();
+        heap->push(item);
+    }
+}
+
+inline bool push_result_smaller_better_changed(DistHeap* heap, size_t count, uint64_t id, double score) {
+    const DistItem item{id, score};
+    if (heap->size() < count) {
+        heap->push(item);
+        return true;
+    }
+
+    const DistItem& top = heap->top();
+    if (score < top.score || (score == top.score && id < top.id)) {
+        heap->pop();
+        heap->push(item);
+        return true;
+    }
+
+    return false;
+}
+
+inline void push_result_larger_better(DistHeap* heap, size_t count, uint64_t id, double score) {
+    const DistItem item{id, score};
+    if (heap->size() < count) {
+        heap->push(item);
+        return;
+    }
+
+    const DistItem& top = heap->top();
+    if (score > top.score || (score == top.score && id < top.id)) {
+        heap->pop();
+        heap->push(item);
+    }
+}
+
 inline void extract_items(DistHeap* heap, std::vector<DistItem>* result) {
     result->resize(heap->size());
     for (size_t i = heap->size(); i-- > 0;) {

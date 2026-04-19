@@ -87,4 +87,32 @@ TEST(dynamic_bitset, word_boundary_bits_do_not_bleed) {
     EXPECT_TRUE(bitset.get(64));  // clearing 63 must not affect 64
 }
 
+TEST(dynamic_bitset, find_next_unset_skips_runs_of_set_bits) {
+    DynamicBitset bitset;
+    bitset.resize(130);
+
+    for (size_t i = 0; i < 70; ++i) {
+        bitset.set(i);
+    }
+    bitset.set(90);
+    bitset.set(91);
+
+    EXPECT_EQ(70u, bitset.find_next_unset(0));
+    EXPECT_EQ(70u, bitset.find_next_unset(64));
+    EXPECT_EQ(70u, bitset.find_next_unset(70));
+    EXPECT_EQ(92u, bitset.find_next_unset(90));
+}
+
+TEST(dynamic_bitset, find_next_unset_returns_size_when_no_clear_bits_remain) {
+    DynamicBitset bitset;
+    bitset.resize(70);
+    for (size_t i = 0; i < bitset.size(); ++i) {
+        bitset.set(i);
+    }
+
+    EXPECT_EQ(bitset.size(), bitset.find_next_unset(0));
+    EXPECT_EQ(bitset.size(), bitset.find_next_unset(69));
+    EXPECT_EQ(bitset.size(), bitset.find_next_unset(bitset.size()));
+}
+
 } // namespace sketch2
