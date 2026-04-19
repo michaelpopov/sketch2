@@ -212,6 +212,12 @@ protected:
         return hdr;
     }
 
+    void expect_inline_norm_layout(const std::string& path) {
+        const DataFileHeader hdr = read_header(path);
+        EXPECT_EQ(0u, hdr.norms_offset);
+        EXPECT_EQ(0u, hdr.norms_bytes);
+    }
+
     CompactIdsExtEncoding read_active_ids_encoding(const std::string& path) {
         const DataFileHeader hdr = read_header(path);
         const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
@@ -343,6 +349,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewMergesAndPreservesCosineValues)
     ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::COS).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_EQ(4u, out_reader.count());
     ASSERT_TRUE(out_reader.has_norms());
     EXPECT_EQ(nullptr, out_reader.get(1));
@@ -408,6 +415,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewPreservesL2Norms) {
     ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::L2).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_EQ(4u, out_reader.count());
     ASSERT_TRUE(out_reader.has_norms());
     EXPECT_EQ(nullptr, out_reader.get(1));
@@ -442,6 +450,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewAddsL2NormsWhenSourceLacksThem)
     ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::L2).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_TRUE(out_reader.has_norms());
     ASSERT_TRUE(data_file_has_squared_norms(read_header(out_path)));
     EXPECT_FLOAT_EQ(36.0f, out_reader.get_norm(0));
@@ -470,6 +479,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewRewritesCosineNormsToL2) {
     ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::L2).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_TRUE(out_reader.has_norms());
     ASSERT_TRUE(data_file_has_squared_norms(read_header(out_path)));
     EXPECT_FLOAT_EQ(36.0f, out_reader.get_norm(0));
@@ -1044,6 +1054,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewPreservesCosineValues) {
     ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::COS).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_TRUE(out_reader.has_norms());
     ASSERT_EQ(3u, out_reader.count());
     EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);
@@ -1111,6 +1122,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewPreservesL2Norms) {
     ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::L2).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_TRUE(out_reader.has_norms());
     ASSERT_EQ(3u, out_reader.count());
     EXPECT_FLOAT_EQ(16.0f, out_reader.get_norm(0));
@@ -1149,6 +1161,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewAddsCosineNormsWhenSourceLacks
     ASSERT_EQ(0, merger.merge_delta_file(source_reader, view, out_path, DistFunc::COS).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_TRUE(out_reader.has_norms());
     ASSERT_TRUE(data_file_has_cosine_inv_norms(read_header(out_path)));
     ASSERT_EQ(3u, out_reader.count());
@@ -1196,6 +1209,7 @@ TEST_F(DataMergerTest, MergeDeltaFilePreservesCosineValuesSection) {
     ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
 
     ASSERT_EQ(0, out_reader.init(out_path).code());
+    expect_inline_norm_layout(out_path);
     ASSERT_TRUE(out_reader.has_norms());
     ASSERT_EQ(3u, out_reader.count());
     EXPECT_NEAR(1.0 / (2.0 * std::sqrt(4.0)), static_cast<double>(out_reader.get_norm(0)), 1e-6);

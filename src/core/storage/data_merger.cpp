@@ -121,8 +121,9 @@ public:
     }
 
     // Appends one surviving row to the output in the exact order required by
-    // the file format: vector record first, ids trailer later. The ids are
-    // buffered here until those trailing sections are written after all rows.
+    // the file format: a full inline record first, then the ids trailer later.
+    // The ids are buffered here until those trailing sections are written
+    // after all rows.
     Ret write_binary_record(uint64_t id, const uint8_t* data, float norm) {
         if (!output_ids_initialized_) {
             output_ids_.init(id, output_ids_capacity_);
@@ -139,7 +140,7 @@ public:
             output_ids_max_ = id;
         }
         output_ids_.add(id);
-        CHECK(write_vector_record_with_optional_norm(
+        CHECK(write_data_record(
             f_, data, record_layout_, norms_enabled_ ? &norm : nullptr, context_));
         return Ret(0);
     }
@@ -167,9 +168,10 @@ public:
         return write_binary_record(id, parsed_text_buffer_.data(), norm);
     }
 
-    // Writes the trailer that follows the vector-record area in every merged
+    // Writes the trailer that follows the inline record area in every merged
     // file: alignment padding before ids, then the compact active/deleted id
-    // sections.
+    // sections. Norms live inside each record, so there is no separate norms
+    // section between vectors and ids.
     Ret write_ids_section(const DataFileHeader& header,
             const CompactIds& deleted_ids,
             const char* ids_message,

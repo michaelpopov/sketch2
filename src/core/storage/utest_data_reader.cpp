@@ -296,6 +296,26 @@ TEST_F(DataReaderTest, FailsWhenInlineNormDoesNotFitStride) {
     EXPECT_NE(std::string::npos, ret.message().find("invalid inline norm layout"));
 }
 
+TEST_F(DataReaderTest, FailsWhenV11DeclaresSeparateNormsSection) {
+    generate(2, 0, DataType::f32, 4);
+
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    DataFileHeader hdr{};
+    ASSERT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
+    hdr.flags = kDataFileHasCosineInvNorms;
+    hdr.norms_offset = hdr.data_offset;
+    hdr.norms_bytes = sizeof(float) * hdr.count;
+    rewind(f);
+    ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+    fclose(f);
+
+    DataReader r;
+    const Ret ret = r.init(data_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("must not declare a separate norms section"));
+}
+
 TEST_F(DataReaderTest, FailsOnLegacyRawIdsTrailer) {
     const std::vector<std::vector<uint8_t>> vecs = {
         std::vector<uint8_t>(4 * sizeof(float), 0),

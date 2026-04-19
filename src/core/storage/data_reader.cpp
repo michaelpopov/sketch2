@@ -79,7 +79,7 @@ Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta)
 }
 
 // Memory-maps a binary data file, validates its layout, and caches pointers to
-// the vector, norms, id, and delete sections. When a delta reader is attached,
+// the vector, id, and delete sections. When a delta reader is attached,
 // it also builds a visibility bitset for base rows shadowed by newer updates.
 Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta) {
     if (initialized_) {
@@ -152,14 +152,12 @@ void DataReader::reset_state_() {
     vectors_region_.reset();
     ids_region_.reset();
     deleted_ids_region_.reset();
-    norms_region_.reset();
     hdr_ = {};
     initialized_ = false;
     ids_.clear();
-    norms_ = nullptr;
     deleted_ids_.clear();
     vector_size_ = 0;
-    norm_offset_ = 0;
+    norm_offset_in_record_ = 0;
     stride_ = 0;
     changed_bitset_.resize(0);
     delta_.reset();
@@ -212,7 +210,8 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     }
 
     vector_size_ = dim * elem_size;
-    norm_offset_ = compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_)).norm_offset;
+    norm_offset_in_record_ =
+        compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_)).norm_offset;
     stride_ = static_cast<size_t>(hdr_.vector_stride);
     if ((hdr_.flags & ~kDataFileNormKindMask) != 0u) {
         return Ret("DataReader: unsupported data-file flags");
@@ -227,14 +226,15 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     if (stride_ < vector_size_ || (stride_ % kDataAlignment) != 0) {
         return Ret("DataReader: invalid vector stride");
     }
-    if (data_file_has_norms(hdr_) && stride_ < norm_offset_ + sizeof(float)) {
+    if (hdr_.norms_offset != 0 || hdr_.norms_bytes != 0) {
+        return Ret("DataReader: v11 data files must not declare a separate norms section");
+    }
+    if (data_file_has_norms(hdr_) && stride_ < norm_offset_in_record_ + sizeof(float)) {
         return Ret("DataReader: invalid inline norm layout");
     }
 
     *metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
     if (hdr_.vectors_bytes != metadata_layout->vectors_bytes
-            || hdr_.norms_offset != metadata_layout->norms_offset
-            || hdr_.norms_bytes != metadata_layout->norms_bytes
             || hdr_.ids_offset != metadata_layout->ids_trailer_offset
             || hdr_.deleted_ids_offset != compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)) {
         return Ret("DataReader: malformed section layout in header");
@@ -260,6 +260,9 @@ Ret DataReader::validate_delta_(const std::unique_ptr<DataReader>& delta) const 
     if (type_ != delta->type_) return Ret("DataReader: invalid delta type");
     if (vector_size_ != delta->vector_size_) return Ret("DataReader: invalid delta dim");
     if (stride_ != delta->stride_) return Ret("DataReader: invalid delta stride");
+    if (norm_offset_in_record_ != delta->norm_offset_in_record_) {
+        return Ret("DataReader: invalid delta norm layout");
+    }
     if (data_file_norm_flags(hdr_) != data_file_norm_flags(delta->hdr_)) {
         return Ret("DataReader: invalid delta norm layout");
     }
@@ -300,9 +303,6 @@ Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout&
         return Ret("DataReader: ids trailer count does not match header");
     }
 
-    norms_ = (data_file_has_norms(hdr_) && hdr_.count > 0)
-        ? reinterpret_cast<const float*>(vectors_region_.data() + norm_offset_)
-        : nullptr;
     return Ret(0);
 }
 
@@ -346,12 +346,10 @@ void DataReader::assert_invariants_() const {
         assert(vectors_region_.empty());
         assert(ids_region_.empty());
         assert(deleted_ids_region_.empty());
-        assert(norms_region_.empty());
         assert(ids_.empty());
-        assert(norms_ == nullptr);
         assert(deleted_ids_.empty());
         assert(vector_size_ == 0);
-        assert(norm_offset_ == 0);
+        assert(norm_offset_in_record_ == 0);
         assert(stride_ == 0);
         return;
     }
@@ -360,12 +358,15 @@ void DataReader::assert_invariants_() const {
     assert(hdr_.base.kind == static_cast<uint16_t>(FileType::Data));
     assert(hdr_.base.version == kVersion);
     assert(vector_size_ == compute_vector_size(type_, hdr_.dim));
-    assert(norm_offset_ == compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_)).norm_offset);
+    assert(norm_offset_in_record_ ==
+        compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_)).norm_offset);
     assert(stride_ == hdr_.vector_stride);
     assert(data_file_has_valid_norm_flags(hdr_));
     assert(stride_ >= vector_size_);
     assert((hdr_.data_offset % static_cast<uint64_t>(kDataRegionAlignment)) == 0);
     assert((stride_ % kDataAlignment) == 0);
+    assert(hdr_.norms_offset == 0);
+    assert(hdr_.norms_bytes == 0);
     assert(ids_.count() == hdr_.count);
     assert(deleted_ids_.count() == hdr_.deleted_count);
     assert(!ids_region_.empty());
@@ -373,7 +374,6 @@ void DataReader::assert_invariants_() const {
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
     assert(vectors_region_.size() == metadata_layout.vectors_bytes);
-    assert(norms_region_.size() == metadata_layout.norms_bytes);
     assert(hdr_.vectors_bytes == metadata_layout.vectors_bytes);
     assert(hdr_.norms_offset == metadata_layout.norms_offset);
     assert(hdr_.norms_bytes == metadata_layout.norms_bytes);
@@ -383,10 +383,8 @@ void DataReader::assert_invariants_() const {
         static_cast<uint64_t>(compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)));
     assert(hdr_.deleted_ids_bytes == deleted_ids_region_.size());
 
-    if (data_file_has_norms(hdr_) && hdr_.count > 0) {
-        assert(norms_ == reinterpret_cast<const float*>(vectors_region_.data() + norm_offset_));
-    } else {
-        assert(norms_ == nullptr);
+    if (data_file_has_norms(hdr_)) {
+        assert(stride_ >= norm_offset_in_record_ + sizeof(float));
     }
 
     if (delta_) {
@@ -394,6 +392,7 @@ void DataReader::assert_invariants_() const {
         assert(type_ == delta_->type());
         assert(vector_size_ == delta_->size());
         assert(stride_ == delta_->stride());
+        assert(norm_offset_in_record_ == delta_->norm_offset_in_record_);
         assert(norm_flags() == delta_->norm_flags());
     } else {
         assert(changed_bitset_.size() == 0);

@@ -148,7 +148,7 @@ public:
             throw std::logic_error("DataReader::get_norm: norms section is absent");
         }
         float value = 0.0f;
-        std::memcpy(&value, at_unchecked_(index) + norm_offset_, sizeof(value));
+        std::memcpy(&value, vectors_region_.data() + index * stride_ + norm_offset_in_record_, sizeof(value));
         return value;
     }
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
@@ -185,15 +185,13 @@ private:
     MappedRegion             vectors_region_;
     MappedRegion             ids_region_;
     MappedRegion             deleted_ids_region_;
-    MappedRegion             norms_region_;
     DataFileHeader           hdr_     = {};
     bool                     initialized_ = false;
     CompactIds               ids_;
     CompactIds               deleted_ids_;
-    const float*             norms_   = nullptr; // optional stored norms in mapped metadata
     DataType                 type_    = DataType::f32;
     size_t                   vector_size_ = 0;    // size of one vector in bytes
-    size_t                   norm_offset_ = 0;    // inline norm slot within one persisted record
+    size_t                   norm_offset_in_record_ = 0;    // inline norm slot within one persisted record
     size_t                   stride_  = 0;        // bytes between persisted vectors
     std::string              path_ = "<undefined>";
 
