@@ -208,7 +208,7 @@ After that, the search runs on one specialized path.
 
 The current compute layer is organized around:
 
-- `ScannerEx` as the facade used by higher-level callers
+- `Scanner` as the facade used by higher-level callers
 - backend-specific scanner and kernel implementations in `scanner_hw.cpp` and
   `scanner_nk.cpp`
 - shared scan helpers split by responsibility, such as

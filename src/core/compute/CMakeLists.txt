@@ -1,6 +1,6 @@
 set(COMPUTE_SOURCES
   compute_engine.cpp
-  scanner_ex.cpp
+  scanner.cpp
 )
 
 set(COMPUTE_UTEST_SOURCES

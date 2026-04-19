@@ -1,6 +1,6 @@
-// Implements the ScannerEx facade over engine-specific scanner backends.
+// Implements the Scanner facade over engine-specific scanner backends.
 
-#include "core/compute/scanner_ex.h"
+#include "core/compute/scanner.h"
 
 #include "core/compute/scanner_heap_utils.h"
 
@@ -22,9 +22,9 @@ const char* compute_engine_name(ComputeEngine engine) {
     }
 }
 
-ScannerEx::ScannerEx(ComputeEngine engine) : engine_(engine) {}
+Scanner::Scanner(ComputeEngine engine) : engine_(engine) {}
 
-Ret ScannerEx::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
+Ret Scanner::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const {
     result.clear();
     try {
@@ -37,7 +37,7 @@ Ret ScannerEx::find(const DatasetReader& dataset, size_t count, const uint8_t* v
     }
 }
 
-Ret ScannerEx::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
+Ret Scanner::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result, const BitsetFilter* bitset) const {
     result.clear();
     try {
@@ -51,7 +51,7 @@ Ret ScannerEx::find_items(const DatasetReader& dataset, size_t count, const uint
                 return find_items_nk(dataset, count, vec, &result, bitset);
 #endif
             default:
-                return Ret("ScannerEx::find_items: unsupported compute engine.");
+                return Ret("Scanner::find_items: unsupported compute engine.");
         }
     } catch (const std::exception& ex) {
         return Ret(ex.what());

@@ -12,12 +12,12 @@ namespace sketch2 {
 
 class DatasetReader;
 
-// ScannerEx provides the same top-k search as Scanner but delegates metric
+// Scanner provides the same top-k search as the legacy scanner but delegates metric
 // score computation to the compute engine layer instead of the
 // Singleton-dispatched hand-written SIMD kernels.
-class ScannerEx {
+class Scanner {
 public:
-    explicit ScannerEx(ComputeEngine engine = compiled_compute_engine());
+    explicit Scanner(ComputeEngine engine = compiled_compute_engine());
 
     Ret find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<uint64_t>& result) const;

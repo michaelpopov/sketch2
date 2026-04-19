@@ -1,5 +1,5 @@
 // Defines the compute-engine abstraction: an engine selector enum and a struct of
-// resolved distance-kernel function pointers. ScannerEx dispatches through
+// resolved distance-kernel function pointers. Scanner dispatches through
 // ComputeKernels so the scanning logic is completely decoupled from the concrete
 // SIMD library backend.
 
