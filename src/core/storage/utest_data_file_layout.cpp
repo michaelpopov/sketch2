@@ -60,6 +60,74 @@ TEST_F(DataFileLayoutTest, MakeDataHeaderSetsSquaredNormFlagWhenRequested) {
     EXPECT_EQ(kDataFileHasSquaredNorms, hdr.flags);
 }
 
+TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutF32Dim8MatchesIntendedV11StrideMath) {
+    const auto dot_layout = compute_data_record_layout(DataType::f32, 8, false);
+    EXPECT_EQ(8u * sizeof(float), dot_layout.vector_size);
+    EXPECT_EQ(8u * sizeof(float), dot_layout.norm_offset);
+    EXPECT_EQ(32u, dot_layout.stride);
+
+    const auto cos_layout = compute_data_record_layout(DataType::f32, 8, true);
+    EXPECT_EQ(8u * sizeof(float), cos_layout.vector_size);
+    EXPECT_EQ(8u * sizeof(float), cos_layout.norm_offset);
+    EXPECT_EQ(64u, cos_layout.stride);
+
+    const auto l2_layout = compute_data_record_layout(DataType::f32, 8, true);
+    EXPECT_EQ(cos_layout.vector_size, l2_layout.vector_size);
+    EXPECT_EQ(cos_layout.norm_offset, l2_layout.norm_offset);
+    EXPECT_EQ(cos_layout.stride, l2_layout.stride);
+}
+
+TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutF32Dim16MatchesIntendedV11StrideMath) {
+    const auto dot_layout = compute_data_record_layout(DataType::f32, 16, false);
+    EXPECT_EQ(16u * sizeof(float), dot_layout.vector_size);
+    EXPECT_EQ(16u * sizeof(float), dot_layout.norm_offset);
+    EXPECT_EQ(64u, dot_layout.stride);
+
+    const auto cos_layout = compute_data_record_layout(DataType::f32, 16, true);
+    EXPECT_EQ(16u * sizeof(float), cos_layout.vector_size);
+    EXPECT_EQ(16u * sizeof(float), cos_layout.norm_offset);
+    EXPECT_EQ(96u, cos_layout.stride);
+
+    const auto l2_layout = compute_data_record_layout(DataType::f32, 16, true);
+    EXPECT_EQ(cos_layout.vector_size, l2_layout.vector_size);
+    EXPECT_EQ(cos_layout.norm_offset, l2_layout.norm_offset);
+    EXPECT_EQ(cos_layout.stride, l2_layout.stride);
+}
+
+TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutNonAlignedVectorShapeKeepsNormInline) {
+    const auto dot_layout = compute_data_record_layout(DataType::f32, 5, false);
+    EXPECT_EQ(5u * sizeof(float), dot_layout.vector_size);
+    EXPECT_EQ(5u * sizeof(float), dot_layout.norm_offset);
+    EXPECT_EQ(32u, dot_layout.stride);
+
+    const auto cos_layout = compute_data_record_layout(DataType::f32, 5, true);
+    EXPECT_EQ(5u * sizeof(float), cos_layout.vector_size);
+    EXPECT_EQ(5u * sizeof(float), cos_layout.norm_offset);
+    EXPECT_EQ(32u, cos_layout.stride);
+
+    const auto l2_layout = compute_data_record_layout(DataType::f32, 5, true);
+    EXPECT_EQ(cos_layout.vector_size, l2_layout.vector_size);
+    EXPECT_EQ(cos_layout.norm_offset, l2_layout.norm_offset);
+    EXPECT_EQ(cos_layout.stride, l2_layout.stride);
+}
+
+TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutAlignsOddSizedI16NormSlot) {
+    const auto dot_layout = compute_data_record_layout(DataType::i16, 5, false);
+    EXPECT_EQ(10u, dot_layout.vector_size);
+    EXPECT_EQ(12u, dot_layout.norm_offset);
+    EXPECT_EQ(32u, dot_layout.stride);
+
+    const auto cos_layout = compute_data_record_layout(DataType::i16, 5, true);
+    EXPECT_EQ(10u, cos_layout.vector_size);
+    EXPECT_EQ(12u, cos_layout.norm_offset);
+    EXPECT_EQ(32u, cos_layout.stride);
+
+    const auto l2_layout = compute_data_record_layout(DataType::i16, 5, true);
+    EXPECT_EQ(cos_layout.vector_size, l2_layout.vector_size);
+    EXPECT_EQ(cos_layout.norm_offset, l2_layout.norm_offset);
+    EXPECT_EQ(cos_layout.stride, l2_layout.stride);
+}
+
 TEST_F(DataFileLayoutTest, ComputeMetadataLayoutAlignsIdsTrailerOffsetToRegionBoundary) {
     const auto hdr = make_data_header(0, 0, 0, 0, DataType::f32, 5);
     const auto layout = compute_data_metadata_layout(hdr, 1);

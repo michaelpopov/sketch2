@@ -10,6 +10,12 @@
 
 namespace sketch2 {
 
+struct DataRecordLayout {
+    size_t vector_size = 0;
+    size_t norm_offset = 0;
+    uint32_t stride = 0;
+};
+
 struct DataMetadataLayout {
     size_t vectors_bytes = 0;
     size_t vectors_padding = 0;
@@ -81,6 +87,19 @@ inline bool dataset_requires_stored_norms(DistFunc dist_func) {
 
 inline size_t compute_vector_size(DataType type, uint16_t dim) {
     return static_cast<size_t>(dim) * data_type_size(type);
+}
+
+inline DataRecordLayout compute_data_record_layout(DataType type, uint16_t dim, bool has_norms) {
+    const size_t vector_size = compute_vector_size(type, dim);
+    const size_t norm_offset = align_up<size_t>(vector_size, alignof(float));
+    const size_t norm_bytes = has_norms ? sizeof(float) : 0;
+
+    DataRecordLayout layout{};
+    layout.vector_size = vector_size;
+    layout.norm_offset = norm_offset;
+    layout.stride = static_cast<uint32_t>(align_up<size_t>(
+        norm_offset + norm_bytes, static_cast<size_t>(kDataAlignment)));
+    return layout;
 }
 
 inline uint32_t compute_vector_stride(size_t vec_size) {
