@@ -22,6 +22,7 @@ from common import (
     fmt_typed_vector,
     load_ground_truth,
     query_values_for_dist,
+    tree_size_bytes,
     validate_knn_results
 )
 
@@ -120,6 +121,7 @@ def write_repro_scripts(config, dist: str) -> None:
 
 def initial_diag_state(config, dist: str, query_vals: list[float | int], query_str: str) -> dict:
     dataset_name = f"{config.dataset}_{dist}"
+    dataset_dir = config.db_dir / dataset_name
     return {
         "status": "running",
         "stage": "initialized",
@@ -129,7 +131,8 @@ def initial_diag_state(config, dist: str, query_vals: list[float | int], query_s
         "db_dir": str(config.db_dir),
         "config_path": str(config.db_dir / "config.ini"),
         "dataset_name": dataset_name,
-        "dataset_dir": str(config.db_dir / dataset_name),
+        "dataset_dir": str(dataset_dir),
+        "dataset_size_bytes": tree_size_bytes(dataset_dir),
         "dataset_ini": str(config.db_dir / dataset_name / f"{dataset_name}.ini"),
         "ground_truth_path": str(config.db_dir / f"ground_truth_{dist}.json"),
         "repeat": config.repeat,
@@ -361,6 +364,7 @@ def run_single_distance(dist: str) -> None:
             print(f"Min Time:       {min_t:.6f}s")
             print(f"Max Time:       {max_t:.6f}s")
             print(f"Avg Time:       {avg_t:.6f}s")
+            print(f"Dataset Size:   {diag_state['dataset_size_bytes']} bytes")
             print(f"--------------------------")
 
 
