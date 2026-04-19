@@ -3,6 +3,7 @@
 #pragma once
 #include "core/storage/data_file.h"
 #include "utils/shared_types.h"
+#include <cassert>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
@@ -248,6 +249,7 @@ inline Ret write_data_record(FILE* f,
     const size_t bytes_before_norm = norm != nullptr
         ? layout.norm_offset - layout.vector_size
         : static_cast<size_t>(layout.stride) - layout.vector_size;
+    assert(bytes_before_norm <= sizeof(kZeroPadding));
     if (bytes_before_norm > sizeof(kZeroPadding)) {
         return Ret(context + ": invalid vector padding size");
     }
@@ -261,6 +263,7 @@ inline Ret write_data_record(FILE* f,
         }
         const size_t bytes_after_norm =
             static_cast<size_t>(layout.stride) - (layout.norm_offset + sizeof(float));
+        assert(bytes_after_norm <= sizeof(kZeroPadding));
         if (bytes_after_norm > sizeof(kZeroPadding)) {
             return Ret(context + ": invalid inline norm padding size");
         }

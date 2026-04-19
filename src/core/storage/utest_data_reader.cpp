@@ -590,6 +590,28 @@ TEST_F(DataReaderTest, AtReturnsNullForHiddenVector) {
     EXPECT_NE(nullptr, r.at(2));
 }
 
+TEST_F(DataReaderTest, GetNormThrowsForHiddenVector) {
+    GeneratorConfig cfg{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000};
+    generate_input_file(input_path_, cfg);
+    std::ofstream delta(delta_input_path_);
+    ASSERT_TRUE(delta.is_open());
+    delta << "f32,4\n"
+          << "1 : [ 11.0, 11.0, 11.0, 11.0 ]\n";
+    delta.close();
+
+    DataWriter w;
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, DistFunc::COS).code());
+    ASSERT_EQ(0, w.exec_for_testing(delta_input_path_, delta_path_, 0, 0, DistFunc::COS).code());
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
+    ASSERT_TRUE(r.has_norms());
+
+    EXPECT_NEAR(1.0 / std::sqrt(4.0 * 0.1 * 0.1), static_cast<double>(r.get_norm(0)), 1e-6);
+    EXPECT_THROW(static_cast<void>(r.get_norm(1)), std::logic_error);
+    EXPECT_NEAR(1.0 / std::sqrt(4.0 * 2.1 * 2.1), static_cast<double>(r.get_norm(2)), 1e-6);
+}
+
 TEST_F(DataReaderTest, AtF32VectorDataIsCorrect) {
     const size_t count = 4, min_id = 10, dim = 4;
     generate(count, min_id, DataType::f32, dim);

@@ -86,37 +86,18 @@ Ret write_vector_section(
         }
     };
 
-    if (binary_input) {
-        for (size_t i = 0; i < count; ++i) {
-            if (reader.is_no_data(i)) {
-                continue;
-            }
-
-            const uint8_t* vector_data = nullptr;
-            CHECK(reader.raw_data(i, &vector_data));
-            float norm_value = 0.0f;
-            float* norm_ptr = nullptr;
-            if (data_file_has_norms(hdr)) {
-                compute_norm(vector_data, &norm_value);
-                norm_ptr = &norm_value;
-            }
-            CHECK(write_data_record(
-                f,
-                vector_data,
-                record_layout,
-                norm_ptr,
-                "DataWriter: failed to write vector data at index " + std::to_string(i)));
-        }
-        return Ret(0);
-    }
-
     for (size_t i = 0; i < count; ++i) {
         if (reader.is_no_data(i)) {
             continue;
         }
 
-        CHECK(reader.data(i, buf.data(), buf.size()));
-        const uint8_t* vector_data = buf.data();
+        const uint8_t* vector_data = nullptr;
+        if (binary_input) {
+            CHECK(reader.raw_data(i, &vector_data));
+        } else {
+            CHECK(reader.data(i, buf.data(), buf.size()));
+            vector_data = buf.data();
+        }
         float norm_value = 0.0f;
         float* norm_ptr = nullptr;
         if (data_file_has_norms(hdr)) {

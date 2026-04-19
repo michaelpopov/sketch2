@@ -147,6 +147,9 @@ public:
         if (!data_file_has_norms(hdr_)) {
             throw std::logic_error("DataReader::get_norm: inline norms are absent");
         }
+        if (is_hidden(index)) {
+            throw std::logic_error("DataReader::get_norm: index points to hidden row");
+        }
         float value = 0.0f;
         std::memcpy(&value, vectors_region_.data() + index * stride_ + norm_offset_in_record_, sizeof(value));
         return value;
