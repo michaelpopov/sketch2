@@ -23,7 +23,7 @@ public:
 };
 
 Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-    std::vector<DistItem>* result, const BitsetFilter* bitset = nullptr);
+    std::vector<DistItem>* result, const BitsetFilter* bitset = nullptr, uint64_t query_id = 0);
 
 ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type);
 

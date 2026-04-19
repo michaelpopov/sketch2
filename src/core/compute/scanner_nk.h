@@ -23,7 +23,7 @@ public:
 };
 
 Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-    std::vector<DistItem>* result, const BitsetFilter* bitset = nullptr);
+    std::vector<DistItem>* result, const BitsetFilter* bitset = nullptr, uint64_t query_id = 0);
 
 ComputeKernels resolve_nk_kernels(DistFunc func, DataType type);
 bool nk_compute_uses_dynamic_dispatch();

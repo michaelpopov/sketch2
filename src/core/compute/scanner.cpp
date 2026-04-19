@@ -3,6 +3,7 @@
 #include "core/compute/scanner.h"
 
 #include "core/compute/scanner_heap_utils.h"
+#include "core/compute/scanner_log_utils.h"
 
 #if SKETCH_COMPUTE_ENGINE_HIGHWAY
 #include "core/compute/scanner_hw.h"
@@ -41,14 +42,15 @@ Ret Scanner::find_items(const DatasetReader& dataset, size_t count, const uint8_
         std::vector<DistItem>& result, const BitsetFilter* bitset) const {
     result.clear();
     try {
+        const uint64_t query_id = next_scanner_query_id();
         switch (engine_) {
 #if SKETCH_COMPUTE_ENGINE_HIGHWAY
             case ComputeEngine::highway:
-                return find_items_hw(dataset, count, vec, &result, bitset);
+                return find_items_hw(dataset, count, vec, &result, bitset, query_id);
 #endif
 #if SKETCH_COMPUTE_ENGINE_NUMKONG
             case ComputeEngine::numkong:
-                return find_items_nk(dataset, count, vec, &result, bitset);
+                return find_items_nk(dataset, count, vec, &result, bitset, query_id);
 #endif
             default:
                 return Ret("Scanner::find_items: unsupported compute engine.");

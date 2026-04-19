@@ -360,7 +360,7 @@ double nk_dist_cos_qn_f16(const uint8_t* a, const uint8_t* b, size_t dim, double
 }
 
 Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>* result, const BitsetFilter* bitset) {
+        std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
     if (vec == nullptr || count == 0 || result == nullptr) {
         return Ret("ScannerNk::find_items: invalid arguments.");
     }
@@ -372,6 +372,12 @@ Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t
     const DistFunc func = dataset.dist_func();
     const size_t dim = dataset.dim();
     const ComputeKernels kernels = resolve_nk_kernels(func, dataset.type());
+    if (query_id == 0) {
+        query_id = next_scanner_query_id();
+    }
+    log_query_start(query_id, dataset.name(), func, dataset.type(), dim, count,
+        ComputeEngine::numkong, bitset != nullptr, nk_compute_backend_name(func, dataset.type()),
+        nk_compute_compiled_capabilities(), nk_compute_available_capabilities());
 
     DistHeap heap(DistItemCompare{func});
     heap.reserve(count);
@@ -380,32 +386,37 @@ Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t
     if (func == DistFunc::COS) {
         assert(kernels.squared_norm && kernels.dot && kernels.dist_with_query_norm);
         const double query_norm_sq = kernels.squared_norm(vec, dim);
+        log_query_branch(query_id, "cos_with_optional_norms", query_norm_sq, query_norm_sq == 0.0);
         const QueryCosContext query{vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)};
         CHECK(scan_dataset_heap_with_optional_cosine_norms(
-            dataset, count, &heap, kernels.dot, kernels.dist_with_query_norm,
+            query_id, dataset, count, &heap, kernels.dot, kernels.dist_with_query_norm,
             query, func, bitset));
     } else if (func == DistFunc::L2 && kernels.squared_norm && kernels.dot) {
         assert(kernels.dist);
-        const QueryL2Context query{vec, dim, kernels.squared_norm(vec, dim)};
+        const double query_norm_sq = kernels.squared_norm(vec, dim);
+        log_query_branch(query_id, "l2_with_optional_norms", query_norm_sq, query_norm_sq == 0.0);
+        const QueryL2Context query{vec, dim, query_norm_sq};
         CHECK(scan_dataset_heap_with_optional_l2_norms(
-            dataset, count, &heap, kernels.dot, kernels.dist, query, func, bitset));
+            query_id, dataset, count, &heap, kernels.dot, kernels.dist, query, func, bitset));
     } else {
         assert(kernels.dist);
+        log_query_branch(query_id, "raw_dist");
         const QueryDistContext query{vec, dim};
         CHECK(scan_dataset_heap_with_dist(
-            dataset, count, &heap, kernels.dist, query, func, bitset));
+            query_id, dataset, count, &heap, kernels.dist, query, func, bitset));
     }
 
-    log_query(dataset.name(), func, dataset.type(), dim, count, ComputeEngine::numkong, timer.elapsed_ms());
     extract_items(&heap, result);
+    log_query_finish(query_id, dataset.name(), func, dataset.type(), dim, count,
+        ComputeEngine::numkong, timer.elapsed_ms(), *result);
     return Ret(0);
 }
 
 } // namespace
 
 Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>* result, const BitsetFilter* bitset) {
-    return find_items_nk_impl(dataset, count, vec, result, bitset);
+        std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
+    return find_items_nk_impl(dataset, count, vec, result, bitset, query_id);
 }
 
 bool nk_compute_uses_dynamic_dispatch() {
@@ -525,7 +536,7 @@ Ret ScannerNk::find_items(const DatasetReader& dataset, size_t count, const uint
         std::vector<DistItem>& result, const BitsetFilter* bitset) const {
     result.clear();
     try {
-        return find_items_nk(dataset, count, vec, &result, bitset);
+        return find_items_nk(dataset, count, vec, &result, bitset, next_scanner_query_id());
     } catch (const std::exception& ex) {
         return Ret(ex.what());
     }
