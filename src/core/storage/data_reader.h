@@ -72,7 +72,7 @@ public:
             }
 
             if (source_ == Source::Base) {
-                return reader_->at(index_);
+                return reader_->at_unchecked_(index_);
             }
 
             return reader_->delta_->at(index_);
@@ -172,6 +172,13 @@ public:
     bool has_delta() const { return delta_ != nullptr; }
 
 private:
+    inline const uint8_t* at_unchecked_(size_t index) const {
+        if (index >= count()) {
+            throw std::out_of_range("DataReader::at_unchecked_: index out of range");
+        }
+        return vectors_region_.data() + index * stride_;
+    }
+
     MappedRegion             vectors_region_;
     MappedRegion             ids_region_;
     MappedRegion             deleted_ids_region_;

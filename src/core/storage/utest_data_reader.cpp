@@ -838,6 +838,27 @@ TEST_F(DataReaderTest, BaseBeginReturnsVisibleBaseIdsInSortedOrder) {
     EXPECT_EQ((std::vector<uint64_t> {10u, 13u}), seen_ids);
 }
 
+TEST_F(DataReaderTest, BaseBeginDataReturnsVisibleBaseRows) {
+    generate(4, 10, DataType::f32, 4);
+    write_raw_to_data_file(
+        delta_input_path_, delta_path_,
+        "f32,4\n"
+        "11 : []\n"
+        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
+
+    auto it = r.base_begin();
+    ASSERT_FALSE(it.eof());
+    EXPECT_EQ(r.at(0), it.data());
+    it.next();
+    ASSERT_FALSE(it.eof());
+    EXPECT_EQ(r.at(3), it.data());
+    it.next();
+    EXPECT_TRUE(it.eof());
+}
+
 TEST_F(DataReaderTest, DeltaBeginReturnsDeltaIdsInSortedOrder) {
     generate(4, 10, DataType::f32, 4);
     write_raw_to_data_file(
