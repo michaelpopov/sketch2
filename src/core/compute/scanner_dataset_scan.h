@@ -21,8 +21,7 @@ namespace sketch2 {
 inline void merge_reader_local_heap_into_final_heap(
         DistHeapEx* local_heap, uint64_t heap_base_id, size_t count, DistHeap* final_heap) {
     while (!local_heap->empty()) {
-        const DistItemEx item = local_heap->top();
-        local_heap->pop();
+        const DistItemEx item = local_heap->pop_top();
         push_result(final_heap, count, item.id + heap_base_id, item.score);
     }
 }
