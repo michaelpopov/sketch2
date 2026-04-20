@@ -60,6 +60,17 @@ protected:
         std::ofstream f(config_path_);
         f << content;
     }
+
+    DataFileHeader read_header(const std::string& path) {
+        DataFileHeader hdr{};
+        FILE* f = fopen(path.c_str(), "rb");
+        if (f != nullptr) {
+            const auto read = fread(&hdr, sizeof(hdr), 1, f);
+            (void)read;
+            fclose(f);
+        }
+        return hdr;
+    }
 };
 
 class TestDatasetReader : public DatasetReader {
@@ -117,6 +128,37 @@ TEST_F(DatasetTest, InitFromIniSectionKeysWorks) {
     EXPECT_TRUE(fs::exists(dir0 + "/0.data"));
     EXPECT_TRUE(fs::exists(dir1 + "/1.data"));
     EXPECT_TRUE(fs::exists(dir0 + "/2.data"));
+}
+
+TEST_F(DatasetTest, DataAndDeltaShareSameMinRangeId) {
+    auto dir = make_dir("d0");
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({dir}, 100, DataType::f32, 4).code());
+
+    write_input(
+        "f32,4\n"
+        "110 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "111 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "112 : [ 1.0, 0.0, 0.0, 0.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    write_input(
+        "f32,4\n"
+        "101 : [ 2.0, 0.0, 0.0, 0.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    const std::string data_path = file_path(dir, 1, ".data");
+    const std::string delta_path = file_path(dir, 1, ".delta");
+    ASSERT_TRUE(fs::exists(data_path));
+    ASSERT_TRUE(fs::exists(delta_path));
+
+    const DataFileHeader data_hdr = read_header(data_path);
+    const DataFileHeader delta_hdr = read_header(delta_path);
+    EXPECT_EQ(100u, data_hdr.min_range_id);
+    EXPECT_EQ(100u, delta_hdr.min_range_id);
+    EXPECT_EQ(110u, data_hdr.min_id);
+    EXPECT_EQ(101u, delta_hdr.min_id);
 }
 
 TEST_F(DatasetTest, StoreProcessesIndependentRangesThroughConfiguredThreadPool) {

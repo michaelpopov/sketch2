@@ -129,6 +129,11 @@ public:
     DataType type() const;
     size_t dim() const;
     size_t size() const;  // size of one vector in bytes
+    uint64_t min_range_id() const;
+    inline uint64_t min_range_id_unchecked() const {
+        assert(initialized_);
+        return hdr_.min_range_id;
+    }
     size_t stride() const { return stride_; } // distance between persisted vector records in bytes
     inline size_t count() const { // number of vectors
         if (!initialized_) {

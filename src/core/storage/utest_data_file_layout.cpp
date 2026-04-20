@@ -28,13 +28,14 @@ protected:
 };
 
 TEST_F(DataFileLayoutTest, MakeDataHeaderSetsExpectedFields) {
-    const auto hdr = make_data_header(10, 20, 7, 2, DataType::f32, 64);
+    const auto hdr = make_data_header(10, 20, 10, 7, 2, DataType::f32, 64);
     const auto record_layout = compute_data_record_layout(DataType::f32, 64, false);
     EXPECT_EQ(kMagic, hdr.base.magic);
     EXPECT_EQ(static_cast<uint16_t>(FileType::Data), hdr.base.kind);
     EXPECT_EQ(kVersion, hdr.base.version);
     EXPECT_EQ(10u, hdr.min_id);
     EXPECT_EQ(20u, hdr.max_id);
+    EXPECT_EQ(10u, hdr.min_range_id);
     EXPECT_EQ(7u, hdr.count);
     EXPECT_EQ(2u, hdr.deleted_count);
     EXPECT_EQ(data_type_to_int(DataType::f32), hdr.type);
@@ -48,7 +49,7 @@ TEST_F(DataFileLayoutTest, MakeDataHeaderSetsExpectedFields) {
 
 TEST_F(DataFileLayoutTest, MakeDataHeaderSetsCosineNormFlagWhenRequested) {
     const auto hdr = make_data_header(
-        10, 20, 7, 2, DataType::f32, 64, data_file_norm_flags_for_dist(DistFunc::COS));
+        10, 20, 10, 7, 2, DataType::f32, 64, data_file_norm_flags_for_dist(DistFunc::COS));
     EXPECT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
     EXPECT_EQ(kDataFileHasCosineInvNorms, hdr.flags);
@@ -56,7 +57,7 @@ TEST_F(DataFileLayoutTest, MakeDataHeaderSetsCosineNormFlagWhenRequested) {
 
 TEST_F(DataFileLayoutTest, MakeDataHeaderSetsSquaredNormFlagWhenRequested) {
     const auto hdr = make_data_header(
-        10, 20, 7, 2, DataType::f32, 64, data_file_norm_flags_for_dist(DistFunc::L2));
+        10, 20, 10, 7, 2, DataType::f32, 64, data_file_norm_flags_for_dist(DistFunc::L2));
     EXPECT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_squared_norms(hdr));
     EXPECT_EQ(kDataFileHasSquaredNorms, hdr.flags);
@@ -131,7 +132,7 @@ TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutAlignsOddSizedI16NormSlot) {
 }
 
 TEST_F(DataFileLayoutTest, ComputeMetadataLayoutAlignsIdsTrailerOffsetToRegionBoundary) {
-    const auto hdr = make_data_header(0, 0, 0, 0, DataType::f32, 5);
+    const auto hdr = make_data_header(0, 0, 0, 0, 0, DataType::f32, 5);
     const auto layout = compute_data_metadata_layout(hdr, 1);
     EXPECT_EQ(static_cast<size_t>(hdr.vector_stride), layout.vectors_bytes);
     EXPECT_EQ(0u, layout.ids_trailer_offset % kDataRegionAlignment);
@@ -142,7 +143,7 @@ TEST_F(DataFileLayoutTest, ComputeMetadataLayoutAlignsIdsTrailerOffsetToRegionBo
 
 TEST_F(DataFileLayoutTest, ComputeMetadataLayoutKeepsInlineNormsAndPlacesIdsAfterVectors) {
     const auto hdr = make_data_header(
-        0, 0, 0, 0, DataType::f32, 5, data_file_norm_flags_for_dist(DistFunc::COS));
+        0, 0, 0, 0, 0, DataType::f32, 5, data_file_norm_flags_for_dist(DistFunc::COS));
     const auto layout = compute_data_metadata_layout(hdr, 3);
     EXPECT_EQ(0u, layout.ids_trailer_offset % kDataRegionAlignment);
     EXPECT_EQ(layout.ids_trailer_offset,
@@ -151,7 +152,7 @@ TEST_F(DataFileLayoutTest, ComputeMetadataLayoutKeepsInlineNormsAndPlacesIdsAfte
 
 TEST_F(DataFileLayoutTest, SetDataHeaderLayoutComputesVectorAndIdsSections) {
     auto hdr = make_data_header(
-        10, 20, 3, 1, DataType::f32, 8, data_file_norm_flags_for_dist(DistFunc::COS));
+        10, 20, 10, 3, 1, DataType::f32, 8, data_file_norm_flags_for_dist(DistFunc::COS));
     ASSERT_EQ(0, set_data_header_layout(&hdr, 48, 16).code());
     EXPECT_EQ(hdr.data_offset + static_cast<uint64_t>(hdr.count) * hdr.vector_stride, hdr.data_offset + hdr.vectors_bytes);
     EXPECT_EQ(compute_data_region_offset(static_cast<size_t>(hdr.data_offset) + hdr.vectors_bytes), hdr.ids_offset);
@@ -172,7 +173,7 @@ TEST_F(DataFileLayoutTest, WriteZeroPaddingWritesRequestedZeros) {
 }
 
 TEST_F(DataFileLayoutTest, WriteHeaderAndDataPaddingProducesAlignedDataOffset) {
-    const auto hdr = make_data_header(1, 3, 2, 0, DataType::i16, 4);
+    const auto hdr = make_data_header(1, 3, 1, 2, 0, DataType::i16, 4);
     FILE* f = fopen(path_.c_str(), "wb");
     ASSERT_NE(nullptr, f);
     ASSERT_EQ(0, write_header_and_data_padding(f, hdr, "ctx").code());
@@ -185,7 +186,7 @@ TEST_F(DataFileLayoutTest, WriteHeaderAndDataPaddingProducesAlignedDataOffset) {
 }
 
 TEST_F(DataFileLayoutTest, RewriteHeaderOverwritesExistingHeader) {
-    auto hdr = make_data_header(1, 3, 2, 0, DataType::f32, 4);
+    auto hdr = make_data_header(1, 3, 1, 2, 0, DataType::f32, 4);
     FILE* f = fopen(path_.c_str(), "wb+");
     ASSERT_NE(nullptr, f);
     ASSERT_EQ(0, write_header_and_data_padding(f, hdr, "ctx").code());

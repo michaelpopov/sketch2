@@ -259,6 +259,7 @@ Ret DataReader::validate_delta_(const std::unique_ptr<DataReader>& delta) const 
     if (type_ != delta->type_) return Ret("DataReader: invalid delta type");
     if (vector_size_ != delta->vector_size_) return Ret("DataReader: invalid delta dim");
     if (stride_ != delta->stride_) return Ret("DataReader: invalid delta stride");
+    if (hdr_.min_range_id != delta->hdr_.min_range_id) return Ret("DataReader: invalid delta min_range_id");
     if (norm_offset_in_record_ != delta->norm_offset_in_record_) {
         return Ret("DataReader: invalid delta norm layout");
     }
@@ -390,6 +391,7 @@ void DataReader::assert_invariants_() const {
         assert(type_ == delta_->type());
         assert(vector_size_ == delta_->size());
         assert(stride_ == delta_->stride());
+        assert(hdr_.min_range_id == delta_->hdr_.min_range_id);
         assert(norm_offset_in_record_ == delta_->norm_offset_in_record_);
         assert(norm_flags() == delta_->norm_flags());
     } else {
@@ -418,6 +420,13 @@ size_t DataReader::size() const {
         throw std::runtime_error("DataReader::size: reader is not initialized");
     }
     return vector_size_;
+}
+
+uint64_t DataReader::min_range_id() const {
+    if (!initialized_) {
+        throw std::runtime_error("DataReader::min_range_id: reader is not initialized");
+    }
+    return hdr_.min_range_id;
 }
 
 uint32_t DataReader::norm_flags() const {

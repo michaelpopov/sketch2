@@ -118,6 +118,7 @@ inline size_t compute_deleted_ids_padding(size_t ids_offset, size_t active_ids_b
 }
 
 inline DataFileHeader make_data_header(uint64_t min_id, uint64_t max_id,
+                                       uint64_t min_range_id,
                                        uint32_t count, uint32_t deleted_count,
                                        DataType type, uint16_t dim,
                                        uint32_t norm_flags = 0u) {
@@ -127,6 +128,7 @@ inline DataFileHeader make_data_header(uint64_t min_id, uint64_t max_id,
     hdr.base.version = kVersion;
     hdr.min_id = min_id;
     hdr.max_id = max_id;
+    hdr.min_range_id = min_range_id;
     hdr.count = count;
     hdr.deleted_count = deleted_count;
     hdr.type = static_cast<uint16_t>(data_type_to_int(type));

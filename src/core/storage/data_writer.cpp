@@ -29,6 +29,21 @@ struct IdStats {
     uint32_t deleted_count = 0;
 };
 
+Ret validate_active_range_u32(const IdStats& stats, uint64_t min_range_id) {
+    if (stats.active_count == 0) {
+        return Ret(0);
+    }
+
+    if (stats.min_id < min_range_id) {
+        return Ret("DataWriter: active ids: min id is below min_range_id");
+    }
+    if (stats.max_id - min_range_id > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+        return Ret("DataWriter: data file range exceeds uint32_t");
+    }
+
+    return Ret(0);
+}
+
 Ret scan_ids(const InputReaderView& reader, IdStats* stats) {
     const size_t count = reader.count();
     uint64_t prev_id = 0;
@@ -166,7 +181,7 @@ Ret finalize_output_file(FILE* f) {
 } // namespace
 
 Ret DataWriter::exec_for_testing(const std::string& input_path, const std::string& output_path,
-    uint64_t start, uint64_t end, DistFunc dist_func) {
+    uint64_t min_range_id, uint64_t start, uint64_t end, DistFunc dist_func) {
     if (input_path.empty()) {
         return Ret("Input path is not set.");
     }
@@ -181,17 +196,15 @@ Ret DataWriter::exec_for_testing(const std::string& input_path, const std::strin
     CHECK(source.init(input_path));
 
     InputReaderView reader(source, start, end);
-    Ret ret = write(reader, output_path, dist_func);
+    Ret ret = write(reader, output_path, dist_func, min_range_id);
 
     LOG_INFO << "DataWriter completed exec_for_testing for " << output_path
              << " in " << timer.elapsed_ms() << " ms";
     return ret;
 }
 
-// Converts a sorted text-or-binary input view into the binary on-disk data-file format.
-// It separates live ids from deletions, streams vectors into the aligned data
-// section, and then appends both id tables.
-Ret DataWriter::write(const InputReaderView& reader, const std::string& output_path, DistFunc dist_func) {
+Ret DataWriter::write(const InputReaderView& reader, const std::string& output_path, DistFunc dist_func,
+        uint64_t min_range_id) {
     const size_t count = reader.count();
     if (count == 0) {
         return Ret("Invalid count of vectors in reader.");
@@ -199,6 +212,7 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
 
     IdStats stats;
     CHECK(scan_ids(reader, &stats));
+    CHECK(validate_active_range_u32(stats, min_range_id));
 
     CompactIds active_ids;
     CompactIds deleted_ids;
@@ -220,6 +234,7 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     DataFileHeader hdr = make_data_header(
         stats.min_id,
         stats.max_id,
+        min_range_id,
         stats.active_count,
         stats.deleted_count,
         reader.type(),

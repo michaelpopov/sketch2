@@ -61,7 +61,7 @@ public:
 
         set_merge_file_buffer(f_, &file_buffer_);
         header_ = make_data_header(
-            0, 0, 0, 0, source.type(), static_cast<uint16_t>(source.dim()), norm_flags);
+            0, 0, source.min_range_id(), 0, 0, source.type(), static_cast<uint16_t>(source.dim()), norm_flags);
         Ret ret = write_header_and_data_padding(f_, header_, context);
         if (ret.code() != 0) {
             fclose(f_);
@@ -106,6 +106,7 @@ public:
         : f_(f),
           type_(data_type_from_int(static_cast<int>(header.type))),
           dim_(header.dim),
+          min_range_id_(header.min_range_id),
           record_layout_(compute_data_record_layout(type_, dim_, data_file_has_norms(header))),
           context_(context),
           norms_enabled_(data_file_has_norms(header)) {}
@@ -125,6 +126,12 @@ public:
     // The ids are buffered here until those trailing sections are written
     // after all rows.
     Ret write_binary_record(uint64_t id, const uint8_t* data, float norm) {
+        if (id < min_range_id_) {
+            return Ret(std::string(context_) + ": active ids: id is below min_range_id");
+        }
+        if (id - min_range_id_ > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+            return Ret(std::string(context_) + ": active ids: data file range exceeds uint32_t");
+        }
         if (!output_ids_initialized_) {
             output_ids_.init(id, output_ids_capacity_);
             output_ids_min_ = id;
@@ -133,9 +140,6 @@ public:
         } else {
             if (id <= output_ids_max_) {
                 return Ret(std::string(context_) + ": active ids: ids must be strictly increasing");
-            }
-            if (id - output_ids_min_ > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
-                return Ret(std::string(context_) + ": active ids: id range exceeds uint32_t");
             }
             output_ids_max_ = id;
         }
@@ -203,6 +207,7 @@ private:
     FILE* f_ = nullptr;
     DataType type_ = DataType::f32;
     uint16_t dim_ = 0;
+    uint64_t min_range_id_ = 0;
     DataRecordLayout record_layout_{};
     const char* context_ = "";
     bool norms_enabled_ = false;

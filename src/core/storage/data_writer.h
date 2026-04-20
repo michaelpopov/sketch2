@@ -15,9 +15,10 @@ class DatasetWriter;
 class DataWriter {
 public:
     Ret exec_for_testing(const std::string& input_path, const std::string& output_path,
-        uint64_t start = 0, uint64_t end = 0, DistFunc dist_func = DistFunc::DOT);
+        uint64_t min_range_id, uint64_t start = 0, uint64_t end = 0, DistFunc dist_func = DistFunc::DOT);
 
-    Ret write(const InputReaderView& reader, const std::string& output_path, DistFunc dist_func);
+    Ret write(const InputReaderView& reader, const std::string& output_path, DistFunc dist_func,
+        uint64_t min_range_id);
 };
 
 } // namespace sketch2

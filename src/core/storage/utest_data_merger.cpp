@@ -63,7 +63,8 @@ protected:
                         const std::vector<uint64_t>& deleted,
                         uint16_t dim = kDim,
                         bool has_norms = false,
-                        DistFunc stored_norm_dist_func = DistFunc::COS) {
+                        DistFunc stored_norm_dist_func = DistFunc::COS,
+                        uint64_t min_range_id = 0) {
         std::vector<uint64_t> active_ids;
         active_ids.reserve(active.size());
         for (const auto& item : active) {
@@ -75,6 +76,7 @@ protected:
         DataFileHeader hdr = make_data_header(
             active.empty() ? 0 : active.front().first,
             active.empty() ? 0 : active.back().first,
+            min_range_id,
             static_cast<uint32_t>(active.size()),
             static_cast<uint32_t>(deleted.size()),
             DataType::f32,
@@ -146,7 +148,8 @@ protected:
                         const std::vector<uint64_t>& deleted,
                         uint16_t dim = kDim,
                         bool has_norms = false,
-                        DistFunc stored_norm_dist_func = DistFunc::COS) {
+                        DistFunc stored_norm_dist_func = DistFunc::COS,
+                        uint64_t min_range_id = 0) {
         std::vector<uint64_t> active_ids;
         active_ids.reserve(active.size());
         for (const auto& item : active) {
@@ -158,6 +161,7 @@ protected:
         DataFileHeader hdr = make_data_header(
             active.empty() ? 0 : active.front().first,
             active.empty() ? 0 : active.back().first,
+            min_range_id,
             static_cast<uint32_t>(active.size()),
             static_cast<uint32_t>(deleted.size()),
             DataType::i16,
@@ -827,7 +831,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsActiveIdSpanBeyondCompac
     const Ret ret = merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT);
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
-              ret.message().find("active ids: id range exceeds uint32_t"));
+              ret.message().find("active ids: data file range exceeds uint32_t"));
     EXPECT_FALSE(fs::exists(out_path));
 }
 

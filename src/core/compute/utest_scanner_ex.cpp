@@ -48,6 +48,18 @@ Ret find_ids(const Scanner& scanner, const DatasetReader& dataset, size_t count,
     return ret;
 }
 
+void extract_absolute_reader_heap_items(const DataReader& reader, DistHeapEx* heap,
+        std::vector<DistItem>* result) {
+    std::vector<DistItemEx> local_items;
+    extract_items_ex(heap, &local_items);
+    result->clear();
+    result->reserve(local_items.size());
+    const uint64_t heap_base_id = reader_heap_base_id(reader);
+    for (const DistItemEx& item : local_items) {
+        result->push_back(DistItem{item.id + heap_base_id, item.score});
+    }
+}
+
 double counting_f32_dot(const uint8_t* a, const uint8_t* b, size_t dim) {
     ++g_counting_dot_calls;
     const auto* aa = reinterpret_cast<const float*>(a);
@@ -94,7 +106,7 @@ protected:
     void generate_file(const std::string& in_path, const std::string& out_path, const GeneratorConfig& cfg) {
         generate_input_file(in_path, cfg);
         DataWriter w;
-        ASSERT_EQ(0, w.exec_for_testing(in_path, out_path).code());
+        ASSERT_EQ(0, w.exec_for_testing(in_path, out_path, 0).code());
     }
 
     void generate(size_t count, size_t min_id, DataType type, size_t dim) {
@@ -112,7 +124,7 @@ protected:
         f << content;
         f.close();
         DataWriter w;
-        ASSERT_EQ(0, w.exec_for_testing(delta_input_path_, delta_path_).code());
+        ASSERT_EQ(0, w.exec_for_testing(delta_input_path_, delta_path_, 0).code());
     }
 
     void write_input_raw(const std::string& path, const std::string& content) {
@@ -796,14 +808,14 @@ TEST_F(ScannerTest, L2StoredNormScanSkipsDotWhenNormLowerBoundCannotBeatHeap) {
 
     const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     const QueryL2Context query{q.data(), 4, 1.0};
-    DistHeap heap(DistItemCompare{DistFunc::L2});
+    DistHeapEx heap(DistItemExCompare{DistFunc::L2});
     heap.reserve(1);
 
     g_counting_dot_calls = 0;
     scan_data_reader_with_l2_stored_norms<counting_f32_dot>(reader, 1, &heap, query);
 
     std::vector<DistItem> result;
-    extract_items(&heap, &result);
+    extract_absolute_reader_heap_items(reader, &heap, &result);
 
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(10u, result[0].id);
@@ -833,14 +845,14 @@ TEST_F(ScannerTest, L2StoredNormScanRefreshesCachedBoundsWhenHeapThresholdTighte
 
     const auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
     const QueryL2Context query{q.data(), 4, 0.0};
-    DistHeap heap(DistItemCompare{DistFunc::L2});
+    DistHeapEx heap(DistItemExCompare{DistFunc::L2});
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
     scan_data_reader_with_l2_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
-    extract_items(&heap, &result);
+    extract_absolute_reader_heap_items(reader, &heap, &result);
 
     ASSERT_EQ(2u, result.size());
     EXPECT_EQ(20u, result[0].id);
@@ -871,14 +883,14 @@ TEST_F(ScannerTest, CosStoredNormScanSkipsDotForZeroStoredVector) {
     const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     const double query_norm_sq = 1.0;
     const QueryCosContext query{q.data(), 4, query_norm_sq, query_inverse_norm(query_norm_sq)};
-    DistHeap heap(DistItemCompare{DistFunc::COS});
+    DistHeapEx heap(DistItemExCompare{DistFunc::COS});
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
     scan_data_reader_with_cos_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
-    extract_items(&heap, &result);
+    extract_absolute_reader_heap_items(reader, &heap, &result);
 
     ASSERT_EQ(2u, result.size());
     EXPECT_EQ(20u, result[0].id);
@@ -909,14 +921,14 @@ TEST_F(ScannerTest, CosStoredNormScanTreatsBothZeroVectorsAsExactMatchWithoutDot
     const auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
     const double query_norm_sq = 0.0;
     const QueryCosContext query{q.data(), 4, query_norm_sq, query_inverse_norm(query_norm_sq)};
-    DistHeap heap(DistItemCompare{DistFunc::COS});
+    DistHeapEx heap(DistItemExCompare{DistFunc::COS});
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
     scan_data_reader_with_cos_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
-    extract_items(&heap, &result);
+    extract_absolute_reader_heap_items(reader, &heap, &result);
 
     ASSERT_EQ(2u, result.size());
     EXPECT_EQ(10u, result[0].id);
@@ -961,7 +973,7 @@ TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     DataWriter writer;
-    ASSERT_EQ(0, writer.exec_for_testing(input_path_, d + "/0.data").code());
+    ASSERT_EQ(0, writer.exec_for_testing(input_path_, d + "/0.data", 0).code());
 
     DatasetNode ds;
     ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::COS).code());
@@ -1003,7 +1015,7 @@ TEST_F(ScannerTest, FindDatasetL2RejectsFilesMissingStoredNorms) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     DataWriter writer;
-    ASSERT_EQ(0, writer.exec_for_testing(input_path_, d + "/0.data").code());
+    ASSERT_EQ(0, writer.exec_for_testing(input_path_, d + "/0.data", 0).code());
 
     DatasetNode ds;
     ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::L2).code());
@@ -1101,6 +1113,37 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
     ASSERT_EQ(0, find_ids(s, ds, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(0u, result[0]);
+}
+
+TEST_F(ScannerTest, FindDatasetHandlesDeltaIdBelowBaseMinId) {
+    std::string d = tmp_dir() + "/sketch2_utest_scanner_ex_delta_low_id_" + std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::L2).code());
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+        "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n"
+        "12 : [ 12.0, 12.0, 12.0, 12.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "1 : [ 0.0, 0.0, 0.0, 0.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
+
+    Scanner s = make_compiled_scanner();
+    auto q = f32_vec(0.0f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, ds, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(1u, result[0]);
 }
 
 // ---------------------------------------------------------------------------

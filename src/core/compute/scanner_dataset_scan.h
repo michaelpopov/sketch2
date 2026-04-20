@@ -18,6 +18,15 @@
 
 namespace sketch2 {
 
+inline void merge_reader_local_heap_into_final_heap(
+        DistHeapEx* local_heap, uint64_t heap_base_id, size_t count, DistHeap* final_heap) {
+    while (!local_heap->empty()) {
+        const DistItemEx item = local_heap->top();
+        local_heap->pop();
+        push_result(final_heap, count, item.id + heap_base_id, item.score);
+    }
+}
+
 inline Ret collect_dataset_readers(const DatasetReader& dataset, uint64_t query_id,
         std::vector<DataReaderPtr>* readers) {
     readers->clear();
@@ -48,17 +57,29 @@ inline Ret scan_dataset_readers(uint64_t query_id, const std::vector<DataReaderP
     log_dataset_scan_mode(query_id, readers.size(), has_thread_pool, uses_parallel, bitset != nullptr);
 
     if (!uses_parallel) {
-        for (const auto& reader : readers) {
-            scan_reader(*reader, count, heap, bitset);
+        if (readers.size() == 1) {
+            DistHeapEx local_heap(DistItemExCompare{func});
+            local_heap.reserve(count);
+            scan_reader(*readers[0], count, &local_heap, bitset);
+            rebuild_final_heap_from_local_heap(&local_heap, reader_heap_base_id(*readers[0]), heap);
+            return Ret(0);
+        }
+
+        for (size_t i = 0; i < readers.size(); ++i) {
+            DistHeapEx local_heap(DistItemExCompare{func});
+            local_heap.reserve(count);
+            scan_reader(*readers[i], count, &local_heap, bitset);
+            merge_reader_local_heap_into_final_heap(
+                &local_heap, reader_heap_base_id(*readers[i]), count, heap);
         }
         return Ret(0);
     }
 
-    std::vector<std::future<DistHeap>> futures;
+    std::vector<std::future<DistHeapEx>> futures;
     futures.reserve(readers.size());
     for (const auto& reader : readers) {
         futures.push_back(pool->submit([scan_reader, count, reader, func, bitset]() {
-            DistHeap local_heap(DistItemCompare{func});
+            DistHeapEx local_heap(DistItemExCompare{func});
             local_heap.reserve(count);
             scan_reader(*reader, count, &local_heap, bitset);
             return local_heap;
@@ -66,20 +87,16 @@ inline Ret scan_dataset_readers(uint64_t query_id, const std::vector<DataReaderP
     }
 
     std::exception_ptr first_error;
-    std::vector<DistItem> merged_candidates;
-    if (readers.size() <= (std::numeric_limits<size_t>::max() / count)) {
-        merged_candidates.reserve(readers.size() * count);
-    }
-    for (auto& fut : futures) {
+    size_t merged_candidates = 0;
+    for (size_t i = 0; i < futures.size(); ++i) {
         try {
-            DistHeap local_heap = fut.get();
+            DistHeapEx local_heap = futures[i].get();
             if (first_error != nullptr) {
                 continue;
             }
-            while (!local_heap.empty()) {
-                merged_candidates.push_back(local_heap.top());
-                local_heap.pop();
-            }
+            merged_candidates += local_heap.size();
+            merge_reader_local_heap_into_final_heap(
+                &local_heap, reader_heap_base_id(*readers[i]), count, heap);
         } catch (...) {
             if (first_error == nullptr) {
                 first_error = std::current_exception();
@@ -90,21 +107,7 @@ inline Ret scan_dataset_readers(uint64_t query_id, const std::vector<DataReaderP
     if (first_error != nullptr) {
         std::rethrow_exception(first_error);
     }
-
-    if (merged_candidates.size() > count) {
-        const DistItemCompare better(func);
-        std::nth_element(
-            merged_candidates.begin(),
-            merged_candidates.begin() + count,
-            merged_candidates.end(),
-            better);
-        merged_candidates.resize(count);
-    }
-
-    for (const auto& item : merged_candidates) {
-        push_result(heap, count, item.id, item.score);
-    }
-    log_parallel_reader_merge(query_id, readers.size(), merged_candidates.size(), heap->size());
+    log_parallel_reader_merge(query_id, readers.size(), merged_candidates, heap->size());
     return Ret(0);
 }
 
@@ -116,7 +119,7 @@ inline Ret scan_dataset_heap_with_dist(uint64_t query_id, const DatasetReader& d
     CHECK(collect_dataset_readers(dataset, query_id, &readers));
     return scan_dataset_readers(
         query_id, readers, count, heap,
-        [query_id, query](const DataReader& reader, size_t local_count, DistHeap* local_heap,
+        [query_id, query](const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
                 const BitsetFilter* bitset_filter) {
             log_reader_scan_plan(query_id, reader, "raw_dist", false, bitset_filter != nullptr);
             scan_data_reader_with_dist<DistFn>(reader, local_count, local_heap, query, bitset_filter);
@@ -134,7 +137,7 @@ inline Ret scan_dataset_heap_with_dot(uint64_t query_id, const DatasetReader& da
     CHECK(collect_dataset_readers(dataset, query_id, &readers));
     return scan_dataset_readers(
         query_id, readers, count, heap,
-        [query_id, query](const DataReader& reader, size_t local_count, DistHeap* local_heap,
+        [query_id, query](const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
                 const BitsetFilter* bitset_filter) {
             log_reader_scan_plan(query_id, reader, "dot", false, bitset_filter != nullptr);
             scan_data_reader_with_dot<DotFn>(reader, local_count, local_heap, query, bitset_filter);
@@ -153,7 +156,7 @@ inline Ret scan_dataset_heap_with_optional_cosine_norms(uint64_t query_id,
     return scan_dataset_readers(
         query_id, readers, count, heap,
         [query, func, query_id](
-                const DataReader& reader, size_t local_count, DistHeap* local_heap,
+                const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
                 const BitsetFilter* bitset_filter) {
             const bool uses_stored_norms = reader.has_matching_stored_norms(func);
             log_reader_scan_plan(query_id, reader,
@@ -181,7 +184,7 @@ inline Ret scan_dataset_heap_with_optional_l2_norms(uint64_t query_id,
     return scan_dataset_readers(
         query_id, readers, count, heap,
         [query, func, query_id](
-                const DataReader& reader, size_t local_count, DistHeap* local_heap,
+                const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
                 const BitsetFilter* bitset_filter) {
             const bool uses_stored_norms = reader.has_matching_stored_norms(func);
             log_reader_scan_plan(query_id, reader,

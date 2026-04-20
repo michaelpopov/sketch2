@@ -39,7 +39,7 @@ struct DataFileHeader {
     uint64_t ids_bytes; // size of active ids section
     uint64_t deleted_ids_offset; // offset from file start to deleted ids section
     uint64_t deleted_ids_bytes; // size of deleted ids section
-    uint64_t reserved = 0;
+    uint64_t min_range_id;
 };
 
 static_assert(sizeof(DataFileHeader) == 104, "Unexpected DataFileHeader size");

@@ -78,7 +78,7 @@ protected:
         Ret ret = generate_input_file(in_path, cfg);
         ASSERT_EQ(0, ret.code()) << "generate_input_file failed: " << ret.message();
         DataWriter w;
-        ret = w.exec_for_testing(in_path, out_path);
+        ret = w.exec_for_testing(in_path, out_path, cfg.min_id);
         ASSERT_EQ(0, ret.code()) << "DataWriter::exec_for_testing failed: " << ret.message();
     }
 
@@ -97,12 +97,13 @@ protected:
         generate_file(delta_input_path_, delta_path_, cfg);
     }
 
-    void write_raw_to_data_file(const std::string& in_path, const std::string& out_path, const std::string& content) {
+    void write_raw_to_data_file(const std::string& in_path, const std::string& out_path,
+            const std::string& content, uint64_t min_range_id = 0) {
         std::ofstream f(in_path);
         f << content;
         f.close();
         DataWriter w;
-        ASSERT_EQ(0, w.exec_for_testing(in_path, out_path).code());
+        ASSERT_EQ(0, w.exec_for_testing(in_path, out_path, min_range_id).code());
     }
 
     std::unique_ptr<DataReader> make_delta_reader() {
@@ -130,6 +131,7 @@ protected:
         DataFileHeader hdr = make_data_header(
             min_id,
             min_id + static_cast<uint64_t>(vecs.size()) - 1,
+            min_id,
             static_cast<uint32_t>(vecs.size()),
             0,
             type_field,
@@ -183,6 +185,7 @@ protected:
         DataFileHeader hdr = make_data_header(
             min_id,
             min_id + static_cast<uint64_t>(vecs.size()) - 1,
+            min_id,
             static_cast<uint32_t>(vecs.size()),
             0,
             type_field,
@@ -325,7 +328,7 @@ TEST_F(DataReaderTest, FailsWhenInlineNormUsesNonCanonicalStride) {
     CompactIds compact_deleted_ids;
     ASSERT_EQ(0, compact_deleted_ids.init(std::vector<uint64_t>{}).code());
 
-    DataFileHeader hdr = make_data_header(7, 7, 1, 0, type, dim, kDataFileHasCosineInvNorms);
+    DataFileHeader hdr = make_data_header(7, 7, 7, 1, 0, type, dim, kDataFileHasCosineInvNorms);
     hdr.vector_stride = static_cast<uint32_t>(noncanonical_stride);
     ASSERT_EQ(0, set_data_header_layout(
         &hdr, compact_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
@@ -471,6 +474,13 @@ TEST_F(DataReaderTest, CountIsCorrect) {
     EXPECT_EQ(7u, r.count());
 }
 
+TEST_F(DataReaderTest, MinRangeIdIsCorrect) {
+    generate(7, 42, DataType::f32, 4);
+    DataReader r;
+    EXPECT_EQ(0, r.init(data_path_).code());
+    EXPECT_EQ(42u, r.min_range_id());
+}
+
 TEST_F(DataReaderTest, GetNormThrowsWhenInlineNormsAreAbsent) {
     generate(2, 0, DataType::f32, 4);
     DataReader r;
@@ -488,7 +498,7 @@ TEST_F(DataReaderTest, ReadsCosineValuesFromInlineRecords) {
     GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
-    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, DistFunc::COS).code());
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, 0, DistFunc::COS).code());
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_).code());
@@ -510,7 +520,7 @@ TEST_F(DataReaderTest, ReadsL2NormValuesFromInlineRecords) {
     GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
-    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, DistFunc::L2).code());
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, 0, DistFunc::L2).code());
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_).code());
@@ -549,7 +559,7 @@ TEST_F(DataReaderTest, WriteRawSupportsInlineNormsForI16) {
 }
 
 TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
-    DataFileHeader hdr = make_data_header(0, 0, 0, 0, DataType::f32, 4);
+    DataFileHeader hdr = make_data_header(0, 0, 0, 0, 0, DataType::f32, 4);
     CompactIds compact_ids;
     std::vector<uint64_t> ids;
     ASSERT_EQ(0, compact_ids.init(ids).code());
@@ -647,8 +657,8 @@ TEST_F(DataReaderTest, GetNormThrowsForHiddenVector) {
     delta.close();
 
     DataWriter w;
-    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, DistFunc::COS).code());
-    ASSERT_EQ(0, w.exec_for_testing(delta_input_path_, delta_path_, 0, 0, DistFunc::COS).code());
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, 0, DistFunc::COS).code());
+    ASSERT_EQ(0, w.exec_for_testing(delta_input_path_, delta_path_, 0, 0, 0, DistFunc::COS).code());
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
@@ -699,7 +709,7 @@ TEST_F(DataReaderTest, AtConsecutivePointersSpacedByStrideWithInlineNorms) {
     GeneratorConfig cfg{PatternType::Sequential, 4, 0, DataType::f32, 8, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
-    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, DistFunc::COS).code());
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, data_path_, 0, 0, 0, DistFunc::COS).code());
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_).code());
@@ -912,7 +922,8 @@ TEST_F(DataReaderTest, DeltaIdsOutsideDataRangeAreIgnored) {
         delta_input_path_, delta_path_,
         "f32,4\n"
         "1 : []\n"
-        "200 : []\n");
+        "200 : []\n",
+        10);
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
@@ -927,7 +938,8 @@ TEST_F(DataReaderTest, DeletedFromDeltaReturnsNull) {
     write_raw_to_data_file(
         delta_input_path_, delta_path_,
         "f32,4\n"
-        "11 : []\n");
+        "11 : []\n",
+        10);
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
@@ -938,7 +950,12 @@ TEST_F(DataReaderTest, DeletedFromDeltaReturnsNull) {
 
 TEST_F(DataReaderTest, UpdatedValueComesFromDelta) {
     generate(3, 10, DataType::i16, 4);
-    generate_delta_detailed(1, 11, DataType::i16, 4);
+    write_raw_to_data_file(
+        delta_input_path_,
+        delta_path_,
+        "i16,4\n"
+        "11 : [ 0, 1, 2, 3 ]\n",
+        10);
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
@@ -961,7 +978,8 @@ TEST_F(DataReaderTest, DeltaIteratorSkipsDeletedAndAppendsUpdatedFromDelta) {
         delta_input_path_, delta_path_,
         "f32,4\n"
         "11 : []\n"
-        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n",
+        10);
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
@@ -987,7 +1005,8 @@ TEST_F(DataReaderTest, BaseBeginReturnsVisibleBaseIdsInSortedOrder) {
         delta_input_path_, delta_path_,
         "f32,4\n"
         "11 : []\n"
-        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n",
+        10);
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
@@ -1006,7 +1025,8 @@ TEST_F(DataReaderTest, BaseBeginDataReturnsVisibleBaseRows) {
         delta_input_path_, delta_path_,
         "f32,4\n"
         "11 : []\n"
-        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n",
+        10);
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
@@ -1028,7 +1048,8 @@ TEST_F(DataReaderTest, DeltaBeginReturnsDeltaIdsInSortedOrder) {
         "f32,4\n"
         "13 : [ 77.0, 77.0, 77.0, 77.0 ]\n"
         "11 : []\n"
-        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+        "12 : [ 99.0, 99.0, 99.0, 99.0 ]\n",
+        10);
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_, make_delta_reader()).code());
@@ -1061,6 +1082,27 @@ TEST_F(DataReaderTest, InitFailsWhenDeltaDimMismatch) {
     generate_delta(3, 0, DataType::f32, 8);
     DataReader r;
     EXPECT_NE(0, r.init(data_path_, make_delta_reader()).code());
+}
+
+TEST_F(DataReaderTest, InitFailsWhenDeltaMinRangeIdMismatch) {
+    write_raw_to_data_file(
+        input_path_,
+        data_path_,
+        "f32,4\n"
+        "210 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+        "211 : [ 2.0, 2.0, 2.0, 2.0 ]\n",
+        200);
+    write_raw_to_data_file(
+        delta_input_path_,
+        delta_path_,
+        "f32,4\n"
+        "211 : [ 9.0, 9.0, 9.0, 9.0 ]\n",
+        100);
+
+    DataReader r;
+    const Ret ret = r.init(data_path_, make_delta_reader());
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("invalid delta min_range_id"));
 }
 
 // --- deleted-id section ---

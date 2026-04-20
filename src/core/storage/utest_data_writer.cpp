@@ -116,7 +116,7 @@ protected:
         GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, every_n_deleted};
         generate_input_file(input_path_, cfg);
         DataWriter w;
-        return w.exec_for_testing(input_path_, output_path_, 0, 0, dist_func);
+        return w.exec_for_testing(input_path_, output_path_, min_id, 0, 0, dist_func);
     }
 
     Ret run_binary(size_t count, size_t min_id, DataType type, size_t dim,
@@ -124,15 +124,15 @@ protected:
         GeneratorConfig cfg{PatternType::Sequential, count, min_id, type, dim, 1000, 0, true};
         generate_input_file(input_path_, cfg);
         DataWriter w;
-        return w.exec_for_testing(input_path_, output_path_, 0, 0, dist_func);
+        return w.exec_for_testing(input_path_, output_path_, min_id, 0, 0, dist_func);
     }
 
-    Ret run_raw_input(const std::string& content) {
+    Ret run_raw_input(const std::string& content, uint64_t min_range_id = 0) {
         std::ofstream f(input_path_);
         f << content;
         f.close();
         DataWriter w;
-        return w.exec_for_testing(input_path_, output_path_);
+        return w.exec_for_testing(input_path_, output_path_, min_range_id);
     }
 
     DataFileHeader read_header() {
@@ -327,14 +327,14 @@ protected:
 
 TEST_F(DataWriterTest, FailsOnBadInputPath) {
     DataWriter w;
-    EXPECT_NE(0, w.exec_for_testing("/nonexistent/dir/input.txt", output_path_).code());
+    EXPECT_NE(0, w.exec_for_testing("/nonexistent/dir/input.txt", output_path_, 0).code());
 }
 
 TEST_F(DataWriterTest, FailsOnBadOutputPath) {
     GeneratorConfig cfg{PatternType::Sequential, 3, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
-    EXPECT_NE(0, w.exec_for_testing(input_path_, "/nonexistent/dir/output.bin").code());
+    EXPECT_NE(0, w.exec_for_testing(input_path_, "/nonexistent/dir/output.bin", 0).code());
 }
 
 TEST_F(DataWriterTest, FailsWhenActiveIdSpanExceedsCompactIdsRange) {
@@ -346,7 +346,7 @@ TEST_F(DataWriterTest, FailsWhenActiveIdSpanExceedsCompactIdsRange) {
         " : [ 2, 2, 2, 2 ]\n");
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
-              ret.message().find("DataWriter: active ids: id range exceeds uint32_t"));
+              ret.message().find("DataWriter: data file range exceeds uint32_t"));
 }
 
 TEST_F(DataWriterTest, FailsWhenDeletedIdSpanExceedsCompactIdsRange) {
@@ -359,6 +359,21 @@ TEST_F(DataWriterTest, FailsWhenDeletedIdSpanExceedsCompactIdsRange) {
     EXPECT_NE(0, ret.code());
     EXPECT_NE(std::string::npos,
               ret.message().find("DataWriter: deleted ids: id range exceeds uint32_t"));
+}
+
+TEST_F(DataWriterTest, FailsWhenMinRangeIdSpanExceedsUint32) {
+    const uint64_t huge_id = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1u;
+
+    std::ofstream f(input_path_);
+    f << "f32,4\n";
+    f << huge_id << " : [ 1, 1, 1, 1 ]\n";
+    f.close();
+
+    DataWriter w;
+    const Ret ret = w.exec_for_testing(input_path_, output_path_, 0, 0, huge_id + 1u, DistFunc::DOT);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos,
+              ret.message().find("DataWriter: data file range exceeds uint32_t"));
 }
 
 // --- success ---
@@ -422,6 +437,7 @@ TEST_F(DataWriterTest, HeaderMinMaxId) {
     auto hdr = read_header();
     EXPECT_EQ(10u, hdr.min_id);
     EXPECT_EQ(14u, hdr.max_id);
+    EXPECT_EQ(10u, hdr.min_range_id);
 }
 
 TEST_F(DataWriterTest, HeaderDim) {
@@ -603,7 +619,7 @@ TEST_F(DataWriterTest, L2ValuesAreWrittenInlineWithVectorRecords) {
     GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
-    ASSERT_EQ(0, w.exec_for_testing(input_path_, output_path_, 0, 0, DistFunc::L2).code());
+    ASSERT_EQ(0, w.exec_for_testing(input_path_, output_path_, 0, 0, 0, DistFunc::L2).code());
 
     const auto hdr = read_header();
     ASSERT_TRUE(data_file_has_norms(hdr));

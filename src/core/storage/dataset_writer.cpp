@@ -593,7 +593,7 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
     // cases, but avoid it for the branches that immediately merge the result.
     auto write_temp_file = [&]() -> Ret {
         DataWriter writer;
-        return writer.write(view, temp_path, metadata_.dist_func);
+        return writer.write(view, temp_path, metadata_.dist_func, range_start);
     };
 
     // Execution flow:

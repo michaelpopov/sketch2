@@ -9,6 +9,11 @@
 
 namespace sketch2 {
 
+struct DistItemEx {
+    uint32_t id;
+    float score;
+};
+
 struct DistItem {
     uint64_t id;
     double score;
@@ -28,20 +33,37 @@ inline bool smaller_score_is_better(DistFunc func) {
     }
 }
 
-inline bool dist_item_is_better(DistFunc func, const DistItem& a, const DistItem& b) {
+inline bool dist_item_is_better(bool smaller_score_better, const DistItem& a, const DistItem& b) {
     if (a.score != b.score) {
-        return smaller_score_is_better(func) ? (a.score < b.score) : (a.score > b.score);
+        return smaller_score_better ? (a.score < b.score) : (a.score > b.score);
+    }
+    return a.id < b.id;
+}
+
+inline bool dist_item_ex_is_better(bool smaller_score_better, const DistItemEx& a, const DistItemEx& b) {
+    if (a.score != b.score) {
+        return smaller_score_better ? (a.score < b.score) : (a.score > b.score);
     }
     return a.id < b.id;
 }
 
 struct DistItemCompare {
-    explicit DistItemCompare(DistFunc func_) : func(func_) {}
+    explicit DistItemCompare(DistFunc func_) : smaller_score_better(smaller_score_is_better(func_)) {}
 
-    DistFunc func;
+    bool smaller_score_better;
 
     bool operator()(const DistItem& a, const DistItem& b) const {
-        return dist_item_is_better(func, a, b);
+        return dist_item_is_better(smaller_score_better, a, b);
+    }
+};
+
+struct DistItemExCompare {
+    explicit DistItemExCompare(DistFunc func_) : smaller_score_better(smaller_score_is_better(func_)) {}
+
+    bool smaller_score_better;
+
+    bool operator()(const DistItemEx& a, const DistItemEx& b) const {
+        return dist_item_ex_is_better(smaller_score_better, a, b);
     }
 };
 
