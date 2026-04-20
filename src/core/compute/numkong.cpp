@@ -4,7 +4,7 @@
 // squared Euclidean, and angular (cosine) distances. i16 is intentionally
 // unsupported and must be rejected by callers.
 
-#include "core/compute/scanner_nk.h"
+#include "core/compute/numkong.h"
 
 #include "core/compute/cosine_distance.h"
 #include "core/compute/scanner_dataset_scan.h"
@@ -363,16 +363,16 @@ Ret validate_nk_kernel_support(DistFunc func, DataType type) {
     try {
         const ComputeKernels kernels = resolve_nk_kernels(func, type);
         if (kernels.dist == nullptr) {
-            return Ret(std::string("ScannerNk::find_items: missing dist kernel for ")
+            return Ret(std::string("Numkong::find_items: missing dist kernel for ")
                 + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
         }
         if ((func == DistFunc::L2 || func == DistFunc::COS)
                 && (kernels.dot == nullptr || kernels.squared_norm == nullptr)) {
-            return Ret(std::string("ScannerNk::find_items: missing stored-norm helpers for ")
+            return Ret(std::string("Numkong::find_items: missing stored-norm helpers for ")
                 + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
         }
         if (func == DistFunc::COS && kernels.dist_with_query_norm == nullptr) {
-            return Ret(std::string("ScannerNk::find_items: missing query-norm kernel for ")
+            return Ret(std::string("Numkong::find_items: missing query-norm kernel for ")
                 + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
         }
         return Ret(0);
@@ -424,13 +424,15 @@ Ret validate_nk_kernel_support(DistFunc func, DataType type) {
         break; \
     }
 
-Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t* vec,
+} // namespace
+
+Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
     if (vec == nullptr || count == 0 || result == nullptr) {
-        return Ret("ScannerNk::find_items: invalid arguments.");
+        return Ret("Numkong::find_items: invalid arguments.");
     }
     if (dataset.type() == DataType::i16) {
-        return Ret("ScannerNk::find_items: NumKong does not support i16 datasets.");
+        return Ret("Numkong::find_items: NumKong does not support i16 datasets.");
     }
 
     result->clear();
@@ -447,13 +449,13 @@ Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t
 
     DistHeap heap(DistItemCompare{func});
     heap.reserve(count);
-    Timer timer("scanner_nk::query");
+    Timer timer("numkong::query");
 
     if (func == DistFunc::COS) {
         switch (type) {
             NK_FOR_EACH_COS_KERNEL(NK_DISPATCH_COS_CASE);
             default:
-                return Ret("ScannerNk::find_items: unsupported DataType for COS.");
+                return Ret("Numkong::find_items: unsupported DataType for COS.");
         }
     } else if (func == DistFunc::DOT) {
         log_query_branch(query_id, "dot");
@@ -461,29 +463,22 @@ Ret find_items_nk_impl(const DatasetReader& dataset, size_t count, const uint8_t
         switch (type) {
             NK_FOR_EACH_DOT_KERNEL(NK_DISPATCH_DOT_CASE);
             default:
-                return Ret("ScannerNk::find_items: unsupported DataType for DOT.");
+                return Ret("Numkong::find_items: unsupported DataType for DOT.");
         }
     } else if (func == DistFunc::L2) {
         switch (type) {
             NK_FOR_EACH_L2_KERNEL(NK_DISPATCH_L2_CASE);
             default:
-                return Ret("ScannerNk::find_items: unsupported DataType for L2.");
+                return Ret("Numkong::find_items: unsupported DataType for L2.");
         }
     } else {
-        return Ret("ScannerNk::find_items: unsupported DistFunc.");
+        return Ret("Numkong::find_items: unsupported DistFunc.");
     }
 
     extract_items(&heap, result);
     log_query_finish(query_id, dataset.name(), func, type, dim, count,
         ComputeEngine::numkong, timer.elapsed_ms(), *result);
     return Ret(0);
-}
-
-} // namespace
-
-Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
-    return find_items_nk_impl(dataset, count, vec, result, bitset, query_id);
 }
 
 bool nk_compute_uses_dynamic_dispatch() {
@@ -589,28 +584,5 @@ ComputeKernels resolve_nk_kernels(DistFunc func, DataType type) {
 #undef NK_FOR_EACH_DOT_KERNEL
 #undef NK_FOR_EACH_L2_KERNEL
 #undef NK_FOR_EACH_COS_KERNEL
-
-Ret ScannerNk::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) const {
-    result.clear();
-    try {
-        std::vector<DistItem> items;
-        CHECK(find_items(dataset, count, vec, items, nullptr));
-        extract_ids_from_items(items, &result);
-        return Ret(0);
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
-}
-
-Ret ScannerNk::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result, const BitsetFilter* bitset) const {
-    result.clear();
-    try {
-        return find_items_nk(dataset, count, vec, &result, bitset, next_scanner_query_id());
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
-}
 
 } // namespace sketch2

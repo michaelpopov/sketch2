@@ -1,4 +1,4 @@
-// Declares the Highway-backed scanner implementation and kernel resolver.
+// Declares the Highway-backed scan entry point and kernel resolver.
 
 #pragma once
 
@@ -12,15 +12,6 @@
 namespace sketch2 {
 
 class DatasetReader;
-
-class ScannerHw {
-public:
-    Ret find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) const;
-
-    Ret find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result, const BitsetFilter* bitset = nullptr) const;
-};
 
 Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec,
     std::vector<DistItem>* result, const BitsetFilter* bitset = nullptr, uint64_t query_id = 0);

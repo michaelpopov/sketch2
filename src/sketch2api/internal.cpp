@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include "core/compute/compute_engine.h"
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
 #include "core/utils/compute_unit.h"
@@ -463,7 +464,7 @@ Ret run_knn_items_query(
         return ret;
     }
 
-    Scanner scanner{compiled_compute_engine()};
+    Scanner scanner;
     return scanner.find_items(dataset.reader_dataset(), k, buf.data(), *items, bitset_filter);
 }
 
@@ -484,7 +485,7 @@ Ret run_knn_items_query(
         return ret;
     }
 
-    Scanner scanner{compiled_compute_engine()};
+    Scanner scanner;
     return scanner.find_items(dataset.reader_dataset(), k, buf.data(), *items, bitset_filter);
 }
 

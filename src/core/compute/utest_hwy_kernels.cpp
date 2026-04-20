@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include "core/compute/compute_engine.h"
-#include "core/compute/scanner_hw.h"
+#include "core/compute/highway.h"
 #include "core/compute/utest_computer_helpers.h"
 
 using namespace sketch2;
@@ -182,13 +182,13 @@ TEST(HwyKernelsTest, CosDistWithQueryNormF32MatchesReference) {
 }
 
 // ---------------------------------------------------------------------------
-// resolve_compute_kernels dispatches correctly
+// resolve_compute_kernels exposes the compiled-engine kernels
 // ---------------------------------------------------------------------------
 
 TEST(HwyKernelsTest, ResolveComputeKernelsReturnsNonNull) {
     for (DistFunc func : {DistFunc::DOT, DistFunc::L2, DistFunc::COS}) {
         for (DataType type : {DataType::f32, DataType::f16, DataType::i16}) {
-            const ComputeKernels k = resolve_compute_kernels(ComputeEngine::highway, func, type);
+            const ComputeKernels k = resolve_compute_kernels(func, type);
             ASSERT_NE(k.dist, nullptr) << "func=" << static_cast<int>(func)
                                        << " type=" << static_cast<int>(type);
             if (func == DistFunc::L2 || func == DistFunc::COS) {

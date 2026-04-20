@@ -209,8 +209,8 @@ After that, the search runs on one specialized path.
 The current compute layer is organized around:
 
 - `Scanner` as the facade used by higher-level callers
-- backend-specific scanner and kernel implementations in `scanner_hw.cpp` and
-  `scanner_nk.cpp`
+- backend-specific scanner and kernel implementations in `highway.cpp` and
+  `numkong.cpp`
 - shared scan helpers split by responsibility, such as
   `scanner_dataset_scan.h`, `scanner_scan_loops.h`, and `scanner_heap_utils.h`
 - small shared data structures such as `DistItem` and the query-context helper

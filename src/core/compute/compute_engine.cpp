@@ -1,27 +1,21 @@
 #include "core/compute/compute_engine.h"
 
 #if SKETCH_COMPUTE_ENGINE_HIGHWAY
-#include "core/compute/scanner_hw.h"
+#include "core/compute/highway.h"
 #elif SKETCH_COMPUTE_ENGINE_NUMKONG
-#include "core/compute/scanner_nk.h"
+#include "core/compute/numkong.h"
 #endif
 
 namespace sketch2 {
 
-ComputeKernels resolve_compute_kernels(ComputeEngine engine, DistFunc func, DataType type) {
-    switch (engine) {
+ComputeKernels resolve_compute_kernels(DistFunc func, DataType type) {
 #if SKETCH_COMPUTE_ENGINE_HIGHWAY
-        case ComputeEngine::highway:
-            return resolve_hwy_kernels(func, type);
+    return resolve_hwy_kernels(func, type);
+#elif SKETCH_COMPUTE_ENGINE_NUMKONG
+    return resolve_nk_kernels(func, type);
+#else
+#error "Exactly one compute engine must be compiled."
 #endif
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
-        case ComputeEngine::numkong:
-            return resolve_nk_kernels(func, type);
-#endif
-        default:
-            break;
-    }
-    throw std::runtime_error("resolve_compute_kernels: unsupported engine.");
 }
 
 } // namespace sketch2

@@ -11,7 +11,9 @@
 #include <memory>
 #include <filesystem>
 #include <experimental/scope>
+#include "core/compute/compute_engine.h"
 #include "core/compute/scanner.h"
+#include "core/compute/scanner_heap_utils.h"
 #include "core/compute/scanner_query_context.h"
 #include "core/compute/scanner_scan_loops.h"
 #include "core/utils/singleton.h"
@@ -31,7 +33,19 @@ constexpr ComputeEngine kCompiledComputeEngine = compiled_compute_engine();
 size_t g_counting_dot_calls = 0;
 
 Scanner make_compiled_scanner() {
-    return Scanner(kCompiledComputeEngine);
+    return Scanner();
+}
+
+Ret find_ids(const Scanner& scanner, const DatasetReader& dataset, size_t count, const uint8_t* vec,
+             std::vector<uint64_t>& result) {
+    result.clear();
+    std::vector<DistItem> items;
+    Ret ret = scanner.find_items(dataset, count, vec, items, nullptr);
+    if (ret.code() != 0) {
+        return ret;
+    }
+    extract_ids_from_items(items, &result);
+    return ret;
 }
 
 double counting_f32_dot(const uint8_t* a, const uint8_t* b, size_t dim) {
@@ -213,7 +227,7 @@ TEST_F(ScannerTest, FindFailsOnCountZero) {
     Scanner s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(*reader, 0, q.data(), result).code());
+    EXPECT_NE(0, find_ids(s, *reader, 0, q.data(), result).code());
 }
 
 TEST_F(ScannerTest, FindFailsOnNullQueryPointer) {
@@ -221,7 +235,7 @@ TEST_F(ScannerTest, FindFailsOnNullQueryPointer) {
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
     Scanner s;
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(*reader, 1, nullptr, result).code());
+    EXPECT_NE(0, find_ids(s, *reader, 1, nullptr, result).code());
 }
 
 TEST_F(ScannerTest, FindFailsOnUnknownFunction) {
@@ -229,7 +243,7 @@ TEST_F(ScannerTest, FindFailsOnUnknownFunction) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(reader, 1, q.data(), result).code());
+    EXPECT_NE(0, find_ids(s, reader, 1, q.data(), result).code());
 }
 
 TEST_F(ScannerTest, FindClearsReusedResultBufferOnFailure) {
@@ -239,10 +253,10 @@ TEST_F(ScannerTest, FindClearsReusedResultBufferOnFailure) {
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
 
-    ASSERT_EQ(0, s.find(*reader, 2, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 2, q.data(), result).code());
     ASSERT_FALSE(result.empty());
 
-    EXPECT_NE(0, s.find(*reader, 0, q.data(), result).code());
+    EXPECT_NE(0, find_ids(s, *reader, 0, q.data(), result).code());
     EXPECT_TRUE(result.empty());
 }
 
@@ -270,7 +284,7 @@ TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrder) {
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(4u, result[0]);
     EXPECT_EQ(3u, result[1]);
@@ -284,7 +298,7 @@ TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithHighway) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(4u, result[0]);
     EXPECT_EQ(3u, result[1]);
@@ -296,10 +310,10 @@ TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithHighway) {
 TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithNumKong) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
-    Scanner s(ComputeEngine::numkong);
+    Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(4u, result[0]);
     EXPECT_EQ(3u, result[1]);
@@ -314,7 +328,7 @@ TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {
     Scanner s;
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 100, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 100, q.data(), result).code());
     EXPECT_EQ(total, result.size());
 }
 
@@ -325,13 +339,13 @@ TEST_F(ScannerTest, FindResultSizeMatchesRequest) {
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
 
-    ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 1, q.data(), result).code());
     EXPECT_EQ(1u, result.size());
 
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     EXPECT_EQ(3u, result.size());
 
-    ASSERT_EQ(0, s.find(*reader, 5, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 5, q.data(), result).code());
     EXPECT_EQ(5u, result.size());
 }
 
@@ -361,7 +375,7 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
@@ -372,10 +386,10 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithNumKong) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
-    Scanner s(ComputeEngine::numkong);
+    Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
@@ -390,7 +404,7 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithHighway) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(3u, result[0]);
     EXPECT_EQ(4u, result[1]);
@@ -413,7 +427,7 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrder) {
     Scanner s;
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
@@ -429,10 +443,10 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithNumKong) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
-    Scanner s(ComputeEngine::numkong);
+    Scanner s;
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
@@ -452,7 +466,7 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithHighway) {
     Scanner s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
@@ -496,8 +510,8 @@ TEST_F(ScannerTest, FindF32CosStoredPathsMatchRanking) {
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result_a;
     std::vector<uint64_t> result_b;
-    ASSERT_EQ(0, s.find(*reader_a, 5, q.data(), result_a).code());
-    ASSERT_EQ(0, s.find(*reader_b, 5, q.data(), result_b).code());
+    ASSERT_EQ(0, find_ids(s, *reader_a, 5, q.data(), result_a).code());
+    ASSERT_EQ(0, find_ids(s, *reader_b, 5, q.data(), result_b).code());
 
     ASSERT_EQ((std::vector<uint64_t> {10u, 20u, 30u, 40u, 50u}), result_a);
     EXPECT_EQ(result_a, result_b);
@@ -514,7 +528,7 @@ TEST_F(ScannerTest, FindI16AllSortedByDistance) {
     Scanner s;
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(0u, result[0]);
     EXPECT_EQ(1u, result[1]);
@@ -528,10 +542,10 @@ TEST_F(ScannerTest, FindI16RejectsNumKong) {
 #if SKETCH_COMPUTE_ENGINE_NUMKONG
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
-    Scanner s(ComputeEngine::numkong);
+    Scanner s;
     auto q = i16_vec(0, 4);
     std::vector<uint64_t> result;
-    const Ret ret = s.find(*reader, 3, q.data(), result);
+    const Ret ret = find_ids(s, *reader, 3, q.data(), result);
     EXPECT_NE(0, ret.code());
     EXPECT_TRUE(result.empty());
     EXPECT_NE(std::string(ret.message()).find("NumKong does not support i16"),
@@ -547,7 +561,7 @@ TEST_F(ScannerTest, FindF16Works) {
     Scanner s;
     auto q = f16_vec(1.1f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(2u, result[0]);
 }
@@ -559,7 +573,7 @@ TEST_F(ScannerTest, FindF16WorksWithHighway) {
     Scanner s = make_compiled_scanner();
     auto q = f16_vec(1.1f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(2u, result[0]);
 }
@@ -574,11 +588,11 @@ TEST_F(ScannerTest, FindF16CosWorksWithNumKong) {
         "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
         "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
     auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::COS, {input_path_});
-    Scanner s(ComputeEngine::numkong);
+    Scanner s;
     auto q = f16_vec(0.0f, 4);
     reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16(1.0f);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
@@ -599,7 +613,7 @@ TEST_F(ScannerTest, FindF16CosWorksWithHighway) {
     auto q = f16_vec(0.0f, 4);
     reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16(1.0f);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
@@ -620,7 +634,7 @@ TEST_F(ScannerTest, DeltaSkipsDeletedIds) {
     Scanner s;
     auto q = f32_vec(3.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 6, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 6, q.data(), result).code());
 
     for (uint64_t id : result) {
         EXPECT_NE(2u, id);
@@ -639,7 +653,7 @@ TEST_F(ScannerTest, DeltaUsesUpdatedVectors) {
     Scanner s;
     auto q = f32_vec(20.0f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 1, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(11u, result[0]);
 }
@@ -657,7 +671,7 @@ TEST_F(ScannerTest, DeltaDeletingAllVectorsReturnsEmptyResult) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(1.1f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     EXPECT_TRUE(result.empty());
 }
 
@@ -672,7 +686,7 @@ TEST_F(ScannerTest, FindDatasetWorks) {
     Scanner s;
     auto q = f32_vec(15.2f, 4);
     std::vector<uint64_t> result;
-    const auto ret = s.find(*reader, 3, q.data(), result);
+    const auto ret = find_ids(s, *reader, 3, q.data(), result);
     ASSERT_EQ(0, ret.code()) << "\n\nfind failed: " << ret.message() << "\n\n";
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(29u, result[0]);
@@ -709,7 +723,7 @@ TEST_F(ScannerTest, FindDatasetL2Works) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(15.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(15u, result[0]);
     EXPECT_EQ(16u, result[1]);
@@ -924,7 +938,7 @@ TEST_F(ScannerTest, FindDatasetCosWorks) {
     Scanner s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
@@ -967,7 +981,7 @@ TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {
     Scanner s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    const Ret ret = s.find(reader, 3, q.data(), result);
+    const Ret ret = find_ids(s, reader, 3, q.data(), result);
     EXPECT_NE(0, ret.code());
     EXPECT_TRUE(result.empty());
     EXPECT_NE(std::string(ret.message()).find("missing stored norms"), std::string::npos);
@@ -1009,7 +1023,7 @@ TEST_F(ScannerTest, FindDatasetL2RejectsFilesMissingStoredNorms) {
     Scanner s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    const Ret ret = s.find(reader, 3, q.data(), result);
+    const Ret ret = find_ids(s, reader, 3, q.data(), result);
     EXPECT_NE(0, ret.code());
     EXPECT_TRUE(result.empty());
     EXPECT_NE(std::string(ret.message()).find("missing stored norms"), std::string::npos);
@@ -1020,7 +1034,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnNullQueryPointer) {
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_}, 100);
     Scanner s = make_compiled_scanner();
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(*reader, 1, nullptr, result).code());
+    EXPECT_NE(0, find_ids(s, *reader, 1, nullptr, result).code());
 }
 
 TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
@@ -1029,7 +1043,7 @@ TEST_F(ScannerTest, FindDatasetFailsOnZeroCount) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(1.0f, 4);
     std::vector<uint64_t> result;
-    EXPECT_NE(0, s.find(*reader, 0, q.data(), result).code());
+    EXPECT_NE(0, find_ids(s, *reader, 0, q.data(), result).code());
 }
 
 TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {
@@ -1054,7 +1068,7 @@ TEST_F(ScannerTest, FindDatasetSkipsDeletedVectorsFromDelta) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(2.1f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 5, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, ds, 5, q.data(), result).code());
 
     EXPECT_EQ(4u, result.size());
     for (uint64_t id : result) {
@@ -1084,7 +1098,7 @@ TEST_F(ScannerTest, FindDatasetUsesUpdatedVectorFromDelta) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(ds, 1, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, ds, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(0u, result[0]);
 }
@@ -1117,7 +1131,7 @@ TEST_F(ScannerConcurrentTest, DOTTopKSpansMultipleReaders) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(9.5f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(29u, result[0]);
     EXPECT_EQ(28u, result[1]);
@@ -1131,7 +1145,7 @@ TEST_F(ScannerConcurrentTest, L2TopKSpansMultipleReaders) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(9.5f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(9u, result[0]);
     EXPECT_EQ(10u, result[1]);
@@ -1162,7 +1176,7 @@ TEST_F(ScannerConcurrentTest, SingleReaderWithPoolFallsBackToSequential) {
     Scanner s = make_compiled_scanner();
     auto q = f32_vec(2.2f, 4);
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(4u, result[0]);
     EXPECT_EQ(3u, result[1]);
@@ -1181,7 +1195,7 @@ TEST_F(ScannerConcurrentTest, CosineTopKSpansMultipleReaders) {
     Scanner s = make_compiled_scanner();
     auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     std::vector<uint64_t> result;
-    ASSERT_EQ(0, s.find(*reader, 3, q.data(), result).code());
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
     EXPECT_EQ(5u, result[0]);
     EXPECT_EQ(15u, result[1]);

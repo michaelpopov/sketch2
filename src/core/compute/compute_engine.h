@@ -1,7 +1,6 @@
-// Defines the compute-engine abstraction: an engine selector enum and a struct of
-// resolved distance-kernel function pointers. Scanner dispatches through
-// ComputeKernels so the scanning logic is completely decoupled from the concrete
-// SIMD library backend.
+// Defines the compute-engine abstraction used by compute logging/metadata and by
+// benchmark/kernel-test helpers that resolve metric kernels for the compiled
+// backend.
 
 #pragma once
 #include "utils/shared_types.h"
@@ -32,10 +31,9 @@ using ComputeDistWithQueryNormFn = double (*)(const uint8_t*, const uint8_t*, si
 using ComputeSquaredNormFn      = double (*)(const uint8_t*, size_t);
 using ComputeDotFn              = double (*)(const uint8_t*, const uint8_t*, size_t);
 
-// Holds all resolved function pointers for one (metric, DataType) combination.
-// Production scanner hot loops now use compile-time-dispatched kernel symbols,
-// but benchmarks and kernel-focused tests still need a runtime-selected view of
-// the available helpers.
+// Holds all resolved function pointers for one (metric, DataType) combination
+// in the compiled compute backend. Benchmarks and kernel-focused tests use this
+// runtime-resolved view to exercise helper kernels directly.
 //
 // For DOT, both `dist` and `dot` are populated with the same kernel so callers
 // can use explicit dot-oriented names on the DOT execution path.
@@ -49,7 +47,7 @@ struct ComputeKernels {
     ComputeDotFn               dot = nullptr;
 };
 
-// Resolves the benchmark/test kernel set for a given engine, metric, and data type.
-ComputeKernels resolve_compute_kernels(ComputeEngine engine, DistFunc func, DataType type);
+// Resolves the benchmark/test kernel set for the compiled engine.
+ComputeKernels resolve_compute_kernels(DistFunc func, DataType type);
 
 } // namespace sketch2

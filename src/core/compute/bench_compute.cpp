@@ -1,9 +1,9 @@
-// Direct kernel benchmark for compute engines.
+// Direct kernel benchmark for the compiled compute engine.
 
 #include "core/compute/compute_engine.h"
 #include "core/compute/cosine_distance.h"
 #if SKETCH_COMPUTE_ENGINE_NUMKONG
-#include "core/compute/scanner_nk.h"
+#include "core/compute/numkong.h"
 #endif
 #include "core/compute/scanner_query_context.h"
 #include "core/utils/shared_types.h"
@@ -35,7 +35,6 @@ struct CaseStats {
 };
 
 struct Args {
-    std::string engine;
     DistFunc dist = DistFunc::DOT;
     DataType type = DataType::f32;
     size_t dim = 256;
@@ -142,6 +141,7 @@ CaseStats benchmark_case(std::string name, size_t warmup_iterations, size_t iter
 
 Args parse_args(int argc, char** argv) {
     Args args;
+    const std::string compiled_engine_name = compute_engine_name(compiled_compute_engine());
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         auto require_value = [&](const char* flag) -> std::string {
@@ -152,7 +152,12 @@ Args parse_args(int argc, char** argv) {
         };
 
         if (arg == "--engine") {
-            args.engine = require_value("--engine");
+            // Backward-compatible flag: this build can benchmark only one engine.
+            const std::string value = require_value("--engine");
+            if (value != compiled_engine_name) {
+                throw std::runtime_error(
+                    "--engine does not match compiled engine: " + compiled_engine_name);
+            }
         } else if (arg == "--dist") {
             args.dist = dist_func_from_string(require_value("--dist"));
         } else if (arg == "--type") {
@@ -170,9 +175,6 @@ Args parse_args(int argc, char** argv) {
         }
     }
 
-    if (args.engine.empty()) {
-        throw std::runtime_error("--engine is required");
-    }
     if (args.iterations == 0) {
         throw std::runtime_error("--iterations must be >= 1");
     }
@@ -191,18 +193,8 @@ std::pair<const uint8_t*, const uint8_t*> prepare_bytes(std::vector<T>* a, std::
     };
 }
 
-ComputeEngine compute_engine_from_string(const std::string& engine) {
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
-    if (engine == "highway") return ComputeEngine::highway;
-#endif
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
-    if (engine == "numkong") return ComputeEngine::numkong;
-#endif
-    throw std::runtime_error("unsupported compute engine: " + engine);
-}
-
 std::vector<CaseStats> run_compute_bench(const Args& args, const uint8_t* a, const uint8_t* b) {
-    const ComputeKernels kernels = resolve_compute_kernels(compute_engine_from_string(args.engine), args.dist, args.type);
+    const ComputeKernels kernels = resolve_compute_kernels(args.dist, args.type);
     std::vector<CaseStats> results;
     const bool is_dot = args.dist == DistFunc::DOT;
     results.push_back(benchmark_case(
@@ -277,9 +269,10 @@ std::vector<CaseStats> run_benchmarks(const Args& args) {
 }
 
 void print_json(const Args& args, const std::vector<CaseStats>& cases) {
+    const std::string engine = compute_engine_name(compiled_compute_engine());
     std::cout << std::fixed << std::setprecision(3);
     std::cout << "{\n";
-    std::cout << "  \"engine\": \"" << json_escape(args.engine) << "\",\n";
+    std::cout << "  \"engine\": \"" << json_escape(engine) << "\",\n";
     std::cout << "  \"dist\": \"" << json_escape(dist_func_to_string(args.dist)) << "\",\n";
     std::cout << "  \"type\": \"" << json_escape(data_type_to_string(args.type)) << "\",\n";
     std::cout << "  \"dim\": " << args.dim << ",\n";
@@ -288,9 +281,7 @@ void print_json(const Args& args, const std::vector<CaseStats>& cases) {
     std::cout << "  \"repeats\": " << args.repeats << ",\n";
     std::cout << "  \"active_compute_backend\": \"" << json_escape(get_singleton().compute_unit().name()) << "\"";
  #if SKETCH_COMPUTE_ENGINE_NUMKONG
-    if (args.engine == "numkong") {
-        std::cout << ",\n  \"numkong_backend\": \"" << json_escape(nk_compute_backend_name(args.dist, args.type)) << "\"";
-    }
+    std::cout << ",\n  \"numkong_backend\": \"" << json_escape(nk_compute_backend_name(args.dist, args.type)) << "\"";
  #endif
     std::cout << ",\n  \"cases\": [\n";
     for (size_t i = 0; i < cases.size(); ++i) {

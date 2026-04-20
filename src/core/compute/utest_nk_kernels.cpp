@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "core/compute/compute_engine.h"
-#include "core/compute/scanner_nk.h"
+#include "core/compute/numkong.h"
 #include "core/compute/utest_computer_helpers.h"
 #include "numkong/capabilities.h"
 
@@ -126,8 +126,8 @@ TEST(NumKongKernelsTest, I16IsRejectedForAllMetrics) {
     }
 }
 
-TEST(NumKongKernelsTest, ResolveComputeKernelsUsesNumKongBackendWhenRequested) {
-    const ComputeKernels resolved = resolve_compute_kernels(ComputeEngine::numkong, DistFunc::L2, DataType::f32);
+TEST(NumKongKernelsTest, ResolveComputeKernelsMatchesNumKongBackend) {
+    const ComputeKernels resolved = resolve_compute_kernels(DistFunc::L2, DataType::f32);
     const ComputeKernels direct = resolve_nk_kernels(DistFunc::L2, DataType::f32);
     EXPECT_EQ(direct.dist, resolved.dist);
     EXPECT_EQ(direct.dot, resolved.dot);

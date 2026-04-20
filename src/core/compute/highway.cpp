@@ -2,7 +2,7 @@
 // Uses the foreach_target pattern for automatic multi-target compilation
 // and runtime dispatch.
 
-#include "core/compute/scanner_hw.h"
+#include "core/compute/highway.h"
 
 #include "core/compute/cosine_distance.h"
 #include "core/compute/scanner_dataset_scan.h"
@@ -12,7 +12,7 @@
 #include "core/utils/timer.h"
 
 #undef HWY_TARGET_INCLUDE
-#define HWY_TARGET_INCLUDE "core/compute/scanner_hw.cpp"
+#define HWY_TARGET_INCLUDE "core/compute/highway.cpp"
 #include "hwy/foreach_target.h"  // IWYU pragma: keep
 #include "hwy/highway.h"
 
@@ -477,16 +477,16 @@ Ret validate_hwy_kernel_support(DistFunc func, DataType type) {
     try {
         const ComputeKernels kernels = resolve_hwy_kernels(func, type);
         if (kernels.dist == nullptr) {
-            return Ret(std::string("ScannerHw::find_items: missing dist kernel for ")
+            return Ret(std::string("Highway::find_items: missing dist kernel for ")
                 + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
         }
         if ((func == DistFunc::L2 || func == DistFunc::COS)
                 && (kernels.dot == nullptr || kernels.squared_norm == nullptr)) {
-            return Ret(std::string("ScannerHw::find_items: missing stored-norm helpers for ")
+            return Ret(std::string("Highway::find_items: missing stored-norm helpers for ")
                 + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
         }
         if (func == DistFunc::COS && kernels.dist_with_query_norm == nullptr) {
-            return Ret(std::string("ScannerHw::find_items: missing query-norm kernel for ")
+            return Ret(std::string("Highway::find_items: missing query-norm kernel for ")
                 + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
         }
         return Ret(0);
@@ -541,10 +541,12 @@ Ret validate_hwy_kernel_support(DistFunc func, DataType type) {
         break; \
     }
 
-Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t* vec,
+} // namespace
+
+Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
     if (vec == nullptr || count == 0 || result == nullptr) {
-        return Ret("ScannerHw::find_items: invalid arguments.");
+        return Ret("Highway::find_items: invalid arguments.");
     }
 
     result->clear();
@@ -560,13 +562,13 @@ Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t
 
     DistHeap heap(DistItemCompare{func});
     heap.reserve(count);
-    Timer timer("scanner_hw::query");
+    Timer timer("highway::query");
 
     if (func == DistFunc::COS) {
         switch (type) {
             HWY_FOR_EACH_COS_KERNEL(HWY_DISPATCH_COS_CASE);
             default:
-                return Ret("ScannerHw::find_items: unsupported DataType for COS.");
+                return Ret("Highway::find_items: unsupported DataType for COS.");
         }
     } else if (func == DistFunc::DOT) {
         log_query_branch(query_id, "dot");
@@ -574,29 +576,22 @@ Ret find_items_hw_impl(const DatasetReader& dataset, size_t count, const uint8_t
         switch (type) {
             HWY_FOR_EACH_DOT_KERNEL(HWY_DISPATCH_DOT_CASE);
             default:
-                return Ret("ScannerHw::find_items: unsupported DataType for DOT.");
+                return Ret("Highway::find_items: unsupported DataType for DOT.");
         }
     } else if (func == DistFunc::L2) {
         switch (type) {
             HWY_FOR_EACH_L2_KERNEL(HWY_DISPATCH_L2_CASE);
             default:
-                return Ret("ScannerHw::find_items: unsupported DataType for L2.");
+                return Ret("Highway::find_items: unsupported DataType for L2.");
         }
     } else {
-        return Ret("ScannerHw::find_items: unsupported DistFunc.");
+        return Ret("Highway::find_items: unsupported DistFunc.");
     }
 
     extract_items(&heap, result);
     log_query_finish(query_id, dataset.name(), func, type, dim, count,
         ComputeEngine::highway, timer.elapsed_ms(), *result);
     return Ret(0);
-}
-
-} // namespace
-
-Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
-    return find_items_hw_impl(dataset, count, vec, result, bitset, query_id);
 }
 
 ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type) {
@@ -653,29 +648,6 @@ ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type) {
 #undef HWY_FOR_EACH_DOT_KERNEL
 #undef HWY_FOR_EACH_L2_KERNEL
 #undef HWY_FOR_EACH_COS_KERNEL
-
-Ret ScannerHw::find(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<uint64_t>& result) const {
-    result.clear();
-    try {
-        std::vector<DistItem> items;
-        CHECK(find_items(dataset, count, vec, items, nullptr));
-        extract_ids_from_items(items, &result);
-        return Ret(0);
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
-}
-
-Ret ScannerHw::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>& result, const BitsetFilter* bitset) const {
-    result.clear();
-    try {
-        return find_items_hw(dataset, count, vec, &result, bitset, next_scanner_query_id());
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
-}
 
 }  // namespace sketch2
 
