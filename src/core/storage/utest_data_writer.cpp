@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <cmath>
 #include <fstream>
 #include <unistd.h>
@@ -232,20 +233,43 @@ protected:
         return data;
     }
 
-    std::vector<float> read_norms(size_t count) {
+    std::vector<float> read_inline_norms(size_t count) {
         std::vector<float> values(count);
         FILE* f = fopen(output_path_.c_str(), "rb");
         if (f) {
             DataFileHeader hdr{};
             auto sz = fread(&hdr, sizeof(hdr), 1, f);
             (void)sz;
-            const DataMetadataLayout layout = compute_data_metadata_layout(hdr, count);
-            fseek(f, static_cast<long>(layout.norms_offset), SEEK_SET);
-            sz = fread(values.data(), sizeof(float), count, f);
-            (void)sz;
+            const DataRecordLayout record_layout = compute_data_record_layout(
+                data_type_from_int(static_cast<int>(hdr.type)), hdr.dim, data_file_has_norms(hdr));
+            for (size_t i = 0; i < count; ++i) {
+                const long norm_pos = static_cast<long>(
+                    hdr.data_offset + i * static_cast<size_t>(hdr.vector_stride) + record_layout.norm_offset);
+                fseek(f, norm_pos, SEEK_SET);
+                sz = fread(&values[i], sizeof(float), 1, f);
+                (void)sz;
+            }
             fclose(f);
         }
         return values;
+    }
+
+    std::vector<uint8_t> read_record_bytes(size_t index) {
+        std::vector<uint8_t> bytes;
+        FILE* f = fopen(output_path_.c_str(), "rb");
+        if (f) {
+            DataFileHeader hdr{};
+            auto sz = fread(&hdr, sizeof(hdr), 1, f);
+            (void)sz;
+            bytes.resize(hdr.vector_stride);
+            if (!bytes.empty()) {
+                fseek(f, static_cast<long>(hdr.data_offset + index * static_cast<size_t>(hdr.vector_stride)), SEEK_SET);
+                sz = fread(bytes.data(), 1, bytes.size(), f);
+                (void)sz;
+            }
+            fclose(f);
+        }
+        return bytes;
     }
 
     CompactIdsExtEncoding read_compact_encoding_at(size_t offset) {
@@ -525,33 +549,57 @@ TEST_F(DataWriterTest, BinaryInputVectorDataIsCorrect) {
     }
 }
 
-TEST_F(DataWriterTest, CosineValuesSectionIsWritten) {
+TEST_F(DataWriterTest, DotOutputDoesNotGrowBeyondNormalStridePadding) {
+    ASSERT_EQ(0, run(2, 0, DataType::f32, 8, 0, DistFunc::DOT).code());
+    const auto hdr = read_header();
+    const auto layout = compute_data_record_layout(DataType::f32, 8, false);
+    EXPECT_FALSE(data_file_has_norms(hdr));
+    EXPECT_EQ(layout.stride, hdr.vector_stride);
+    EXPECT_EQ(32u, hdr.vector_stride);
+}
+
+TEST_F(DataWriterTest, CosineValuesAreWrittenInlineWithVectorRecords) {
     ASSERT_EQ(0, run(2, 0, DataType::f32, 4, 0, DistFunc::COS).code());
     const auto hdr = read_header();
     ASSERT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
 
-    const auto norms = read_norms(hdr.count);
+    const auto norms = read_inline_norms(hdr.count);
     ASSERT_EQ(2u, norms.size());
     const float inv_norm0 = 1.0f / std::sqrt(4.0f * 0.1f * 0.1f);
     const float inv_norm1 = 1.0f / std::sqrt(4.0f * 1.1f * 1.1f);
     EXPECT_NEAR(inv_norm0, norms[0], 1e-5f);
     EXPECT_NEAR(inv_norm1, norms[1], 1e-5f);
+
+    const auto record_layout = compute_data_record_layout(DataType::f32, 4, true);
+    const auto record0 = read_record_bytes(0);
+    ASSERT_EQ(static_cast<size_t>(hdr.vector_stride), record0.size());
+
+    float persisted_norm0 = 0.0f;
+    std::memcpy(&persisted_norm0, record0.data() + record_layout.norm_offset, sizeof(persisted_norm0));
+    EXPECT_NEAR(inv_norm0, persisted_norm0, 1e-5f);
+
+    for (size_t i = record_layout.vector_size; i < record_layout.norm_offset; ++i) {
+        EXPECT_EQ(0u, record0[i]);
+    }
+    for (size_t i = record_layout.norm_offset + sizeof(float); i < record0.size(); ++i) {
+        EXPECT_EQ(0u, record0[i]);
+    }
 }
 
-TEST_F(DataWriterTest, CosineValuesSectionIsWrittenForI16) {
+TEST_F(DataWriterTest, CosineValuesAreWrittenInlineForI16Records) {
     ASSERT_EQ(0, run(2, 0, DataType::i16, 4, 0, DistFunc::COS).code());
     const auto hdr = read_header();
     ASSERT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_cosine_inv_norms(hdr));
 
-    const auto norms = read_norms(hdr.count);
+    const auto norms = read_inline_norms(hdr.count);
     ASSERT_EQ(2u, norms.size());
     EXPECT_FLOAT_EQ(0.0f, norms[0]);
     EXPECT_NEAR(1.0f / std::sqrt(4.0f), norms[1], 1e-6f);
 }
 
-TEST_F(DataWriterTest, L2ValuesSectionIsWritten) {
+TEST_F(DataWriterTest, L2ValuesAreWrittenInlineWithVectorRecords) {
     GeneratorConfig cfg{PatternType::Sequential, 2, 0, DataType::f32, 4, 1000};
     generate_input_file(input_path_, cfg);
     DataWriter w;
@@ -561,10 +609,18 @@ TEST_F(DataWriterTest, L2ValuesSectionIsWritten) {
     ASSERT_TRUE(data_file_has_norms(hdr));
     EXPECT_TRUE(data_file_has_squared_norms(hdr));
 
-    const auto norms = read_norms(hdr.count);
+    const auto norms = read_inline_norms(hdr.count);
     ASSERT_EQ(2u, norms.size());
     EXPECT_NEAR(4.0f * 0.1f * 0.1f, norms[0], 1e-6f);
     EXPECT_NEAR(4.0f * 1.1f * 1.1f, norms[1], 1e-6f);
+
+    const auto record_layout = compute_data_record_layout(DataType::f32, 4, true);
+    const auto record1 = read_record_bytes(1);
+    ASSERT_EQ(static_cast<size_t>(hdr.vector_stride), record1.size());
+
+    float persisted_norm1 = 0.0f;
+    std::memcpy(&persisted_norm1, record1.data() + record_layout.norm_offset, sizeof(persisted_norm1));
+    EXPECT_NEAR(4.0f * 1.1f * 1.1f, persisted_norm1, 1e-6f);
 }
 
 TEST_F(DataWriterTest, UnsortedInputIsWrittenInSortedIdOrder) {

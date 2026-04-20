@@ -33,10 +33,14 @@ using ComputeSquaredNormFn      = double (*)(const uint8_t*, size_t);
 using ComputeDotFn              = double (*)(const uint8_t*, const uint8_t*, size_t);
 
 // Holds all resolved function pointers for one (metric, DataType) combination.
+// Production scanner hot loops now use compile-time-dispatched kernel symbols,
+// but benchmarks and kernel-focused tests still need a runtime-selected view of
+// the available helpers.
+//
 // For DOT, both `dist` and `dot` are populated with the same kernel so callers
 // can use explicit dot-oriented names on the DOT execution path.
 // For L2, `dist` is always populated and `dot`/`squared_norm` may also be
-// populated so scanners can reuse persisted squared norms.
+// populated so callers can compare the raw path with the stored-norm helpers.
 // For COS all four fields are populated.
 struct ComputeKernels {
     ComputeDistFn              dist = nullptr;
@@ -45,7 +49,7 @@ struct ComputeKernels {
     ComputeDotFn               dot = nullptr;
 };
 
-// Resolves the kernel set for a given engine, metric, and data type.
+// Resolves the benchmark/test kernel set for a given engine, metric, and data type.
 ComputeKernels resolve_compute_kernels(ComputeEngine engine, DistFunc func, DataType type);
 
 } // namespace sketch2

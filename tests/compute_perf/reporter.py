@@ -11,6 +11,7 @@ from common import load_config
 
 REPORT_METRIC_RE = re.compile(r"^Metric:\s*(\S+)\s*$")
 REPORT_AVG_RE = re.compile(r"^Avg Time:\s*([0-9]+(?:\.[0-9]+)?)s\s*$")
+REPORT_SIZE_RE = re.compile(r"^Dataset Size:\s*([0-9]+)\s+bytes\s*$")
 KERNEL_CASE_RE = re.compile(
     r"^Kernel Case:\s+(\S+)\s+avg=([0-9]+(?:\.[0-9]+)?)ns\s+min=([0-9]+(?:\.[0-9]+)?)ns\s+max=([0-9]+(?:\.[0-9]+)?)ns\s*$"
 )
@@ -63,6 +64,26 @@ def parse_kernel_log(path: Path, case_name: str = "dist") -> dict[str, float]:
             case_match = KERNEL_CASE_RE.match(line)
             if case_match and pending_dist is not None and case_match.group(1) == case_name:
                 results[pending_dist] = float(case_match.group(2))
+                pending_dist = None
+
+    return results
+
+
+def parse_dataset_size_log(path: Path) -> dict[str, int]:
+    results: dict[str, int] = {}
+    pending_dist: str | None = None
+
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            dist_match = REPORT_METRIC_RE.match(line)
+            if dist_match:
+                pending_dist = dist_match.group(1).lower()
+                continue
+
+            size_match = REPORT_SIZE_RE.match(line)
+            if size_match and pending_dist is not None:
+                results[pending_dist] = int(size_match.group(1))
                 pending_dist = None
 
     return results
@@ -134,6 +155,27 @@ def main() -> None:
     print("--- KERNEL SUMMARY (metric avg ns/call) ---")
     print(build_table(headers, kernel_rows))
     print("-----------------------------------------")
+
+    size_rows: list[list[str]] = []
+    for engine in config.compute_engines:
+        row = [engine]
+        for dist in config.dist_funcs:
+            dist_path = runner_dist_log_path(config, engine, dist)
+            if dist_path.exists():
+                metrics = parse_dataset_size_log(dist_path)
+                size_bytes = metrics.get(dist)
+                row.append("-" if size_bytes is None else str(size_bytes))
+                continue
+
+            path = runner_log_path(config, engine)
+            metrics = parse_dataset_size_log(path) if path.exists() else {}
+            size_bytes = metrics.get(dist)
+            row.append("-" if size_bytes is None else str(size_bytes))
+        size_rows.append(row)
+
+    print("--- DATASET SIZE SUMMARY (bytes) ---")
+    print(build_table(headers, size_rows))
+    print("------------------------------------")
 
 
 if __name__ == "__main__":

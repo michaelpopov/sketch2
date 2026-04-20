@@ -7,6 +7,8 @@
 #include "core/utils/mapped_region.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
+#include <cassert>
+#include <cstring>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -51,8 +53,8 @@ public:
             if (!reader_ || source_ != Source::Base) {
                 return;
             }
-            while (index_ < reader_->count() && reader_->is_hidden(index_)) {
-                ++index_;
+            if (index_ < reader_->count_unchecked()) {
+                index_ = reader_->next_visible_base_index_unchecked(index_);
             }
         }
 
@@ -61,9 +63,9 @@ public:
                 return true;
             }
             if (source_ == Source::Base) {
-                return index_ >= reader_->count();
+                return index_ >= reader_->count_unchecked();
             }
-            return !reader_->delta_ || index_ >= reader_->delta_->count();
+            return !reader_->delta_ || index_ >= reader_->delta_->count_unchecked();
         }
 
         inline const uint8_t* data() const {
@@ -72,7 +74,7 @@ public:
             }
 
             if (source_ == Source::Base) {
-                return reader_->at_unchecked_(index_);
+                return reader_->record_unchecked_(index_);
             }
 
             return reader_->delta_->at(index_);
@@ -84,7 +86,10 @@ public:
             }
 
             if (source_ == Source::Base) {
-                return reader_->get_norm(index_);
+                if (!data_file_has_norms(reader_->hdr_)) {
+                    return reader_->get_norm(index_);
+                }
+                return reader_->get_norm_from_record_unchecked(reader_->record_unchecked_(index_));
             }
 
             return reader_->delta_->get_norm(index_);
@@ -96,7 +101,7 @@ public:
             }
 
             if (source_ == Source::Base) {
-                return reader_->ids_.id(index_);
+                return reader_->id_unchecked(index_);
             }
 
             return reader_->delta_->ids_.id(index_);
@@ -129,6 +134,10 @@ public:
         if (!initialized_) {
             throw std::runtime_error("DataReader::count: reader is not initialized");
         }
+        return count_unchecked();
+    }
+    inline size_t count_unchecked() const {
+        assert(initialized_);
         return static_cast<size_t>(hdr_.count);
     }
     uint32_t norm_flags() const;
@@ -139,14 +148,59 @@ public:
     OrderedIterator base_begin() const;
     OrderedIterator delta_begin() const;
     uint64_t       id(size_t index) const;
+    inline uint64_t id_unchecked(size_t index) const {
+        assert(index < count_unchecked());
+        return ids_.id_unchecked(index);
+    }
+    inline const uint8_t* record_unchecked(size_t index) const {
+        return record_unchecked_(index);
+    }
+    inline bool    has_hidden_rows_unchecked() const {
+        assert(initialized_);
+        return has_hidden_rows_;
+    }
+    inline size_t  next_visible_base_index_unchecked(size_t index) const {
+        assert(initialized_);
+        const size_t end = count_unchecked();
+        if (index >= end) {
+            return end;
+        }
+        if (!has_hidden_rows_ || changed_bitset_.empty()) {
+            return index;
+        }
+        return changed_bitset_.find_next_unset(index);
+    }
+    inline size_t  first_visible_base_index_unchecked() const {
+        return next_visible_base_index_unchecked(0);
+    }
+    inline const DataReader* delta_reader_unchecked() const {
+        assert(initialized_);
+        return delta_.get();
+    }
+    inline size_t  norm_offset_in_record_unchecked() const {
+        assert(initialized_);
+        return norm_offset_in_record_;
+    }
+    inline float   get_norm_from_record_unchecked(const uint8_t* record) const {
+        assert(initialized_);
+        assert(record != nullptr);
+        assert(data_file_has_norms(hdr_));
+
+        float value = 0.0f;
+        std::memcpy(&value, record + norm_offset_in_record_, sizeof(value));
+        return value;
+    }
     inline float   get_norm(size_t index) const {
         if (index >= count()) {
             throw std::out_of_range("DataReader::get_norm: index out of range");
         }
-        if (!norms_) {
-            throw std::logic_error("DataReader::get_norm: norms section is absent");
+        if (!data_file_has_norms(hdr_)) {
+            throw std::logic_error("DataReader::get_norm: inline norms are absent");
         }
-        return norms_[index];
+        if (is_hidden(index)) {
+            throw std::logic_error("DataReader::get_norm: index points to hidden row");
+        }
+        return get_norm_from_record_unchecked(vectors_region_.data() + index * stride_);
     }
     const uint8_t* get(uint64_t id) const;   // lookup by vector id
     inline const uint8_t* at(size_t index) const {   // lookup by position; might return nullptr if the vector is deleted
@@ -154,14 +208,14 @@ public:
             throw std::out_of_range("DataReader::at: index out of range");
         }
 
-        if (index < changed_bitset_.size() && changed_bitset_.get(index)) {
+        if (index < changed_bitset_.size() && changed_bitset_.get_unchecked(index)) {
             return nullptr;
         }
 
-        return vectors_region_.data() + index * stride_;
+        return record_unchecked_(index);
     }
     inline bool    is_hidden(size_t index) const {
-        return (index < changed_bitset_.size() && changed_bitset_.get(index));
+        return (index < changed_bitset_.size() && changed_bitset_.get_unchecked(index));
     }
     std::string    path() const { return path_; }
 
@@ -172,28 +226,30 @@ public:
     bool has_delta() const { return delta_ != nullptr; }
 
 private:
-    inline const uint8_t* at_unchecked_(size_t index) const {
-        if (index >= count()) {
-            throw std::out_of_range("DataReader::at_unchecked_: index out of range");
-        }
+    inline const uint8_t* record_unchecked_(size_t index) const {
+        assert(index < count_unchecked());
         return vectors_region_.data() + index * stride_;
+    }
+
+    inline const uint8_t* at_unchecked_(size_t index) const {
+        return record_unchecked_(index);
     }
 
     MappedRegion             vectors_region_;
     MappedRegion             ids_region_;
     MappedRegion             deleted_ids_region_;
-    MappedRegion             norms_region_;
     DataFileHeader           hdr_     = {};
     bool                     initialized_ = false;
     CompactIds               ids_;
     CompactIds               deleted_ids_;
-    const float*             norms_   = nullptr; // optional stored norms in mapped metadata
     DataType                 type_    = DataType::f32;
     size_t                   vector_size_ = 0;    // size of one vector in bytes
+    size_t                   norm_offset_in_record_ = 0;    // inline norm slot within one persisted record
     size_t                   stride_  = 0;        // bytes between persisted vectors
     std::string              path_ = "<undefined>";
 
     DynamicBitset           changed_bitset_;
+    bool                    has_hidden_rows_ = false;
     std::unique_ptr<DataReader> delta_;
 
     Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);

@@ -19,8 +19,8 @@ DataReader::Iterator::Iterator(const DataReader* reader, const DataReader* delta
 
 void DataReader::Iterator::next() {
     ++index_;
-    while (index_ < reader_->count() && reader_->is_hidden(index_)) {
-        ++index_;
+    if (index_ < reader_->count_unchecked()) {
+        index_ = reader_->next_visible_base_index_unchecked(index_);
     }
 }
 
@@ -79,7 +79,7 @@ Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta)
 }
 
 // Memory-maps a binary data file, validates its layout, and caches pointers to
-// the vector, norms, id, and delete sections. When a delta reader is attached,
+// the vector, id, and delete sections. When a delta reader is attached,
 // it also builds a visibility bitset for base rows shadowed by newer updates.
 Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta) {
     if (initialized_) {
@@ -152,15 +152,15 @@ void DataReader::reset_state_() {
     vectors_region_.reset();
     ids_region_.reset();
     deleted_ids_region_.reset();
-    norms_region_.reset();
     hdr_ = {};
     initialized_ = false;
     ids_.clear();
-    norms_ = nullptr;
     deleted_ids_.clear();
     vector_size_ = 0;
+    norm_offset_in_record_ = 0;
     stride_ = 0;
     changed_bitset_.resize(0);
+    has_hidden_rows_ = false;
     delta_.reset();
 }
 
@@ -210,7 +210,10 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
         return Ret("DataReader: dimension too small");
     }
 
-    vector_size_ = dim * elem_size;
+    const DataRecordLayout record_layout =
+        compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_));
+    vector_size_ = record_layout.vector_size;
+    norm_offset_in_record_ = record_layout.norm_offset;
     stride_ = static_cast<size_t>(hdr_.vector_stride);
     if ((hdr_.flags & ~kDataFileNormKindMask) != 0u) {
         return Ret("DataReader: unsupported data-file flags");
@@ -225,11 +228,12 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     if (stride_ < vector_size_ || (stride_ % kDataAlignment) != 0) {
         return Ret("DataReader: invalid vector stride");
     }
+    if (data_file_has_norms(hdr_) && stride_ != record_layout.stride) {
+        return Ret("DataReader: invalid inline norm layout");
+    }
 
     *metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
     if (hdr_.vectors_bytes != metadata_layout->vectors_bytes
-            || hdr_.norms_offset != metadata_layout->norms_offset
-            || hdr_.norms_bytes != metadata_layout->norms_bytes
             || hdr_.ids_offset != metadata_layout->ids_trailer_offset
             || hdr_.deleted_ids_offset != compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)) {
         return Ret("DataReader: malformed section layout in header");
@@ -255,6 +259,9 @@ Ret DataReader::validate_delta_(const std::unique_ptr<DataReader>& delta) const 
     if (type_ != delta->type_) return Ret("DataReader: invalid delta type");
     if (vector_size_ != delta->vector_size_) return Ret("DataReader: invalid delta dim");
     if (stride_ != delta->stride_) return Ret("DataReader: invalid delta stride");
+    if (norm_offset_in_record_ != delta->norm_offset_in_record_) {
+        return Ret("DataReader: invalid delta norm layout");
+    }
     if (data_file_norm_flags(hdr_) != data_file_norm_flags(delta->hdr_)) {
         return Ret("DataReader: invalid delta norm layout");
     }
@@ -264,9 +271,6 @@ Ret DataReader::validate_delta_(const std::unique_ptr<DataReader>& delta) const 
 Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout& metadata_layout) {
     if (metadata_layout.vectors_bytes > 0) {
         CHECK(vectors_region_.init(fd, hdr_.data_offset, metadata_layout.vectors_bytes, true));
-    }
-    if (metadata_layout.norms_bytes > 0) {
-        CHECK(norms_region_.init(fd, metadata_layout.norms_offset, metadata_layout.norms_bytes, true));
     }
 
     CHECK(ids_region_.init(fd, hdr_.ids_offset, hdr_.ids_bytes));
@@ -298,9 +302,6 @@ Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout&
         return Ret("DataReader: ids trailer count does not match header");
     }
 
-    norms_ = metadata_layout.norms_bytes > 0
-        ? reinterpret_cast<const float*>(norms_region_.data())
-        : nullptr;
     return Ret(0);
 }
 
@@ -311,6 +312,7 @@ Ret DataReader::init_delta() {
         return Ret("DataReader::init_delta: reader is not initialized");
     }
 
+    has_hidden_rows_ = false;
     auto mark_hidden = [this](const CompactIds& other_ids) {
         const size_t base_count = ids_.count();
         const size_t other_count = other_ids.count();
@@ -326,6 +328,7 @@ Ret DataReader::init_delta() {
 
             if (other_ids.id_unchecked(j) == id) {
                 changed_bitset_.set(i);
+                has_hidden_rows_ = true;
             }
         }
     };
@@ -344,11 +347,10 @@ void DataReader::assert_invariants_() const {
         assert(vectors_region_.empty());
         assert(ids_region_.empty());
         assert(deleted_ids_region_.empty());
-        assert(norms_region_.empty());
         assert(ids_.empty());
-        assert(norms_ == nullptr);
         assert(deleted_ids_.empty());
         assert(vector_size_ == 0);
+        assert(norm_offset_in_record_ == 0);
         assert(stride_ == 0);
         return;
     }
@@ -357,6 +359,8 @@ void DataReader::assert_invariants_() const {
     assert(hdr_.base.kind == static_cast<uint16_t>(FileType::Data));
     assert(hdr_.base.version == kVersion);
     assert(vector_size_ == compute_vector_size(type_, hdr_.dim));
+    assert(norm_offset_in_record_ ==
+        compute_data_record_layout(type_, hdr_.dim, data_file_has_norms(hdr_)).norm_offset);
     assert(stride_ == hdr_.vector_stride);
     assert(data_file_has_valid_norm_flags(hdr_));
     assert(stride_ >= vector_size_);
@@ -369,10 +373,7 @@ void DataReader::assert_invariants_() const {
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
     assert(vectors_region_.size() == metadata_layout.vectors_bytes);
-    assert(norms_region_.size() == metadata_layout.norms_bytes);
     assert(hdr_.vectors_bytes == metadata_layout.vectors_bytes);
-    assert(hdr_.norms_offset == metadata_layout.norms_offset);
-    assert(hdr_.norms_bytes == metadata_layout.norms_bytes);
     assert(hdr_.ids_offset == metadata_layout.ids_trailer_offset);
     assert(hdr_.ids_bytes == ids_region_.size());
     assert(hdr_.deleted_ids_offset ==
@@ -380,19 +381,20 @@ void DataReader::assert_invariants_() const {
     assert(hdr_.deleted_ids_bytes == deleted_ids_region_.size());
 
     if (data_file_has_norms(hdr_)) {
-        assert(norms_ == reinterpret_cast<const float*>(norms_region_.data()));
-    } else {
-        assert(norms_ == nullptr);
+        assert(stride_ >= norm_offset_in_record_ + sizeof(float));
     }
 
     if (delta_) {
         assert(changed_bitset_.size() == hdr_.count);
+        assert(has_hidden_rows_ == changed_bitset_.any());
         assert(type_ == delta_->type());
         assert(vector_size_ == delta_->size());
         assert(stride_ == delta_->stride());
+        assert(norm_offset_in_record_ == delta_->norm_offset_in_record_);
         assert(norm_flags() == delta_->norm_flags());
     } else {
         assert(changed_bitset_.size() == 0);
+        assert(!has_hidden_rows_);
     }
 #endif
 }
@@ -440,19 +442,11 @@ bool DataReader::has_matching_stored_norms(DistFunc dist_func) const {
 }
 
 DataReader::Iterator DataReader::begin() const {
-    size_t index = 0;
-    while (index < count() && is_hidden(index)) {
-        ++index;
-    }
-    return Iterator(this, delta_ ? delta_.get() : nullptr, index);
+    return Iterator(this, delta_ ? delta_.get() : nullptr, first_visible_base_index_unchecked());
 }
 
 DataReader::OrderedIterator DataReader::base_begin() const {
-    size_t index = 0;
-    while (index < count() && is_hidden(index)) {
-        ++index;
-    }
-    return OrderedIterator(this, OrderedIterator::Source::Base, index);
+    return OrderedIterator(this, OrderedIterator::Source::Base, first_visible_base_index_unchecked());
 }
 
 DataReader::OrderedIterator DataReader::delta_begin() const {
@@ -463,7 +457,7 @@ uint64_t DataReader::id(size_t index) const {
     if (index >= count()) {
         throw std::out_of_range("DataReader::id: index out of range");
     }
-    return ids_.id(index);
+    return id_unchecked(index);
 }
 
 // Looks up an id in the base file and falls back to the attached delta when the

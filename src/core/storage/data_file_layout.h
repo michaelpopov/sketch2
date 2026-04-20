@@ -3,6 +3,7 @@
 #pragma once
 #include "core/storage/data_file.h"
 #include "utils/shared_types.h"
+#include <cassert>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
@@ -10,11 +11,15 @@
 
 namespace sketch2 {
 
+struct DataRecordLayout {
+    size_t vector_size = 0;
+    size_t norm_offset = 0;
+    size_t stride = 0;
+};
+
 struct DataMetadataLayout {
     size_t vectors_bytes = 0;
     size_t vectors_padding = 0;
-    size_t norms_offset = 0;
-    size_t norms_bytes = 0;
     size_t ids_trailer_offset = 0;
     size_t ids_trailer_padding = 0;
     size_t deleted_ids_offset = 0;
@@ -83,6 +88,18 @@ inline size_t compute_vector_size(DataType type, uint16_t dim) {
     return static_cast<size_t>(dim) * data_type_size(type);
 }
 
+inline DataRecordLayout compute_data_record_layout(DataType type, uint16_t dim, bool has_norms) {
+    const size_t vector_size = compute_vector_size(type, dim);
+    const size_t norm_offset = align_up<size_t>(vector_size, alignof(float));
+    const size_t norm_bytes = has_norms ? sizeof(float) : 0;
+
+    DataRecordLayout layout{};
+    layout.vector_size = vector_size;
+    layout.norm_offset = norm_offset;
+    layout.stride = align_up<size_t>(norm_offset + norm_bytes, static_cast<size_t>(kDataAlignment));
+    return layout;
+}
+
 inline uint32_t compute_vector_stride(size_t vec_size) {
     return static_cast<uint32_t>(align_up<size_t>(vec_size, static_cast<size_t>(kDataAlignment)));
 }
@@ -115,8 +132,9 @@ inline DataFileHeader make_data_header(uint64_t min_id, uint64_t max_id,
     hdr.type = static_cast<uint16_t>(data_type_to_int(type));
     hdr.dim = dim;
     hdr.data_offset = static_cast<uint64_t>(compute_data_region_offset(sizeof(DataFileHeader)));
-    hdr.vector_stride = compute_vector_stride(compute_vector_size(type, dim));
     hdr.flags = norm_flags;
+    hdr.vector_stride =
+        static_cast<uint32_t>(compute_data_record_layout(type, dim, data_file_has_norms(hdr)).stride);
     return hdr;
 }
 
@@ -124,16 +142,9 @@ inline DataMetadataLayout compute_data_metadata_layout(const DataFileHeader& hdr
     DataMetadataLayout layout{};
     layout.vectors_bytes = count * static_cast<size_t>(hdr.vector_stride);
     const size_t after_vectors = static_cast<size_t>(hdr.data_offset) + layout.vectors_bytes;
-    layout.norms_offset = compute_data_region_offset(after_vectors);
-    layout.norms_bytes = data_file_has_norms(hdr) ? count * sizeof(float) : 0;
-    layout.vectors_padding = data_file_has_norms(hdr)
-        ? layout.norms_offset - after_vectors
-        : 0;
-    const size_t after_norms = data_file_has_norms(hdr)
-        ? layout.norms_offset + layout.norms_bytes
-        : after_vectors;
-    layout.ids_trailer_offset = compute_data_region_offset(after_norms);
-    layout.ids_trailer_padding = layout.ids_trailer_offset - after_norms;
+    layout.ids_trailer_offset = compute_data_region_offset(after_vectors);
+    layout.vectors_padding = layout.ids_trailer_offset - after_vectors;
+    layout.ids_trailer_padding = 0;
     return layout;
 }
 
@@ -146,8 +157,6 @@ inline Ret set_data_header_layout(DataFileHeader* hdr, size_t ids_bytes, size_t 
     const size_t deleted_ids_offset = compute_deleted_ids_offset(layout.ids_trailer_offset, ids_bytes);
 
     hdr->vectors_bytes = static_cast<uint64_t>(layout.vectors_bytes);
-    hdr->norms_offset = static_cast<uint64_t>(layout.norms_offset);
-    hdr->norms_bytes = static_cast<uint64_t>(layout.norms_bytes);
     hdr->ids_offset = static_cast<uint64_t>(layout.ids_trailer_offset);
     hdr->ids_bytes = static_cast<uint64_t>(ids_bytes);
     hdr->deleted_ids_offset = static_cast<uint64_t>(deleted_ids_offset);
@@ -185,16 +194,6 @@ inline Ret rewrite_header(FILE* f, const DataFileHeader& hdr, const std::string&
     return Ret(0);
 }
 
-inline Ret write_f32_array(FILE* f, const std::vector<float>& values, const std::string& error_message) {
-    if (values.empty()) {
-        return Ret(0);
-    }
-    if (fwrite(values.data(), sizeof(float), values.size(), f) != values.size()) {
-        return Ret(error_message);
-    }
-    return Ret(0);
-}
-
 inline Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, size_t vector_stride,
         const std::string& context) {
     if (data == nullptr) {
@@ -218,6 +217,57 @@ inline Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, si
     if (fwrite(kZeroPadding, 1, padding_size, f) != padding_size) {
         return Ret(context + ": failed to write vector padding");
     }
+    return Ret(0);
+}
+
+inline Ret write_data_record(FILE* f,
+        const uint8_t* data,
+        const DataRecordLayout& layout,
+        const float* norm,
+        const std::string& context) {
+    if (data == nullptr) {
+        return Ret(context + ": missing vector data");
+    }
+    if (layout.vector_size == 0 || layout.stride < layout.vector_size) {
+        return Ret(context + ": invalid vector stride");
+    }
+    if (norm != nullptr && layout.norm_offset + sizeof(float) > layout.stride) {
+        return Ret(context + ": invalid inline norm layout");
+    }
+
+    if (fwrite(data, layout.vector_size, 1, f) != 1) {
+        return Ret(context + ": failed to write vector data");
+    }
+
+    constexpr uint8_t kZeroPadding[kDataAlignment] = {};
+    const size_t bytes_before_norm = norm != nullptr
+        ? layout.norm_offset - layout.vector_size
+        : layout.stride - layout.vector_size;
+    // Valid layouts keep padding within one alignment block; retain the runtime guard so
+    // release builds still fail cleanly if a caller constructs a malformed layout by hand.
+    assert(bytes_before_norm <= sizeof(kZeroPadding));
+    if (bytes_before_norm > sizeof(kZeroPadding)) {
+        return Ret(context + ": invalid vector padding size");
+    }
+    if (bytes_before_norm > 0 && fwrite(kZeroPadding, 1, bytes_before_norm, f) != bytes_before_norm) {
+        return Ret(context + ": failed to write vector padding");
+    }
+
+    if (norm != nullptr) {
+        if (fwrite(norm, sizeof(float), 1, f) != 1) {
+            return Ret(context + ": failed to write inline norm");
+        }
+        const size_t bytes_after_norm = layout.stride - (layout.norm_offset + sizeof(float));
+        // Same belt-and-suspenders check as above for malformed externally-constructed layouts.
+        assert(bytes_after_norm <= sizeof(kZeroPadding));
+        if (bytes_after_norm > sizeof(kZeroPadding)) {
+            return Ret(context + ": invalid inline norm padding size");
+        }
+        if (bytes_after_norm > 0 && fwrite(kZeroPadding, 1, bytes_after_norm, f) != bytes_after_norm) {
+            return Ret(context + ": failed to write inline norm padding");
+        }
+    }
+
     return Ret(0);
 }
 

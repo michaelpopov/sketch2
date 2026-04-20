@@ -198,6 +198,14 @@ def load_ground_truth(config: PerfConfig, dist_func: str) -> tuple[list[int], li
     return data["ids"], score_values
 
 
+def tree_size_bytes(path: Path) -> int:
+    total = 0
+    for child in path.rglob("*"):
+        if child.is_file():
+            total += child.stat().st_size
+    return total
+
+
 def distance_helpers(
     dist_func: str,
 ) -> tuple[

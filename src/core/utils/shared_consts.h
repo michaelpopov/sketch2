@@ -26,9 +26,9 @@ inline constexpr uint64_t kMaxDimension = 4096;
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 
 // Binary storage format version written into data/WAL headers and checked when reopening files.
-// Version 10 stores explicit 64-bit offsets and sizes for all independently mappable sections,
-// including the vectors section itself.
-inline constexpr uint16_t kVersion = 10;
+// Version 12 stores aligned vector records with any optional norm inline in the record stride,
+// followed by ids and deleted-ids trailers.
+inline constexpr uint16_t kVersion = 12;
 
 // Vector payload alignment used by data files and accumulator storage for SIMD-friendly access.
 inline constexpr uint32_t kDataAlignment = 32;
@@ -39,8 +39,8 @@ inline constexpr uint64_t kDataRegionAlignment = 4096;
 // Id section alignment used by data-file layout code when placing CompactIdsOffsets trailer sections.
 inline constexpr uint32_t kIdsAlignment = 8;
 
-// Data-file header flags describing which float values are persisted in the
-// optional norms section for active vectors.
+// Data-file header flags describing which float values are persisted inline in
+// active vector records.
 inline constexpr uint32_t kDataFileHasCosineInvNorms = 1u;
 inline constexpr uint32_t kDataFileHasSquaredNorms = 2u;
 inline constexpr uint32_t kDataFileNormKindMask =
