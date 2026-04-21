@@ -6,8 +6,36 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+
+DEFAULT_DB_DIR = Path("/tmp/sketch2_tests_compute_perf")
+DATASET_METADATA_FILENAME = "dataset_metadata.json"
+
+
+@dataclass(frozen=True)
+class DatasetMetadata:
+    dataset: str
+    dims: int
+    count: int
+    knn_count: int
+    type_name: str
+    dist_funcs: list[str]
+    range_size: int
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "format_version": 1,
+            "dataset": self.dataset,
+            "dims": self.dims,
+            "count": self.count,
+            "knn_count": self.knn_count,
+            "type_name": self.type_name,
+            "dist_funcs": self.dist_funcs,
+            "range_size": self.range_size,
+        }
 
 
 @dataclass(frozen=True)
@@ -56,10 +84,23 @@ from sketch2_test_vectors import (
 
 
 def find_lib_path() -> Path:
+    runtime_dir = configured_runtime_dir()
+    if runtime_dir is not None:
+        lib_path = runtime_dir / "libsketch2.so"
+        if lib_path.exists():
+            return lib_path
+        raise FileNotFoundError(f"libsketch2.so not found in COMPUTE_PERF_RUNTIME_DIR: {runtime_dir}")
     return find_library()
 
 
 def find_binary(name: str) -> Path:
+    runtime_dir = configured_runtime_dir()
+    if runtime_dir is not None:
+        candidate = runtime_dir / name
+        if candidate.exists():
+            return candidate
+        raise FileNotFoundError(f"{name} not found in COMPUTE_PERF_RUNTIME_DIR: {runtime_dir}")
+
     root = repo_root()
     candidates = [
         root / "bin" / name,
@@ -72,6 +113,18 @@ def find_binary(name: str) -> Path:
         if candidate.exists():
             return candidate
     raise FileNotFoundError(f"{name} not found in expected output directories: {candidates}")
+
+
+def configured_runtime_dir() -> Path | None:
+    raw = os.environ.get("COMPUTE_PERF_RUNTIME_DIR")
+    if not raw:
+        return None
+    path = Path(raw).resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"COMPUTE_PERF_RUNTIME_DIR does not exist: {path}")
+    if not path.is_dir():
+        raise NotADirectoryError(f"COMPUTE_PERF_RUNTIME_DIR is not a directory: {path}")
+    return path
 
 
 def wrapper_dir() -> Path:
@@ -93,7 +146,11 @@ def load_sketch2_types():
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
+    return _env_int_from(os.environ, name, default)
+
+
+def _env_int_from(env: Mapping[str, str], name: str, default: int) -> int:
+    raw = env.get(name)
     if raw is None or raw == "":
         return default
     try:
@@ -105,36 +162,98 @@ def _env_int(name: str, default: int) -> int:
     return value
 
 
-def load_config() -> PerfConfig:
-    raw_db_dir = os.environ.get("SKETCH2_CONFIG_ROOT")
+def dataset_metadata_path(db_dir: Path) -> Path:
+    return db_dir / DATASET_METADATA_FILENAME
+
+
+def load_dataset_metadata(db_dir: Path) -> DatasetMetadata | None:
+    path = dataset_metadata_path(db_dir)
+    if not path.exists():
+        return None
+
+    with path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+
+    format_version = data.get("format_version", 1)
+    if format_version != 1:
+        raise SystemExit(f"unsupported dataset metadata format_version={format_version} in {path}")
+
+    try:
+        dist_funcs = [str(item).strip().lower() for item in data["dist_funcs"] if str(item).strip()]
+        return DatasetMetadata(
+            dataset=str(data["dataset"]),
+            dims=int(data["dims"]),
+            count=int(data["count"]),
+            knn_count=int(data["knn_count"]),
+            type_name=str(data["type_name"]),
+            dist_funcs=dist_funcs,
+            range_size=int(data["range_size"]),
+        )
+    except KeyError as exc:
+        raise SystemExit(f"dataset metadata is missing required field {exc!s} in {path}") from exc
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(f"dataset metadata is invalid in {path}: {exc}") from exc
+
+
+def write_dataset_metadata(config: PerfConfig) -> Path:
+    path = dataset_metadata_path(config.db_dir)
+    metadata = DatasetMetadata(
+        dataset=config.dataset,
+        dims=config.dims,
+        count=config.count,
+        knn_count=config.knn_count,
+        type_name=config.type_name,
+        dist_funcs=config.dist_funcs,
+        range_size=config.range_size,
+    )
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(metadata.to_json_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+    return path
+
+
+def load_config(env: Mapping[str, str] | None = None) -> PerfConfig:
+    env = os.environ if env is None else env
+    raw_db_dir = env.get("SKETCH2_CONFIG_ROOT")
     if not raw_db_dir:
-        # Default for local runs if not set by driver.sh
-        raw_db_dir = "/tmp/sketch2_COMPUTE_PERF.default"
+        raw_db_dir = str(DEFAULT_DB_DIR)
 
-    dataset = os.environ.get("COMPUTE_PERF_TEST_DATASET", "perf_test")
-    dims = _env_int("COMPUTE_PERF_TEST_DIMS", 256)
-    count = _env_int("COMPUTE_PERF_TEST_COUNT", 100000)
-    repeat = _env_int("COMPUTE_PERF_TEST_REPEAT", 10)
-    knn_count = _env_int("COMPUTE_PERF_TEST_K", 20)
-    type_name = os.environ.get("COMPUTE_PERF_TEST_TYPE", "f32")
+    db_dir = Path(raw_db_dir).resolve()
+    metadata = load_dataset_metadata(db_dir)
 
-    dist_str = os.environ.get("COMPUTE_PERF_TEST_DIST", "cos,l2,dot")
+    dataset = env.get("COMPUTE_PERF_TEST_DATASET", "perf_test")
+    dims = _env_int_from(env, "COMPUTE_PERF_TEST_DIMS", 256)
+    count = _env_int_from(env, "COMPUTE_PERF_TEST_COUNT", 100000)
+    repeat = _env_int_from(env, "COMPUTE_PERF_TEST_REPEAT", 10)
+    knn_count = _env_int_from(env, "COMPUTE_PERF_TEST_K", 20)
+    type_name = env.get("COMPUTE_PERF_TEST_TYPE", "f32")
+
+    dist_str = env.get("COMPUTE_PERF_TEST_DIST", "cos,l2,dot")
     dist_funcs = [d.strip().lower() for d in dist_str.split(",") if d.strip()]
 
-    range_size = _env_int("COMPUTE_PERF_TEST_RANGE_SIZE", 10000)
-    log_level = os.environ.get("COMPUTE_PERF_TEST_LOG_LEVEL", "ERROR")
-    thread_pool_size = _env_int("COMPUTE_PERF_TEST_THREAD_POOL_SIZE", 1)
+    range_size = _env_int_from(env, "COMPUTE_PERF_TEST_RANGE_SIZE", 10000)
+    log_level = env.get("COMPUTE_PERF_TEST_LOG_LEVEL", "ERROR")
+    thread_pool_size = _env_int_from(env, "COMPUTE_PERF_TEST_THREAD_POOL_SIZE", 1)
 
-    engine_str = os.environ.get("COMPUTE_PERF_TEST_ENGINES", "scalar,auto,highway,numkong")
+    if metadata is not None:
+        dataset = metadata.dataset
+        dims = metadata.dims
+        count = metadata.count
+        knn_count = metadata.knn_count
+        type_name = metadata.type_name
+        dist_funcs = metadata.dist_funcs
+        range_size = metadata.range_size
+
+    engine_str = env.get("COMPUTE_PERF_TEST_ENGINES", "scalar,auto,highway,numkong")
     compute_engines = [e.strip().lower() for e in engine_str.split(",") if e.strip()]
-    benchmark_str = os.environ.get("COMPUTE_PERF_TEST_BENCHMARKS", "scan,kernel")
+    benchmark_str = env.get("COMPUTE_PERF_TEST_BENCHMARKS", "scan,kernel")
     benchmark_layers = [layer.strip().lower() for layer in benchmark_str.split(",") if layer.strip()]
-    kernel_iterations = _env_int("COMPUTE_PERF_KERNEL_ITERATIONS", 200000)
-    kernel_warmup_iterations = _env_int("COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS", 5000)
-    kernel_repeats = _env_int("COMPUTE_PERF_KERNEL_REPEATS", 7)
+    kernel_iterations = _env_int_from(env, "COMPUTE_PERF_KERNEL_ITERATIONS", 200000)
+    kernel_warmup_iterations = _env_int_from(env, "COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS", 5000)
+    kernel_repeats = _env_int_from(env, "COMPUTE_PERF_KERNEL_REPEATS", 7)
 
     return PerfConfig(
-        db_dir=Path(raw_db_dir).resolve(),
+        db_dir=db_dir,
         dataset=dataset,
         dims=dims,
         count=count,

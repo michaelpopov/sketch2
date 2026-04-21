@@ -14,7 +14,7 @@ It performs repeated K-Nearest Neighbor (KNN) queries on a large, stable dataset
 
 The harness consists of six main components:
 
-1.  **`driver.sh`**: The entry point. Orchestrates the test execution, manages environment variables, and collects logs. It verifies the success of the initialization phase before proceeding.
+1.  **`driver.sh` / `driver.py`**: The entry point. `driver.sh` is a thin compatibility wrapper around the Python driver, which orchestrates the test execution, manages environment variables, selects the runtime directory, and collects logs. It reuses a persistent dataset cache when available.
 2.  **`initializer.py`**: Sets up the test environment, including creating the temporary database, configuring Sketch2, generating the dataset, and calculating/persisting the **Ground Truth**. It uses a mix of native and Python-based data generation.
 3.  **`runner.py`**: Executes the actual benchmarks. For each compute engine, it benchmarks each score function in its own child process. It can run two complementary benchmark layers:
     - a **kernel-only** layer that times direct metric kernels without scanner traversal
@@ -25,20 +25,23 @@ The harness consists of six main components:
 
 ---
 
-## 1. Driver (`driver.sh`)
+## 1. Driver (`driver.sh` / `driver.py`)
 
-The driver is a Bash script that manages the lifecycle of a performance run.
+The driver is a Python script with a small shell wrapper that manages the lifecycle of a performance run.
 
 - **Environment Setup**: Applies defaults for all `COMPUTE_PERF_TEST_*` variables only when they are not already set (see [Configuration](#configuration)) and exports a diagnostic directory path for child processes.
-- **Isolation**: By default, creates a unique temporary directory for the database root (`SKETCH2_CONFIG_ROOT`) to avoid interference between runs. If `SKETCH2_CONFIG_ROOT` is set externally, the driver will use the provided directory instead of creating a temporary one.
+- **Runtime Selection**: By default, uses `REPO_ROOT/bin`. Passing `--engine highway` also uses `REPO_ROOT/bin`, while `--engine numkong` switches the harness to `REPO_ROOT/bin-nk`. The driver uses `Sketch2.compute_engine()` from the selected `libsketch2.so` to report the compiled engine and rejects mismatches.
+- **Persistent Cache**: By default, uses a fixed dataset cache root at `/tmp/sketch2_tests_compute_perf`. If `SKETCH2_CONFIG_ROOT` is set externally, the driver uses that directory instead.
+- **Metadata Authority**: The cache root stores `dataset_metadata.json`. When that file exists, its dataset shape (`count`, `dims`, `k`, `type`, `dist`, `range_size`, dataset name) overrides the driver defaults and is reported in the driver output.
 - **Workflow**:
-    1.  Runs `initializer.py` once to build the dataset and ground truth, unless `COMPUTE_PERF_SKIP_INIT=1` is set.
-    2.  Verifies the existence of all generated dataset directories and ground truth JSON files.
-    3.  Iterates through the list of engines in `COMPUTE_PERF_TEST_ENGINES`.
-    4.  For each engine label, sets `SKETCH2_COMPUTE_ENGINE` and executes `runner.py`. The special engine value `auto` leaves the environment variable unset so Sketch2 can use its default compiled-engine selection. Explicit engine names must match the configured build.
-    5.  Captures stdout and stderr for each runner into separate log files. Initializer output is always streamed to stdout, and the driver recreates the log and diagnostic directories after initialization in case the initializer rebuilt the temporary database root.
+    1.  If the cache root does not exist, runs `initializer.py` once to create all datasets and ground-truth files, then writes `dataset_metadata.json`.
+    2.  If the cache root already exists, requires `dataset_metadata.json` and reuses the existing datasets instead of regenerating them.
+    3.  Verifies the existence of all dataset directories and ground-truth JSON files described by the metadata.
+    4.  For each score function, runs `runner.py` against the single compiled engine reported by the loaded library. The driver leaves `SKETCH2_COMPUTE_ENGINE` unset so Sketch2 uses the library's built-in engine selection.
+    5.  Captures stdout and stderr for each initializer/runner invocation into separate log files.
+    6.  Runs `reporter.py` at the end so each harness invocation emits the summary tables for the just-collected logs.
 - **Crash Diagnostics**: Requests core dumps when the platform allows them, logs the current core-dump limit and core pattern, writes a `run_env.txt` snapshot of the exported harness variables, and points to per-engine diagnostic files and repro scripts when a runner fails.
-- **Cleanup**: Preserves the temporary database root and logs by default for inspection. Set `COMPUTE_PERF_TEST_CLEANUP=1` to delete it automatically on completion or interruption.
+- **Cleanup**: Preserves the dataset cache and logs by default so later runs can reuse them. Set `COMPUTE_PERF_TEST_CLEANUP=1` only if you explicitly want the cache root removed after the run.
 
 ## 2. Initializer (`initializer.py`)
 
@@ -87,8 +90,8 @@ The harness is configured via environment variables.
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `SKETCH2_CONFIG_ROOT` | Root directory for the temporary database. | `/tmp/sketch2_COMPUTE_PERF.XXXXXX` |
-| `COMPUTE_PERF_SKIP_INIT` | Skip the initialization phase (dataset generation and ground truth calculation) if set to `1`. | `0` |
+| `SKETCH2_CONFIG_ROOT` | Root directory for the persistent dataset cache. | `/tmp/sketch2_tests_compute_perf` |
+| `COMPUTE_PERF_SKIP_INIT` | Legacy knob. The driver now prefers automatic cache reuse based on `dataset_metadata.json`. | `0` |
 | `COMPUTE_PERF_TEST_DATASET` | Base name for the datasets. | `perf_test` |
 | `COMPUTE_PERF_TEST_DIMS` | Number of dimensions per vector. | `256` |
 | `COMPUTE_PERF_TEST_COUNT` | Number of vectors to generate. | `100000` |
@@ -97,7 +100,7 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_TEST_TYPE` | Data type of vectors (`f32`, `f16`, `i16`). | `f32` |
 | `COMPUTE_PERF_TEST_DIST` | Comma-separated list of score functions. | `cos,l2,dot` |
 | `COMPUTE_PERF_TEST_RANGE_SIZE` | Dataset range size used at creation time. | `10000` |
-| `COMPUTE_PERF_TEST_ENGINES` | Comma-separated list of engine labels to test. Use `auto` for the library default selection. After the compute redesign, set this to a build-compatible list such as `auto,highway` or `auto,numkong`. | `scalar,auto,highway,numkong` |
+| `COMPUTE_PERF_TEST_ENGINES` | Engine labels shown in the final summary tables. The driver now sets this to the single compiled engine reported by the selected `libsketch2.so`. | detected from `compute_engine()` |
 | `COMPUTE_PERF_TEST_BENCHMARKS` | Comma-separated benchmark layers to run. Supported values: `scan`, `kernel`. | `scan,kernel` |
 | `COMPUTE_PERF_TEST_LOG_LEVEL` | Log level for the Sketch2 engine. | `ERROR` |
 | `COMPUTE_PERF_TEST_THREAD_POOL_SIZE` | Internal thread pool size for Sketch2. | `1` |
@@ -117,17 +120,10 @@ Simply execute the driver script from the repository root:
 ./tests/compute_perf/driver.sh
 ```
 
-For compute-redesign builds, it is usually clearer to set the engine list
-explicitly:
+To force the NumKong runtime artifacts:
 
 ```bash
-COMPUTE_PERF_TEST_ENGINES=auto,highway ./tests/compute_perf/driver.sh
-```
-
-or:
-
-```bash
-COMPUTE_PERF_TEST_ENGINES=auto,numkong ./tests/compute_perf/driver.sh
+./tests/compute_perf/driver.sh --engine numkong
 ```
 
 Logs and timing reports will be printed to stdout and saved in `${SKETCH2_CONFIG_ROOT}/logs`.
@@ -137,7 +133,7 @@ The final reporter prints two summary tables:
 - **Performance Summary**: end-to-end scan average time per engine and metric
 - **Kernel Summary**: direct `dist` kernel average nanoseconds per call per engine and metric
 
-The driver also writes `${SKETCH2_CONFIG_ROOT}/logs/run_env.txt`, which captures the exported harness configuration used for the run. This file is recreated after initialization so it survives cases where `initializer.py` rebuilds the temporary root.
+The driver also writes `${SKETCH2_CONFIG_ROOT}/logs/run_env.txt`, which captures the exported harness configuration used for the run. The dataset cache writes `${SKETCH2_CONFIG_ROOT}/dataset_metadata.json`, and that file becomes the authoritative source for dataset shape on later runs.
 
 When investigating a crash, inspect `${COMPUTE_PERF_DIAG_DIR}/diag_<engine>_<dist>.json` for the last recorded stage, then rerun the generated `${COMPUTE_PERF_DIAG_DIR}/repro_<engine>_<dist>.sh` or `${COMPUTE_PERF_DIAG_DIR}/repro_loop_<engine>_<dist>.sh`. On failure, `driver.sh` prints the diagnostic directory and the matching generated artifact paths to make that handoff explicit.
 

@@ -218,6 +218,11 @@ void sk_set_log_level(const char* log_level);
  */
 void sk_version(char* buf, size_t buf_size);
 
+/*
+ * Write the compiled compute engine name into caller-provided buffer.
+ */
+void compute_engine(char* buf, int buf_size);
+
 #ifdef __cplusplus
 }
 #endif
