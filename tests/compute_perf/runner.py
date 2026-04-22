@@ -235,6 +235,10 @@ def print_kernel_report(payload: dict) -> None:
     print("-------------------------------")
 
 
+def bytes_to_gb(size_bytes: int) -> float:
+    return size_bytes / 1_000_000_000.0
+
+
 def run_single_distance(dist: str) -> None:
     config = load_config()
     os.environ["SKETCH2_CONFIG"] = str(config.db_dir / "config.ini")
@@ -364,7 +368,7 @@ def run_single_distance(dist: str) -> None:
             print(f"Min Time:       {min_t:.6f}s")
             print(f"Max Time:       {max_t:.6f}s")
             print(f"Avg Time:       {avg_t:.6f}s")
-            print(f"Dataset Size:   {diag_state['dataset_size_bytes']} bytes")
+            print(f"Dataset Size:   {bytes_to_gb(diag_state['dataset_size_bytes']):.6f} GB")
             print(f"--------------------------")
 
 

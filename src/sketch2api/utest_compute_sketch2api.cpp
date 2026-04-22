@@ -214,6 +214,6 @@ TEST(sketch2api_compute_chain, MissingConfigFileDefaultsToCompiledEngine) {
 
 TEST(sketch2api_compute_chain, ComputeEngineReturnsCompiledEngineName) {
     char buf[32] = {};
-    compute_engine(buf, static_cast<int>(sizeof(buf)));
+    sk_compute_engine(buf, static_cast<int>(sizeof(buf)));
     EXPECT_STREQ(kCompiledEngine, buf);
 }

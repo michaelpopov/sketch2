@@ -361,7 +361,7 @@ void sk_version(char* buf, size_t buf_size) {
     buf[copy_len] = '\0';
 }
 
-void compute_engine(char* buf, int buf_size) {
+void sk_compute_engine(char* buf, int buf_size) {
     if (buf == nullptr || buf_size <= 0) {
         return;
     }

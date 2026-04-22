@@ -267,7 +267,7 @@ def probe_compiled_engine(runtime_dir: Path, config_root: str) -> str:
     except AttributeError as exc:
         raise SystemExit(
             f"[driver] ERROR: {runtime_dir / 'libsketch2.so'} does not export the "
-            "new compute_engine() API. Rebuild that runtime directory before "
+            "new sk_compute_engine() API. Rebuild that runtime directory before "
             "running compute perf tests."
         ) from exc
     if engine not in SUPPORTED_ENGINES:

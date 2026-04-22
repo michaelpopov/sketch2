@@ -30,7 +30,7 @@ The harness consists of six main components:
 The driver is a Python script with a small shell wrapper that manages the lifecycle of a performance run.
 
 - **Environment Setup**: Applies defaults for all `COMPUTE_PERF_TEST_*` variables only when they are not already set (see [Configuration](#configuration)) and exports a diagnostic directory path for child processes.
-- **Runtime Selection**: By default, uses `REPO_ROOT/bin`. Passing `--engine highway` also uses `REPO_ROOT/bin`, while `--engine numkong` switches the harness to `REPO_ROOT/bin-nk`. The driver uses `Sketch2.compute_engine()` from the selected `libsketch2.so` to report the compiled engine and rejects mismatches.
+- **Runtime Selection**: By default, uses `REPO_ROOT/bin`. Passing `--engine highway` also uses `REPO_ROOT/bin`, while `--engine numkong` switches the harness to `REPO_ROOT/bin-nk`. The driver uses `Sketch2.compute_engine()` backed by the `sk_compute_engine()` API from the selected `libsketch2.so` to report the compiled engine and rejects mismatches.
 - **Persistent Cache**: By default, uses a fixed dataset cache root at `/tmp/sketch2_tests_compute_perf`. If `SKETCH2_CONFIG_ROOT` is set externally, the driver uses that directory instead.
 - **Metadata Authority**: The cache root stores `dataset_metadata.json`. When that file exists, its dataset shape (`count`, `dims`, `k`, `type`, `dist`, `range_size`, dataset name) overrides the driver defaults and is reported in the driver output.
 - **Workflow**:
@@ -100,7 +100,7 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_TEST_TYPE` | Data type of vectors (`f32`, `f16`, `i16`). | `f32` |
 | `COMPUTE_PERF_TEST_DIST` | Comma-separated list of score functions. | `cos,l2,dot` |
 | `COMPUTE_PERF_TEST_RANGE_SIZE` | Dataset range size used at creation time. | `10000` |
-| `COMPUTE_PERF_TEST_ENGINES` | Engine labels shown in the final summary tables. The driver now sets this to the single compiled engine reported by the selected `libsketch2.so`. | detected from `compute_engine()` |
+| `COMPUTE_PERF_TEST_ENGINES` | Engine labels shown in the final summary tables. The driver now sets this to the single compiled engine reported by the selected `libsketch2.so`. | detected from `sk_compute_engine()` |
 | `COMPUTE_PERF_TEST_BENCHMARKS` | Comma-separated benchmark layers to run. Supported values: `scan`, `kernel`. | `scan,kernel` |
 | `COMPUTE_PERF_TEST_LOG_LEVEL` | Log level for the Sketch2 engine. | `ERROR` |
 | `COMPUTE_PERF_TEST_THREAD_POOL_SIZE` | Internal thread pool size for Sketch2. | `1` |

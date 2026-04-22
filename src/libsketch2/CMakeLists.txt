@@ -14,8 +14,9 @@ target_link_libraries(sketch2
     hwy
 )
 
-add_custom_target(copy_sketch2_runtime ALL
-  DEPENDS sketch2
+add_custom_command(TARGET sketch2 POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+    ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:sketch2>
     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<TARGET_FILE_NAME:sketch2>
