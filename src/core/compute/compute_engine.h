@@ -50,4 +50,10 @@ struct ComputeKernels {
 // Resolves the benchmark/test kernel set for the compiled engine.
 ComputeKernels resolve_compute_kernels(DistFunc func, DataType type);
 
+// Performs one-time compute-engine runtime warm-up for the compiled backend.
+// Highway uses this to resolve and cache its final dispatched function pointers
+// before scan hot loops begin. Backends without process-wide kernel warm-up can
+// treat this as a no-op.
+void initialize_compute_engine_runtime();
+
 } // namespace sketch2

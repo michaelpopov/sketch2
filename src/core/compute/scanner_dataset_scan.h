@@ -110,18 +110,41 @@ inline Ret scan_dataset_readers(uint64_t query_id, const std::vector<DataReaderP
     return Ret(0);
 }
 
-template <ComputeDistFn DistFn>
-inline Ret scan_dataset_heap_with_dist(uint64_t query_id, const DatasetReader& dataset, size_t count,
-        DistHeap* heap, const QueryDistContext& query, DistFunc func,
+inline Ret scan_dataset_heap_with_dist_rt(uint64_t query_id, const DatasetReader& dataset, size_t count,
+        DistHeap* heap, const QueryDistContext& query, DistFunc func, ComputeDistFn dist_fn,
         const BitsetFilter* bitset = nullptr) {
     std::vector<DataReaderPtr> readers;
     CHECK(collect_dataset_readers(dataset, query_id, &readers));
     return scan_dataset_readers(
         query_id, readers, count, heap,
-        [query_id, query](const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
+        [query_id, query, dist_fn](const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
                 const BitsetFilter* bitset_filter) {
             log_reader_scan_plan(query_id, reader, "raw_dist", false, bitset_filter != nullptr);
-            scan_data_reader_with_dist<DistFn>(reader, local_count, local_heap, query, bitset_filter);
+            scan_data_reader_with_dist_rt(reader, local_count, local_heap, query, dist_fn, bitset_filter);
+        },
+        func,
+        bitset);
+}
+
+template <ComputeDistFn DistFn>
+inline Ret scan_dataset_heap_with_dist(uint64_t query_id, const DatasetReader& dataset, size_t count,
+        DistHeap* heap, const QueryDistContext& query, DistFunc func,
+        const BitsetFilter* bitset = nullptr) {
+    return scan_dataset_heap_with_dist_rt(query_id, dataset, count, heap, query, func, DistFn, bitset);
+}
+
+inline Ret scan_dataset_heap_with_dot_rt(uint64_t query_id, const DatasetReader& dataset, size_t count,
+        DistHeap* heap, const QueryDotContext& query, DistFunc func, ComputeDotFn dot_fn,
+        const BitsetFilter* bitset = nullptr) {
+    assert(func == DistFunc::DOT);
+    std::vector<DataReaderPtr> readers;
+    CHECK(collect_dataset_readers(dataset, query_id, &readers));
+    return scan_dataset_readers(
+        query_id, readers, count, heap,
+        [query_id, query, dot_fn](const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
+                const BitsetFilter* bitset_filter) {
+            log_reader_scan_plan(query_id, reader, "dot", false, bitset_filter != nullptr);
+            scan_data_reader_with_dot_rt(reader, local_count, local_heap, query, dot_fn, bitset_filter);
         },
         func,
         bitset);
@@ -131,15 +154,32 @@ template <ComputeDotFn DotFn>
 inline Ret scan_dataset_heap_with_dot(uint64_t query_id, const DatasetReader& dataset, size_t count,
         DistHeap* heap, const QueryDotContext& query, DistFunc func,
         const BitsetFilter* bitset = nullptr) {
-    assert(func == DistFunc::DOT);
+    return scan_dataset_heap_with_dot_rt(query_id, dataset, count, heap, query, func, DotFn, bitset);
+}
+
+inline Ret scan_dataset_heap_with_optional_cosine_norms_rt(uint64_t query_id,
+        const DatasetReader& dataset, size_t count, DistHeap* heap, const QueryCosContext& query,
+        DistFunc func, ComputeDotFn dot_fn, ComputeDistWithQueryNormFn fallback_dist_fn,
+        const BitsetFilter* bitset = nullptr) {
+    assert(func == DistFunc::COS);
     std::vector<DataReaderPtr> readers;
     CHECK(collect_dataset_readers(dataset, query_id, &readers));
     return scan_dataset_readers(
         query_id, readers, count, heap,
-        [query_id, query](const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
+        [query, func, query_id, dot_fn, fallback_dist_fn](
+                const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
                 const BitsetFilter* bitset_filter) {
-            log_reader_scan_plan(query_id, reader, "dot", false, bitset_filter != nullptr);
-            scan_data_reader_with_dot<DotFn>(reader, local_count, local_heap, query, bitset_filter);
+            const bool uses_stored_norms = reader.has_matching_stored_norms(func);
+            log_reader_scan_plan(query_id, reader,
+                uses_stored_norms ? "cos_stored_norms" : "cos_query_norm_fallback",
+                uses_stored_norms, bitset_filter != nullptr);
+            if (uses_stored_norms) {
+                scan_data_reader_with_cos_stored_norms_rt(
+                    reader, local_count, local_heap, query, dot_fn, bitset_filter);
+            } else {
+                scan_data_reader_with_query_norm_rt(
+                    reader, local_count, local_heap, query, fallback_dist_fn, bitset_filter);
+            }
         },
         func,
         bitset);
@@ -149,24 +189,33 @@ template <ComputeDotFn DotFn, ComputeDistWithQueryNormFn FallbackDistFn>
 inline Ret scan_dataset_heap_with_optional_cosine_norms(uint64_t query_id,
         const DatasetReader& dataset, size_t count, DistHeap* heap, const QueryCosContext& query,
         DistFunc func, const BitsetFilter* bitset = nullptr) {
-    assert(func == DistFunc::COS);
+    return scan_dataset_heap_with_optional_cosine_norms_rt(
+        query_id, dataset, count, heap, query, func, DotFn, FallbackDistFn, bitset);
+}
+
+inline Ret scan_dataset_heap_with_optional_l2_norms_rt(uint64_t query_id,
+        const DatasetReader& dataset, size_t count, DistHeap* heap, const QueryL2Context& query,
+        DistFunc func, ComputeDotFn dot_fn, ComputeDistFn fallback_dist_fn,
+        const BitsetFilter* bitset = nullptr) {
+    assert(func == DistFunc::L2);
     std::vector<DataReaderPtr> readers;
     CHECK(collect_dataset_readers(dataset, query_id, &readers));
     return scan_dataset_readers(
         query_id, readers, count, heap,
-        [query, func, query_id](
+        [query, func, query_id, dot_fn, fallback_dist_fn](
                 const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
                 const BitsetFilter* bitset_filter) {
             const bool uses_stored_norms = reader.has_matching_stored_norms(func);
             log_reader_scan_plan(query_id, reader,
-                uses_stored_norms ? "cos_stored_norms" : "cos_query_norm_fallback",
+                uses_stored_norms ? "l2_stored_norms" : "l2_dist_fallback",
                 uses_stored_norms, bitset_filter != nullptr);
             if (uses_stored_norms) {
-                scan_data_reader_with_cos_stored_norms<DotFn>(
-                    reader, local_count, local_heap, query, bitset_filter);
+                scan_data_reader_with_l2_stored_norms_rt(
+                    reader, local_count, local_heap, query, dot_fn, bitset_filter);
             } else {
-                scan_data_reader_with_query_norm<FallbackDistFn>(
-                    reader, local_count, local_heap, query, bitset_filter);
+                scan_data_reader_with_dist_rt(
+                    reader, local_count, local_heap,
+                    QueryDistContext{query.vec, query.dim}, fallback_dist_fn, bitset_filter);
             }
         },
         func,
@@ -177,29 +226,8 @@ template <ComputeDotFn DotFn, ComputeDistFn FallbackDistFn>
 inline Ret scan_dataset_heap_with_optional_l2_norms(uint64_t query_id,
         const DatasetReader& dataset, size_t count, DistHeap* heap, const QueryL2Context& query,
         DistFunc func, const BitsetFilter* bitset = nullptr) {
-    assert(func == DistFunc::L2);
-    std::vector<DataReaderPtr> readers;
-    CHECK(collect_dataset_readers(dataset, query_id, &readers));
-    return scan_dataset_readers(
-        query_id, readers, count, heap,
-        [query, func, query_id](
-                const DataReader& reader, size_t local_count, DistHeapEx* local_heap,
-                const BitsetFilter* bitset_filter) {
-            const bool uses_stored_norms = reader.has_matching_stored_norms(func);
-            log_reader_scan_plan(query_id, reader,
-                uses_stored_norms ? "l2_stored_norms" : "l2_dist_fallback",
-                uses_stored_norms, bitset_filter != nullptr);
-            if (uses_stored_norms) {
-                scan_data_reader_with_l2_stored_norms<DotFn>(
-                    reader, local_count, local_heap, query, bitset_filter);
-            } else {
-                scan_data_reader_with_dist<FallbackDistFn>(
-                    reader, local_count, local_heap,
-                    QueryDistContext{query.vec, query.dim}, bitset_filter);
-            }
-        },
-        func,
-        bitset);
+    return scan_dataset_heap_with_optional_l2_norms_rt(
+        query_id, dataset, count, heap, query, func, DotFn, FallbackDistFn, bitset);
 }
 
 } // namespace sketch2

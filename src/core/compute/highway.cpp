@@ -423,125 +423,134 @@ HWY_EXPORT(DistCosWithQueryNormF32);
 HWY_EXPORT(DistCosWithQueryNormF16);
 HWY_EXPORT(DistCosWithQueryNormI16);
 
-double hwy_dist_l2_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistL2F32)(a, b, dim);
-}
-double hwy_dist_l2_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistL2F16)(a, b, dim);
-}
-double hwy_dist_l2_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistL2I16)(a, b, dim);
+struct HighwayKernelCache {
+    ComputeKernels dot_f32;
+    ComputeKernels dot_f16;
+    ComputeKernels dot_i16;
+    ComputeKernels l2_f32;
+    ComputeKernels l2_f16;
+    ComputeKernels l2_i16;
+    ComputeKernels cos_f32;
+    ComputeKernels cos_f16;
+    ComputeKernels cos_i16;
+};
+
+void warm_hwy_kernel_cache(HighwayKernelCache* cache) {
+    assert(cache != nullptr);
+    hwy::GetChosenTarget().Update(hwy::SupportedTargets());
+
+    const ComputeDotFn dot_f32 = HWY_DYNAMIC_POINTER(DotF32);
+    const ComputeDotFn dot_f16 = HWY_DYNAMIC_POINTER(DotF16);
+    const ComputeDotFn dot_i16 = HWY_DYNAMIC_POINTER(DotI16);
+    const ComputeDistFn l2_f32 = HWY_DYNAMIC_POINTER(DistL2F32);
+    const ComputeDistFn l2_f16 = HWY_DYNAMIC_POINTER(DistL2F16);
+    const ComputeDistFn l2_i16 = HWY_DYNAMIC_POINTER(DistL2I16);
+    const ComputeSquaredNormFn sq_f32 = HWY_DYNAMIC_POINTER(SquaredNormF32);
+    const ComputeSquaredNormFn sq_f16 = HWY_DYNAMIC_POINTER(SquaredNormF16);
+    const ComputeSquaredNormFn sq_i16 = HWY_DYNAMIC_POINTER(SquaredNormI16);
+    const ComputeDistFn cos_f32 = HWY_DYNAMIC_POINTER(DistCosF32);
+    const ComputeDistFn cos_f16 = HWY_DYNAMIC_POINTER(DistCosF16);
+    const ComputeDistFn cos_i16 = HWY_DYNAMIC_POINTER(DistCosI16);
+    const ComputeDistWithQueryNormFn cos_qn_f32 =
+        HWY_DYNAMIC_POINTER(DistCosWithQueryNormF32);
+    const ComputeDistWithQueryNormFn cos_qn_f16 =
+        HWY_DYNAMIC_POINTER(DistCosWithQueryNormF16);
+    const ComputeDistWithQueryNormFn cos_qn_i16 =
+        HWY_DYNAMIC_POINTER(DistCosWithQueryNormI16);
+
+    const auto set_dot_kernels = [](ComputeKernels* kernels, ComputeDotFn dot_fn) {
+        kernels->dist = dot_fn;
+        kernels->dot = dot_fn;
+    };
+    const auto set_l2_kernels = [](
+            ComputeKernels* kernels, ComputeDistFn dist_fn, ComputeSquaredNormFn squared_norm_fn,
+            ComputeDotFn dot_fn) {
+        kernels->dist = dist_fn;
+        kernels->squared_norm = squared_norm_fn;
+        kernels->dot = dot_fn;
+    };
+    const auto set_cos_kernels = [](
+            ComputeKernels* kernels, ComputeDistFn dist_fn,
+            ComputeDistWithQueryNormFn dist_with_query_norm_fn,
+            ComputeSquaredNormFn squared_norm_fn, ComputeDotFn dot_fn) {
+        kernels->dist = dist_fn;
+        kernels->dist_with_query_norm = dist_with_query_norm_fn;
+        kernels->squared_norm = squared_norm_fn;
+        kernels->dot = dot_fn;
+    };
+
+    set_dot_kernels(&cache->dot_f32, dot_f32);
+    set_dot_kernels(&cache->dot_f16, dot_f16);
+    set_dot_kernels(&cache->dot_i16, dot_i16);
+
+    set_l2_kernels(&cache->l2_f32, l2_f32, sq_f32, dot_f32);
+    set_l2_kernels(&cache->l2_f16, l2_f16, sq_f16, dot_f16);
+    set_l2_kernels(&cache->l2_i16, l2_i16, sq_i16, dot_i16);
+
+    set_cos_kernels(&cache->cos_f32, cos_f32, cos_qn_f32, sq_f32, dot_f32);
+    set_cos_kernels(&cache->cos_f16, cos_f16, cos_qn_f16, sq_f16, dot_f16);
+    set_cos_kernels(&cache->cos_i16, cos_i16, cos_qn_i16, sq_i16, dot_i16);
 }
 
-double hwy_dot_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DotF32)(a, b, dim);
-}
-double hwy_dot_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DotF16)(a, b, dim);
-}
-double hwy_dot_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DotI16)(a, b, dim);
-}
-
-double hwy_squared_norm_f32(const uint8_t* a, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(SquaredNormF32)(a, dim);
-}
-double hwy_squared_norm_f16(const uint8_t* a, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(SquaredNormF16)(a, dim);
-}
-double hwy_squared_norm_i16(const uint8_t* a, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(SquaredNormI16)(a, dim);
+const HighwayKernelCache& hwy_kernel_cache() {
+    static const HighwayKernelCache cache = []() {
+        HighwayKernelCache resolved;
+        warm_hwy_kernel_cache(&resolved);
+        return resolved;
+    }();
+    return cache;
 }
 
-double hwy_dist_cos_f32(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistCosF32)(a, b, dim);
-}
-double hwy_dist_cos_f16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistCosF16)(a, b, dim);
-}
-double hwy_dist_cos_i16(const uint8_t* a, const uint8_t* b, size_t dim) {
-    return HWY_DYNAMIC_DISPATCH(DistCosI16)(a, b, dim);
-}
-
-double hwy_dist_cos_qn_f32(const uint8_t* a, const uint8_t* b, size_t dim, double qn) {
-    return HWY_DYNAMIC_DISPATCH(DistCosWithQueryNormF32)(a, b, dim, qn);
-}
-double hwy_dist_cos_qn_f16(const uint8_t* a, const uint8_t* b, size_t dim, double qn) {
-    return HWY_DYNAMIC_DISPATCH(DistCosWithQueryNormF16)(a, b, dim, qn);
-}
-double hwy_dist_cos_qn_i16(const uint8_t* a, const uint8_t* b, size_t dim, double qn) {
-    return HWY_DYNAMIC_DISPATCH(DistCosWithQueryNormI16)(a, b, dim, qn);
-}
-
-Ret validate_hwy_kernel_support(DistFunc func, DataType type) {
-    try {
-        const ComputeKernels kernels = resolve_hwy_kernels(func, type);
-        if (kernels.dist == nullptr) {
-            return Ret(std::string("Highway::find_items: missing dist kernel for ")
-                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
-        }
-        if ((func == DistFunc::L2 || func == DistFunc::COS)
-                && (kernels.dot == nullptr || kernels.squared_norm == nullptr)) {
-            return Ret(std::string("Highway::find_items: missing stored-norm helpers for ")
-                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
-        }
-        if (func == DistFunc::COS && kernels.dist_with_query_norm == nullptr) {
-            return Ret(std::string("Highway::find_items: missing query-norm kernel for ")
-                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
-        }
-        return Ret(0);
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
+const ComputeKernels& cached_hwy_kernels(DistFunc func, DataType type) {
+    const HighwayKernelCache& cache = hwy_kernel_cache();
+    switch (func) {
+        case DistFunc::DOT:
+            switch (type) {
+                case DataType::f32: return cache.dot_f32;
+                case DataType::f16: return cache.dot_f16;
+                case DataType::i16: return cache.dot_i16;
+            }
+            break;
+        case DistFunc::L2:
+            switch (type) {
+                case DataType::f32: return cache.l2_f32;
+                case DataType::f16: return cache.l2_f16;
+                case DataType::i16: return cache.l2_i16;
+            }
+            break;
+        case DistFunc::COS:
+            switch (type) {
+                case DataType::f32: return cache.cos_f32;
+                case DataType::f16: return cache.cos_f16;
+                case DataType::i16: return cache.cos_i16;
+            }
+            break;
     }
+    throw std::runtime_error("cached_hwy_kernels: unsupported DistFunc/DataType.");
 }
 
-#define HWY_FOR_EACH_DOT_KERNEL(X) \
-    X(f32, hwy_dot_f32) \
-    X(f16, hwy_dot_f16) \
-    X(i16, hwy_dot_i16)
-
-#define HWY_FOR_EACH_L2_KERNEL(X) \
-    X(f32, hwy_dot_f32, hwy_dist_l2_f32, hwy_squared_norm_f32) \
-    X(f16, hwy_dot_f16, hwy_dist_l2_f16, hwy_squared_norm_f16) \
-    X(i16, hwy_dot_i16, hwy_dist_l2_i16, hwy_squared_norm_i16)
-
-#define HWY_FOR_EACH_COS_KERNEL(X) \
-    X(f32, hwy_dot_f32, hwy_dist_cos_f32, hwy_dist_cos_qn_f32, hwy_squared_norm_f32) \
-    X(f16, hwy_dot_f16, hwy_dist_cos_f16, hwy_dist_cos_qn_f16, hwy_squared_norm_f16) \
-    X(i16, hwy_dot_i16, hwy_dist_cos_i16, hwy_dist_cos_qn_i16, hwy_squared_norm_i16)
-
-#define HWY_DISPATCH_COS_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, DIST_QN_KERNEL, SQ_NORM_KERNEL) \
-    case DataType::TYPE_TAG: { \
-        const double query_norm_sq = SQ_NORM_KERNEL(vec, dim); \
-        log_query_branch(query_id, "cos_with_optional_norms", \
-            query_norm_sq, query_norm_sq == 0.0); \
-        const QueryCosContext query{ \
-            vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)}; \
-        CHECK((scan_dataset_heap_with_optional_cosine_norms< \
-            DOT_KERNEL, DIST_QN_KERNEL>( \
-            query_id, dataset, count, &heap, query, func, bitset))); \
-        break; \
+Ret validate_hwy_kernel_support(const ComputeKernels& kernels, DistFunc func, DataType type) {
+    if (kernels.dist == nullptr) {
+        return Ret(std::string("Highway::find_items: missing dist kernel for ")
+            + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
     }
-
-#define HWY_DISPATCH_DOT_CASE(TYPE_TAG, DOT_KERNEL) \
-    case DataType::TYPE_TAG: \
-        CHECK(scan_dataset_heap_with_dot<DOT_KERNEL>( \
-            query_id, dataset, count, &heap, query, func, bitset)); \
-        break;
-
-#define HWY_DISPATCH_L2_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, SQ_NORM_KERNEL) \
-    case DataType::TYPE_TAG: { \
-        const double query_norm_sq = SQ_NORM_KERNEL(vec, dim); \
-        log_query_branch(query_id, "l2_with_optional_norms", \
-            query_norm_sq, query_norm_sq == 0.0); \
-        const QueryL2Context query{vec, dim, query_norm_sq}; \
-        CHECK((scan_dataset_heap_with_optional_l2_norms< \
-            DOT_KERNEL, DIST_KERNEL>( \
-            query_id, dataset, count, &heap, query, func, bitset))); \
-        break; \
+    if ((func == DistFunc::L2 || func == DistFunc::COS)
+            && (kernels.dot == nullptr || kernels.squared_norm == nullptr)) {
+        return Ret(std::string("Highway::find_items: missing stored-norm helpers for ")
+            + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
     }
+    if (func == DistFunc::COS && kernels.dist_with_query_norm == nullptr) {
+        return Ret(std::string("Highway::find_items: missing query-norm kernel for ")
+            + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
+    }
+    return Ret(0);
+}
 
 } // namespace
+
+void initialize_hwy_runtime() {
+    (void) hwy_kernel_cache();
+}
 
 Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
@@ -553,7 +562,8 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
     const DistFunc func = dataset.dist_func();
     const size_t dim = dataset.dim();
     const DataType type = dataset.type();
-    CHECK(validate_hwy_kernel_support(func, type));
+    const ComputeKernels& kernels = cached_hwy_kernels(func, type);
+    CHECK(validate_hwy_kernel_support(kernels, func, type));
     if (query_id == 0) {
         query_id = next_scanner_query_id();
     }
@@ -565,25 +575,27 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
     Timer timer("highway::query");
 
     if (func == DistFunc::COS) {
-        switch (type) {
-            HWY_FOR_EACH_COS_KERNEL(HWY_DISPATCH_COS_CASE);
-            default:
-                return Ret("Highway::find_items: unsupported DataType for COS.");
-        }
+        const double query_norm_sq = kernels.squared_norm(vec, dim);
+        log_query_branch(query_id, "cos_with_optional_norms",
+            query_norm_sq, query_norm_sq == 0.0);
+        const QueryCosContext query{
+            vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)};
+        CHECK(scan_dataset_heap_with_optional_cosine_norms_rt(
+            query_id, dataset, count, &heap, query, func,
+            kernels.dot, kernels.dist_with_query_norm, bitset));
     } else if (func == DistFunc::DOT) {
         log_query_branch(query_id, "dot");
         const QueryDotContext query{vec, dim};
-        switch (type) {
-            HWY_FOR_EACH_DOT_KERNEL(HWY_DISPATCH_DOT_CASE);
-            default:
-                return Ret("Highway::find_items: unsupported DataType for DOT.");
-        }
+        CHECK(scan_dataset_heap_with_dot_rt(
+            query_id, dataset, count, &heap, query, func, kernels.dot, bitset));
     } else if (func == DistFunc::L2) {
-        switch (type) {
-            HWY_FOR_EACH_L2_KERNEL(HWY_DISPATCH_L2_CASE);
-            default:
-                return Ret("Highway::find_items: unsupported DataType for L2.");
-        }
+        const double query_norm_sq = kernels.squared_norm(vec, dim);
+        log_query_branch(query_id, "l2_with_optional_norms",
+            query_norm_sq, query_norm_sq == 0.0);
+        const QueryL2Context query{vec, dim, query_norm_sq};
+        CHECK(scan_dataset_heap_with_optional_l2_norms_rt(
+            query_id, dataset, count, &heap, query, func,
+            kernels.dot, kernels.dist, bitset));
     } else {
         return Ret("Highway::find_items: unsupported DistFunc.");
     }
@@ -595,59 +607,8 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
 }
 
 ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type) {
-    ComputeKernels k;
-    switch (func) {
-        case DistFunc::DOT:
-            switch (type) {
-#define HWY_RESOLVE_DOT_CASE(TYPE_TAG, DOT_KERNEL) \
-                case DataType::TYPE_TAG: k.dist = &DOT_KERNEL; k.dot = &DOT_KERNEL; break;
-                HWY_FOR_EACH_DOT_KERNEL(HWY_RESOLVE_DOT_CASE)
-#undef HWY_RESOLVE_DOT_CASE
-                default:
-                    throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for DOT.");
-            }
-            break;
-        case DistFunc::L2:
-            switch (type) {
-#define HWY_RESOLVE_L2_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, SQ_NORM_KERNEL) \
-                case DataType::TYPE_TAG: \
-                    k.dist = &DIST_KERNEL; \
-                    k.squared_norm = &SQ_NORM_KERNEL; \
-                    k.dot = &DOT_KERNEL; \
-                    break;
-                HWY_FOR_EACH_L2_KERNEL(HWY_RESOLVE_L2_CASE)
-#undef HWY_RESOLVE_L2_CASE
-                default:
-                    throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for L2.");
-            }
-            break;
-        case DistFunc::COS:
-            switch (type) {
-#define HWY_RESOLVE_COS_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, DIST_QN_KERNEL, SQ_NORM_KERNEL) \
-                case DataType::TYPE_TAG: \
-                    k.dist = &DIST_KERNEL; \
-                    k.dist_with_query_norm = &DIST_QN_KERNEL; \
-                    k.squared_norm = &SQ_NORM_KERNEL; \
-                    k.dot = &DOT_KERNEL; \
-                    break;
-                HWY_FOR_EACH_COS_KERNEL(HWY_RESOLVE_COS_CASE)
-#undef HWY_RESOLVE_COS_CASE
-                default:
-                    throw std::runtime_error("resolve_hwy_kernels: unsupported DataType for COS.");
-            }
-            break;
-        default:
-            throw std::runtime_error("resolve_hwy_kernels: unsupported DistFunc.");
-    }
-    return k;
+    return cached_hwy_kernels(func, type);
 }
-
-#undef HWY_DISPATCH_COS_CASE
-#undef HWY_DISPATCH_DOT_CASE
-#undef HWY_DISPATCH_L2_CASE
-#undef HWY_FOR_EACH_DOT_KERNEL
-#undef HWY_FOR_EACH_L2_KERNEL
-#undef HWY_FOR_EACH_COS_KERNEL
 
 }  // namespace sketch2
 

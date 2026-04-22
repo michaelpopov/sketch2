@@ -42,10 +42,6 @@ Singleton& get_singleton() {
     return Singleton::instance();
 }
 
-bool sketch2_runtime_init() {
-    return Singleton::runtime_init();
-}
-
 bool Singleton::runtime_init() {
     return instance().runtime_init_();
 }

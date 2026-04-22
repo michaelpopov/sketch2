@@ -305,6 +305,7 @@ void print_json(const Args& args, const std::vector<CaseStats>& cases) {
 
 int main(int argc, char** argv) {
     try {
+        initialize_compute_engine_runtime();
         const Args args = parse_args(argc, argv);
         const std::vector<CaseStats> cases = run_benchmarks(args);
         if (std::isnan(g_sink)) {

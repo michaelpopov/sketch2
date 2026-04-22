@@ -19,6 +19,18 @@ using namespace sketch2;
 using namespace sketch2::log;
 using namespace sketch2api::detail;
 
+namespace sketch2 {
+
+bool sketch2_runtime_init() {
+    const bool initialized = Singleton::runtime_init();
+    if (initialized) {
+        initialize_compute_engine_runtime();
+    }
+    return initialized;
+}
+
+} // namespace sketch2
+
 namespace {
 
 #define ERR(x) { \

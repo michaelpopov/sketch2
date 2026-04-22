@@ -3,17 +3,18 @@
 // Singleton exists to hold process-wide runtime configuration shared by the
 // utilities library. The key behavior is that initialization is not performed
 // at shared-library load time; it begins only when an integration surface such
-// as sk_new_handle() or sqlite3_sketch2_init() triggers sketch2_runtime_init().
+// as sk_new_handle() triggers the higher-level runtime init helper, which then
+// calls Singleton::runtime_init().
 //
 // Expected initialization flow:
 //   1. the host process sets env vars such as SKETCH2_CONFIG,
 //      SKETCH2_LOG_LEVEL, SKETCH2_THREAD_POOL_SIZE, or SKETCH2_LOG_FILE
-//   2. a library entry point such as sk_new_handle() triggers sketch2_runtime_init()
+//   2. a library entry point such as sk_new_handle() triggers runtime init
 //   3. the singleton merges config and keeps the resulting process-wide state
 //
 // In this codebase, runtime init is triggered from:
 // - sk_new_handle() in the Parasol C API
-// - sqlite3_sketch2_init() when the SQLite extension is loaded directly
+// - tests and focused init paths that call Singleton::runtime_init() directly
 //
 // The top-level calc engine is selected at build time and does not participate
 // in runtime configuration. The singleton just exposes the compiled
@@ -36,8 +37,8 @@
 // level, or thread-pool size from changing halfway through process execution.
 //
 // apply_config_from_env() and apply_config_file() remain available mainly for
-// tests and focused initialization paths. Production callers should prefer
-// sketch2_runtime_init().
+// tests and focused initialization paths. Production callers should prefer the
+// higher-level runtime init helper in the API layer.
 
 #pragma once
 
@@ -102,6 +103,5 @@ private:
 };
 
 Singleton& get_singleton();
-bool sketch2_runtime_init();
 
 } // namespace sketch2
