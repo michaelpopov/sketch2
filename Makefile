@@ -54,12 +54,14 @@ build: initdbg
 	@test -d bin-dbg || mkdir -p bin-dbg
 	@test -d "$(BUILD_DBG)" || mkdir -p "$(BUILD_DBG)"
 	cmake --build $(BUILD_DBG) --parallel $(JOBS)
+	cp $(BUILD_DBG)/lib/libsketch2.so bin-dbg/libsketch2.so
 
 .PHONY: build-nk
 build-nk: initdbg-nk
 	@test -d bin-dbg-nk || mkdir -p bin-dbg-nk
 	@test -d "$(BUILD_DBG_NK)" || mkdir -p "$(BUILD_DBG_NK)"
 	cmake --build $(BUILD_DBG_NK) --parallel $(JOBS)
+	cp $(BUILD_DBG_NK)/lib/libsketch2.so bin-dbg-nk/libsketch2.so
 
 # Compiles the project in release build (initializes build if needed)
 .PHONY: rel
@@ -67,12 +69,14 @@ rel: initrel
 	@test -d bin || mkdir -p bin
 	@test -d "$(BUILD_REL)" || mkdir -p "$(BUILD_REL)"
 	cmake --build $(BUILD_REL) --parallel $(JOBS)
+	cp $(BUILD_REL)/lib/libsketch2.so bin/libsketch2.so
 
 .PHONY: rel-nk
 rel-nk: initrel-nk
 	@test -d bin-nk || mkdir -p bin-nk
 	@test -d "$(BUILD_REL_NK)" || mkdir -p "$(BUILD_REL_NK)"
 	cmake --build $(BUILD_REL_NK) --parallel $(JOBS)
+	cp $(BUILD_REL_NK)/lib/libsketch2.so bin-nk/libsketch2.so
 
 # Compiles the project in sanitizer build (initializes build-san if needed)
 .PHONY: san

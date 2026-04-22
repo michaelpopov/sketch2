@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_DB_DIR = Path("/tmp/sketch2_tests_compute_perf")
 DATASET_METADATA_FILENAME = "dataset_metadata.json"
 
 
@@ -149,6 +148,20 @@ def _env_int(name: str, default: int) -> int:
     return _env_int_from(os.environ, name, default)
 
 
+def _env_required_str_from(env: Mapping[str, str], name: str) -> str:
+    raw = env.get(name)
+    if raw is None or raw == "":
+        raise SystemExit(f"{name} must be set by the caller")
+    return raw
+
+
+def _env_required_int_from(env: Mapping[str, str], name: str) -> int:
+    raw = env.get(name)
+    if raw is None or raw == "":
+        raise SystemExit(f"{name} must be set by the caller")
+    return _env_int_from(env, name, 0)
+
+
 def _env_int_from(env: Mapping[str, str], name: str, default: int) -> int:
     raw = env.get(name)
     if raw is None or raw == "":
@@ -214,26 +227,23 @@ def write_dataset_metadata(config: PerfConfig) -> Path:
 
 def load_config(env: Mapping[str, str] | None = None) -> PerfConfig:
     env = os.environ if env is None else env
-    raw_db_dir = env.get("SKETCH2_CONFIG_ROOT")
-    if not raw_db_dir:
-        raw_db_dir = str(DEFAULT_DB_DIR)
-
+    raw_db_dir = _env_required_str_from(env, "SKETCH2_CONFIG_ROOT")
     db_dir = Path(raw_db_dir).resolve()
     metadata = load_dataset_metadata(db_dir)
 
-    dataset = env.get("COMPUTE_PERF_TEST_DATASET", "perf_test")
-    dims = _env_int_from(env, "COMPUTE_PERF_TEST_DIMS", 256)
-    count = _env_int_from(env, "COMPUTE_PERF_TEST_COUNT", 100000)
-    repeat = _env_int_from(env, "COMPUTE_PERF_TEST_REPEAT", 10)
-    knn_count = _env_int_from(env, "COMPUTE_PERF_TEST_K", 20)
-    type_name = env.get("COMPUTE_PERF_TEST_TYPE", "f32")
+    dataset = _env_required_str_from(env, "COMPUTE_PERF_TEST_DATASET")
+    dims = _env_required_int_from(env, "COMPUTE_PERF_TEST_DIMS")
+    count = _env_required_int_from(env, "COMPUTE_PERF_TEST_COUNT")
+    repeat = _env_required_int_from(env, "COMPUTE_PERF_TEST_REPEAT")
+    knn_count = _env_required_int_from(env, "COMPUTE_PERF_TEST_K")
+    type_name = _env_required_str_from(env, "COMPUTE_PERF_TEST_TYPE")
 
-    dist_str = env.get("COMPUTE_PERF_TEST_DIST", "cos,l2,dot")
+    dist_str = _env_required_str_from(env, "COMPUTE_PERF_TEST_DIST")
     dist_funcs = [d.strip().lower() for d in dist_str.split(",") if d.strip()]
 
-    range_size = _env_int_from(env, "COMPUTE_PERF_TEST_RANGE_SIZE", 10000)
-    log_level = env.get("COMPUTE_PERF_TEST_LOG_LEVEL", "ERROR")
-    thread_pool_size = _env_int_from(env, "COMPUTE_PERF_TEST_THREAD_POOL_SIZE", 1)
+    range_size = _env_required_int_from(env, "COMPUTE_PERF_TEST_RANGE_SIZE")
+    log_level = _env_required_str_from(env, "COMPUTE_PERF_TEST_LOG_LEVEL")
+    thread_pool_size = _env_required_int_from(env, "COMPUTE_PERF_TEST_THREAD_POOL_SIZE")
 
     if metadata is not None:
         dataset = metadata.dataset
@@ -244,13 +254,13 @@ def load_config(env: Mapping[str, str] | None = None) -> PerfConfig:
         dist_funcs = metadata.dist_funcs
         range_size = metadata.range_size
 
-    engine_str = env.get("COMPUTE_PERF_TEST_ENGINES", "scalar,auto,highway,numkong")
+    engine_str = _env_required_str_from(env, "COMPUTE_PERF_TEST_ENGINES")
     compute_engines = [e.strip().lower() for e in engine_str.split(",") if e.strip()]
-    benchmark_str = env.get("COMPUTE_PERF_TEST_BENCHMARKS", "scan,kernel")
+    benchmark_str = _env_required_str_from(env, "COMPUTE_PERF_TEST_BENCHMARKS")
     benchmark_layers = [layer.strip().lower() for layer in benchmark_str.split(",") if layer.strip()]
-    kernel_iterations = _env_int_from(env, "COMPUTE_PERF_KERNEL_ITERATIONS", 200000)
-    kernel_warmup_iterations = _env_int_from(env, "COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS", 5000)
-    kernel_repeats = _env_int_from(env, "COMPUTE_PERF_KERNEL_REPEATS", 7)
+    kernel_iterations = _env_required_int_from(env, "COMPUTE_PERF_KERNEL_ITERATIONS")
+    kernel_warmup_iterations = _env_required_int_from(env, "COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS")
+    kernel_repeats = _env_required_int_from(env, "COMPUTE_PERF_KERNEL_REPEATS")
 
     return PerfConfig(
         db_dir=db_dir,

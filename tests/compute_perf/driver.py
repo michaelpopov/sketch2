@@ -13,12 +13,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from common import DEFAULT_DB_DIR, dataset_metadata_path, load_config, load_dataset_metadata, load_sketch2_types
+from common import dataset_metadata_path, load_config, load_dataset_metadata, load_sketch2_types
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
-DEFAULT_RUNTIME_DIR = REPO_ROOT / "bin"
+DEFAULT_BIN_DIR = REPO_ROOT / "bin"
 ENGINE_RUNTIME_DIRS = {
     "highway": REPO_ROOT / "bin",
     "numkong": REPO_ROOT / "bin-nk",
@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
 
 def runtime_dir_for(engine: str | None) -> Path:
     if engine is None:
-        return DEFAULT_RUNTIME_DIR
+        return DEFAULT_BIN_DIR
     return ENGINE_RUNTIME_DIRS[engine]
 
 
@@ -57,21 +57,14 @@ def ensure_runtime_artifacts(runtime_dir: Path) -> None:
                 f"[driver] Build the runtime outputs into {runtime_dir} before "
                 "running compute perf tests."
             )
-
-
-def default_config_root() -> str:
-    return str(DEFAULT_DB_DIR)
-
-
 def build_env(
     runtime_dir: Path,
     requested_engine: str | None,
     compiled_engine: str,
-    config_root: str,
 ) -> dict[str, str]:
     env = os.environ.copy()
-    env["SKETCH2_CONFIG_ROOT"] = config_root
-    env["SKETCH2_CONFIG"] = str(Path(config_root) / "config.ini")
+    env.setdefault("SKETCH2_CONFIG_ROOT", "/tmp/sketch2_tests_compute_perf")
+    env["SKETCH2_CONFIG"] = str(Path(env["SKETCH2_CONFIG_ROOT"]) / "config.ini")
     env.setdefault("COMPUTE_PERF_SKIP_INIT", "0")
     env.setdefault("COMPUTE_PERF_TEST_DATASET", "perf_test")
     env.setdefault("COMPUTE_PERF_TEST_DIMS", "256")
@@ -329,7 +322,6 @@ def main() -> int:
     runtime_dir = runtime_dir_for(args.engine)
     ensure_runtime_artifacts(runtime_dir)
 
-    initial_config_root = os.environ.get("SKETCH2_CONFIG_ROOT") or default_config_root()
     probe_root = tempfile.mkdtemp(prefix="sketch2_compute_perf_probe.", dir="/tmp")
     try:
         compiled_engine = probe_compiled_engine(runtime_dir, probe_root)
@@ -341,7 +333,7 @@ def main() -> int:
             f"{runtime_dir / 'libsketch2.so'} reports {compiled_engine!r}."
         )
 
-    env = build_env(runtime_dir, args.engine, compiled_engine, initial_config_root)
+    env = build_env(runtime_dir, args.engine, compiled_engine)
     config, cache_state = ensure_cache_state(env)
     apply_effective_dataset_config(env, config)
 
