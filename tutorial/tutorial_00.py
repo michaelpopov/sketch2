@@ -20,11 +20,20 @@ def find_repo_root() -> Path:
 
 def find_lib_source(repo_root: Path) -> Path:
     """Return the best available libsketch2.so built artifact."""
+    configured_dir = os.environ.get("SKETCH2_LIB", "").strip()
+    if configured_dir:
+        configured_path = Path(configured_dir).resolve() / "libsketch2.so"
+        if configured_path.exists():
+            return configured_path
+        raise SystemExit(f"SKETCH2_LIB does not contain libsketch2.so: {configured_path}")
+
     candidates = [
         repo_root / "build" / "lib" / "libsketch2.so",
-        repo_root / "bin" / "libsketch2.so",
+        repo_root / "bin-hwy" / "libsketch2.so",
         repo_root / "build-dbg" / "lib" / "libsketch2.so",
-        repo_root / "bin-dbg" / "libsketch2.so",
+        repo_root / "bin-dbg-hwy" / "libsketch2.so",
+        repo_root / "bin-nk" / "libsketch2.so",
+        repo_root / "bin-dbg-nk" / "libsketch2.so",
     ]
     for candidate in candidates:
         if candidate.exists():

@@ -16,10 +16,18 @@ PYTEST_DIR = str(Path(__file__).resolve().parent)
 
 def lib_path() -> str:
     """Return the preferred path to the sketch2 shared library for tests."""
+    configured_dir = os.environ.get("SKETCH2_LIB")
+    if configured_dir:
+        configured_path = Path(configured_dir).resolve() / "libsketch2.so"
+        if configured_path.exists():
+            return str(configured_path)
+
     repo_root = Path(__file__).resolve().parents[2]
     candidates = [
-        repo_root / "bin-dbg" / "libsketch2.so",
-        repo_root / "bin" / "libsketch2.so",
+        repo_root / "bin-dbg-hwy" / "libsketch2.so",
+        repo_root / "bin-hwy" / "libsketch2.so",
+        repo_root / "bin-dbg-nk" / "libsketch2.so",
+        repo_root / "bin-nk" / "libsketch2.so",
     ]
     for candidate in candidates:
         if candidate.exists():

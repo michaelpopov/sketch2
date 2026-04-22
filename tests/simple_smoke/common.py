@@ -34,8 +34,10 @@ def repo_root() -> Path:
 def find_lib_path() -> Path:
     root = repo_root()
     candidates = [
-        root / "bin" / "libsketch2.so",
-        root / "bin-dbg" / "libsketch2.so",
+        root / "bin-dbg-hwy" / "libsketch2.so",
+        root / "bin-hwy" / "libsketch2.so",
+        root / "bin-dbg-nk" / "libsketch2.so",
+        root / "bin-nk" / "libsketch2.so",
     ]
     for candidate in candidates:
         if candidate.exists():

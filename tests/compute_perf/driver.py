@@ -18,12 +18,15 @@ from common import dataset_metadata_path, load_config, load_dataset_metadata, lo
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
-DEFAULT_BIN_DIR = REPO_ROOT / "bin"
 ENGINE_RUNTIME_DIRS = {
-    "highway": REPO_ROOT / "bin",
+    "highway": REPO_ROOT / "bin-hwy",
     "numkong": REPO_ROOT / "bin-nk",
 }
 SUPPORTED_ENGINES = frozenset(ENGINE_RUNTIME_DIRS)
+
+
+def release_build_target_for(engine: str) -> str:
+    return "rel" if engine == "highway" else "rel-nk"
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,17 +34,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--engine",
         choices=sorted(SUPPORTED_ENGINES),
+        required=True,
         help=(
-            "Select which runtime directory to use. "
-            "When omitted, the harness uses REPO_ROOT/bin."
+            "Select which release runtime directory to use."
         ),
     )
     return parser.parse_args()
 
 
-def runtime_dir_for(engine: str | None) -> Path:
-    if engine is None:
-        return DEFAULT_BIN_DIR
+def runtime_dir_for(engine: str) -> Path:
     return ENGINE_RUNTIME_DIRS[engine]
 
 
@@ -52,14 +53,17 @@ def ensure_runtime_artifacts(runtime_dir: Path) -> None:
     ]
     for path in required:
         if not path.exists():
+            engine = next(name for name, candidate in ENGINE_RUNTIME_DIRS.items() if candidate == runtime_dir)
+            build_target = release_build_target_for(engine)
             raise SystemExit(
                 f"[driver] ERROR: required runtime artifact not found: {path}\n"
-                f"[driver] Build the runtime outputs into {runtime_dir} before "
+                f"[driver] Compute perf runs only against release artifacts in {runtime_dir}.\n"
+                f"[driver] Build them first with `make {build_target}` before "
                 "running compute perf tests."
             )
 def build_env(
     runtime_dir: Path,
-    requested_engine: str | None,
+    requested_engine: str,
     compiled_engine: str,
 ) -> dict[str, str]:
     env = os.environ.copy()
@@ -85,7 +89,7 @@ def build_env(
     env["COMPUTE_PERF_RUNTIME_DIR"] = str(runtime_dir)
     env["SKETCH2_LIB"] = str(runtime_dir)
     env["COMPUTE_PERF_COMPILED_ENGINE"] = compiled_engine
-    env["COMPUTE_PERF_REQUESTED_ENGINE"] = requested_engine or ""
+    env["COMPUTE_PERF_REQUESTED_ENGINE"] = requested_engine
     return env
 
 
@@ -179,7 +183,7 @@ def write_run_env(env: dict[str, str], log_dir: Path) -> None:
 def print_config(env: dict[str, str], config, runtime_dir: Path, core_limit: str, cache_state: str) -> None:
     log("performance test configuration")
     log(f"  runtime_dir={runtime_dir}")
-    log(f"  requested_engine={env['COMPUTE_PERF_REQUESTED_ENGINE'] or 'default(bin)'}")
+    log(f"  requested_engine={env['COMPUTE_PERF_REQUESTED_ENGINE']}")
     log(f"  compiled_engine={env['COMPUTE_PERF_COMPILED_ENGINE']}")
     log(f"  config_root={config.db_dir}")
     log(f"  cache_state={cache_state}")

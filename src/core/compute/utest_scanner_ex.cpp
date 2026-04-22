@@ -303,7 +303,7 @@ TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithHighway) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
@@ -318,7 +318,7 @@ TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithHighway) {
 }
 #endif
 
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
+#if SKETCH2_COMPUTE_ENGINE_NUMKONG
 TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithNumKong) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
@@ -394,7 +394,7 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
+#if SKETCH2_COMPUTE_ENGINE_NUMKONG
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithNumKong) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
@@ -409,7 +409,7 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithNumKong) {
 }
 #endif
 
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithHighway) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
@@ -446,7 +446,7 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrder) {
     EXPECT_EQ(30u, result[2]);
 }
 
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
+#if SKETCH2_COMPUTE_ENGINE_NUMKONG
 TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithNumKong) {
     write_input_raw(
         input_path_,
@@ -466,7 +466,7 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithNumKong) {
 }
 #endif
 
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithHighway) {
     write_input_raw(
         input_path_,
@@ -534,7 +534,7 @@ TEST_F(ScannerTest, FindF32CosStoredPathsMatchRanking) {
 // ---------------------------------------------------------------------------
 
 TEST_F(ScannerTest, FindI16AllSortedByDistance) {
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     Scanner s;
@@ -551,7 +551,7 @@ TEST_F(ScannerTest, FindI16AllSortedByDistance) {
 }
 
 TEST_F(ScannerTest, FindI16RejectsNumKong) {
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
+#if SKETCH2_COMPUTE_ENGINE_NUMKONG
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     Scanner s;
@@ -578,7 +578,7 @@ TEST_F(ScannerTest, FindF16Works) {
     EXPECT_EQ(2u, result[0]);
 }
 
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF16WorksWithHighway) {
     generate(3, 0, DataType::f16, 4);
     auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::DOT, {input_path_});
@@ -591,7 +591,7 @@ TEST_F(ScannerTest, FindF16WorksWithHighway) {
 }
 #endif
 
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
+#if SKETCH2_COMPUTE_ENGINE_NUMKONG
 TEST_F(ScannerTest, FindF16CosWorksWithNumKong) {
     write_input_raw(
         input_path_,
@@ -612,7 +612,7 @@ TEST_F(ScannerTest, FindF16CosWorksWithNumKong) {
 }
 #endif
 
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF16CosWorksWithHighway) {
     write_input_raw(
         input_path_,

@@ -20,22 +20,16 @@ access without relying on opaque random fixtures.
 
 The root `Makefile` exposes the usual entry points.
 
-Run the debug C++ suite:
+Run the release C++ suite:
 
 ```bash
 make test
 ```
 
-Run the release C++ suite:
+Run the debug C++ suite explicitly:
 
 ```bash
-make rtest
-```
-
-Run the sanitizer C++ suite:
-
-```bash
-make santest
+make test TYPE=dbg
 ```
 
 Run the Python test suite:
@@ -44,15 +38,22 @@ Run the Python test suite:
 make pytest
 ```
 
-Run the broader validation flow:
+Run the highway validation flow:
 
 ```bash
-make cover
+make hwy
 ```
 
-`make cover` is the broadest repository-level validation target. It combines
-multiple test modes and also runs the demo and benchmark slices that are used
-as additional validation signals.
+`make hwy` combines the default highway C++ suite with the Python tests and
+tutorial scripts.
+
+Run the NumKong validation flow:
+
+```bash
+make nk
+```
+
+`make nk` runs the default NumKong C++ suite.
 
 ## Testing Model
 
@@ -191,8 +192,6 @@ that Sketch2 works as a coherent storage-and-compute system.
 
 ## Notes
 
-- sanitizer runs use AddressSanitizer, UndefinedBehaviorSanitizer, and
-  LeakSanitizer through the custom `Sanitizer` build type
 - Python integration tests rely on the wrapper and helper utilities in
   `src/pytest`
 - some integration tests intentionally spawn subprocesses to validate

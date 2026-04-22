@@ -1,244 +1,173 @@
 # --- Configuration ---
-BUILD_DBG := build-dbg
-BUILD_REL := build
-BUILD_SAN := build-san
-BUILD_DBG_NK := build-nk-dbg
-BUILD_REL_NK := build-nk
-BUILD_SAN_NK := build-nk-san
+TYPE ?= rel
+ENGINE ?= hwy
+
+BUILD_DIR_dbg_hwy := build-dbg
+BUILD_DIR_rel_hwy := build
+BUILD_DIR_dbg_nk := build-nk-dbg
+BUILD_DIR_rel_nk := build-nk
+
+BIN_DIR_dbg_hwy := bin-dbg-hwy
+BIN_DIR_rel_hwy := bin-hwy
+BIN_DIR_dbg_nk := bin-dbg-nk
+BIN_DIR_rel_nk := bin-nk
+
+CMAKE_BUILD_TYPE_dbg := Debug
+CMAKE_BUILD_TYPE_rel := Release
+
+CMAKE_ENGINE_FLAG_hwy := -DSKETCH2_COMPUTE_ENGINE=highway
+CMAKE_ENGINE_FLAG_nk := -DSKETCH2_COMPUTE_ENGINE=numkong
+
+INSTALL_DIR_hwy := install-hwy
+INSTALL_DIR_nk := install-nk
+
+BUILD_DIR := $(BUILD_DIR_$(TYPE)_$(ENGINE))
+BIN_DIR := $(BIN_DIR_$(TYPE)_$(ENGINE))
+CMAKE_BUILD_TYPE := $(CMAKE_BUILD_TYPE_$(TYPE))
+CMAKE_ENGINE_FLAG := $(CMAKE_ENGINE_FLAG_$(ENGINE))
+INSTALL_DIR := $(INSTALL_DIR_$(ENGINE))
+
+ALL_BUILD_DIRS := \
+	$(BUILD_DIR_dbg_hwy) \
+	$(BUILD_DIR_rel_hwy) \
+	$(BUILD_DIR_dbg_nk) \
+	$(BUILD_DIR_rel_nk)
+ALL_BIN_DIRS := \
+	$(BIN_DIR_dbg_hwy) \
+	$(BIN_DIR_rel_hwy) \
+	$(BIN_DIR_dbg_nk) \
+	$(BIN_DIR_rel_nk)
+
+ifeq ($(BUILD_DIR),)
+$(error Unsupported TYPE='$(TYPE)' ENGINE='$(ENGINE)'. Use TYPE={dbg,rel} and ENGINE={hwy,nk})
+endif
+
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
-GBENCH_ESSENTIAL_MIN_TIME ?= 0.005s
-GBENCH_EXTENDED_MIN_TIME ?= 0.05s
-BENCH_TMPDIR ?= /tmp
 
 # --- Targets ---
 
 # Default target (runs when you type 'make')
-.PHONY: all
+.PHONY: all help
 all: build
 
-# --- Build directory initialization ---
+help:
+	@printf '%s\n' \
+		'Sketch2 Make targets' \
+		'' \
+		'Preferred parameterized usage:' \
+		'  make build' \
+		'  make test' \
+		'  make build TYPE={dbg,rel} ENGINE={hwy,nk}' \
+		'  make test TYPE={dbg,rel} ENGINE={hwy,nk}' \
+		'  make install ENGINE={hwy,nk}' \
+		'' \
+		'Variables:' \
+		'  TYPE   Build type selector. Default: rel' \
+		'  ENGINE Compute engine selector. Default: hwy' \
+		'  JOBS   Parallelism for cmake --build. Default: host CPU count' \
+		'' \
+		'Main targets:' \
+		'  help       Show this summary' \
+		'  build      Build the selected TYPE/ENGINE runtime' \
+		'  test       Build and run ctest for the selected TYPE/ENGINE' \
+		'  install    Install release headers and runtime for ENGINE into install-{hwy,nk}' \
+		'  pytest     Run Python tests against the highway release runtime' \
+			'  pydemo     Run the Python demo' \
+			'  tut        Run all tutorials against the highway release runtime' \
+			'  hwy        Run the highway validation flow' \
+			'  nk         Run the numkong validation flow' \
+			'  clean      Remove contents of all build/bin directories' \
+		'' \
+		'Compatibility aliases:' \
+		'  build-nk rel rel-nk' \
+		'  test-nk rtest rtest-nk' \
+		'  install-hwy install-nk'
+
+# Compiles the project for the selected TYPE/ENGINE pair.
 # Always re-run configuration so the directory matches the requested build type.
+# Example: make build ENGINE=nk
+.PHONY: build build-nk rel rel-nk
+build:
+	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) $(CMAKE_ENGINE_FLAG)
+	@test -d $(BIN_DIR) || mkdir -p $(BIN_DIR)
+	cmake --build $(BUILD_DIR) --parallel $(JOBS)
+	cp $(BUILD_DIR)/lib/libsketch2.so $(BIN_DIR)/libsketch2.so
 
-# Prepare required dependencies on Ubuntu
-.PHONY: prepare
-prepare:
-	sudo apt update && sudo apt install -y build-essential cmake ninja-build -y
+build-nk:
+	$(MAKE) build ENGINE=nk
 
-.PHONY: initdbg
-initdbg:
-	cmake -S . -B $(BUILD_DBG) -DCMAKE_BUILD_TYPE=Debug
+rel:
+	$(MAKE) build TYPE=rel ENGINE=hwy
 
-.PHONY: initdbg-nk
-initdbg-nk:
-	cmake -S . -B $(BUILD_DBG_NK) -DCMAKE_BUILD_TYPE=Debug -DSKETCH_COMPUTE_ENGINE=numkong
+rel-nk:
+	$(MAKE) build TYPE=rel ENGINE=nk
 
-.PHONY: initrel
-initrel:
-	cmake -S . -B $(BUILD_REL) -DCMAKE_BUILD_TYPE=Release
-
-.PHONY: initrel-nk
-initrel-nk:
-	cmake -S . -B $(BUILD_REL_NK) -DCMAKE_BUILD_TYPE=Release -DSKETCH_COMPUTE_ENGINE=numkong
-
-.PHONY: initsan
-initsan:
-	cmake -S . -B $(BUILD_SAN) -DCMAKE_BUILD_TYPE=Sanitizer
-
-.PHONY: initsan-nk
-initsan-nk:
-	cmake -S . -B $(BUILD_SAN_NK) -DCMAKE_BUILD_TYPE=Sanitizer -DSKETCH_COMPUTE_ENGINE=numkong
-
-# Compiles the project in debug build (initializes build-dbg if needed)
-.PHONY: build
-build: initdbg
-	@test -d bin-dbg || mkdir -p bin-dbg
-	@test -d "$(BUILD_DBG)" || mkdir -p "$(BUILD_DBG)"
-	cmake --build $(BUILD_DBG) --parallel $(JOBS)
-	cp $(BUILD_DBG)/lib/libsketch2.so bin-dbg/libsketch2.so
-
-.PHONY: build-nk
-build-nk: initdbg-nk
-	@test -d bin-dbg-nk || mkdir -p bin-dbg-nk
-	@test -d "$(BUILD_DBG_NK)" || mkdir -p "$(BUILD_DBG_NK)"
-	cmake --build $(BUILD_DBG_NK) --parallel $(JOBS)
-	cp $(BUILD_DBG_NK)/lib/libsketch2.so bin-dbg-nk/libsketch2.so
-
-# Compiles the project in release build (initializes build if needed)
-.PHONY: rel
-rel: initrel
-	@test -d bin || mkdir -p bin
-	@test -d "$(BUILD_REL)" || mkdir -p "$(BUILD_REL)"
-	cmake --build $(BUILD_REL) --parallel $(JOBS)
-	cp $(BUILD_REL)/lib/libsketch2.so bin/libsketch2.so
-
-.PHONY: rel-nk
-rel-nk: initrel-nk
-	@test -d bin-nk || mkdir -p bin-nk
-	@test -d "$(BUILD_REL_NK)" || mkdir -p "$(BUILD_REL_NK)"
-	cmake --build $(BUILD_REL_NK) --parallel $(JOBS)
-	cp $(BUILD_REL_NK)/lib/libsketch2.so bin-nk/libsketch2.so
-
-# Compiles the project in sanitizer build (initializes build-san if needed)
-.PHONY: san
-san: initsan
-	@test -d "$(BUILD_SAN)" || mkdir -p "$(BUILD_SAN)"
-	cmake --build $(BUILD_SAN) --parallel $(JOBS)
-
-.PHONY: san-nk
-san-nk: initsan-nk
-	@test -d bin-san-nk || mkdir -p bin-san-nk
-	@test -d "$(BUILD_SAN_NK)" || mkdir -p "$(BUILD_SAN_NK)"
-	cmake --build $(BUILD_SAN_NK) --parallel $(JOBS)
-
-# Runs the test suite with failure output enabled
-.PHONY: test
+# Runs the test suite for the selected TYPE/ENGINE pair.
+# Example: make test ENGINE=nk
+.PHONY: test test-nk rtest rtest-nk
 test: build
-	ctest --test-dir $(BUILD_DBG) --output-on-failure
+	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
-.PHONY: test-nk
-test-nk: build-nk
-	ctest --test-dir $(BUILD_DBG_NK) --output-on-failure
+test-nk:
+	$(MAKE) test ENGINE=nk
 
-# Runs the standalone thread-pool unit tests on demand
-.PHONY: tpooltest
-tpooltest: build
-	bin-dbg/utest_thread_pool
+rtest:
+	$(MAKE) test TYPE=rel ENGINE=hwy
 
-# Runs the sketch2api unit test binary on demand
-.PHONY: sketch2test
-sketch2test: build
-	bin-dbg/utest_sketch2
+rtest-nk:
+	$(MAKE) test TYPE=rel ENGINE=nk
 
-# Runs the test suite in release build
-.PHONY: rtest
-rtest: rel
-	ctest --test-dir $(BUILD_REL) --output-on-failure
+# Installs the release runtime directory for the selected engine.
+# The staged tree contains the public C header plus the Python-facing runtime.
+# Example: make install ENGINE=nk
+.PHONY: install install-hwy install-nk
+install:
+	$(MAKE) test TYPE=rel ENGINE=$(ENGINE)
+	@mkdir -p $(INSTALL_DIR)/include $(INSTALL_DIR)/bin
+	@find "$(INSTALL_DIR)/include" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	@find "$(INSTALL_DIR)/bin" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	cp src/sketch2api/sketch2.h $(INSTALL_DIR)/include/
+	cp $(BIN_DIR_rel_$(ENGINE))/libsketch2.so $(INSTALL_DIR)/bin/
+	cp src/pytest/sketch2_wrapper.py $(INSTALL_DIR)/bin/
 
-.PHONY: rtest-nk
-rtest-nk: rel-nk
-	ctest --test-dir $(BUILD_REL_NK) --output-on-failure
+install-hwy:
+	$(MAKE) install ENGINE=hwy
 
-# Installs the public header and release shared library under install/
-.PHONY: install
-install: rtest
-	@mkdir -p install/include install/lib
-	cp src/sketch2api/sketch2.h install/include/
-	cp $(BUILD_REL)/lib/libsketch2.so install/lib/
+install-nk:
+	$(MAKE) install ENGINE=nk
 
-# Runs the test suite in sanitizer build
-.PHONY: santest
-santest: san
-	ctest --test-dir $(BUILD_SAN) --output-on-failure
-
-.PHONY: santest-nk
-santest-nk: san-nk
-	ctest --test-dir $(BUILD_SAN_NK) --output-on-failure
-
-# Runs Python API tests
+# Runs Python API tests against the highway release runtime
 .PHONY: pytest
-pytest:
-	python3 -m unittest discover -s src/pytest -p 'test_*.py'
+pytest: rel
+	SKETCH2_LIB="$(BIN_DIR_rel_hwy)" python3 -m unittest discover -s src/pytest -p 'test_*.py'
 
 # Runs Python demo that bulk-loads vectors and validates KNN output
 .PHONY: pydemo
-pydemo:
-	python3 src/pytest/demo.py
+pydemo: rel
+	SKETCH2_LIB="$(BIN_DIR_rel_hwy)" python3 src/pytest/demo.py
 
 # Runs all tutorial scripts end-to-end
 .PHONY: tut
-tut: build
-	python3 tutorial/run_all.py
+tut: rel
+	SKETCH2_LIB="$(BIN_DIR_rel_hwy)" python3 tutorial/run_all.py
 
-# Runs the Python demo against the release libsketch2 artifact
-.PHONY: demo
-demo: rel
-	SKETCH2_LOG_LEVEL=DEBUG \
-	SKETCH2_THREAD_POOL_SIZE=12 \
-	python3 src/pytest/demo.py \
-		--dim 256 \
-		--k 10 \
-		--range-size 1M \
-		--binary \
-		--dist-func L2 \
-		--sketch2-lib $(BUILD_REL)/lib/libsketch2.so \
-		--extension-lib $(BUILD_REL)/lib/libsketch2.so
+# Runs the highway portion of the full validation flow.
+# Includes the default highway C++ suite plus the Python and tutorial flows
+# that depend on the highway release runtime.
+.PHONY: hwy
+hwy: test pytest tut
 
-# Configures the release benchmark build with Google Benchmark enabled.
-.PHONY: benchcfg
-benchcfg:
-	cmake -S . -B $(BUILD_REL) -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_BENCHMARKS=ON
+# Runs the NumKong portion of the full validation flow.
+# Includes the default NumKong C++ suite.
+.PHONY: nk
+nk: test-nk
 
-# Builds the release benchmark binaries.
-.PHONY: benchbuild
-benchbuild: benchcfg
-	cmake --build $(BUILD_REL) --parallel $(JOBS) --target bench_compute
-
-# Compatibility alias for the remaining calc benchmark workflow.
-.PHONY: bench
-bench: benchrel
-
-.PHONY: benchrel
-benchrel: benchbuild
-	@echo "gbench_comp was removed; use bin/bench_compute with explicit arguments"
-
-# Compatibility alias for the remaining calc benchmark workflow.
-.PHONY: benchext
-benchext: benchbuild
-	@echo "gbench_comp was removed; use bin/bench_compute with explicit arguments"
-
-# Compatibility alias for the remaining calc benchmark workflow.
-.PHONY: benchcomp
-benchcomp: benchbuild
-	@echo "bench_comp was removed; use bin/bench_compute with explicit arguments"
-
-# Compatibility alias for the remaining calc benchmark workflow.
-.PHONY: ds_bench
-ds_bench: benchbuild
-	@echo "gbench_comp was removed; use bin/bench_compute with explicit arguments"
-
-# Compatibility alias for the remaining calc benchmark workflow.
-.PHONY: ds_mix_bench
-ds_mix_bench: benchbuild
-	@echo "gbench_comp was removed; use bin/bench_compute with explicit arguments"
-
-# Runs full local coverage flow:
-# - debug unit tests
-# - release unit tests
-# - Python integration tests
-# - Python demo
-# - dataset benchmark slices
-.PHONY: cover
-cover:
-	$(MAKE) test
-	$(MAKE) rtest
-	$(MAKE) santest
-	$(MAKE) test-nk
-	$(MAKE) rtest-nk
-	$(MAKE) santest-nk
-	$(MAKE) pytest
-	$(MAKE) demo
-	$(MAKE) ds_bench
-	$(MAKE) ds_mix_bench
-	$(MAKE) tut
-	rm -r /tmp/sketch2_test_data_*
-	rm -r /tmp/sketch2_tutorial
-
-# Runs Python shell with Sketch2 objects ready
-.PHONY: pyshell
-pyshell:
-	python3 src/pytest/shell.py --db-root /tmp/sketch2_db
-# python3 src/pytest/shell.py --db-root /tmp/skdb --dataset demo --create
-# python3 src/pytest/shell.py --db-root /tmp/skdb --dataset demo
-
-# Optimization: Cleaning the build directory
+# Removes the contents of build and runtime output directories for all build types and engines.
 .PHONY: clean
 clean:
-	@if [ -d "$(BUILD_DBG)" ]; then \
-		find "$(BUILD_DBG)" -type f \( -name '*.o' -o -name '*.obj' \) -delete; \
-	fi
-
-# Removes debug and release build artifacts so the next make/make rel rebuilds
-# from scratch and repopulates bin-dbg/ and bin/ with fresh binaries.
-.PHONY: clear
-clear:
-	rm -rf "$(BUILD_DBG)" "$(BUILD_REL)" bin-dbg bin
+		for dir in \
+			$(foreach dir,$(ALL_BUILD_DIRS) $(ALL_BIN_DIRS),"$(dir)" ) ; do \
+			if [ -d "$$dir" ]; then \
+				find "$$dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; \
+			fi; \
+		done

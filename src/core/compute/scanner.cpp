@@ -4,9 +4,9 @@
 
 #include "core/compute/scanner_log_utils.h"
 
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 #include "core/compute/highway.h"
-#elif SKETCH_COMPUTE_ENGINE_NUMKONG
+#elif SKETCH2_COMPUTE_ENGINE_NUMKONG
 #include "core/compute/numkong.h"
 #endif
 
@@ -27,10 +27,10 @@ Ret Scanner::find_items(const DatasetReader& dataset, size_t count, const uint8_
     result.clear();
     try {
         const uint64_t query_id = next_scanner_query_id();
-#if SKETCH_COMPUTE_ENGINE_HIGHWAY
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
         return find_items_hw(dataset, count, vec, &result, bitset, query_id);
 #endif
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
+#if SKETCH2_COMPUTE_ENGINE_NUMKONG
         return find_items_nk(dataset, count, vec, &result, bitset, query_id);
 #endif
     } catch (const std::exception& ex) {

@@ -231,7 +231,7 @@ Supported vector element types today:
 ## Compute Engine Selection
 
 Sketch2 now selects one top-level compute engine at configure time through
-`SKETCH_COMPUTE_ENGINE`.
+`SKETCH2_COMPUTE_ENGINE`.
 
 Current engines are:
 

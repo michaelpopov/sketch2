@@ -2,7 +2,7 @@
 
 #include "core/compute/compute_engine.h"
 #include "core/compute/cosine_distance.h"
-#if SKETCH_COMPUTE_ENGINE_NUMKONG
+#if SKETCH2_COMPUTE_ENGINE_NUMKONG
 #include "core/compute/numkong.h"
 #endif
 #include "core/compute/scanner_query_context.h"
@@ -280,7 +280,7 @@ void print_json(const Args& args, const std::vector<CaseStats>& cases) {
     std::cout << "  \"warmup_iterations\": " << args.warmup_iterations << ",\n";
     std::cout << "  \"repeats\": " << args.repeats << ",\n";
     std::cout << "  \"active_compute_backend\": \"" << json_escape(get_singleton().compute_unit().name()) << "\"";
- #if SKETCH_COMPUTE_ENGINE_NUMKONG
+ #if SKETCH2_COMPUTE_ENGINE_NUMKONG
     std::cout << ",\n  \"numkong_backend\": \"" << json_escape(nk_compute_backend_name(args.dist, args.type)) << "\"";
  #endif
     std::cout << ",\n  \"cases\": [\n";

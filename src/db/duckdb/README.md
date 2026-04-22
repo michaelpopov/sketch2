@@ -117,10 +117,11 @@ Before building the extension, set:
 export SKETCH2_ROOT=/path/to/sketch2
 ```
 
-The extension build expects Sketch2 headers and libraries under:
+The extension build expects the Sketch2 public header in the source tree and an
+installed runtime directory for the shared library:
 
-- `"$SKETCH2_ROOT/install/include"`
-- `"$SKETCH2_ROOT/install/lib"`
+- `"$SKETCH2_ROOT/src/sketch2api"`
+- `"$SKETCH2_ROOT/install-hwy/bin"` or `"$SKETCH2_ROOT/install-nk/bin"`
 
 Build steps and extension-specific tests live in the separate
 `sketch2duckdb` repository.

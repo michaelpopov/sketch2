@@ -30,7 +30,7 @@ The harness consists of six main components:
 The driver is a Python script with a small shell wrapper that manages the lifecycle of a performance run.
 
 - **Environment Setup**: Applies defaults for all `COMPUTE_PERF_TEST_*` variables only when they are not already set (see [Configuration](#configuration)) and exports a diagnostic directory path for child processes.
-- **Runtime Selection**: By default, uses `REPO_ROOT/bin`. Passing `--engine highway` also uses `REPO_ROOT/bin`, while `--engine numkong` switches the harness to `REPO_ROOT/bin-nk`. The driver uses `Sketch2.compute_engine()` backed by the `sk_compute_engine()` API from the selected `libsketch2.so` to report the compiled engine and rejects mismatches.
+- **Runtime Selection**: `--engine` is required. Perf runs intentionally use release artifacts only. Passing `--engine highway` uses `REPO_ROOT/bin-hwy`, while `--engine numkong` uses `REPO_ROOT/bin-nk`. The driver uses `Sketch2.compute_engine()` backed by the `sk_compute_engine()` API from the selected `libsketch2.so` to report the compiled engine and rejects mismatches.
 - **Persistent Cache**: By default, uses a fixed dataset cache root at `/tmp/sketch2_tests_compute_perf`. If `SKETCH2_CONFIG_ROOT` is set externally, the driver uses that directory instead.
 - **Metadata Authority**: The cache root stores `dataset_metadata.json`. When that file exists, its dataset shape (`count`, `dims`, `k`, `type`, `dist`, `range_size`, dataset name) overrides the driver defaults and is reported in the driver output.
 - **Workflow**:
@@ -114,17 +114,26 @@ The harness is configured via environment variables.
 
 ## How to Run
 
-Simply execute the driver script from the repository root:
+Build the release runtime for the engine you want to benchmark, then execute the
+driver script from the repository root.
+
+For the Highway build:
 
 ```bash
-./tests/compute_perf/driver.sh
+make rel
+./tests/compute_perf/driver.sh --engine highway
 ```
 
-To force the NumKong runtime artifacts:
+For the NumKong build:
 
 ```bash
+make rel-nk
 ./tests/compute_perf/driver.sh --engine numkong
 ```
+
+The harness does not use the default debug outputs under `bin-dbg-hwy` or
+`bin-dbg-nk`; that is intentional so performance numbers come from release
+builds only.
 
 Logs and timing reports will be printed to stdout and saved in `${SKETCH2_CONFIG_ROOT}/logs`.
 
@@ -145,5 +154,7 @@ When investigating a crash, inspect `${COMPUTE_PERF_DIAG_DIR}/diag_<engine>_<dis
 - Use separate build directories if you want to compare Highway and NumKong.
   The redesign made top-level engine choice a configure-time decision, not a
   broad runtime matrix inside one build tree.
+- Perf runs are intentionally release-only. Build `bin-hwy` with `make rel`
+  and `bin-nk` with `make rel-nk` before invoking the harness.
 - `bench_compute` is the authoritative native microbenchmark entry point for the
   current compute layer.

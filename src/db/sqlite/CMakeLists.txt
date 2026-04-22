@@ -14,6 +14,7 @@ target_link_libraries(sk2sqlite
   PRIVATE
     sketch2api
     sketch_compile_options
+    sketch_warnings
     Threads::Threads
 )
 
@@ -34,6 +35,7 @@ target_link_libraries(utest_vlite
     sqlite3_lib
     GTest::gtest
     sketch_compile_options
+    sketch_warnings
     Threads::Threads
     dl
 )

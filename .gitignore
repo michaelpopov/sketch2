@@ -2,18 +2,24 @@
 build/
 build-dbg/
 build-san/
-
-# Output binaries
-bin/
-bin-dbg/
-bin-san/
-install/
 build-nk-dbg/
 build-nk-san/
 build-nk/
+
+# Runtime output directories
+bin/
+bin-dbg/
+bin-san/
+bin-san-hwy/
+bin-dbg-hwy/
 bin-dbg-nk/
+bin-hwy/
 bin-nk/
-bin-san-nk/
+
+# Installed runtime directories
+install/
+install-hwy/
+install-nk/
 
 # CMake
 CMakeCache.txt

@@ -10,22 +10,20 @@ project(sketch2 LANGUAGES C CXX)
 # Shared GoogleTest runner used by all unit test binaries.
 set(SHARED_UTEST_MAIN "${CMAKE_SOURCE_DIR}/src/core/utils/utest_main.cpp")
 
-option(SKETCH_ENABLE_BENCHMARKS "Build Google Benchmark-based benchmark executables" OFF)
-
-set(_SKETCH_COMPUTE_ENGINE_DEFAULT "highway")
+set(_SKETCH2_COMPUTE_ENGINE_DEFAULT "highway")
 if(DEFINED ENV{SKETCH2_COMPUTE_ENGINE} AND NOT "$ENV{SKETCH2_COMPUTE_ENGINE}" STREQUAL "")
-  string(TOLOWER "$ENV{SKETCH2_COMPUTE_ENGINE}" _SKETCH_COMPUTE_ENGINE_DEFAULT)
+  string(TOLOWER "$ENV{SKETCH2_COMPUTE_ENGINE}" _SKETCH2_COMPUTE_ENGINE_DEFAULT)
 endif()
-set(SKETCH_COMPUTE_ENGINE "${_SKETCH_COMPUTE_ENGINE_DEFAULT}" CACHE STRING
+set(SKETCH2_COMPUTE_ENGINE "${_SKETCH2_COMPUTE_ENGINE_DEFAULT}" CACHE STRING
   "Compute engine compiled into sketch2 (highway or numkong)")
-set_property(CACHE SKETCH_COMPUTE_ENGINE PROPERTY STRINGS highway numkong)
-string(TOLOWER "${SKETCH_COMPUTE_ENGINE}" SKETCH_COMPUTE_ENGINE)
-if(NOT SKETCH_COMPUTE_ENGINE STREQUAL "highway" AND NOT SKETCH_COMPUTE_ENGINE STREQUAL "numkong")
+set_property(CACHE SKETCH2_COMPUTE_ENGINE PROPERTY STRINGS highway numkong)
+string(TOLOWER "${SKETCH2_COMPUTE_ENGINE}" SKETCH2_COMPUTE_ENGINE)
+if(NOT SKETCH2_COMPUTE_ENGINE STREQUAL "highway" AND NOT SKETCH2_COMPUTE_ENGINE STREQUAL "numkong")
   message(FATAL_ERROR
-    "SKETCH_COMPUTE_ENGINE must be either 'highway' or 'numkong' "
+    "SKETCH2_COMPUTE_ENGINE must be either 'highway' or 'numkong' "
     "(or set environment variable SKETCH2_COMPUTE_ENGINE before configuring).")
 endif()
-message(STATUS "sketch2 compute engine: ${SKETCH_COMPUTE_ENGINE}")
+message(STATUS "sketch2 compute engine: ${SKETCH2_COMPUTE_ENGINE}")
 
 #----------------------------
 # Support for f16
@@ -40,8 +38,8 @@ target_compile_definitions(sketch_compile_options INTERFACE
   SKETCH_ENABLE_AVX512F=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512F}>,1,0>
   SKETCH_ENABLE_AVX512VNNI=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512VNNI}>,1,0>
   SKETCH_ENABLE_ARM_SVE=$<IF:$<BOOL:${SKETCH_ENABLE_ARM_SVE}>,1,0>
-  SKETCH_COMPUTE_ENGINE_HIGHWAY=$<IF:$<STREQUAL:${SKETCH_COMPUTE_ENGINE},highway>,1,0>
-  SKETCH_COMPUTE_ENGINE_NUMKONG=$<IF:$<STREQUAL:${SKETCH_COMPUTE_ENGINE},numkong>,1,0>)
+  SKETCH2_COMPUTE_ENGINE_HIGHWAY=$<IF:$<STREQUAL:${SKETCH2_COMPUTE_ENGINE},highway>,1,0>
+  SKETCH2_COMPUTE_ENGINE_NUMKONG=$<IF:$<STREQUAL:${SKETCH2_COMPUTE_ENGINE},numkong>,1,0>)
 
 if((SKETCH_ENABLE_AVX2 OR SKETCH_ENABLE_AVX512F OR SKETCH_ENABLE_AVX512VNNI)
     AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
@@ -72,16 +70,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Build position-independent code so static libraries can be linked into shared libraries.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Warnings / errors (GCC / Clang)
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic -Werror)
-endif()
-
-# Sanitizer build type for GCC/Clang.
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  set(SKETCH_SANITIZER_FLAGS
-      "-fsanitize=address,undefined,leak -fno-omit-frame-pointer"
-      CACHE STRING "Compiler and linker flags used by the Sanitizer build type")
+# First-party warning policy. Link this target into project-owned targets rather
+# than setting global compiler flags that vendored code has to undo later.
+add_library(sketch_warnings INTERFACE)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(sketch_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
 # Threading (safe default for executables/tests)
@@ -89,44 +82,24 @@ find_package(Threads REQUIRED)
 
 # Output directories (Ninja is single-config; this uses CMAKE_BUILD_TYPE)
 if (NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel, Sanitizer)" FORCE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
 endif()
-set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel Sanitizer)
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 
 string(TOLOWER "${CMAKE_BUILD_TYPE}" _bt_lower)
 
-if (_bt_lower STREQUAL "sanitizer")
-  if (NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    message(FATAL_ERROR "The Sanitizer build type is supported only with GCC or Clang.")
-  endif()
-
-  set(CMAKE_C_FLAGS_SANITIZER
-      "${CMAKE_C_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
-      CACHE STRING "Flags used by the C compiler during Sanitizer builds" FORCE)
-  set(CMAKE_CXX_FLAGS_SANITIZER
-      "${CMAKE_CXX_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
-      CACHE STRING "Flags used by the C++ compiler during Sanitizer builds" FORCE)
-  set(CMAKE_EXE_LINKER_FLAGS_SANITIZER
-      "${CMAKE_EXE_LINKER_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
-      CACHE STRING "Flags used for linking executables during Sanitizer builds" FORCE)
-  set(CMAKE_SHARED_LINKER_FLAGS_SANITIZER
-      "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
-      CACHE STRING "Flags used for linking shared libraries during Sanitizer builds" FORCE)
-  set(CMAKE_MODULE_LINKER_FLAGS_SANITIZER
-      "${CMAKE_MODULE_LINKER_FLAGS_DEBUG} ${SKETCH_SANITIZER_FLAGS}"
-      CACHE STRING "Flags used for linking loadable modules during Sanitizer builds" FORCE)
-endif()
-
 if (_bt_lower STREQUAL "debug")
   set(_RUNTIME_OUT_DIR "${CMAKE_SOURCE_DIR}/bin-dbg")
-elseif (_bt_lower STREQUAL "sanitizer")
-  set(_RUNTIME_OUT_DIR "${CMAKE_SOURCE_DIR}/bin-san")
 else()
   set(_RUNTIME_OUT_DIR "${CMAKE_SOURCE_DIR}/bin")
 endif()
-if(SKETCH_COMPUTE_ENGINE STREQUAL "numkong")
-  string(APPEND _RUNTIME_OUT_DIR "-nk")
+
+if(SKETCH2_COMPUTE_ENGINE STREQUAL "numkong")
+  set(_runtime_engine_suffix "nk")
+else()
+  set(_runtime_engine_suffix "hwy")
 endif()
+string(APPEND _RUNTIME_OUT_DIR "-${_runtime_engine_suffix}")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_RUNTIME_OUT_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
@@ -145,17 +118,6 @@ FetchContent_Declare(
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
-
-if(SKETCH_ENABLE_BENCHMARKS)
-  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-  set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
-  set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-  FetchContent_Declare(
-    googlebenchmark
-    URL https://github.com/google/benchmark/archive/refs/tags/v1.9.1.zip
-  )
-  FetchContent_MakeAvailable(googlebenchmark)
-endif()
 
 enable_testing()
 

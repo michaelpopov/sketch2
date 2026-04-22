@@ -20,6 +20,7 @@ target_include_directories(stor PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
 set_target_properties(stor PROPERTIES OUTPUT_NAME "stor")
 target_link_libraries(stor PUBLIC utils sketch_compile_options Threads::Threads)
+target_link_libraries(stor PRIVATE sketch_warnings)
 
 add_executable(utest_stor
   ${SHARED_UTEST_MAIN}
@@ -35,5 +36,5 @@ add_executable(utest_stor
   utest_compact_ids_offsets.cpp
   utest_compact_ids_ext.cpp
 )
-target_link_libraries(utest_stor PRIVATE stor GTest::gtest Threads::Threads)
+target_link_libraries(utest_stor PRIVATE stor GTest::gtest Threads::Threads sketch_warnings)
 add_test(NAME utest_stor COMMAND utest_stor)

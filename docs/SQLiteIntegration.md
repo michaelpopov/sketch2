@@ -43,13 +43,15 @@ The extension entry points are exported from `libsketch2.so`.
 
 Typical library locations:
 
-- release: `bin/libsketch2.so`
-- debug: `bin-dbg/libsketch2.so`
+- highway release: `bin-hwy/libsketch2.so`
+- highway debug: `bin-dbg-hwy/libsketch2.so`
+- numkong release: `bin-nk/libsketch2.so`
+- numkong debug: `bin-dbg-nk/libsketch2.so`
 
 If you use the bundled SQLite shell built by the repository, a typical debug
 shell path is:
 
-- `bin-dbg/sqlite3`
+- `bin-dbg-hwy/sqlite3`
 
 ## Runtime Initialization
 

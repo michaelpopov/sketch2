@@ -49,7 +49,7 @@ dist_func=l1
 
 In a debug build, the important artifacts are typically:
 
-- SQLite shell: `bin-dbg/sqlite3`
+- SQLite shell: `bin-dbg-hwy/sqlite3`
 - Extension library: `build-dbg/lib/libsketch2.so`
 
 Build them with:

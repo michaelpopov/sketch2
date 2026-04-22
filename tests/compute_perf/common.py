@@ -72,7 +72,6 @@ from sketch2_test_vectors import (
     cosine_demo_vector,
     cosine_distance,
     dot_distance,
-    find_library,
     fmt_typed_vector,
     generic_demo_query,
     generic_demo_vector,
@@ -84,40 +83,24 @@ from sketch2_test_vectors import (
 
 def find_lib_path() -> Path:
     runtime_dir = configured_runtime_dir()
-    if runtime_dir is not None:
-        lib_path = runtime_dir / "libsketch2.so"
-        if lib_path.exists():
-            return lib_path
-        raise FileNotFoundError(f"libsketch2.so not found in COMPUTE_PERF_RUNTIME_DIR: {runtime_dir}")
-    return find_library()
+    lib_path = runtime_dir / "libsketch2.so"
+    if lib_path.exists():
+        return lib_path
+    raise FileNotFoundError(f"libsketch2.so not found in COMPUTE_PERF_RUNTIME_DIR: {runtime_dir}")
 
 
 def find_binary(name: str) -> Path:
     runtime_dir = configured_runtime_dir()
-    if runtime_dir is not None:
-        candidate = runtime_dir / name
-        if candidate.exists():
-            return candidate
-        raise FileNotFoundError(f"{name} not found in COMPUTE_PERF_RUNTIME_DIR: {runtime_dir}")
-
-    root = repo_root()
-    candidates = [
-        root / "bin" / name,
-        root / "bin-dbg" / name,
-        root / "bin-san" / name,
-        root / "build" / "bin" / name,
-        root / "build-dbg" / "bin" / name,
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(f"{name} not found in expected output directories: {candidates}")
+    candidate = runtime_dir / name
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(f"{name} not found in COMPUTE_PERF_RUNTIME_DIR: {runtime_dir}")
 
 
-def configured_runtime_dir() -> Path | None:
+def configured_runtime_dir() -> Path:
     raw = os.environ.get("COMPUTE_PERF_RUNTIME_DIR")
     if not raw:
-        return None
+        raise SystemExit("COMPUTE_PERF_RUNTIME_DIR must be set explicitly by the caller")
     path = Path(raw).resolve()
     if not path.exists():
         raise FileNotFoundError(f"COMPUTE_PERF_RUNTIME_DIR does not exist: {path}")

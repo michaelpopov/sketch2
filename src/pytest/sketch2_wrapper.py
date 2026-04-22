@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import ctypes
+import os
 from ctypes import POINTER, c_bool, c_char, c_char_p, c_double, c_int, c_size_t, c_uint, c_uint64, c_void_p
 from pathlib import Path
 
@@ -40,10 +41,18 @@ class Sketch2:
     # TODO: Think about a better way to set it.
     @staticmethod
     def _default_lib_path() -> Path:
+        configured_dir = os.environ.get("SKETCH2_LIB")
+        if configured_dir:
+            configured_path = Path(configured_dir).resolve() / "libsketch2.so"
+            if configured_path.exists():
+                return configured_path
+
         repo_root = Path(__file__).resolve().parents[2]
         candidates = [
-            repo_root / "bin" / "libsketch2.so",
-            repo_root / "bin-dbg" / "libsketch2.so",
+            repo_root / "bin-dbg-hwy" / "libsketch2.so",
+            repo_root / "bin-hwy" / "libsketch2.so",
+            repo_root / "bin-dbg-nk" / "libsketch2.so",
+            repo_root / "bin-nk" / "libsketch2.so",
         ]
         for candidate in candidates:
             if candidate.exists():

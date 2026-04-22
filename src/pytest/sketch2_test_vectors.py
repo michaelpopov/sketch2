@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import os
 import struct
 from pathlib import Path
 
@@ -18,14 +19,20 @@ def repo_root() -> Path:
 
 
 def find_library() -> Path:
+    configured_dir = os.environ.get("SKETCH2_LIB")
+    if configured_dir:
+        configured_path = Path(configured_dir).resolve() / "libsketch2.so"
+        if configured_path.exists():
+            return configured_path
+
     root = repo_root()
     candidates = [
-        root / "bin" / "libsketch2.so",
-        root / "bin-dbg" / "libsketch2.so",
-        root / "bin-san" / "libsketch2.so",
+        root / "bin-hwy" / "libsketch2.so",
+        root / "bin-dbg-hwy" / "libsketch2.so",
+        root / "bin-nk" / "libsketch2.so",
+        root / "bin-dbg-nk" / "libsketch2.so",
         root / "build" / "lib" / "libsketch2.so",
         root / "build-dbg" / "lib" / "libsketch2.so",
-        root / "build-san" / "lib" / "libsketch2.so",
     ]
     for candidate in candidates:
         if candidate.exists():
