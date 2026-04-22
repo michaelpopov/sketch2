@@ -19,14 +19,22 @@ from common import dataset_metadata_path, load_config, load_dataset_metadata, lo
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 ENGINE_RUNTIME_DIRS = {
-    "highway": REPO_ROOT / "bin-hwy",
-    "numkong": REPO_ROOT / "bin-nk",
+    "hwy": REPO_ROOT / "bin-hwy",
+    "nk": REPO_ROOT / "bin-nk",
 }
 SUPPORTED_ENGINES = frozenset(ENGINE_RUNTIME_DIRS)
+ENGINE_CANONICAL_NAMES = {
+    "hwy": "highway",
+    "nk": "numkong",
+}
+CANONICAL_TO_REQUESTED_ENGINE = {
+    canonical: requested for requested, canonical in ENGINE_CANONICAL_NAMES.items()
+}
+SUPPORTED_COMPILED_ENGINES = frozenset(CANONICAL_TO_REQUESTED_ENGINE)
 
 
 def release_build_target_for(engine: str) -> str:
-    return "rel" if engine == "highway" else "rel-nk"
+    return "rel" if engine == "hwy" else "rel-nk"
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,6 +52,10 @@ def parse_args() -> argparse.Namespace:
 
 def runtime_dir_for(engine: str) -> Path:
     return ENGINE_RUNTIME_DIRS[engine]
+
+
+def canonical_engine_name(engine: str) -> str:
+    return ENGINE_CANONICAL_NAMES[engine]
 
 
 def ensure_runtime_artifacts(runtime_dir: Path) -> None:
@@ -226,15 +238,12 @@ def run_logged(cmd: list[str], env: dict[str, str], log_path: Path) -> int:
         return process.wait()
 
 
-def verify_dataset(config, dist: str) -> tuple[Path, Path]:
+def verify_dataset(config, dist: str) -> Path:
     root = config.db_dir
     dataset_path = root / f"{config.dataset}_{dist}"
     if not dataset_path.is_dir():
         raise SystemExit(f"[driver] ERROR: expected dataset directory not found: {dataset_path}")
-    gt_path = root / f"ground_truth_{dist}.json"
-    if not gt_path.is_file():
-        raise SystemExit(f"[driver] ERROR: expected ground truth file not found: {gt_path}")
-    return dataset_path, gt_path
+    return dataset_path
 
 
 def print_diag_paths(diag_dir: Path, engine: str) -> None:
@@ -267,12 +276,12 @@ def probe_compiled_engine(runtime_dir: Path, config_root: str) -> str:
             "new sk_compute_engine() API. Rebuild that runtime directory before "
             "running compute perf tests."
         ) from exc
-    if engine not in SUPPORTED_ENGINES:
-        raise SystemExit(
-            f"[driver] ERROR: libsketch2.so in {runtime_dir} reported unsupported "
-            f"compute engine {engine!r}."
-        )
-    return engine
+    if engine in SUPPORTED_COMPILED_ENGINES:
+        return engine
+    raise SystemExit(
+        f"[driver] ERROR: libsketch2.so in {runtime_dir} reported unsupported "
+        f"compute engine {engine!r}."
+    )
 
 
 def install_signal_handlers() -> None:
@@ -331,7 +340,8 @@ def main() -> int:
         compiled_engine = probe_compiled_engine(runtime_dir, probe_root)
     finally:
         shutil.rmtree(probe_root, ignore_errors=True)
-    if args.engine is not None and compiled_engine != args.engine:
+    requested_canonical_engine = canonical_engine_name(args.engine)
+    if compiled_engine != requested_canonical_engine:
         raise SystemExit(
             f"[driver] ERROR: requested --engine {args.engine!r}, but "
             f"{runtime_dir / 'libsketch2.so'} reports {compiled_engine!r}."

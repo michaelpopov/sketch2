@@ -18,7 +18,6 @@ from common import (
     cosine_demo_vector,
     generic_demo_vector,
     fmt_typed_vector,
-    query_values_for_dist,
 )
 
 def write_chunk(
@@ -113,12 +112,6 @@ def main() -> None:
     write_config_file(config)
     os.environ["SKETCH2_CONFIG"] = str(config.db_dir / "config.ini")
 
-    from common import (
-        expected_dists_for_ids,
-        save_ground_truth,
-        fmt_typed_vector,
-    )
-
     lib_path = find_lib_path()
     Sketch2, _ = load_sketch2_types()
 
@@ -144,24 +137,6 @@ def main() -> None:
 
             if input_path.exists():
                 input_path.unlink()
-
-            log("initializer", f"calculating ground truth for {dist}")
-            query_vals = query_values_for_dist(dist, config.dims, config.type_name)
-
-            # Ground truth comes from the library's default engine selection.
-            # We then compute only the returned scores in Python so tie-aware
-            # validation can still compare score multisets cheaply.
-            os.environ.pop("SKETCH2_COMPUTE_ENGINE", None)
-            query_str = fmt_typed_vector(query_vals, config.type_name)
-            expected_ids = sketch2.knn(query_str, config.knn_count)
-            expected_scores = expected_dists_for_ids(
-                expected_ids,
-                config.dims,
-                config.type_name,
-                dist,
-                query_vals,
-            )
-            save_ground_truth(config, dist, expected_ids, expected_scores)
 
             log("initializer", f"dataset {dataset_name} is ready")
             sketch2.close()

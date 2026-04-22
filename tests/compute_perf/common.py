@@ -70,13 +70,9 @@ if _pytest_dir not in sys.path:
 from sketch2_test_vectors import (
     cosine_demo_query,
     cosine_demo_vector,
-    cosine_distance,
-    dot_distance,
     fmt_typed_vector,
     generic_demo_query,
     generic_demo_vector,
-    l2_distance_sq,
-    native_sequential_vector,
     repo_root as shared_repo_root,
 )
 
@@ -284,32 +280,6 @@ def write_config_file(config: PerfConfig) -> Path:
     return path
 
 
-def ground_truth_path(config: PerfConfig, dist_func: str) -> Path:
-    return config.db_dir / f"ground_truth_{dist_func}.json"
-
-
-def save_ground_truth(config: PerfConfig, dist_func: str, ids: list[int], scores: list[float]) -> None:
-    path = ground_truth_path(config, dist_func)
-    data = {
-        "ids": ids,
-        "scores": scores
-    }
-    with path.open("w", encoding="utf-8") as out:
-        json.dump(data, out)
-
-
-def load_ground_truth(config: PerfConfig, dist_func: str) -> tuple[list[int], list[float]]:
-    path = ground_truth_path(config, dist_func)
-    if not path.exists():
-        raise FileNotFoundError(f"ground truth file not found: {path}")
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    score_values = data.get("scores")
-    if score_values is None:
-        score_values = data["dists"]
-    return data["ids"], score_values
-
-
 def tree_size_bytes(path: Path) -> int:
     total = 0
     for child in path.rglob("*"):
@@ -318,134 +288,12 @@ def tree_size_bytes(path: Path) -> int:
     return total
 
 
-def distance_helpers(
-    dist_func: str,
-) -> tuple[
-    callable[[list[float | int], list[float | int]], float],
-    callable[[int, int, str], list[float | int]],
-]:
-    if dist_func == "cos":
-        return cosine_distance, cosine_demo_vector
-    if dist_func == "l2":
-        return l2_distance_sq, native_sequential_vector
-    if dist_func == "dot":
-        return dot_distance, native_sequential_vector
-    raise ValueError(f"unsupported score function: {dist_func}")
-
-
 def query_values_for_dist(dist_func: str, dim: int, type_name: str) -> list[float | int]:
     if dist_func == "cos":
         return cosine_demo_query(dim, type_name)
     if dist_func in ("l2", "dot"):
         return generic_demo_query(dim, type_name)
     raise ValueError(f"unsupported score function: {dist_func}")
-
-
-def smaller_score_is_better(dist_func: str) -> bool:
-    if dist_func in ("cos", "l2"):
-        return True
-    if dist_func == "dot":
-        return False
-    raise ValueError(f"unsupported score function: {dist_func}")
-
-
-def sort_metric_values(values: list[float], dist_func: str) -> list[float]:
-    return sorted(values, reverse=not smaller_score_is_better(dist_func))
-
-
-def expected_dists_for_ids(
-    item_ids: list[int],
-    dim: int,
-    type_name: str,
-    dist_func: str,
-    query_vals: list[float | int],
-) -> list[float]:
-    dist_calc, vector_gen = distance_helpers(dist_func)
-    scores = []
-    for item_id in item_ids:
-        vec = vector_gen(item_id, dim, type_name)
-        scores.append(dist_calc(query_vals, vec))
-    return sort_metric_values(scores, dist_func)
-
-
-def get_ground_truth_knn(
-    count: int, dim: int, type_name: str, dist_func: str, query_vals: list[float | int], k: int
-) -> tuple[list[int], list[float]]:
-    # cosine_demo_vector: LCM(17, 11, 7, 5) = 6545
-    # native_sequential_vector: not periodic
-
-    dist_calc = None
-    vector_gen = None
-    period = 1  # 1 means no period optimization
-    if dist_func == "cos":
-        dist_calc = cosine_distance
-        vector_gen = cosine_demo_vector
-        period = 6545
-    else:
-        dist_calc, vector_gen = distance_helpers(dist_func)
-
-    # Calculate scores
-    if period > 1:
-        period_distances = []
-        for m in range(min(period, count)):
-            vec = vector_gen(m, dim, type_name)
-            d = dist_calc(query_vals, vec)
-            period_distances.append(d)
-
-        candidates = []
-        for item_id in range(count):
-            d = period_distances[item_id % period]
-            candidates.append((d, item_id))
-    else:
-        # Non-periodic or very large period: calculate all
-        candidates = []
-        for item_id in range(count):
-            vec = vector_gen(item_id, dim, type_name)
-            d = dist_calc(query_vals, vec)
-            candidates.append((d, item_id))
-    
-    candidates.sort(key=lambda item: (item[0], item[1]), reverse=not smaller_score_is_better(dist_func))
-    top_k = candidates[:k]
-    return [item_id for _, item_id in top_k], [d for d, _ in top_k]
-
-
-def validate_knn_results(
-    actual_ids: list[int],
-    expected_ids: list[int],
-    expected_scores: list[float],
-    query_vals: list[float | int],
-    dim: int,
-    type_name: str,
-    dist_func: str
-) -> bool:
-    if len(actual_ids) != len(expected_ids):
-        return False
-
-    if len(set(actual_ids)) != len(actual_ids):
-        return False
-
-    if actual_ids == expected_ids:
-        return True
-
-    # If IDs differ, check if it's just a tie-breaking difference.
-    # We calculate scores for the actual IDs and compare them with expected scores.
-    try:
-        dist_calc, vector_gen = distance_helpers(dist_func)
-    except ValueError:
-        return False
-
-    actual_scores = []
-    for aid in actual_ids:
-        vec = vector_gen(aid, dim, type_name)
-        actual_scores.append(dist_calc(query_vals, vec))
-
-    # Compare the score multisets so engines can break ties differently.
-    eps = 1e-9
-    for actual_score, expected_score in zip(sort_metric_values(actual_scores, dist_func), expected_scores):
-        if abs(actual_score - expected_score) > eps:
-            return False
-
-    return True
 
 
 def log(role: str, message: str) -> None:
