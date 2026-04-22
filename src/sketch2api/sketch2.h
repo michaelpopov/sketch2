@@ -123,10 +123,11 @@ int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
 
 /*
- * Generate test file with vectors and load them into the current dataset.
+ * Generate test file with vectors using a named pattern and load them into the
+ * current dataset. Pass NULL or "auto" to select the metric-default pattern.
  */
 int sk_generate_test_data(sk_handle_t* handle, 
-    const char* path, uint64_t count, uint64_t start_id, bool binary);
+    const char* path, uint64_t count, uint64_t start_id, const char* pattern, bool binary);
 
 /*
 * Generate file with test metadata in CSV format.

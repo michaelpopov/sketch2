@@ -206,9 +206,9 @@ int sk_complete_writing(sk_handle_t* handle) {
 }
 
 int sk_generate_test_data(sk_handle_t* handle, 
-    const char* path, uint64_t count, uint64_t start_id, bool binary) {
+    const char* path, uint64_t count, uint64_t start_id, const char* pattern, bool binary) {
     try {
-        return sk_generate_test_data_(handle, path, count, start_id, binary);
+        return sk_generate_test_data_(handle, path, count, start_id, pattern, binary);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }

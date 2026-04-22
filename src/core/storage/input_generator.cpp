@@ -27,6 +27,11 @@ namespace {
 
 constexpr size_t kBinarySequentialChunkSize = 10000;
 constexpr float kFloat16Max = 65504.0f;
+constexpr uint64_t kPerfTestSeedOffset = 0x9e3779b97f4a7c15ULL;
+constexpr uint64_t kPerfTestSeedMul = 0xbf58476d1ce4e5b9ULL;
+constexpr uint64_t kPerfTestStepMul = 2862933555777941757ULL;
+constexpr uint64_t kPerfTestStepAdd = 3037000493ULL;
+constexpr float kPerfTestFloatScale = 1.0f / 256.0f;
 
 Ret make_io_error(const std::string& action, const std::string& path) {
     return Ret(action + ": " + path + ": " + std::strerror(errno));
@@ -43,6 +48,45 @@ inline void fill_cos_compatible_vector(uint64_t id, size_t dim, std::vector<T>& 
     out[2] = static_cast<T>(((sid * 5) % 7) - 3);
     for (size_t index = 3; index < dim; ++index) {
         out[index] = static_cast<T>(((sid + static_cast<int64_t>(index)) % 5) - 2);
+    }
+}
+
+inline uint64_t perf_test_initial_state(uint64_t id) {
+    uint64_t state = id + kPerfTestSeedOffset;
+    state ^= state >> 30;
+    state *= kPerfTestSeedMul;
+    state ^= state >> 27;
+    state *= 0x94d049bb133111ebULL;
+    state ^= state >> 31;
+    return state;
+}
+
+template <typename T>
+inline T perf_test_value_from_state(uint64_t state);
+
+template <>
+inline float perf_test_value_from_state<float>(uint64_t state) {
+    const int32_t centered = static_cast<int32_t>((state >> 20) & 0x7ffU) - 1024;
+    return static_cast<float>(centered) * kPerfTestFloatScale;
+}
+
+template <>
+inline float16 perf_test_value_from_state<float16>(uint64_t state) {
+    return static_cast<float16>(perf_test_value_from_state<float>(state));
+}
+
+template <>
+inline int16_t perf_test_value_from_state<int16_t>(uint64_t state) {
+    return static_cast<int16_t>(static_cast<int32_t>((state >> 20) & 0xfffU) - 2048);
+}
+
+template <typename T>
+inline void fill_perf_test_vector(uint64_t id, size_t dim, std::vector<T>& out) {
+    out.resize(dim);
+    uint64_t state = perf_test_initial_state(id);
+    for (size_t index = 0; index < dim; ++index) {
+        state = state * kPerfTestStepMul + kPerfTestStepAdd;
+        out[index] = perf_test_value_from_state<T>(state);
     }
 }
 
@@ -117,6 +161,19 @@ void write_binary_sequential_range(uint8_t* records_base, const GeneratorConfig&
 }
 
 template <typename T>
+void write_binary_perf_test_range(uint8_t* records_base, const GeneratorConfig& config,
+        size_t record_size, size_t begin, size_t end) {
+    std::vector<T> payload(config.dim);
+    for (size_t i = begin; i < end; ++i) {
+        const uint64_t id = config.min_id + i;
+        uint8_t* record = records_base + i * record_size;
+        std::memcpy(record, &id, sizeof(id));
+        fill_perf_test_vector(id, config.dim, payload);
+        std::memcpy(record + sizeof(id), payload.data(), payload.size() * sizeof(T));
+    }
+}
+
+template <typename T>
 Ret fill_binary_sequential_records(uint8_t* records_base, const GeneratorConfig& config) {
     const size_t record_size = sizeof(uint64_t) + config.dim * sizeof(T);
     const size_t chunk_count = (config.count + kBinarySequentialChunkSize - 1) / kBinarySequentialChunkSize;
@@ -143,6 +200,39 @@ Ret fill_binary_sequential_records(uint8_t* records_base, const GeneratorConfig&
             return Ret(e.what());
         } catch (...) {
             return Ret("binary sequential generator failed");
+        }
+    }
+
+    return Ret(0);
+}
+
+template <typename T>
+Ret fill_binary_perf_test_records(uint8_t* records_base, const GeneratorConfig& config) {
+    const size_t record_size = sizeof(uint64_t) + config.dim * sizeof(T);
+    const size_t chunk_count = (config.count + kBinarySequentialChunkSize - 1) / kBinarySequentialChunkSize;
+    const auto& thread_pool = get_singleton().thread_pool();
+    if (chunk_count <= 1 || !thread_pool) {
+        write_binary_perf_test_range<T>(records_base, config, record_size, 0, config.count);
+        return Ret(0);
+    }
+
+    std::vector<std::future<void>> futures;
+    futures.reserve(chunk_count);
+    for (size_t chunk = 0; chunk < chunk_count; ++chunk) {
+        const size_t begin = chunk * kBinarySequentialChunkSize;
+        const size_t end = std::min(config.count, begin + kBinarySequentialChunkSize);
+        futures.push_back(thread_pool->submit([records_base, &config, record_size, begin, end] {
+            write_binary_perf_test_range<T>(records_base, config, record_size, begin, end);
+        }));
+    }
+
+    for (auto& future : futures) {
+        try {
+            future.get();
+        } catch (const std::exception& e) {
+            return Ret(e.what());
+        } catch (...) {
+            return Ret("binary perf-test generator failed");
         }
     }
 
@@ -218,16 +308,87 @@ Ret generate_sequential_input_file_binary_mmap(const std::string& path, const Ge
     return Ret(0);
 }
 
+Ret generate_perf_test_input_file_binary_mmap(const std::string& path, const GeneratorConfig& config) {
+    const std::string header =
+        std::string(data_type_to_string(config.type)) + "," + std::to_string(config.dim) + ",bin\n";
+    const size_t type_size = data_type_size(config.type);
+    const size_t max_size = std::numeric_limits<size_t>::max();
+    if (type_size == 0 || config.dim > (max_size - sizeof(uint64_t)) / type_size) {
+        return Ret("binary input record size overflow");
+    }
+
+    const size_t record_size = sizeof(uint64_t) + config.dim * type_size;
+    if (config.count > (max_size - header.size()) / record_size) {
+        return Ret("binary input file size overflow");
+    }
+    const size_t file_size = header.size() + config.count * record_size;
+
+    const int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) {
+        return make_io_error("Failed to open file for writing", path);
+    }
+    std::experimental::scope_exit fd_guard([fd]() { close(fd); });
+
+    if (ftruncate(fd, static_cast<off_t>(file_size)) != 0) {
+        return make_io_error("Failed to size file", path);
+    }
+
+    void* mapped = mmap(nullptr, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (mapped == MAP_FAILED) {
+        return make_io_error("Failed to map file", path);
+    }
+
+    uint8_t* map = static_cast<uint8_t*>(mapped);
+    std::experimental::scope_exit map_guard([&map, file_size]() {
+        if (map != nullptr) {
+            munmap(map, file_size);
+        }
+    });
+
+    std::memcpy(map, header.data(), header.size());
+    uint8_t* records_base = map + header.size();
+
+    Ret fill_ret(0);
+    if (config.type == DataType::f32) {
+        fill_ret = fill_binary_perf_test_records<float>(records_base, config);
+    } else if (config.type == DataType::f16) {
+        fill_ret = fill_binary_perf_test_records<float16>(records_base, config);
+    } else if (config.type == DataType::i16) {
+        fill_ret = fill_binary_perf_test_records<int16_t>(records_base, config);
+    } else {
+        return Ret("Unsupported data type");
+    }
+    if (fill_ret.code() != 0) {
+        return fill_ret;
+    }
+
+    if (msync(map, file_size, MS_SYNC) != 0) {
+        return make_io_error("Failed to flush mapped file", path);
+    }
+    if (munmap(map, file_size) != 0) {
+        return make_io_error("Failed to unmap file", path);
+    }
+    map = nullptr;
+
+    if (fsync(fd) != 0) {
+        return make_io_error("Failed to sync file", path);
+    }
+
+    return Ret(0);
+}
+
 } // namespace
 
 static Ret generate_sequential_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_detailed_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_cos_compatible_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_dot_compatible_input_file(const std::string& path, const GeneratorConfig& config);
+static Ret generate_perf_test_input_file(const std::string& path, const GeneratorConfig& config);
 static Ret generate_sequential_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_detailed_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_cos_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_dot_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config);
+static Ret generate_perf_test_input_file_binary(const std::string& path, const GeneratorConfig& config);
 static Ret generate_manual_input_file(const std::string& path, const ManualInputGenerator& gen);
 
 Ret generate_input_file(const std::string& path, const GeneratorConfig& config) {
@@ -249,6 +410,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
                 case PatternType::Detailed:   return generate_detailed_input_file_binary(temp_path, config);
                 case PatternType::CosCompatible: return generate_cos_compatible_input_file_binary(temp_path, config);
                 case PatternType::DotCompatible: return generate_dot_compatible_input_file_binary(temp_path, config);
+                case PatternType::PerfTest: return generate_perf_test_input_file_binary(temp_path, config);
             }
 
             return Ret("unsupported binary pattern type");
@@ -259,6 +421,7 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
             case PatternType::Detailed:   return generate_detailed_input_file(temp_path, config);
             case PatternType::CosCompatible: return generate_cos_compatible_input_file(temp_path, config);
             case PatternType::DotCompatible: return generate_dot_compatible_input_file(temp_path, config);
+            case PatternType::PerfTest: return generate_perf_test_input_file(temp_path, config);
         }
 
         return Ret("generate_input_file: invalid pattern type");
@@ -447,6 +610,38 @@ static Ret generate_dot_compatible_input_file(const std::string& path, const Gen
     return generate_sequential_input_file(path, config);
 }
 
+// Writes dense deterministic vectors intended for cross-metric performance tests.
+static Ret generate_perf_test_input_file(const std::string& path, const GeneratorConfig& config) {
+    FILE* f = fopen(path.c_str(), "w");
+    if (!f) {
+        return Ret("Failed to open file for writing: " + path);
+    }
+    std::experimental::scope_exit file_guard([f]() { fclose(f); });
+
+    fprintf(f, "%s,%zu\n", data_type_to_string(config.type), config.dim);
+
+    std::vector<float> buf_f32;
+    std::vector<float16> buf_f16;
+    std::vector<int16_t> buf_i16;
+    for (size_t i = 0; i < config.count; ++i) {
+        const uint64_t id = config.min_id + i;
+        if (config.type == DataType::f32) {
+            fill_perf_test_vector(id, config.dim, buf_f32);
+            print_float_line(f, id, buf_f32.data(), config.dim, true);
+        } else if (config.type == DataType::f16) {
+            fill_perf_test_vector(id, config.dim, buf_f16);
+            print_float_line(f, id, buf_f16.data(), config.dim, true);
+        } else if (config.type == DataType::i16) {
+            fill_perf_test_vector(id, config.dim, buf_i16);
+            print_int_line(f, id, buf_i16.data(), config.dim, true);
+        } else {
+            return Ret("generate_perf_test_input_file: invalid data type");
+        }
+    }
+
+    return Ret(0);
+}
+
 // Writes a text header followed by binary records made of uint64_t ids and
 // packed vector payloads with a repeated scalar value per dimension.
 static Ret generate_sequential_input_file_binary(const std::string& path, const GeneratorConfig& config) {
@@ -487,6 +682,12 @@ static Ret generate_cos_compatible_input_file_binary(const std::string& path, co
 // scalar payload used by the sequential generator.
 static Ret generate_dot_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config) {
     return generate_sequential_input_file_binary(path, config);
+}
+
+// Writes the perf-test pattern in binary form using the same chunked mmap flow
+// as the sequential generator to keep large corpus generation fast.
+static Ret generate_perf_test_input_file_binary(const std::string& path, const GeneratorConfig& config) {
+    return generate_perf_test_input_file_binary_mmap(path, config);
 }
 
 // Writes a text header followed by binary records that use the InputVector

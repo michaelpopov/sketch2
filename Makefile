@@ -1,6 +1,7 @@
 # --- Configuration ---
 TYPE ?= rel
 ENGINE ?= hwy
+CMAKE_GENERATOR ?= Ninja
 
 BUILD_DIR_dbg_hwy := build-dbg
 BUILD_DIR_rel_hwy := build
@@ -64,6 +65,7 @@ help:
 		'Variables:' \
 		'  TYPE   Build type selector. Default: rel' \
 		'  ENGINE Compute engine selector. Default: hwy' \
+		'  CMAKE_GENERATOR CMake generator for repo build dirs. Default: Ninja' \
 		'  JOBS   Parallelism for cmake --build. Default: host CPU count' \
 		'' \
 		'Main targets:' \
@@ -88,7 +90,7 @@ help:
 # Example: make build ENGINE=nk
 .PHONY: build build-nk rel rel-nk
 build:
-	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) $(CMAKE_ENGINE_FLAG)
+	cmake -S . -B $(BUILD_DIR) -G "$(CMAKE_GENERATOR)" -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) $(CMAKE_ENGINE_FLAG)
 	@test -d $(BIN_DIR) || mkdir -p $(BIN_DIR)
 	cmake --build $(BUILD_DIR) --parallel $(JOBS)
 	cp $(BUILD_DIR)/lib/libsketch2.so $(BIN_DIR)/libsketch2.so

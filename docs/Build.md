@@ -73,14 +73,14 @@ SVE-capable Linux target such as Ampere/Neoverse and want the extra kernels,
 configure with:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_ARM_SVE=ON
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_ARM_SVE=ON
 ```
 
 To build the NumKong engine explicitly from a fresh clone or on another
 machine, use a dedicated build directory:
 
 ```bash
-cmake -S . -B build-nk-dbg -DCMAKE_BUILD_TYPE=Debug -DSKETCH2_COMPUTE_ENGINE=numkong
+cmake -S . -B build-nk-dbg -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSKETCH2_COMPUTE_ENGINE=numkong
 cmake --build build-nk-dbg
 ctest --test-dir build-nk-dbg --output-on-failure
 ```
@@ -166,18 +166,20 @@ Examples:
 ## Building With CMake Directly
 
 If you want to work without the `Makefile`, use CMake directly.
+The repository-standard build directories (`build/`, `build-dbg/`, `build-nk/`,
+`build-nk-dbg/`) are intended to be Ninja trees.
 
 Debug:
 
 ```bash
-cmake -S . -B build-dbg -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build-dbg -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build-dbg
 ```
 
 Release:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
@@ -185,7 +187,7 @@ cmake --build build
 explicitly in a release tree, use:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target bench_compute
 ```
 

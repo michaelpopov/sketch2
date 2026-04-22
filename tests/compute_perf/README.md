@@ -51,7 +51,7 @@ The initializer prepares the database for benchmarking.
 - **Safety**: Before initializing, it performs a safety check on the database directory. It only wipes the directory if it looks like a harness-owned temporary location (`/tmp/sketch2_COMPUTE_PERF.*`) or if it already contains an existing Sketch2 configuration, preventing accidental data loss.
 - **Dataset Creation**: Creates one dataset for each score function specified in `COMPUTE_PERF_TEST_DIST`. Each dataset is explicitly closed after initialization to allow sequential processing.
 - **Data Generation**:
-    - Uses the optimized `sketch2.generate_test_data()` (native C++ generator), which generates and loads metric-aware synthetic vectors directly into each dataset.
+    - Uses the optimized `sketch2.generate_test_data()` (native C++ generator) with the shared `perf_test` pattern to generate one binary corpus, load it into the first dataset, and then reuse that same file for the remaining datasets.
 
 ## 3. Runner (`runner.py`)
 

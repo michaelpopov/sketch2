@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include <cctype>
+#include <cstring>
 #include <cstdlib>
 #include <cstdio>
 #include <experimental/scope>
@@ -79,6 +80,66 @@ std::vector<std::filesystem::path> resolve_data_dirs(
         out.push_back(path);
     }
     return out;
+}
+
+std::string normalize_pattern_name(const char* pattern) {
+    if (pattern == nullptr) {
+        return "";
+    }
+
+    std::string normalized;
+    normalized.reserve(std::strlen(pattern));
+    for (const unsigned char ch : std::string(pattern)) {
+        if (std::isspace(ch)) {
+            continue;
+        }
+        normalized.push_back(ch == '-' ? '_' : static_cast<char>(std::tolower(ch)));
+    }
+    return normalized;
+}
+
+PatternType auto_pattern_type(DistFunc dist_func) {
+    if (dist_func == DistFunc::COS) {
+        return PatternType::CosCompatible;
+    }
+    if (dist_func == DistFunc::DOT) {
+        return PatternType::DotCompatible;
+    }
+    return PatternType::Sequential;
+}
+
+Ret parse_pattern_type(const char* pattern, DistFunc dist_func, PatternType* out) {
+    if (out == nullptr) {
+        return Ret("Invalid pattern output");
+    }
+
+    const std::string normalized = normalize_pattern_name(pattern);
+    if (normalized.empty() || normalized == "auto") {
+        *out = auto_pattern_type(dist_func);
+        return Ret(0);
+    }
+    if (normalized == "sequential") {
+        *out = PatternType::Sequential;
+        return Ret(0);
+    }
+    if (normalized == "detailed") {
+        *out = PatternType::Detailed;
+        return Ret(0);
+    }
+    if (normalized == "cos" || normalized == "cos_compatible") {
+        *out = PatternType::CosCompatible;
+        return Ret(0);
+    }
+    if (normalized == "dot" || normalized == "dot_compatible") {
+        *out = PatternType::DotCompatible;
+        return Ret(0);
+    }
+    if (normalized == "perf_test") {
+        *out = PatternType::PerfTest;
+        return Ret(0);
+    }
+
+    return Ret("Unknown test data pattern: " + normalized);
 }
 
 std::string join_dirs(const std::vector<std::filesystem::path>& dirs) {
@@ -779,7 +840,9 @@ int sk_complete_writing_(sk_handle_t* handle) {
     return 0;
 }
 
-int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count, uint64_t start_id, bool binary) {
+int sk_generate_test_data_(
+        sk_handle_t* handle, const char* path, uint64_t count, uint64_t start_id,
+        const char* pattern, bool binary) {
     DECL
 
     if (handle->ds == nullptr) {
@@ -798,6 +861,10 @@ int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count
     }
 
     PatternType pattern_type = PatternType::Sequential;
+    Ret parse_ret = parse_pattern_type(pattern, handle->ds->dist_func(), &pattern_type);
+    if (parse_ret.code() != 0) {
+        ERR(parse_ret.message().c_str())
+    }
 
     GeneratorConfig cfg;
     cfg.pattern_type = pattern_type;
@@ -807,11 +874,6 @@ int sk_generate_test_data_(sk_handle_t* handle, const char* path, uint64_t count
     cfg.dim = static_cast<size_t>(handle->ds->dim());
     cfg.max_val = 1000;
     cfg.binary = binary;
-    if (handle->ds->dist_func() == DistFunc::COS) {
-        cfg.pattern_type = PatternType::CosCompatible;
-    } else if (handle->ds->dist_func() == DistFunc::DOT) {
-        cfg.pattern_type = PatternType::DotCompatible;
-    }
 
     Timer generate_timer("sk_generate: generate input");
     Ret ret = generate_input_file(path, cfg);

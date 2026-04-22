@@ -470,7 +470,7 @@ TEST(sketch2api, generate_stats_and_print_smoke) {
     ASSERT_NE(handle, nullptr);
 
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
-    ASSERT_OK(handle, sk_generate_test_data(handle, test_data_path.c_str(), 8, 10, false));
+    ASSERT_OK(handle, sk_generate_test_data(handle, test_data_path.c_str(), 8, 10, nullptr, false));
 
     ASSERT_OK(handle, sk_stats(handle, stats_output.string().c_str()));
     const std::string stats_out = read_file(stats_output);
@@ -502,7 +502,7 @@ TEST(sketch2api, generate_bin_creates_and_loads_input) {
     ASSERT_NE(handle, nullptr);
 
     ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
-    ASSERT_OK(handle, sk_generate_test_data(handle, test_data_path.c_str(), 8, 10, true));
+    ASSERT_OK(handle, sk_generate_test_data(handle, test_data_path.c_str(), 8, 10, nullptr, true));
 
     EXPECT_NE(api_get(handle, 10).find("[ 10.1"), std::string::npos);
 
@@ -598,7 +598,7 @@ TEST(sketch2api, drop_waits_for_dataset_owner_lock) {
         if (sk_open(child, "ds") != 0) {
             _exit(11);
         }
-        if (sk_generate_test_data(child, test_data_path.c_str(), 1, 0, false) != 0) {
+        if (sk_generate_test_data(child, test_data_path.c_str(), 1, 0, nullptr, false) != 0) {
             _exit(12);
         }
         const char ready = '1';

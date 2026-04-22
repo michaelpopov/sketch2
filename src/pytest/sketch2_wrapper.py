@@ -122,7 +122,7 @@ class Sketch2:
         self.lib.sk_complete_writing.argtypes = [c_void_p]
         self.lib.sk_complete_writing.restype = c_int
 
-        self.lib.sk_generate_test_data.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64, c_bool]
+        self.lib.sk_generate_test_data.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64, c_char_p, c_bool]
         self.lib.sk_generate_test_data.restype = c_int
 
         self.lib.sk_generate_test_metadata.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64]
@@ -280,10 +280,12 @@ class Sketch2:
         file_path: str | Path,
         count: int,
         start_id: int | None = None,
+        pattern: str | None = None,
         binary: bool = False,
     ) -> None:
         if start_id is None:
             start_id = 0
+        pattern_arg = None if pattern is None else pattern.encode("utf-8")
         self._check(
             "generate_test_data",
             self.lib.sk_generate_test_data(
@@ -291,6 +293,7 @@ class Sketch2:
                 str(file_path).encode("utf-8"),
                 c_uint64(count),
                 c_uint64(start_id),
+                pattern_arg,
                 c_bool(bool(binary)),
             ),
         )

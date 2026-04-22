@@ -30,7 +30,8 @@ SKETCH2API_HIDDEN int sk_write_deleted_(sk_handle_t* handle, uint64_t id);
 SKETCH2API_HIDDEN int sk_abort_writing_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_complete_writing_(sk_handle_t* handle);
 SKETCH2API_HIDDEN int sk_generate_test_data_(
-    sk_handle_t* handle, const char* path, uint64_t count, uint64_t start_id, bool binary = false);
+    sk_handle_t* handle, const char* path, uint64_t count, uint64_t start_id,
+    const char* pattern = nullptr, bool binary = false);
 SKETCH2API_HIDDEN int sk_generate_test_metadata_(sk_handle_t* handle, 
     const char* path, uint64_t count, uint64_t start_id);
 SKETCH2API_HIDDEN int sk_load_file_(sk_handle_t* handle, const char* path);

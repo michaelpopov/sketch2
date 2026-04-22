@@ -55,7 +55,7 @@ In a debug build, the important artifacts are typically:
 Build them with:
 
 ```bash
-cmake -S . -B build-dbg -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build-dbg -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build-dbg --target sqlite3_cli sketch2
 ```
 

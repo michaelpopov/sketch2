@@ -167,9 +167,9 @@ def fill_dataset(
     log_step(f"writing {count} vectors into the Sketch2 dataset using dist_func={dist_func}")
     log_step(f"generating and loading {count} vectors using sketch2.generate_test_data (native generator)")
     t0 = time.perf_counter()
-    # Use native binary generation for speed; generate_test_data auto-selects
-    # CosCompatible pattern when the dataset dist_func is COS.
-    ps.generate_test_data(input_path, count=count, start_id=from_id, binary=True)
+    # Use native binary generation for speed and let the API choose the default
+    # pattern for the active dataset metric.
+    ps.generate_test_data(input_path, count=count, start_id=from_id, pattern="auto", binary=True)
     t1 = time.perf_counter()
     return t1 - t0, 0.0
 

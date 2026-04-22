@@ -22,6 +22,7 @@ enum class PatternType {
     Detailed,
     CosCompatible,
     DotCompatible,
+    PerfTest,
 };
 
 struct GeneratorConfig {

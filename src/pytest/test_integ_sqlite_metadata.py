@@ -211,7 +211,7 @@ class Sketch2SqliteMetadataIntegTest(IntegTestBase):
 
         with Sketch2(self.root, lib_path=lib_path()) as ps:
             ps.create(self.dataset_name, type_name="f32", dim=DIM, range_size=1000, dist_func="l2")
-            ps.generate_test_data(input_path, count=count, start_id=start_id, binary=True)
+            ps.generate_test_data(input_path, count=count, start_id=start_id, pattern="auto", binary=True)
             ps.generate_test_metadata(metadata_csv_path, count=count, start_id=start_id)
 
         con = open_sqlite_with_extension()

@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 #include <array>
+#include <cmath>
 #include <fstream>
 #include <cstring>
 #include <sstream>
@@ -237,6 +238,18 @@ TEST_F(InputGeneratorTest, DotCompatibleTextUsesMonotonicPositivePayload) {
     EXPECT_EQ("4 : [ 4.10, 4.10, 4.10, 4.10 ]", lines[2]);
 }
 
+TEST_F(InputGeneratorTest, PerfTestTextWritesDenseDeterministicPayload) {
+    GeneratorConfig cfg{PatternType::PerfTest, 2, 3, DataType::f32, 4, 1000};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+    auto lines = read_lines();
+    ASSERT_EQ(3u, lines.size());
+    EXPECT_EQ("f32,4", lines[0]);
+    EXPECT_EQ(0u, lines[1].find("3 : [ "));
+    EXPECT_EQ(0u, lines[2].find("4 : [ "));
+    EXPECT_EQ(std::string::npos, lines[1].find("3.10, 3.10, 3.10, 3.10"));
+    EXPECT_NE(lines[1], lines[2]);
+}
+
 // i16 tests
 
 TEST_F(InputGeneratorTest, I16SuccessReturnCode) {
@@ -307,6 +320,34 @@ TEST_F(InputGeneratorTest, BinaryDotCompatibleHeaderAddsBinMarker) {
     GeneratorConfig cfg{PatternType::DotCompatible, 1, 7, DataType::f32, 4, 1000, 0, true};
     ASSERT_EQ(0, generate_input_file(path_, cfg).code());
     EXPECT_EQ("f32,4,bin", read_binary_header());
+}
+
+TEST_F(InputGeneratorTest, BinaryPerfTestWritesBoundedPerDimensionPayload) {
+    GeneratorConfig cfg{PatternType::PerfTest, 2, 7, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    std::ifstream in(path_, std::ios::binary);
+    std::string header;
+    std::getline(in, header);
+    ASSERT_EQ("f32,4,bin", header);
+
+    uint64_t first_id = 0;
+    std::array<float, 4> first_vec {};
+    uint64_t second_id = 0;
+    std::array<float, 4> second_vec {};
+    in.read(reinterpret_cast<char*>(&first_id), sizeof(first_id));
+    in.read(reinterpret_cast<char*>(first_vec.data()), sizeof(first_vec));
+    in.read(reinterpret_cast<char*>(&second_id), sizeof(second_id));
+    in.read(reinterpret_cast<char*>(second_vec.data()), sizeof(second_vec));
+
+    ASSERT_TRUE(in.good());
+    EXPECT_EQ(7u, first_id);
+    EXPECT_EQ(8u, second_id);
+    EXPECT_NE(first_vec[0], first_vec[1]);
+    EXPECT_NE(first_vec, second_vec);
+    for (float value : first_vec) {
+        EXPECT_LE(std::abs(value), 4.0f);
+    }
 }
 
 TEST_F(InputGeneratorTest, BinarySequentialWritesIdAndVectorPayload) {
