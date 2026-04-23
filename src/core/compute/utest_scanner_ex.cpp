@@ -83,6 +83,9 @@ protected:
     std::vector<std::string> cleanup_files_;
 
     void SetUp() override {
+        if constexpr (kCompiledComputeEngine == ComputeEngine::numkong) {
+            GTEST_SKIP() << "Scanner workflows are not supported for NumKong builds.";
+        }
         std::string base = tmp_dir() + "/sketch2_utest_scanner_ex_" + std::to_string(getpid());
         input_path_ = base + ".txt";
         data_path_  = base + ".bin";

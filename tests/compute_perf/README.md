@@ -14,7 +14,7 @@ The harness consists of six main components:
 2.  **`initializer.py`**: Sets up the test environment, including creating the temporary database, configuring Sketch2, and generating the datasets. It uses the native metric-aware test-data generator exposed by Sketch2.
 3.  **`runner.py`**: Executes the actual benchmarks. It runs each score function in its own child process. It can run two complementary benchmark layers:
     - a **kernel-only** layer that times direct metric kernels without scanner traversal
-    - a **scan** layer that performs full KNN queries through the existing dataset/scanner path
+    - a **scan** layer that performs full KNN queries through the existing dataset/scanner path when the selected runtime supports scanner workflows
 4.  **`bench_compute`**: A native benchmark executable under `src/core/compute` that measures the direct kernels and composed scan-time score paths for the selected runtime, metric, type, and dimension. It always reports `dist`, adds `dot` and `squared_norm` whenever those kernels are available, and includes composed stored-norm paths (`dist_with_stored_norms`) plus the cosine query-norm fallback (`dist_with_query_norm`) when supported.
 5.  **`common.py`**: Shared utility library containing configuration logic, binary discovery, query generation, and small reporting helpers. It imports shared vector logic from the central `sketch2_test_vectors.py` module.
 6.  **`sketch2_test_vectors.py`**: (Located in `src/pytest`) The authoritative source for all shared vector generation, quantization, formatting, and score functions used across tests and demos.
@@ -56,7 +56,7 @@ The runner performs the measurements for a single runtime.
 - **Per-Metric Isolation**: Launches a child Python process for each score function. This localizes native crashes so the failing runtime/metric pair is explicit.
 - **Kernel Benchmark Layer**: When `kernel` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, runs the native `bench_compute` executable first and records direct-kernel timings without any dataset traversal, heap maintenance, or scanner logic. This makes it much easier to distinguish kernel regressions from scan-path overhead.
 - **Warm-up**: Executes one un-timed KNN query to ensure caches are primed and any lazy-initialization overhead is excluded from the performance report.
-- **Scan Benchmark Layer**: When `scan` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, executes `COMPUTE_PERF_TEST_REPEAT` iterations of a KNN query.
+- **Scan Benchmark Layer**: When `scan` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, executes `COMPUTE_PERF_TEST_REPEAT` iterations of a KNN query for scanner-capable runtimes. NumKong builds are treated as kernel-only and skip this layer.
 - **Reporting**: Prints a kernel performance report when kernel mode is enabled, and a scan performance report containing Min, Max, and Average query times when scan mode is enabled.
 - **Crash Diagnostics**: Writes a per-runtime/per-metric JSON state file containing the last completed stage, dataset paths, query digest, PID, timing summary, and generated repro scripts. If a child process segfaults, the state file still shows the last stage reached before the crash. The runner also emits one-shot and loop-based repro shell scripts for the exact runtime/metric pair.
 

@@ -1,17 +1,13 @@
-// NumKong-backed scanner and kernel resolver.
+// NumKong kernel resolver and backend metadata helpers.
 //
 // NumKong provides optimized f32 and f16 implementations for dot-product,
 // squared Euclidean, and angular (cosine) distances. i16 is intentionally
-// unsupported and must be rejected by callers.
+// unsupported and must be rejected by callers. Scanner workflows are
+// intentionally not wired to this backend.
 
 #include "core/compute/numkong.h"
 
 #include "core/compute/cosine_distance.h"
-#include "core/compute/scanner_dataset_scan.h"
-#include "core/compute/scanner_heap_utils.h"
-#include "core/compute/scanner_log_utils.h"
-#include "core/compute/scanner_query_context.h"
-#include "core/utils/timer.h"
 
 #include "numkong/capabilities.h"
 #include "numkong/dot/serial.h"
@@ -359,28 +355,6 @@ double nk_dist_cos_qn_f16(const uint8_t* a, const uint8_t* b, size_t dim, double
                                     query_norm_sq);
 }
 
-Ret validate_nk_kernel_support(DistFunc func, DataType type) {
-    try {
-        const ComputeKernels kernels = resolve_nk_kernels(func, type);
-        if (kernels.dist == nullptr) {
-            return Ret(std::string("Numkong::find_items: missing dist kernel for ")
-                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
-        }
-        if ((func == DistFunc::L2 || func == DistFunc::COS)
-                && (kernels.dot == nullptr || kernels.squared_norm == nullptr)) {
-            return Ret(std::string("Numkong::find_items: missing stored-norm helpers for ")
-                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
-        }
-        if (func == DistFunc::COS && kernels.dist_with_query_norm == nullptr) {
-            return Ret(std::string("Numkong::find_items: missing query-norm kernel for ")
-                + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
-        }
-        return Ret(0);
-    } catch (const std::exception& ex) {
-        return Ret(ex.what());
-    }
-}
-
 #define NK_FOR_EACH_DOT_KERNEL(X) \
     X(f32, nk_dot_product_f32) \
     X(f16, nk_dot_product_f16)
@@ -393,93 +367,7 @@ Ret validate_nk_kernel_support(DistFunc func, DataType type) {
     X(f32, nk_dot_product_f32, nk_dist_cos_f32, nk_dist_cos_qn_f32, nk_squared_norm_f32) \
     X(f16, nk_dot_product_f16, nk_dist_cos_f16, nk_dist_cos_qn_f16, nk_squared_norm_f16)
 
-#define NK_DISPATCH_COS_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, DIST_QN_KERNEL, SQ_NORM_KERNEL) \
-    case DataType::TYPE_TAG: { \
-        const double query_norm_sq = SQ_NORM_KERNEL(vec, dim); \
-        log_query_branch(query_id, "cos_with_optional_norms", \
-            query_norm_sq, query_norm_sq == 0.0); \
-        const QueryCosContext query{ \
-            vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)}; \
-        CHECK((scan_dataset_heap_with_optional_cosine_norms< \
-            DOT_KERNEL, DIST_QN_KERNEL>( \
-            query_id, dataset, count, &heap, query, func, bitset))); \
-        break; \
-    }
-
-#define NK_DISPATCH_DOT_CASE(TYPE_TAG, DOT_KERNEL) \
-    case DataType::TYPE_TAG: \
-        CHECK(scan_dataset_heap_with_dot<DOT_KERNEL>( \
-            query_id, dataset, count, &heap, query, func, bitset)); \
-        break;
-
-#define NK_DISPATCH_L2_CASE(TYPE_TAG, DOT_KERNEL, DIST_KERNEL, SQ_NORM_KERNEL) \
-    case DataType::TYPE_TAG: { \
-        const double query_norm_sq = SQ_NORM_KERNEL(vec, dim); \
-        log_query_branch(query_id, "l2_with_optional_norms", \
-            query_norm_sq, query_norm_sq == 0.0); \
-        const QueryL2Context query{vec, dim, query_norm_sq}; \
-        CHECK((scan_dataset_heap_with_optional_l2_norms< \
-            DOT_KERNEL, DIST_KERNEL>( \
-            query_id, dataset, count, &heap, query, func, bitset))); \
-        break; \
-    }
-
 } // namespace
-
-Ret find_items_nk(const DatasetReader& dataset, size_t count, const uint8_t* vec,
-        std::vector<DistItem>* result, const BitsetFilter* bitset, uint64_t query_id) {
-    if (vec == nullptr || count == 0 || result == nullptr) {
-        return Ret("Numkong::find_items: invalid arguments.");
-    }
-    if (dataset.type() == DataType::i16) {
-        return Ret("Numkong::find_items: NumKong does not support i16 datasets.");
-    }
-
-    result->clear();
-    const DistFunc func = dataset.dist_func();
-    const size_t dim = dataset.dim();
-    const DataType type = dataset.type();
-    CHECK(validate_nk_kernel_support(func, type));
-    if (query_id == 0) {
-        query_id = next_scanner_query_id();
-    }
-    log_query_start(query_id, dataset.name(), func, type, dim, count,
-        ComputeEngine::numkong, bitset != nullptr, nk_compute_backend_name(func, type),
-        nk_compute_compiled_capabilities(), nk_compute_available_capabilities());
-
-    DistHeap heap(DistItemCompare{func});
-    heap.reserve(count);
-    Timer timer("numkong::query");
-
-    if (func == DistFunc::COS) {
-        switch (type) {
-            NK_FOR_EACH_COS_KERNEL(NK_DISPATCH_COS_CASE);
-            default:
-                return Ret("Numkong::find_items: unsupported DataType for COS.");
-        }
-    } else if (func == DistFunc::DOT) {
-        log_query_branch(query_id, "dot");
-        const QueryDotContext query{vec, dim};
-        switch (type) {
-            NK_FOR_EACH_DOT_KERNEL(NK_DISPATCH_DOT_CASE);
-            default:
-                return Ret("Numkong::find_items: unsupported DataType for DOT.");
-        }
-    } else if (func == DistFunc::L2) {
-        switch (type) {
-            NK_FOR_EACH_L2_KERNEL(NK_DISPATCH_L2_CASE);
-            default:
-                return Ret("Numkong::find_items: unsupported DataType for L2.");
-        }
-    } else {
-        return Ret("Numkong::find_items: unsupported DistFunc.");
-    }
-
-    extract_items(&heap, result);
-    log_query_finish(query_id, dataset.name(), func, type, dim, count,
-        ComputeEngine::numkong, timer.elapsed_ms(), *result);
-    return Ret(0);
-}
 
 bool nk_compute_uses_dynamic_dispatch() {
     return nk_capabilities_compiled() != nk_cap_serial_k;
@@ -578,9 +466,6 @@ ComputeKernels resolve_nk_kernels(DistFunc func, DataType type) {
     return k;
 }
 
-#undef NK_DISPATCH_COS_CASE
-#undef NK_DISPATCH_DOT_CASE
-#undef NK_DISPATCH_L2_CASE
 #undef NK_FOR_EACH_DOT_KERNEL
 #undef NK_FOR_EACH_L2_KERNEL
 #undef NK_FOR_EACH_COS_KERNEL
