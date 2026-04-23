@@ -65,15 +65,39 @@ options:
 - `SKETCH_ENABLE_AVX512VNNI`
 
 All three are enabled by default. On AArch64, the build enables
-`-march=armv8.2-a+fp16`.
+`-march=armv8.2-a+fp16+dotprod`. `+dotprod` is in the baseline because every
+server target we ship to (Apple Silicon, Ampere Altra/AmpereOne, Graviton 2/3/4)
+supports SDOT/UDOT, and the integer kernels materially benefit from it.
 
 SVE is intentionally not enabled by default on AArch64 because many `arm64`
 systems, including Apple Silicon, do not support it. If you are building for an
-SVE-capable Linux target such as Ampere/Neoverse and want the extra kernels,
-configure with:
+SVE-capable Linux target such as Graviton 3/3E/4 or AmpereOne and want the
+extra kernels, configure with:
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSKETCH_ENABLE_ARM_SVE=ON
+```
+
+Or from the Makefile:
+
+```bash
+make build-arm-sve
+```
+
+For Neoverse-specific instruction scheduling, set `SKETCH_ARM_MCPU` to the
+target core. Common values are `neoverse-n1` (Graviton2, Ampere Altra),
+`neoverse-v1` (Graviton3/3E), `neoverse-v2` (Graviton4), or `native` when
+building on the deployment host:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DSKETCH_ENABLE_ARM_SVE=ON -DSKETCH_ARM_MCPU=neoverse-v1
+```
+
+The Makefile exposes the same knobs as `ARM_SVE=1` and `ARM_MCPU=<tune>`:
+
+```bash
+make build-arm-sve ARM_MCPU=neoverse-v1
 ```
 
 To build the NumKong engine explicitly from a fresh clone or on another

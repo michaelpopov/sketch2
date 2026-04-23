@@ -45,6 +45,18 @@ endif
 
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
 
+# Optional AArch64 tuning pass-throughs. Left empty by default so portable builds
+# (including Apple Silicon under Parallels) keep working unchanged.
+ARM_SVE ?=
+ARM_MCPU ?=
+SKETCH_EXTRA_FLAGS :=
+ifneq ($(strip $(ARM_SVE)),)
+SKETCH_EXTRA_FLAGS += -DSKETCH_ENABLE_ARM_SVE=ON
+endif
+ifneq ($(strip $(ARM_MCPU)),)
+SKETCH_EXTRA_FLAGS += -DSKETCH_ARM_MCPU=$(ARM_MCPU)
+endif
+
 # --- Targets ---
 
 # Default target (runs when you type 'make')
@@ -63,16 +75,19 @@ help:
 		'  make install ENGINE={hwy,nk}' \
 		'' \
 		'Variables:' \
-		'  TYPE   Build type selector. Default: rel' \
-		'  ENGINE Compute engine selector. Default: hwy' \
+		'  TYPE     Build type selector. Default: rel' \
+		'  ENGINE   Compute engine selector. Default: hwy' \
 		'  CMAKE_GENERATOR CMake generator for repo build dirs. Default: Ninja' \
-		'  JOBS   Parallelism for cmake --build. Default: host CPU count' \
+		'  JOBS     Parallelism for cmake --build. Default: host CPU count' \
+		'  ARM_SVE  Set to 1 on AArch64 to enable SVE kernels (Graviton3+/AmpereOne)' \
+		'  ARM_MCPU Optional -mcpu tuning value (e.g. neoverse-v1, neoverse-n1, native)' \
 		'' \
 		'Main targets:' \
-		'  help       Show this summary' \
-		'  build      Build the selected TYPE/ENGINE runtime' \
-		'  test       Build and run ctest for the selected TYPE/ENGINE' \
-		'  install    Install release headers and runtime for ENGINE into install-{hwy,nk}' \
+		'  help          Show this summary' \
+		'  build         Build the selected TYPE/ENGINE runtime' \
+		'  build-arm-sve Release build with ARM SVE kernels; combine with ARM_MCPU=<tune>' \
+		'  test          Build and run ctest for the selected TYPE/ENGINE' \
+		'  install       Install release headers and runtime for ENGINE into install-{hwy,nk}' \
 		'  pytest     Run Python tests against the highway release runtime' \
 			'  pydemo     Run the Python demo' \
 			'  tut        Run all tutorials against the highway release runtime' \
@@ -88,9 +103,9 @@ help:
 # Compiles the project for the selected TYPE/ENGINE pair.
 # Always re-run configuration so the directory matches the requested build type.
 # Example: make build ENGINE=nk
-.PHONY: build build-nk rel rel-nk
+.PHONY: build build-nk rel rel-nk build-arm-sve
 build:
-	cmake -S . -B $(BUILD_DIR) -G "$(CMAKE_GENERATOR)" -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) $(CMAKE_ENGINE_FLAG)
+	cmake -S . -B $(BUILD_DIR) -G "$(CMAKE_GENERATOR)" -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) $(CMAKE_ENGINE_FLAG) $(SKETCH_EXTRA_FLAGS)
 	@test -d $(BIN_DIR) || mkdir -p $(BIN_DIR)
 	cmake --build $(BUILD_DIR) --parallel $(JOBS)
 	cp $(BUILD_DIR)/lib/libsketch2.so $(BIN_DIR)/libsketch2.so
@@ -103,6 +118,12 @@ rel:
 
 rel-nk:
 	$(MAKE) build TYPE=rel ENGINE=nk
+
+# Release build with SVE kernels enabled for Graviton3/3E/4 and AmpereOne.
+# Pair with ARM_MCPU=<tune> for Neoverse-specific scheduling, e.g.:
+#   make build-arm-sve ARM_MCPU=neoverse-v1
+build-arm-sve:
+	$(MAKE) build TYPE=rel ENGINE=$(ENGINE) ARM_SVE=1 ARM_MCPU=$(ARM_MCPU)
 
 # Runs the test suite for the selected TYPE/ENGINE pair.
 # Example: make test ENGINE=nk
