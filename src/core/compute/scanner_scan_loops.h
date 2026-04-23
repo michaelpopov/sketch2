@@ -141,10 +141,22 @@ inline void scan_data_reader_with_dist_rt(const DataReader& reader, size_t count
         });
 }
 
+// Compile-time kernel variant. Unlike the _rt form, DistFn is referenced by
+// name inside the inner lambda rather than captured as a runtime pointer, so
+// GCC inlines the kernel into the record loop instead of emitting an indirect
+// call per candidate.
 template <ComputeDistFn DistFn>
 inline void scan_data_reader_with_dist(const DataReader& reader, size_t count, DistHeapEx* heap,
         const QueryDistContext& query, const BitsetFilter* bitset = nullptr) {
-    scan_data_reader_with_dist_rt(reader, count, heap, query, DistFn, bitset);
+    assert(heap->comparator().smaller_score_better);
+    const size_t record_stride_bytes = reader.stride();
+    const uint64_t heap_base_id = reader_heap_base_id(reader);
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
+        [heap, count, query, heap_base_id](uint64_t id, const uint8_t* record) {
+            push_result_local(
+                heap, count, normalize_reader_heap_id(id, heap_base_id),
+                DistFn(record, query.vec, query.dim));
+        });
 }
 
 inline void scan_data_reader_with_dot_rt(const DataReader& reader, size_t count, DistHeapEx* heap,
@@ -163,7 +175,15 @@ inline void scan_data_reader_with_dot_rt(const DataReader& reader, size_t count,
 template <ComputeDotFn DotFn>
 inline void scan_data_reader_with_dot(const DataReader& reader, size_t count, DistHeapEx* heap,
         const QueryDotContext& query, const BitsetFilter* bitset = nullptr) {
-    scan_data_reader_with_dot_rt(reader, count, heap, query, DotFn, bitset);
+    assert(!heap->comparator().smaller_score_better);
+    const size_t record_stride_bytes = reader.stride();
+    const uint64_t heap_base_id = reader_heap_base_id(reader);
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
+        [heap, count, query, heap_base_id](uint64_t id, const uint8_t* record) {
+            push_result_local(
+                heap, count, normalize_reader_heap_id(id, heap_base_id),
+                DotFn(record, query.vec, query.dim));
+        });
 }
 
 inline void scan_data_reader_with_query_norm_rt(const DataReader& reader, size_t count, DistHeapEx* heap,
@@ -184,7 +204,15 @@ inline void scan_data_reader_with_query_norm_rt(const DataReader& reader, size_t
 template <ComputeDistWithQueryNormFn DistFn>
 inline void scan_data_reader_with_query_norm(const DataReader& reader, size_t count, DistHeapEx* heap,
         const QueryCosContext& query, const BitsetFilter* bitset = nullptr) {
-    scan_data_reader_with_query_norm_rt(reader, count, heap, query, DistFn, bitset);
+    assert(heap->comparator().smaller_score_better);
+    const size_t record_stride_bytes = reader.stride();
+    const uint64_t heap_base_id = reader_heap_base_id(reader);
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
+        [heap, count, query, heap_base_id](uint64_t id, const uint8_t* record) {
+            push_result_local(
+                heap, count, normalize_reader_heap_id(id, heap_base_id),
+                DistFn(record, query.vec, query.dim, query.norm_sq));
+        });
 }
 
 inline void scan_data_reader_with_cos_stored_norms_rt(const DataReader& reader, size_t count,
@@ -218,7 +246,27 @@ inline void scan_data_reader_with_cos_stored_norms_rt(const DataReader& reader, 
 template <ComputeDotFn DotFn>
 inline void scan_data_reader_with_cos_stored_norms(const DataReader& reader, size_t count,
         DistHeapEx* heap, const QueryCosContext& query, const BitsetFilter* bitset = nullptr) {
-    scan_data_reader_with_cos_stored_norms_rt(reader, count, heap, query, DotFn, bitset);
+    assert(heap->comparator().smaller_score_better);
+    const size_t record_stride_bytes = reader.stride();
+    const size_t norm_offset_in_record = reader.norm_offset_in_record_unchecked();
+    const uint64_t heap_base_id = reader_heap_base_id(reader);
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
+        [heap, count, query, norm_offset_in_record, heap_base_id](
+                uint64_t id, const uint8_t* record) {
+            float norm = 0.0f;
+            std::memcpy(&norm, record + norm_offset_in_record, sizeof(norm));
+            if (norm == 0.0f) {
+                push_result_local(
+                    heap, count, normalize_reader_heap_id(id, heap_base_id),
+                    query.inv_norm == 0.0 ? 0.0 : 1.0);
+                return;
+            }
+            const double dot = DotFn(record, query.vec, query.dim);
+            push_result_local(
+                heap, count, normalize_reader_heap_id(id, heap_base_id),
+                finalize_cosine_distance_from_inverse_norms(
+                    dot, static_cast<double>(norm), query.inv_norm));
+        });
 }
 
 struct L2StoredNormLowerBoundState {
@@ -321,7 +369,33 @@ inline void scan_data_reader_with_l2_stored_norms_rt(const DataReader& reader, s
 template <ComputeDotFn DotFn>
 inline void scan_data_reader_with_l2_stored_norms(const DataReader& reader, size_t count,
         DistHeapEx* heap, const QueryL2Context& query, const BitsetFilter* bitset = nullptr) {
-    scan_data_reader_with_l2_stored_norms_rt(reader, count, heap, query, DotFn, bitset);
+    assert(heap->comparator().smaller_score_better);
+    const size_t record_stride_bytes = reader.stride();
+    const size_t norm_offset_in_record = reader.norm_offset_in_record_unchecked();
+    const uint64_t heap_base_id = reader_heap_base_id(reader);
+    L2StoredNormLowerBoundState lower_bound_state;
+    lower_bound_state.query_norm = std::sqrt(std::max(0.0, query.norm_sq));
+    scan_data_reader_with_optional_bitset(reader, record_stride_bytes, bitset,
+        [heap, count, query, norm_offset_in_record, heap_base_id,
+                lower_bound_state_ptr = &lower_bound_state](
+                uint64_t id, const uint8_t* record) {
+            float stored_norm_sq_f32 = 0.0f;
+            std::memcpy(&stored_norm_sq_f32, record + norm_offset_in_record, sizeof(stored_norm_sq_f32));
+            const double stored_norm_sq = static_cast<double>(stored_norm_sq_f32);
+
+            if (l2_stored_norm_lower_bound_exceeds_heap(
+                    *heap, count, stored_norm_sq, lower_bound_state_ptr)) {
+                return;
+            }
+
+            const double dot = DotFn(record, query.vec, query.dim);
+            const bool heap_changed = push_result_local_changed(
+                heap, count, normalize_reader_heap_id(id, heap_base_id),
+                finalize_squared_l2_distance_from_squared_norms(
+                    dot, stored_norm_sq, query.norm_sq));
+            update_l2_stored_norm_lower_bound_after_push(
+                *heap, count, heap_changed, lower_bound_state_ptr);
+        });
 }
 
 } // namespace sketch2

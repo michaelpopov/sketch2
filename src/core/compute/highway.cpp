@@ -397,6 +397,76 @@ double DistCosWithQueryNormI16(const uint8_t* a, const uint8_t* b, size_t dim, d
     return finalize_cosine_distance(dot, norm_a, query_norm_sq);
 }
 
+// Per-reader scanners. Each compiles once per Highway target and threads the
+// kernel through the existing scan-loop templates as a compile-time parameter,
+// so the kernel inlines into the record loop. Runtime target dispatch then
+// happens once per reader instead of once per candidate.
+
+void ScanDotF32(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryDotContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_dot<DotF32>(reader, count, heap, query, bitset);
+}
+void ScanDotF16(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryDotContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_dot<DotF16>(reader, count, heap, query, bitset);
+}
+void ScanDotI16(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryDotContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_dot<DotI16>(reader, count, heap, query, bitset);
+}
+
+void ScanL2F32Stored(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryL2Context& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_l2_stored_norms<DotF32>(reader, count, heap, query, bitset);
+}
+void ScanL2F16Stored(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryL2Context& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_l2_stored_norms<DotF16>(reader, count, heap, query, bitset);
+}
+void ScanL2I16Stored(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryL2Context& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_l2_stored_norms<DotI16>(reader, count, heap, query, bitset);
+}
+
+void ScanL2F32Fallback(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryDistContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_dist<DistL2F32>(reader, count, heap, query, bitset);
+}
+void ScanL2F16Fallback(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryDistContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_dist<DistL2F16>(reader, count, heap, query, bitset);
+}
+void ScanL2I16Fallback(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryDistContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_dist<DistL2I16>(reader, count, heap, query, bitset);
+}
+
+void ScanCosF32Stored(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryCosContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_cos_stored_norms<DotF32>(reader, count, heap, query, bitset);
+}
+void ScanCosF16Stored(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryCosContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_cos_stored_norms<DotF16>(reader, count, heap, query, bitset);
+}
+void ScanCosI16Stored(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryCosContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_cos_stored_norms<DotI16>(reader, count, heap, query, bitset);
+}
+
+void ScanCosF32QueryNorm(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryCosContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_query_norm<DistCosWithQueryNormF32>(reader, count, heap, query, bitset);
+}
+void ScanCosF16QueryNorm(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryCosContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_query_norm<DistCosWithQueryNormF16>(reader, count, heap, query, bitset);
+}
+void ScanCosI16QueryNorm(const DataReader& reader, size_t count, DistHeapEx* heap,
+        const QueryCosContext& query, const BitsetFilter* bitset) {
+    scan_data_reader_with_query_norm<DistCosWithQueryNormI16>(reader, count, heap, query, bitset);
+}
+
 }  // namespace HWY_NAMESPACE
 }  // namespace sketch2
 HWY_AFTER_NAMESPACE();
@@ -423,6 +493,43 @@ HWY_EXPORT(DistCosWithQueryNormF32);
 HWY_EXPORT(DistCosWithQueryNormF16);
 HWY_EXPORT(DistCosWithQueryNormI16);
 
+HWY_EXPORT(ScanDotF32);
+HWY_EXPORT(ScanDotF16);
+HWY_EXPORT(ScanDotI16);
+HWY_EXPORT(ScanL2F32Stored);
+HWY_EXPORT(ScanL2F16Stored);
+HWY_EXPORT(ScanL2I16Stored);
+HWY_EXPORT(ScanL2F32Fallback);
+HWY_EXPORT(ScanL2F16Fallback);
+HWY_EXPORT(ScanL2I16Fallback);
+HWY_EXPORT(ScanCosF32Stored);
+HWY_EXPORT(ScanCosF16Stored);
+HWY_EXPORT(ScanCosI16Stored);
+HWY_EXPORT(ScanCosF32QueryNorm);
+HWY_EXPORT(ScanCosF16QueryNorm);
+HWY_EXPORT(ScanCosI16QueryNorm);
+
+using ScanDotFn = void (*)(const DataReader&, size_t, DistHeapEx*,
+    const QueryDotContext&, const BitsetFilter*);
+using ScanL2StoredFn = void (*)(const DataReader&, size_t, DistHeapEx*,
+    const QueryL2Context&, const BitsetFilter*);
+using ScanDistFn = void (*)(const DataReader&, size_t, DistHeapEx*,
+    const QueryDistContext&, const BitsetFilter*);
+using ScanCosFn = void (*)(const DataReader&, size_t, DistHeapEx*,
+    const QueryCosContext&, const BitsetFilter*);
+
+struct HighwayDotScan {
+    ScanDotFn scan = nullptr;
+};
+struct HighwayL2Scan {
+    ScanL2StoredFn stored = nullptr;
+    ScanDistFn fallback = nullptr;
+};
+struct HighwayCosScan {
+    ScanCosFn stored = nullptr;
+    ScanCosFn fallback = nullptr;
+};
+
 struct HighwayKernelCache {
     ComputeKernels dot_f32;
     ComputeKernels dot_f16;
@@ -433,6 +540,16 @@ struct HighwayKernelCache {
     ComputeKernels cos_f32;
     ComputeKernels cos_f16;
     ComputeKernels cos_i16;
+
+    HighwayDotScan scan_dot_f32;
+    HighwayDotScan scan_dot_f16;
+    HighwayDotScan scan_dot_i16;
+    HighwayL2Scan scan_l2_f32;
+    HighwayL2Scan scan_l2_f16;
+    HighwayL2Scan scan_l2_i16;
+    HighwayCosScan scan_cos_f32;
+    HighwayCosScan scan_cos_f16;
+    HighwayCosScan scan_cos_i16;
 };
 
 void warm_hwy_kernel_cache(HighwayKernelCache* cache) {
@@ -490,6 +607,24 @@ void warm_hwy_kernel_cache(HighwayKernelCache* cache) {
     set_cos_kernels(&cache->cos_f32, cos_f32, cos_qn_f32, sq_f32, dot_f32);
     set_cos_kernels(&cache->cos_f16, cos_f16, cos_qn_f16, sq_f16, dot_f16);
     set_cos_kernels(&cache->cos_i16, cos_i16, cos_qn_i16, sq_i16, dot_i16);
+
+    cache->scan_dot_f32.scan = HWY_DYNAMIC_POINTER(ScanDotF32);
+    cache->scan_dot_f16.scan = HWY_DYNAMIC_POINTER(ScanDotF16);
+    cache->scan_dot_i16.scan = HWY_DYNAMIC_POINTER(ScanDotI16);
+
+    cache->scan_l2_f32.stored = HWY_DYNAMIC_POINTER(ScanL2F32Stored);
+    cache->scan_l2_f16.stored = HWY_DYNAMIC_POINTER(ScanL2F16Stored);
+    cache->scan_l2_i16.stored = HWY_DYNAMIC_POINTER(ScanL2I16Stored);
+    cache->scan_l2_f32.fallback = HWY_DYNAMIC_POINTER(ScanL2F32Fallback);
+    cache->scan_l2_f16.fallback = HWY_DYNAMIC_POINTER(ScanL2F16Fallback);
+    cache->scan_l2_i16.fallback = HWY_DYNAMIC_POINTER(ScanL2I16Fallback);
+
+    cache->scan_cos_f32.stored = HWY_DYNAMIC_POINTER(ScanCosF32Stored);
+    cache->scan_cos_f16.stored = HWY_DYNAMIC_POINTER(ScanCosF16Stored);
+    cache->scan_cos_i16.stored = HWY_DYNAMIC_POINTER(ScanCosI16Stored);
+    cache->scan_cos_f32.fallback = HWY_DYNAMIC_POINTER(ScanCosF32QueryNorm);
+    cache->scan_cos_f16.fallback = HWY_DYNAMIC_POINTER(ScanCosF16QueryNorm);
+    cache->scan_cos_i16.fallback = HWY_DYNAMIC_POINTER(ScanCosI16QueryNorm);
 }
 
 const HighwayKernelCache& hwy_kernel_cache() {
@@ -529,6 +664,36 @@ const ComputeKernels& cached_hwy_kernels(DistFunc func, DataType type) {
     throw std::runtime_error("cached_hwy_kernels: unsupported DistFunc/DataType.");
 }
 
+const HighwayDotScan& cached_hwy_dot_scan(DataType type) {
+    const HighwayKernelCache& cache = hwy_kernel_cache();
+    switch (type) {
+        case DataType::f32: return cache.scan_dot_f32;
+        case DataType::f16: return cache.scan_dot_f16;
+        case DataType::i16: return cache.scan_dot_i16;
+    }
+    throw std::runtime_error("cached_hwy_dot_scan: unsupported DataType.");
+}
+
+const HighwayL2Scan& cached_hwy_l2_scan(DataType type) {
+    const HighwayKernelCache& cache = hwy_kernel_cache();
+    switch (type) {
+        case DataType::f32: return cache.scan_l2_f32;
+        case DataType::f16: return cache.scan_l2_f16;
+        case DataType::i16: return cache.scan_l2_i16;
+    }
+    throw std::runtime_error("cached_hwy_l2_scan: unsupported DataType.");
+}
+
+const HighwayCosScan& cached_hwy_cos_scan(DataType type) {
+    const HighwayKernelCache& cache = hwy_kernel_cache();
+    switch (type) {
+        case DataType::f32: return cache.scan_cos_f32;
+        case DataType::f16: return cache.scan_cos_f16;
+        case DataType::i16: return cache.scan_cos_i16;
+    }
+    throw std::runtime_error("cached_hwy_cos_scan: unsupported DataType.");
+}
+
 Ret validate_hwy_kernel_support(const ComputeKernels& kernels, DistFunc func, DataType type) {
     if (kernels.dist == nullptr) {
         return Ret(std::string("Highway::find_items: missing dist kernel for ")
@@ -542,6 +707,30 @@ Ret validate_hwy_kernel_support(const ComputeKernels& kernels, DistFunc func, Da
     if (func == DistFunc::COS && kernels.dist_with_query_norm == nullptr) {
         return Ret(std::string("Highway::find_items: missing query-norm kernel for ")
             + dist_func_to_string(func) + "/" + data_type_to_string(type) + ".");
+    }
+    return Ret(0);
+}
+
+Ret validate_hwy_scan_support(const HighwayDotScan& scan, DataType type) {
+    if (scan.scan == nullptr) {
+        return Ret(std::string("Highway::find_items: missing dot scanner for ")
+            + data_type_to_string(type) + ".");
+    }
+    return Ret(0);
+}
+
+Ret validate_hwy_scan_support(const HighwayL2Scan& scan, DataType type) {
+    if (scan.stored == nullptr || scan.fallback == nullptr) {
+        return Ret(std::string("Highway::find_items: missing l2 scanner for ")
+            + data_type_to_string(type) + ".");
+    }
+    return Ret(0);
+}
+
+Ret validate_hwy_scan_support(const HighwayCosScan& scan, DataType type) {
+    if (scan.stored == nullptr || scan.fallback == nullptr) {
+        return Ret(std::string("Highway::find_items: missing cos scanner for ")
+            + data_type_to_string(type) + ".");
     }
     return Ret(0);
 }
@@ -574,28 +763,75 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
     heap.reserve(count);
     Timer timer("highway::query");
 
-    if (func == DistFunc::COS) {
-        const double query_norm_sq = kernels.squared_norm(vec, dim);
-        log_query_branch(query_id, "cos_with_optional_norms",
-            query_norm_sq, query_norm_sq == 0.0);
-        const QueryCosContext query{
-            vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)};
-        CHECK(scan_dataset_heap_with_optional_cosine_norms_rt(
-            query_id, dataset, count, &heap, query, func,
-            kernels.dot, kernels.dist_with_query_norm, bitset));
-    } else if (func == DistFunc::DOT) {
+    std::vector<DataReaderPtr> readers;
+    CHECK(collect_dataset_readers(dataset, query_id, &readers));
+
+    if (func == DistFunc::DOT) {
         log_query_branch(query_id, "dot");
         const QueryDotContext query{vec, dim};
-        CHECK(scan_dataset_heap_with_dot_rt(
-            query_id, dataset, count, &heap, query, func, kernels.dot, bitset));
+        const HighwayDotScan& dot_scan = cached_hwy_dot_scan(type);
+        CHECK(validate_hwy_scan_support(dot_scan, type));
+        const ScanDotFn scan_fn = dot_scan.scan;
+        CHECK(scan_dataset_readers(
+            query_id, readers, count, &heap,
+            [query_id, query, scan_fn](const DataReader& reader, size_t local_count,
+                    DistHeapEx* local_heap, const BitsetFilter* bitset_filter) {
+                log_reader_scan_plan(query_id, reader, "dot", false, bitset_filter != nullptr);
+                scan_fn(reader, local_count, local_heap, query, bitset_filter);
+            },
+            func, bitset));
     } else if (func == DistFunc::L2) {
         const double query_norm_sq = kernels.squared_norm(vec, dim);
         log_query_branch(query_id, "l2_with_optional_norms",
             query_norm_sq, query_norm_sq == 0.0);
         const QueryL2Context query{vec, dim, query_norm_sq};
-        CHECK(scan_dataset_heap_with_optional_l2_norms_rt(
-            query_id, dataset, count, &heap, query, func,
-            kernels.dot, kernels.dist, bitset));
+        const HighwayL2Scan& scan = cached_hwy_l2_scan(type);
+        CHECK(validate_hwy_scan_support(scan, type));
+        const ScanL2StoredFn scan_stored = scan.stored;
+        const ScanDistFn scan_fallback = scan.fallback;
+        CHECK(scan_dataset_readers(
+            query_id, readers, count, &heap,
+            [query_id, query, scan_stored, scan_fallback](const DataReader& reader,
+                    size_t local_count, DistHeapEx* local_heap,
+                    const BitsetFilter* bitset_filter) {
+                const bool uses_stored = reader.has_matching_stored_norms(DistFunc::L2);
+                log_reader_scan_plan(query_id, reader,
+                    uses_stored ? "l2_stored_norms" : "l2_dist_fallback",
+                    uses_stored, bitset_filter != nullptr);
+                if (uses_stored) {
+                    scan_stored(reader, local_count, local_heap, query, bitset_filter);
+                } else {
+                    scan_fallback(reader, local_count, local_heap,
+                        QueryDistContext{query.vec, query.dim}, bitset_filter);
+                }
+            },
+            func, bitset));
+    } else if (func == DistFunc::COS) {
+        const double query_norm_sq = kernels.squared_norm(vec, dim);
+        log_query_branch(query_id, "cos_with_optional_norms",
+            query_norm_sq, query_norm_sq == 0.0);
+        const QueryCosContext query{
+            vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)};
+        const HighwayCosScan& scan = cached_hwy_cos_scan(type);
+        CHECK(validate_hwy_scan_support(scan, type));
+        const ScanCosFn scan_stored = scan.stored;
+        const ScanCosFn scan_fallback = scan.fallback;
+        CHECK(scan_dataset_readers(
+            query_id, readers, count, &heap,
+            [query_id, query, scan_stored, scan_fallback](const DataReader& reader,
+                    size_t local_count, DistHeapEx* local_heap,
+                    const BitsetFilter* bitset_filter) {
+                const bool uses_stored = reader.has_matching_stored_norms(DistFunc::COS);
+                log_reader_scan_plan(query_id, reader,
+                    uses_stored ? "cos_stored_norms" : "cos_query_norm_fallback",
+                    uses_stored, bitset_filter != nullptr);
+                if (uses_stored) {
+                    scan_stored(reader, local_count, local_heap, query, bitset_filter);
+                } else {
+                    scan_fallback(reader, local_count, local_heap, query, bitset_filter);
+                }
+            },
+            func, bitset));
     } else {
         return Ret("Highway::find_items: unsupported DistFunc.");
     }
