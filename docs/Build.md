@@ -64,7 +64,33 @@ options:
 - `SKETCH_ENABLE_AVX512F`
 - `SKETCH_ENABLE_AVX512VNNI`
 
-All three are enabled by default. On AArch64, the build enables
+All three are enabled by default. Highway's runtime dispatch picks the best
+target for the host CPU, so a default build runs anywhere and uses AVX-512 when
+the CPU supports it.
+
+Non-Highway translation units (scanner logic, storage, utilities) use an
+`-msse2` baseline so the resulting binary stays portable across x86_64 CPUs.
+Two optional tuning knobs bump that baseline for a specific deployment host:
+
+- `SKETCH_X86_MARCH` — sets `-march=<value>` (e.g. `native`, `znver4`,
+  `icelake-server`). The resulting binary may not run on older x86_64 CPUs.
+  Highway kernels keep their per-function target attributes and are unaffected.
+- `SKETCH_X86_MTUNE` — sets `-mtune=<value>` for scheduler tuning only; the
+  binary remains portable.
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DSKETCH_X86_MARCH=native
+```
+
+Or from the Makefile:
+
+```bash
+make rel X86_MARCH=native
+make rel X86_MTUNE=znver4
+```
+
+On AArch64, the build enables
 `-march=armv8.2-a+fp16+dotprod`. `+dotprod` is in the baseline because every
 server target we ship to (Apple Silicon, Ampere Altra/AmpereOne, Graviton 2/3/4)
 supports SDOT/UDOT, and the integer kernels materially benefit from it.

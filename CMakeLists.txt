@@ -70,6 +70,17 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(sketch_compile_options INTERFACE -msse2)
   endif()
+
+  set(SKETCH_X86_MARCH "" CACHE STRING
+    "Optional -march value for x86_64 builds (e.g. native, znver4, icelake-server). Empty uses the compiler default. Non-Highway TUs honour this; Highway kernels keep their per-function target attributes.")
+  set(SKETCH_X86_MTUNE "" CACHE STRING
+    "Optional -mtune value for x86_64 builds (e.g. native, znver4, icelake-server). Empty uses the compiler default. Safe to set even when targeting an older -march.")
+  if(NOT SKETCH_X86_MARCH STREQUAL "")
+    target_compile_options(sketch_compile_options INTERFACE -march=${SKETCH_X86_MARCH})
+  endif()
+  if(NOT SKETCH_X86_MTUNE STREQUAL "")
+    target_compile_options(sketch_compile_options INTERFACE -mtune=${SKETCH_X86_MTUNE})
+  endif()
 endif()
 
 # ---------------------------

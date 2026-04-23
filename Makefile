@@ -45,16 +45,25 @@ endif
 
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
 
-# Optional AArch64 tuning pass-throughs. Left empty by default so portable builds
-# (including Apple Silicon under Parallels) keep working unchanged.
+# Optional per-arch tuning pass-throughs. Left empty by default so portable
+# builds (Apple Silicon under Parallels, generic x86_64 servers) keep working
+# unchanged.
 ARM_SVE ?=
 ARM_MCPU ?=
+X86_MARCH ?=
+X86_MTUNE ?=
 SKETCH_EXTRA_FLAGS :=
 ifneq ($(strip $(ARM_SVE)),)
 SKETCH_EXTRA_FLAGS += -DSKETCH_ENABLE_ARM_SVE=ON
 endif
 ifneq ($(strip $(ARM_MCPU)),)
 SKETCH_EXTRA_FLAGS += -DSKETCH_ARM_MCPU=$(ARM_MCPU)
+endif
+ifneq ($(strip $(X86_MARCH)),)
+SKETCH_EXTRA_FLAGS += -DSKETCH_X86_MARCH=$(X86_MARCH)
+endif
+ifneq ($(strip $(X86_MTUNE)),)
+SKETCH_EXTRA_FLAGS += -DSKETCH_X86_MTUNE=$(X86_MTUNE)
 endif
 
 # --- Targets ---
@@ -79,8 +88,10 @@ help:
 		'  ENGINE   Compute engine selector. Default: hwy' \
 		'  CMAKE_GENERATOR CMake generator for repo build dirs. Default: Ninja' \
 		'  JOBS     Parallelism for cmake --build. Default: host CPU count' \
-		'  ARM_SVE  Set to 1 on AArch64 to enable SVE kernels (Graviton3+/AmpereOne)' \
-		'  ARM_MCPU Optional -mcpu tuning value (e.g. neoverse-v1, neoverse-n1, native)' \
+		'  ARM_SVE   Set to 1 on AArch64 to enable SVE kernels (Graviton3+/AmpereOne)' \
+		'  ARM_MCPU  Optional -mcpu tuning value (e.g. neoverse-v1, neoverse-n1, native)' \
+		'  X86_MARCH Optional -march value on x86_64 (e.g. native, znver4, icelake-server)' \
+		'  X86_MTUNE Optional -mtune value on x86_64 (scheduler tuning only; portable binary)' \
 		'' \
 		'Main targets:' \
 		'  help          Show this summary' \
