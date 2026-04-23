@@ -1,4 +1,4 @@
-// Direct kernel benchmark for the compiled compute engine.
+// Direct kernel benchmark for the compiled Highway backend.
 
 #include "core/compute/compute_engine.h"
 #include "core/compute/cosine_distance.h"

@@ -1,4 +1,4 @@
-// Defines runtime compute engine selection helpers.
+// Defines runtime helpers for the compiled Highway backend.
 
 #include "compute_unit.h"
 
@@ -20,7 +20,7 @@ ComputeBackendKind detect_best_backend() {
 ComputeUnit ComputeUnit::detect_best() {
     const ComputeBackendKind detected = detect_best_backend();
     LOG_INFO << "Compute backend set to '" << ComputeUnit(detected).name()
-             << "' because it is the default compute engine.";
+             << "' because this build always uses the Highway backend.";
     return ComputeUnit(detected);
 }
 

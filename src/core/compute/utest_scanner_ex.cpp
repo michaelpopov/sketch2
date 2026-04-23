@@ -303,7 +303,6 @@ TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithHighway) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
@@ -316,7 +315,6 @@ TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithHighway) {
     EXPECT_EQ(3u, result[1]);
     EXPECT_EQ(2u, result[2]);
 }
-#endif
 
 TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {
     const size_t total = 3;
@@ -379,7 +377,6 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithHighway) {
     generate(5, 0, DataType::f32, 4);
     auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
@@ -392,7 +389,6 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithHighway) {
     EXPECT_EQ(4u, result[1]);
     EXPECT_EQ(2u, result[2]);
 }
-#endif
 
 // ---------------------------------------------------------------------------
 // Cosine metric
@@ -416,7 +412,6 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrder) {
     EXPECT_EQ(30u, result[2]);
 }
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithHighway) {
     write_input_raw(
         input_path_,
@@ -434,7 +429,6 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithHighway) {
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
 }
-#endif
 
 TEST_F(ScannerTest, FindF32CosStoredCosineValuesHandleZeroVectors) {
     write_input_raw(
@@ -483,7 +477,6 @@ TEST_F(ScannerTest, FindF32CosStoredPathsMatchRanking) {
 // Other data types
 // ---------------------------------------------------------------------------
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindI16AllSortedByDistance) {
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
@@ -496,7 +489,6 @@ TEST_F(ScannerTest, FindI16AllSortedByDistance) {
     EXPECT_EQ(1u, result[1]);
     EXPECT_EQ(2u, result[2]);
 }
-#endif
 
 TEST_F(ScannerTest, FindF16Works) {
     generate(3, 0, DataType::f16, 4);
@@ -509,7 +501,6 @@ TEST_F(ScannerTest, FindF16Works) {
     EXPECT_EQ(2u, result[0]);
 }
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF16WorksWithHighway) {
     generate(3, 0, DataType::f16, 4);
     auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::DOT, {input_path_});
@@ -520,9 +511,7 @@ TEST_F(ScannerTest, FindF16WorksWithHighway) {
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(2u, result[0]);
 }
-#endif
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF16CosWorksWithHighway) {
     write_input_raw(
         input_path_,
@@ -541,7 +530,6 @@ TEST_F(ScannerTest, FindF16CosWorksWithHighway) {
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
 }
-#endif
 
 // ---------------------------------------------------------------------------
 // Delta tests

@@ -370,7 +370,6 @@ TEST_F(VliteTest, UsesDatasetScoreFunctionForL2Queries) {
     EXPECT_NEAR(9.0, rows[1].second, 1e-9);
 }
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(VliteTest, SupportsI16Datasets) {
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
@@ -391,7 +390,6 @@ TEST_F(VliteTest, SupportsI16Datasets) {
     EXPECT_NEAR(440.0, rows[0].second, 1e-9);
     EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
-#endif
 
 TEST_F(VliteTest, SupportsF16Datasets) {
     write_input("f16,4\n"
@@ -694,7 +692,6 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF32L2Dataset) {
     EXPECT_NEAR(9.0, rows[1].second, 1e-9);
 }
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
@@ -715,7 +712,6 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
     EXPECT_NEAR(440.0, rows[0].second, 1e-9);
     EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
-#endif
 
 TEST_F(VliteTest, SpaceDelimitedQueryWorksForF16Dataset) {
     write_input("f16,4\n"
@@ -804,7 +800,6 @@ TEST_F(VliteTest, AtPrefixLoadsVectorFromSpaceDelimitedFile) {
     EXPECT_NEAR(9.0, rows[1].second, 1e-9);
 }
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
@@ -827,7 +822,6 @@ TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
     EXPECT_NEAR(440.0, rows[0].second, 1e-9);
     EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
-#endif
 
 TEST_F(VliteTest, AtPrefixWorksWithF16Dataset) {
     write_input("f16,4\n"

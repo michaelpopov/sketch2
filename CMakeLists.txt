@@ -22,8 +22,7 @@ target_compile_definitions(sketch_compile_options INTERFACE
   SKETCH_ENABLE_AVX2=$<IF:$<BOOL:${SKETCH_ENABLE_AVX2}>,1,0>
   SKETCH_ENABLE_AVX512F=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512F}>,1,0>
   SKETCH_ENABLE_AVX512VNNI=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512VNNI}>,1,0>
-  SKETCH_ENABLE_ARM_SVE=$<IF:$<BOOL:${SKETCH_ENABLE_ARM_SVE}>,1,0>
-  SKETCH2_COMPUTE_ENGINE_HIGHWAY=1)
+  SKETCH_ENABLE_ARM_SVE=$<IF:$<BOOL:${SKETCH_ENABLE_ARM_SVE}>,1,0>)
 
 if((SKETCH_ENABLE_AVX2 OR SKETCH_ENABLE_AVX512F OR SKETCH_ENABLE_AVX512VNNI)
     AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
@@ -56,7 +55,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   endif()
 
   set(SKETCH_X86_MARCH "" CACHE STRING
-    "Optional -march value for x86_64 builds (e.g. native, znver4, icelake-server). Empty uses the compiler default. Non-Highway TUs honour this; Highway kernels keep their per-function target attributes.")
+    "Optional -march value for x86_64 builds (e.g. native, znver4, icelake-server). Empty uses the compiler default. General translation units honour this; Highway kernels keep their per-function target attributes.")
   set(SKETCH_X86_MTUNE "" CACHE STRING
     "Optional -mtune value for x86_64 builds (e.g. native, znver4, icelake-server). Empty uses the compiler default. Safe to set even when targeting an older -march.")
   if(NOT SKETCH_X86_MARCH STREQUAL "")
