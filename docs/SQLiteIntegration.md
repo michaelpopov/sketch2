@@ -35,7 +35,7 @@ USING vlite('/absolute/path/to/dataset.ini');
 ```
 
 That virtual table keeps the dataset binding and routes KNN requests through
-the Sketch2 storage and compute layers.
+the Sketch2 storage and native compute layers.
 
 ## Runtime Artifact
 
@@ -43,15 +43,13 @@ The extension entry points are exported from `libsketch2.so`.
 
 Typical library locations:
 
-- highway release: `bin-hwy/libsketch2.so`
-- highway debug: `bin-dbg-hwy/libsketch2.so`
-- numkong release: `bin-nk/libsketch2.so`
-- numkong debug: `bin-dbg-nk/libsketch2.so`
+- release: `bin/libsketch2.so`
+- debug: `bin-dbg/libsketch2.so`
 
 If you use the bundled SQLite shell built by the repository, a typical debug
 shell path is:
 
-- `bin-dbg-hwy/sqlite3`
+- `bin-dbg/sqlite3`
 
 ## Runtime Initialization
 

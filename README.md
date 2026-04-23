@@ -33,7 +33,7 @@ Sketch2 is a great fit for:
 Sketch2 combines:
 
 - a custom persisted storage format for vector data
-- a compute engine for efficient vector calculations using industry-stanadard libraries
+- a native compute layer for efficient vector calculations using hardware-aware kernels
 - integration surfaces for host applications and tools
 
 The current system is centered on brute-force KNN over stored vectors. Support
@@ -56,7 +56,7 @@ The project emphasizes:
 
 - storage and compute designed together
 - predictable read behavior with batched write and merge flows
-- compile-time compute engine selection with hardware specialization inside the selected engine
+- hardware specialization inside the native compute layer
 - integration with existing systems
 
 It currently targets Linux and supports `f32`, `f16`, and `i16` vector data

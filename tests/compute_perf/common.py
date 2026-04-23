@@ -50,7 +50,7 @@ class PerfConfig:
     range_size: int
     log_level: str
     thread_pool_size: int
-    compute_engines: list[str]
+    runtime_label: str
     benchmark_layers: list[str]
     kernel_iterations: int
     kernel_warmup_iterations: int
@@ -233,8 +233,7 @@ def load_config(env: Mapping[str, str] | None = None) -> PerfConfig:
         dist_funcs = metadata.dist_funcs
         range_size = metadata.range_size
 
-    engine_str = _env_required_str_from(env, "COMPUTE_PERF_TEST_ENGINES")
-    compute_engines = [e.strip().lower() for e in engine_str.split(",") if e.strip()]
+    runtime_label = _env_required_str_from(env, "COMPUTE_PERF_RUNTIME_LABEL").strip().lower()
     benchmark_str = _env_required_str_from(env, "COMPUTE_PERF_TEST_BENCHMARKS")
     benchmark_layers = [layer.strip().lower() for layer in benchmark_str.split(",") if layer.strip()]
     kernel_iterations = _env_required_int_from(env, "COMPUTE_PERF_KERNEL_ITERATIONS")
@@ -253,7 +252,7 @@ def load_config(env: Mapping[str, str] | None = None) -> PerfConfig:
         range_size=range_size,
         log_level=log_level,
         thread_pool_size=thread_pool_size,
-        compute_engines=compute_engines,
+        runtime_label=runtime_label,
         benchmark_layers=benchmark_layers,
         kernel_iterations=kernel_iterations,
         kernel_warmup_iterations=kernel_warmup_iterations,

@@ -21,12 +21,12 @@ def log_dir(config) -> Path:
     return config.db_dir / "logs"
 
 
-def runner_log_path(config, engine: str) -> Path:
-    return log_dir(config) / f"runner_{engine}.log"
+def runner_log_path(config) -> Path:
+    return log_dir(config) / f"runner_{config.runtime_label}.log"
 
 
-def runner_dist_log_path(config, engine: str, dist: str) -> Path:
-    return log_dir(config) / f"runner_{engine}_{dist}.log"
+def runner_dist_log_path(config, dist: str) -> Path:
+    return log_dir(config) / f"runner_{config.runtime_label}_{dist}.log"
 
 
 def parse_runner_log(path: Path) -> dict[str, float]:
@@ -121,63 +121,56 @@ def build_table(headers: list[str], rows: list[list[str]]) -> str:
 def main() -> None:
     config = load_config()
 
-    headers = ["engine"] + config.dist_funcs
-    rows: list[list[str]] = []
-
-    for engine in config.compute_engines:
-        row = [engine]
-        for dist in config.dist_funcs:
-            dist_path = runner_dist_log_path(config, engine, dist)
-            if dist_path.exists():
-                metrics = parse_runner_log(dist_path)
-                row.append(format_cell(metrics.get(dist)))
-                continue
-
-            path = runner_log_path(config, engine)
-            metrics = parse_runner_log(path) if path.exists() else {}
+    headers = ["runtime"] + config.dist_funcs
+    row = [config.runtime_label]
+    for dist in config.dist_funcs:
+        dist_path = runner_dist_log_path(config, dist)
+        if dist_path.exists():
+            metrics = parse_runner_log(dist_path)
             row.append(format_cell(metrics.get(dist)))
-        rows.append(row)
+            continue
+
+        path = runner_log_path(config)
+        metrics = parse_runner_log(path) if path.exists() else {}
+        row.append(format_cell(metrics.get(dist)))
+    rows: list[list[str]] = [row]
 
     print("--- PERFORMANCE SUMMARY (avg time) ---")
     print(build_table(headers, rows))
     print("--------------------------------------")
 
-    kernel_rows: list[list[str]] = []
-    for engine in config.compute_engines:
-        row = [engine]
-        for dist in config.dist_funcs:
-            dist_path = runner_dist_log_path(config, engine, dist)
-            if dist_path.exists():
-                metrics = parse_kernel_log(dist_path)
-                row.append("-" if metrics.get(dist) is None else f"{metrics[dist]:.3f}ns")
-                continue
+    kernel_row = [config.runtime_label]
+    for dist in config.dist_funcs:
+        dist_path = runner_dist_log_path(config, dist)
+        if dist_path.exists():
+            metrics = parse_kernel_log(dist_path)
+            kernel_row.append("-" if metrics.get(dist) is None else f"{metrics[dist]:.3f}ns")
+            continue
 
-            path = runner_log_path(config, engine)
-            metrics = parse_kernel_log(path) if path.exists() else {}
-            value = metrics.get(dist)
-            row.append("-" if value is None else f"{value:.3f}ns")
-        kernel_rows.append(row)
+        path = runner_log_path(config)
+        metrics = parse_kernel_log(path) if path.exists() else {}
+        value = metrics.get(dist)
+        kernel_row.append("-" if value is None else f"{value:.3f}ns")
+    kernel_rows: list[list[str]] = [kernel_row]
 
     print("--- KERNEL SUMMARY (metric avg ns/call) ---")
     print(build_table(headers, kernel_rows))
     print("-----------------------------------------")
 
-    size_rows: list[list[str]] = []
-    for engine in config.compute_engines:
-        row = [engine]
-        for dist in config.dist_funcs:
-            dist_path = runner_dist_log_path(config, engine, dist)
-            if dist_path.exists():
-                metrics = parse_dataset_size_log(dist_path)
-                size_gb = metrics.get(dist)
-                row.append(format_size_cell(size_gb))
-                continue
-
-            path = runner_log_path(config, engine)
-            metrics = parse_dataset_size_log(path) if path.exists() else {}
+    size_row = [config.runtime_label]
+    for dist in config.dist_funcs:
+        dist_path = runner_dist_log_path(config, dist)
+        if dist_path.exists():
+            metrics = parse_dataset_size_log(dist_path)
             size_gb = metrics.get(dist)
-            row.append(format_size_cell(size_gb))
-        size_rows.append(row)
+            size_row.append(format_size_cell(size_gb))
+            continue
+
+        path = runner_log_path(config)
+        metrics = parse_dataset_size_log(path) if path.exists() else {}
+        size_gb = metrics.get(dist)
+        size_row.append(format_size_cell(size_gb))
+    size_rows: list[list[str]] = [size_row]
 
     print("--- DATASET SIZE SUMMARY (GB) ---")
     print(build_table(headers, size_rows))

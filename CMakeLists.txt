@@ -10,21 +10,6 @@ project(sketch2 LANGUAGES C CXX)
 # Shared GoogleTest runner used by all unit test binaries.
 set(SHARED_UTEST_MAIN "${CMAKE_SOURCE_DIR}/src/core/utils/utest_main.cpp")
 
-set(_SKETCH2_COMPUTE_ENGINE_DEFAULT "highway")
-if(DEFINED ENV{SKETCH2_COMPUTE_ENGINE} AND NOT "$ENV{SKETCH2_COMPUTE_ENGINE}" STREQUAL "")
-  string(TOLOWER "$ENV{SKETCH2_COMPUTE_ENGINE}" _SKETCH2_COMPUTE_ENGINE_DEFAULT)
-endif()
-set(SKETCH2_COMPUTE_ENGINE "${_SKETCH2_COMPUTE_ENGINE_DEFAULT}" CACHE STRING
-  "Compute engine compiled into sketch2 (highway or numkong)")
-set_property(CACHE SKETCH2_COMPUTE_ENGINE PROPERTY STRINGS highway numkong)
-string(TOLOWER "${SKETCH2_COMPUTE_ENGINE}" SKETCH2_COMPUTE_ENGINE)
-if(NOT SKETCH2_COMPUTE_ENGINE STREQUAL "highway" AND NOT SKETCH2_COMPUTE_ENGINE STREQUAL "numkong")
-  message(FATAL_ERROR
-    "SKETCH2_COMPUTE_ENGINE must be either 'highway' or 'numkong' "
-    "(or set environment variable SKETCH2_COMPUTE_ENGINE before configuring).")
-endif()
-message(STATUS "sketch2 compute engine: ${SKETCH2_COMPUTE_ENGINE}")
-
 #----------------------------
 # Support for f16
 #----------------------------
@@ -38,8 +23,8 @@ target_compile_definitions(sketch_compile_options INTERFACE
   SKETCH_ENABLE_AVX512F=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512F}>,1,0>
   SKETCH_ENABLE_AVX512VNNI=$<IF:$<BOOL:${SKETCH_ENABLE_AVX512VNNI}>,1,0>
   SKETCH_ENABLE_ARM_SVE=$<IF:$<BOOL:${SKETCH_ENABLE_ARM_SVE}>,1,0>
-  SKETCH2_COMPUTE_ENGINE_HIGHWAY=$<IF:$<STREQUAL:${SKETCH2_COMPUTE_ENGINE},highway>,1,0>
-  SKETCH2_COMPUTE_ENGINE_NUMKONG=$<IF:$<STREQUAL:${SKETCH2_COMPUTE_ENGINE},numkong>,1,0>)
+  SKETCH2_COMPUTE_ENGINE_HIGHWAY=1
+  SKETCH2_COMPUTE_ENGINE_NUMKONG=0)
 
 if((SKETCH_ENABLE_AVX2 OR SKETCH_ENABLE_AVX512F OR SKETCH_ENABLE_AVX512VNNI)
     AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
@@ -115,13 +100,6 @@ if (_bt_lower STREQUAL "debug")
 else()
   set(_RUNTIME_OUT_DIR "${CMAKE_SOURCE_DIR}/bin")
 endif()
-
-if(SKETCH2_COMPUTE_ENGINE STREQUAL "numkong")
-  set(_runtime_engine_suffix "nk")
-else()
-  set(_runtime_engine_suffix "hwy")
-endif()
-string(APPEND _RUNTIME_OUT_DIR "-${_runtime_engine_suffix}")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_RUNTIME_OUT_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")

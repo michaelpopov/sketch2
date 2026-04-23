@@ -42,10 +42,8 @@ separate implementation.
 If `lib_path` is not passed explicitly, the wrapper searches the standard build
 locations in this order:
 
-1. `bin-dbg-hwy/libsketch2.so`
-2. `bin-hwy/libsketch2.so`
-3. `bin-dbg-nk/libsketch2.so`
-4. `bin-nk/libsketch2.so`
+1. `bin-dbg/libsketch2.so`
+2. `bin/libsketch2.so`
 
 If no file is found, wrapper construction fails with `FileNotFoundError`.
 

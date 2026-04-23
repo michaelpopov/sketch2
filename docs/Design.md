@@ -15,7 +15,7 @@ That gives the project room to optimize for:
 - compact persisted vector storage
 - predictable scans over stored vectors
 - efficient batched ingestion and merge flows
-- build-selected compute backends with hardware-specialized kernels
+- a build-selected compute path with hardware-specialized kernels
 - integration points for other systems instead of a full database surface
 
 This boundary is visible across the repository:
@@ -35,8 +35,8 @@ should be shaped around the actual hardware:
   packed into generic database pages
 - data is laid out to keep scans sequential and cheap
 - alignment is preserved so SIMD kernels can process vectors efficiently
-- the build selects one top-level compute engine, and that engine keeps
-  hardware-specific specialization close to the kernels that use it
+- the build keeps hardware-specific specialization close to the kernels that
+  use it
 
 The design goal is to reduce unnecessary translation layers between persisted
 bytes, CPU caches, and the hot score-calculation loop.
@@ -209,8 +209,7 @@ After that, the search runs on one specialized path.
 The current compute layer is organized around:
 
 - `Scanner` as the facade used by higher-level callers
-- backend-specific scanner and kernel implementations in `highway.cpp` and
-  `numkong.cpp`
+- scanner and kernel implementations specialized around the native compute path
 - shared scan helpers split by responsibility, such as
   `scanner_dataset_scan.h`, `scanner_scan_loops.h`, and `scanner_heap_utils.h`
 - small shared data structures such as `DistItem` and the query-context helper
@@ -228,30 +227,18 @@ Supported vector element types today:
 - `f16`
 - `i16`
 
-## Compute Engine Selection
+## Compute Path Selection
 
-Sketch2 now selects one top-level compute engine at configure time through
-`SKETCH2_COMPUTE_ENGINE`.
+The build, tests, and benchmark binaries all assume one native compute path per
+configured build, not a runtime-switchable mix of top-level implementations.
 
-Current engines are:
+Within that path, hardware specialization still happens close to the kernels:
 
-- `highway`
-- `numkong`
-
-That choice is reflected in the build tree, tests, and benchmark binaries: a
-given build contains one compute engine, not a runtime-switchable mix of
-top-level engines.
-
-Within the selected engine, hardware specialization still happens close to the
-kernels:
-
-- Highway builds use Google Highway multi-target compilation so one Highway
-  binary can resolve the active ISA at runtime.
-- NumKong builds resolve capability-specific kernels inside the NumKong backend,
-  for example per-thread capability dispatch on supported CPUs.
+- the build can include ISA-specialized kernels
+- runtime dispatch can still resolve the active ISA on the host CPU
 
 This keeps the top-level architecture explicit without giving up CPU-specific
-specialization inside the chosen engine.
+specialization inside the native runtime.
 
 ## Integration Strategy
 
@@ -298,7 +285,7 @@ become a relational database.
 Sketch2 is Linux-only today. That is a deliberate scope decision rather than an
 oversight. Supporting multiple operating systems would dilute effort in the
 parts of the system that matter most right now: file layout, mmap-based access,
-compute-engine architecture, and correctness of the core data path.
+compute architecture, and correctness of the core data path.
 
 At the same time, CPU portability matters. The project is intended to run well
 on multiple CPU families because vector workloads benefit directly from

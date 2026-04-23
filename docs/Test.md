@@ -38,22 +38,14 @@ Run the Python test suite:
 make pytest
 ```
 
-Run the highway validation flow:
+Run the default validation flow:
 
 ```bash
-make hwy
+make validate
 ```
 
-`make hwy` combines the default highway C++ suite with the Python tests and
+`make validate` combines the default C++ suite with the Python tests and
 tutorial scripts.
-
-Run the NumKong validation flow:
-
-```bash
-make nk
-```
-
-`make nk` runs the default NumKong C++ suite.
 
 ## Testing Model
 
@@ -91,7 +83,7 @@ These binaries cover:
   and the update notifier
 - storage components such as input generation, input parsing, data file
   layout, readers, writers, and dataset logic
-- compute kernels, engine-specific scanner logic, and build-selected engine behavior
+- compute kernels, scanner logic, and build-selected runtime behavior
 - the `sketch2api` C API, including compute-oriented API coverage
 - the SQLite integration layer
 
@@ -183,7 +175,7 @@ At a high level, the suite checks these properties:
 - mutable state in pending updates behaves correctly
 - merges preserve logical dataset contents
 - compute kernels and scanner logic return correct nearest neighbors
-- compiled compute engine behavior stays correct across supported builds
+- compiled runtime behavior stays correct across supported builds
 - public APIs behave correctly through `Sketch2api`, Python, and SQLite
 - reader/writer coordination and update notification work across processes
 
