@@ -201,10 +201,6 @@ def bytes_to_gb(size_bytes: int) -> float:
     return size_bytes / 1_000_000_000.0
 
 
-def scan_benchmarks_supported(config) -> bool:
-    return config.runtime_label != "numkong"
-
-
 def run_single_distance(dist: str) -> None:
     config = load_config()
     os.environ["SKETCH2_CONFIG"] = str(config.db_dir / "config.ini")
@@ -235,16 +231,6 @@ def run_single_distance(dist: str) -> None:
         try:
             if "scan" not in config.benchmark_layers:
                 update_diag(diag_path, diag_state, status="ok", stage="completed")
-                return
-            if not scan_benchmarks_supported(config):
-                log("runner", f"skipping scan benchmark for {dist}: NumKong is kernel-only")
-                update_diag(
-                    diag_path,
-                    diag_state,
-                    status="ok",
-                    stage="scan_not_supported",
-                    scan_supported=False,
-                )
                 return
             update_diag(diag_path, diag_state, stage="opening_dataset")
             sketch2.open(dataset_name)

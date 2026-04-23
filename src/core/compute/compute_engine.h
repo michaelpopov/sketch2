@@ -10,17 +10,10 @@ namespace sketch2 {
 
 enum class ComputeEngine : uint8_t {
     highway,
-    numkong,
 };
 
 constexpr ComputeEngine compiled_compute_engine() {
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
     return ComputeEngine::highway;
-#elif SKETCH2_COMPUTE_ENGINE_NUMKONG
-    return ComputeEngine::numkong;
-#else
-#error "Exactly one compute engine must be compiled."
-#endif
 }
 
 const char* compute_engine_name(ComputeEngine engine);
@@ -52,8 +45,7 @@ ComputeKernels resolve_compute_kernels(DistFunc func, DataType type);
 
 // Performs one-time compute-engine runtime warm-up for the compiled backend.
 // Highway uses this to resolve and cache its final dispatched function pointers
-// before scan hot loops begin. Backends without process-wide kernel warm-up can
-// treat this as a no-op.
+// before scan hot loops begin.
 void initialize_compute_engine_runtime();
 
 } // namespace sketch2

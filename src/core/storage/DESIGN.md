@@ -197,7 +197,6 @@ to the configured compute engine and then runs one specialized path for:
 The current backend implementations are:
 
   - `highway.cpp` for the Highway-backed build
-  - `numkong.cpp` for the NumKong-backed build
 
 Shared scanner helpers are split by responsibility instead of being folded into
 one monolithic implementation. For example:

@@ -47,8 +47,6 @@ const char* ComputeUnit::name() const {
     switch (kind_) {
         case ComputeBackendKind::highway:
             return "highway";
-        case ComputeBackendKind::nk:
-            return "numkong";
     }
     return "unknown";
 }
