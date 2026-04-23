@@ -40,9 +40,10 @@ if(SKETCH2_COMPUTE_ENGINE STREQUAL "numkong" AND CMAKE_SYSTEM_PROCESSOR MATCHES 
   set_source_files_properties(numkong.cpp PROPERTIES
     COMPILE_DEFINITIONS "NK_TARGET_HASWELL=1;NK_TARGET_SKYLAKE=1")
 elseif(SKETCH2_COMPUTE_ENGINE STREQUAL "numkong" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-  if(SKETCH_ENABLE_ARM_SVE)
-    # SVE is not part of the portable arm64 baseline. Keep it opt-in so builds
-    # remain runnable on Apple Silicon and other non-SVE AArch64 CPUs/VMs.
+  # When SKETCH_ARM_MCPU is set the baseline already encodes SVE availability
+  # through -mcpu, and adding -march here would conflict with it. The per-source
+  # -march override is only needed on the generic -march baseline path.
+  if(SKETCH_ENABLE_ARM_SVE AND SKETCH_ARM_MCPU STREQUAL "")
     set_source_files_properties(numkong.cpp PROPERTIES
       COMPILE_OPTIONS "-march=armv8.2-a+sve+fp16+dotprod")
   endif()
@@ -57,7 +58,8 @@ if(SKETCH2_COMPUTE_ENGINE STREQUAL "highway")
   set_source_files_properties(highway.cpp PROPERTIES COMPILE_OPTIONS "-Wno-error;-Wno-pedantic")
 endif()
 if(SKETCH2_COMPUTE_ENGINE STREQUAL "highway" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-  if(SKETCH_ENABLE_ARM_SVE)
+  # As with numkong above: skip the -march override when -mcpu is in charge.
+  if(SKETCH_ENABLE_ARM_SVE AND SKETCH_ARM_MCPU STREQUAL "")
     set_source_files_properties(highway.cpp PROPERTIES
       COMPILE_OPTIONS "-Wno-error;-Wno-pedantic;-march=armv8.2-a+sve+fp16+dotprod")
   endif()

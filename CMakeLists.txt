@@ -52,14 +52,16 @@ if((SKETCH_ENABLE_AVX2 OR SKETCH_ENABLE_AVX512F OR SKETCH_ENABLE_AVX512VNNI)
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-  # +dotprod is safe on every Armv8.2-A target we ship to (Apple Silicon,
-  # Ampere Altra/AmpereOne, Graviton 2/3/4). Keep it in the baseline so SDOT/UDOT
-  # are available to the integer kernels without opting into SVE.
-  target_compile_options(sketch_compile_options INTERFACE -march=armv8.2-a+fp16+dotprod)
-
   set(SKETCH_ARM_MCPU "" CACHE STRING
-    "Optional -mcpu tuning for AArch64 builds (e.g. neoverse-n1, neoverse-v1, neoverse-v2, native). Empty means no -mcpu flag.")
-  if(NOT SKETCH_ARM_MCPU STREQUAL "")
+    "Optional -mcpu tuning for AArch64 builds (e.g. neoverse-n1, neoverse-n2, neoverse-v1, neoverse-v2, native). Empty uses a generic -march baseline.")
+  if(SKETCH_ARM_MCPU STREQUAL "")
+    # +dotprod is safe on every Armv8.2-A target we ship to (Apple Silicon,
+    # Ampere Altra/AmpereOne, Graviton 2/3/4). Keep it in the baseline so SDOT/UDOT
+    # are available to the integer kernels without opting into SVE.
+    target_compile_options(sketch_compile_options INTERFACE -march=armv8.2-a+fp16+dotprod)
+  else()
+    # GCC rejects -march together with -mcpu. -mcpu already selects a specific
+    # ISA superset for the chosen core, so emit it on its own.
     target_compile_options(sketch_compile_options INTERFACE -mcpu=${SKETCH_ARM_MCPU})
   endif()
 endif()
