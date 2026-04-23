@@ -32,8 +32,6 @@ def find_lib_source(repo_root: Path) -> Path:
         repo_root / "bin-hwy" / "libsketch2.so",
         repo_root / "build-dbg" / "lib" / "libsketch2.so",
         repo_root / "bin-dbg-hwy" / "libsketch2.so",
-        repo_root / "bin-nk" / "libsketch2.so",
-        repo_root / "bin-dbg-nk" / "libsketch2.so",
     ]
     for candidate in candidates:
         if candidate.exists():

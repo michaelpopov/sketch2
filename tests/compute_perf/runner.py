@@ -23,11 +23,9 @@ from common import (
     query_values_for_dist,
     tree_size_bytes,
 )
-
-
-def engine_label() -> str:
-    engine = os.environ.get("SKETCH2_COMPUTE_ENGINE")
-    return engine if engine else "auto"
+def runtime_label() -> str:
+    value = os.environ.get("COMPUTE_PERF_RUNTIME_LABEL", "").strip().lower()
+    return value if value else "runtime"
 
 
 def diag_dir(config) -> Path:
@@ -41,15 +39,15 @@ def diag_dir(config) -> Path:
 
 
 def diag_file_path(config, dist: str) -> Path:
-    return diag_dir(config) / f"diag_{engine_label()}_{dist}.json"
+    return diag_dir(config) / f"diag_{runtime_label()}_{dist}.json"
 
 
 def repro_script_path(config, dist: str) -> Path:
-    return diag_dir(config) / f"repro_{engine_label()}_{dist}.sh"
+    return diag_dir(config) / f"repro_{runtime_label()}_{dist}.sh"
 
 
 def repro_loop_script_path(config, dist: str) -> Path:
-    return diag_dir(config) / f"repro_loop_{engine_label()}_{dist}.sh"
+    return diag_dir(config) / f"repro_loop_{runtime_label()}_{dist}.sh"
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -72,16 +70,13 @@ def tracked_env(config, dist: str) -> dict[str, str]:
         "COMPUTE_PERF_TEST_RANGE_SIZE": str(config.range_size),
         "COMPUTE_PERF_TEST_LOG_LEVEL": config.log_level,
         "COMPUTE_PERF_TEST_THREAD_POOL_SIZE": str(config.thread_pool_size),
-        "COMPUTE_PERF_TEST_ENGINES": ",".join(config.compute_engines),
+        "COMPUTE_PERF_RUNTIME_LABEL": config.runtime_label,
         "COMPUTE_PERF_TEST_BENCHMARKS": ",".join(config.benchmark_layers),
         "COMPUTE_PERF_KERNEL_ITERATIONS": str(config.kernel_iterations),
         "COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS": str(config.kernel_warmup_iterations),
         "COMPUTE_PERF_KERNEL_REPEATS": str(config.kernel_repeats),
         "COMPUTE_PERF_SINGLE_DIST": dist,
     }
-    engine = os.environ.get("SKETCH2_COMPUTE_ENGINE")
-    if engine:
-        values["SKETCH2_COMPUTE_ENGINE"] = engine
     diag_root = os.environ.get("COMPUTE_PERF_DIAG_DIR")
     if diag_root:
         values["COMPUTE_PERF_DIAG_DIR"] = diag_root
@@ -123,7 +118,7 @@ def initial_diag_state(config, dist: str, query_vals: list[float | int], query_s
     return {
         "status": "running",
         "stage": "initialized",
-        "engine": engine_label(),
+        "runtime_label": runtime_label(),
         "metric": dist,
         "pid": os.getpid(),
         "db_dir": str(config.db_dir),
@@ -149,39 +144,11 @@ def update_diag(path: Path, state: dict, **updates) -> None:
     write_json(path, state)
 
 
-def kernel_bench_env(engine: str) -> dict[str, str]:
-    env = os.environ.copy()
-    env.pop("SKETCH2_COMPUTE_BACKEND", None)
-    if engine == "scalar":
-        env["SKETCH2_COMPUTE_BACKEND"] = "scalar"
-    return env
-
-
-def kernel_engine_label(config) -> str:
-    engine = engine_label()
-    if engine != "auto":
-        return engine
-
-    compiled_engine = os.environ.get("COMPUTE_PERF_COMPILED_ENGINE", "").strip().lower()
-    if compiled_engine:
-        return compiled_engine
-
-    concrete_engines = [candidate for candidate in config.compute_engines if candidate != "auto"]
-    if len(concrete_engines) == 1:
-        return concrete_engines[0]
-
-    raise RuntimeError(
-        "kernel benchmark requires a concrete compute engine; "
-        "set COMPUTE_PERF_COMPILED_ENGINE or SKETCH2_COMPUTE_ENGINE"
-    )
-
-
 def run_kernel_benchmark(config, dist: str) -> dict:
-    kernel_engine = kernel_engine_label(config)
     bench_path = find_binary("bench_compute")
     cmd = [
         str(bench_path),
-        "--engine", kernel_engine,
+        "--engine", config.runtime_label,
         "--dist", dist,
         "--type", config.type_name,
         "--dim", str(config.dims),
@@ -191,7 +158,7 @@ def run_kernel_benchmark(config, dist: str) -> dict:
     ]
     result = subprocess.run(
         cmd,
-        env=kernel_bench_env(kernel_engine),
+        env=os.environ.copy(),
         cwd=str(bench_path.parent),
         capture_output=True,
         text=True,
@@ -199,7 +166,7 @@ def run_kernel_benchmark(config, dist: str) -> dict:
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"bench_compute failed for engine={kernel_engine} dist={dist} "
+            f"bench_compute failed for runtime={config.runtime_label} dist={dist} "
             f"with exit code {result.returncode}: {result.stderr.strip() or result.stdout.strip()}"
         )
     json_start = result.stdout.find("{")
@@ -213,7 +180,7 @@ def run_kernel_benchmark(config, dist: str) -> dict:
 
 def print_kernel_report(payload: dict) -> None:
     print("--- KERNEL PERFORMANCE REPORT ---")
-    print(f"Compute Engine:    {payload['engine']}")
+    print(f"Runtime:           {payload['engine']}")
     print(f"Metric:            {payload['dist']}")
     print(f"Type:              {payload['type']}")
     print(f"Dim:               {payload['dim']}")
@@ -221,8 +188,6 @@ def print_kernel_report(payload: dict) -> None:
     print(f"Iterations:        {payload['iterations']}")
     print(f"Repeats:           {payload['repeats']}")
     print(f"Active Backend:    {payload['active_compute_backend']}")
-    if "numkong_backend" in payload:
-        print(f"NumKong Backend:   {payload['numkong_backend']}")
     for entry in payload["cases"]:
         print(
             "Kernel Case:      "
@@ -246,7 +211,7 @@ def run_single_distance(dist: str) -> None:
 
     with Sketch2(config.db_dir, lib_path=lib_path) as sketch2:
         dataset_name = f"{config.dataset}_{dist}"
-        log("runner", f"benchmarking dataset {dataset_name} with engine={engine_label()}")
+        log("runner", f"benchmarking dataset {dataset_name} with runtime={runtime_label()}")
 
         query_vals = query_values_for_dist(dist, config.dims, config.type_name)
 
@@ -296,7 +261,7 @@ def run_single_distance(dist: str) -> None:
 
                 if not ids:
                     raise AssertionError(
-                        f"KNN returned no results at iteration {i} for {dist} under engine={engine_label()}"
+                        f"KNN returned no results at iteration {i} for {dist} under runtime={runtime_label()}"
                     )
 
                 times.append(t1 - t0)
@@ -329,7 +294,7 @@ def run_single_distance(dist: str) -> None:
             )
 
             print(f"--- PERFORMANCE REPORT ---")
-            print(f"Compute Engine: {engine_label()}")
+            print(f"Runtime:        {runtime_label()}")
             print(f"Metric:         {dist}")
             print(f"Iterations:     {config.repeat}")
             print(f"Min Time:       {min_t:.6f}s")
@@ -354,11 +319,11 @@ def run_all_distances() -> None:
         if result.returncode < 0:
             raise SystemExit(
                 f"runner subprocess died from signal {-result.returncode} while benchmarking dist={dist} "
-                f"under engine={engine_label()}; see {diag_path}"
+                f"under runtime={runtime_label()}; see {diag_path}"
             )
         raise SystemExit(
             f"runner subprocess failed with exit code {result.returncode} while benchmarking dist={dist} "
-            f"under engine={engine_label()}; see {diag_path}"
+            f"under runtime={runtime_label()}; see {diag_path}"
         )
 
     log("runner", "benchmarking complete")

@@ -3,8 +3,8 @@
 - `README.md`: Overview of the core utilities and architecture detection.
 - `CMakeLists.txt`: Build rules for the shared utilities library and tests.
 - `arch_detection.h`: Centralized architecture detection and SIMD feature flags.
-- `compute_unit.cpp`: Runtime compute-backend detection and environment override helpers.
-- `compute_unit.h`: Process-wide compute backend identifiers and selection API.
+- `compute_unit.cpp`: Runtime helpers for the compiled Highway backend identity.
+- `compute_unit.h`: Process-wide identifiers for the compiled Highway backend.
 - `dynamic_bitset.cpp`: Growable bitset implementation used by storage readers.
 - `dynamic_bitset.h`: Growable bitset declarations.
 - `file_lock.h`: Filesystem lock helper declarations.

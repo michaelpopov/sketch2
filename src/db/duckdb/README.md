@@ -121,7 +121,7 @@ The extension build expects the Sketch2 public header in the source tree and an
 installed runtime directory for the shared library:
 
 - `"$SKETCH2_ROOT/src/sketch2api"`
-- `"$SKETCH2_ROOT/install-hwy/bin"` or `"$SKETCH2_ROOT/install-nk/bin"`
+- `"$SKETCH2_ROOT/install-hwy/bin"`
 
 Build steps and extension-specific tests live in the separate
 `sketch2duckdb` repository.

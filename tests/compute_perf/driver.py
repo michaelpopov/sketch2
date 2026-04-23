@@ -18,44 +18,17 @@ from common import dataset_metadata_path, load_config, load_dataset_metadata, lo
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
-ENGINE_RUNTIME_DIRS = {
-    "hwy": REPO_ROOT / "bin-hwy",
-    "nk": REPO_ROOT / "bin-nk",
-}
-SUPPORTED_ENGINES = frozenset(ENGINE_RUNTIME_DIRS)
-ENGINE_CANONICAL_NAMES = {
-    "hwy": "highway",
-    "nk": "numkong",
-}
-CANONICAL_TO_REQUESTED_ENGINE = {
-    canonical: requested for requested, canonical in ENGINE_CANONICAL_NAMES.items()
-}
-SUPPORTED_COMPILED_ENGINES = frozenset(CANONICAL_TO_REQUESTED_ENGINE)
+RUNTIME_DIR = REPO_ROOT / "bin"
+EXPECTED_RUNTIME_LABEL = "highway"
 
 
-def release_build_target_for(engine: str) -> str:
-    return "rel" if engine == "hwy" else "rel-nk"
+def release_build_target_for() -> str:
+    return "rel"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--engine",
-        choices=sorted(SUPPORTED_ENGINES),
-        required=True,
-        help=(
-            "Select which release runtime directory to use."
-        ),
-    )
     return parser.parse_args()
-
-
-def runtime_dir_for(engine: str) -> Path:
-    return ENGINE_RUNTIME_DIRS[engine]
-
-
-def canonical_engine_name(engine: str) -> str:
-    return ENGINE_CANONICAL_NAMES[engine]
 
 
 def ensure_runtime_artifacts(runtime_dir: Path) -> None:
@@ -65,8 +38,7 @@ def ensure_runtime_artifacts(runtime_dir: Path) -> None:
     ]
     for path in required:
         if not path.exists():
-            engine = next(name for name, candidate in ENGINE_RUNTIME_DIRS.items() if candidate == runtime_dir)
-            build_target = release_build_target_for(engine)
+            build_target = release_build_target_for()
             raise SystemExit(
                 f"[driver] ERROR: required runtime artifact not found: {path}\n"
                 f"[driver] Compute perf runs only against release artifacts in {runtime_dir}.\n"
@@ -75,8 +47,7 @@ def ensure_runtime_artifacts(runtime_dir: Path) -> None:
             )
 def build_env(
     runtime_dir: Path,
-    requested_engine: str,
-    compiled_engine: str,
+    runtime_label: str,
 ) -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("SKETCH2_CONFIG_ROOT", "/tmp/sketch2_tests_compute_perf")
@@ -92,7 +63,7 @@ def build_env(
     env.setdefault("COMPUTE_PERF_TEST_RANGE_SIZE", "10000")
     env.setdefault("COMPUTE_PERF_TEST_LOG_LEVEL", "ERROR")
     env.setdefault("COMPUTE_PERF_TEST_THREAD_POOL_SIZE", "1")
-    env["COMPUTE_PERF_TEST_ENGINES"] = compiled_engine
+    env["COMPUTE_PERF_RUNTIME_LABEL"] = runtime_label
     env.setdefault("COMPUTE_PERF_TEST_BENCHMARKS", "scan,kernel")
     env.setdefault("COMPUTE_PERF_KERNEL_ITERATIONS", "200000")
     env.setdefault("COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS", "5000")
@@ -100,8 +71,6 @@ def build_env(
     env.setdefault("COMPUTE_PERF_TEST_CLEANUP", "0")
     env["COMPUTE_PERF_RUNTIME_DIR"] = str(runtime_dir)
     env["SKETCH2_LIB"] = str(runtime_dir)
-    env["COMPUTE_PERF_COMPILED_ENGINE"] = compiled_engine
-    env["COMPUTE_PERF_REQUESTED_ENGINE"] = requested_engine
     return env
 
 
@@ -167,7 +136,7 @@ def write_run_env(env: dict[str, str], log_dir: Path) -> None:
         "SKETCH2_CONFIG",
         "SKETCH2_LIB",
         "COMPUTE_PERF_RUNTIME_DIR",
-        "COMPUTE_PERF_REQUESTED_ENGINE",
+        "COMPUTE_PERF_RUNTIME_LABEL",
         "COMPUTE_PERF_SKIP_INIT",
         "COMPUTE_PERF_TEST_DATASET",
         "COMPUTE_PERF_TEST_DIMS",
@@ -179,8 +148,6 @@ def write_run_env(env: dict[str, str], log_dir: Path) -> None:
         "COMPUTE_PERF_TEST_RANGE_SIZE",
         "COMPUTE_PERF_TEST_LOG_LEVEL",
         "COMPUTE_PERF_TEST_THREAD_POOL_SIZE",
-        "COMPUTE_PERF_COMPILED_ENGINE",
-        "COMPUTE_PERF_TEST_ENGINES",
         "COMPUTE_PERF_TEST_BENCHMARKS",
         "COMPUTE_PERF_KERNEL_ITERATIONS",
         "COMPUTE_PERF_KERNEL_WARMUP_ITERATIONS",
@@ -195,8 +162,7 @@ def write_run_env(env: dict[str, str], log_dir: Path) -> None:
 def print_config(env: dict[str, str], config, runtime_dir: Path, core_limit: str, cache_state: str) -> None:
     log("performance test configuration")
     log(f"  runtime_dir={runtime_dir}")
-    log(f"  requested_engine={env['COMPUTE_PERF_REQUESTED_ENGINE']}")
-    log(f"  compiled_engine={env['COMPUTE_PERF_COMPILED_ENGINE']}")
+    log(f"  runtime_label={env['COMPUTE_PERF_RUNTIME_LABEL']}")
     log(f"  config_root={config.db_dir}")
     log(f"  cache_state={cache_state}")
     log(f"  dataset_metadata={dataset_metadata_path(config.db_dir)}")
@@ -246,42 +212,37 @@ def verify_dataset(config, dist: str) -> Path:
     return dataset_path
 
 
-def print_diag_paths(diag_dir: Path, engine: str) -> None:
+def print_diag_paths(diag_dir: Path, runtime_label: str) -> None:
     log(f"diagnostics directory: {diag_dir}")
-    diag_paths = sorted(diag_dir.glob(f"diag_{engine}_*.json"))
+    diag_paths = sorted(diag_dir.glob(f"diag_{runtime_label}_*.json"))
     if diag_paths:
         log("diagnostic state files:")
         for path in diag_paths:
             print(path, flush=True)
-    repro_paths = sorted(diag_dir.glob(f"repro_{engine}_*.sh"))
+    repro_paths = sorted(diag_dir.glob(f"repro_{runtime_label}_*.sh"))
     if repro_paths:
         log("repro scripts:")
         for path in repro_paths:
             print(path, flush=True)
-    loop_paths = sorted(diag_dir.glob(f"repro_loop_{engine}_*.sh"))
+    loop_paths = sorted(diag_dir.glob(f"repro_loop_{runtime_label}_*.sh"))
     if loop_paths:
         log("repro loop scripts:")
         for path in loop_paths:
             print(path, flush=True)
 
 
-def probe_compiled_engine(runtime_dir: Path, config_root: str) -> str:
+def probe_runtime_label(runtime_dir: Path, config_root: str) -> str:
     try:
         Sketch2, _ = load_sketch2_types()
         with Sketch2(config_root, lib_path=runtime_dir / "libsketch2.so") as sketch2:
-            engine = sketch2.compute_engine().strip().lower()
+            runtime_label = sketch2.compute_engine().strip().lower()
     except AttributeError as exc:
         raise SystemExit(
             f"[driver] ERROR: {runtime_dir / 'libsketch2.so'} does not export the "
             "new sk_compute_engine() API. Rebuild that runtime directory before "
             "running compute perf tests."
         ) from exc
-    if engine in SUPPORTED_COMPILED_ENGINES:
-        return engine
-    raise SystemExit(
-        f"[driver] ERROR: libsketch2.so in {runtime_dir} reported unsupported "
-        f"compute engine {engine!r}."
-    )
+    return runtime_label
 
 
 def install_signal_handlers() -> None:
@@ -331,23 +292,22 @@ def ensure_cache_state(env: dict[str, str]) -> tuple[object, str]:
 
 
 def main() -> int:
-    args = parse_args()
-    runtime_dir = runtime_dir_for(args.engine)
+    parse_args()
+    runtime_dir = RUNTIME_DIR
     ensure_runtime_artifacts(runtime_dir)
 
     probe_root = tempfile.mkdtemp(prefix="sketch2_compute_perf_probe.", dir="/tmp")
     try:
-        compiled_engine = probe_compiled_engine(runtime_dir, probe_root)
+        runtime_label = probe_runtime_label(runtime_dir, probe_root)
     finally:
         shutil.rmtree(probe_root, ignore_errors=True)
-    requested_canonical_engine = canonical_engine_name(args.engine)
-    if compiled_engine != requested_canonical_engine:
+    if runtime_label != EXPECTED_RUNTIME_LABEL:
         raise SystemExit(
-            f"[driver] ERROR: requested --engine {args.engine!r}, but "
-            f"{runtime_dir / 'libsketch2.so'} reports {compiled_engine!r}."
+            f"[driver] ERROR: expected {runtime_dir / 'libsketch2.so'} to report "
+            f"{EXPECTED_RUNTIME_LABEL!r}, but it reported {runtime_label!r}."
         )
 
-    env = build_env(runtime_dir, args.engine, compiled_engine)
+    env = build_env(runtime_dir, runtime_label)
     config, cache_state = ensure_cache_state(env)
     apply_effective_dataset_config(env, config)
 
@@ -373,15 +333,14 @@ def main() -> int:
         print_config(env, config, runtime_dir, core_limit, cache_state)
 
         for dist in config.dist_funcs:
-            log(f"benchmarks engine={compiled_engine} dist={dist}")
-            env.pop("SKETCH2_COMPUTE_ENGINE", None)
+            log(f"benchmarks runtime={runtime_label} dist={dist}")
             env["COMPUTE_PERF_SINGLE_DIST"] = dist
-            runner_log = log_dir / f"runner_{compiled_engine}_{dist}.log"
+            runner_log = log_dir / f"runner_{runtime_label}_{dist}.log"
             runner_rc = run_logged([sys.executable, "runner.py"], env, runner_log)
             if runner_rc != 0:
-                print_diag_paths(diag_dir, compiled_engine)
+                print_diag_paths(diag_dir, runtime_label)
                 raise SystemExit(
-                    f"[driver] ERROR: runner.py failed for engine={compiled_engine} "
+                    f"[driver] ERROR: runner.py failed for runtime={runtime_label} "
                     f"dist={dist} with exit code {runner_rc}. See {runner_log}"
                 )
 

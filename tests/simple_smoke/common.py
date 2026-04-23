@@ -36,8 +36,6 @@ def find_lib_path() -> Path:
     candidates = [
         root / "bin-dbg-hwy" / "libsketch2.so",
         root / "bin-hwy" / "libsketch2.so",
-        root / "bin-dbg-nk" / "libsketch2.so",
-        root / "bin-nk" / "libsketch2.so",
     ]
     for candidate in candidates:
         if candidate.exists():

@@ -11,7 +11,7 @@ Minimum build requirements:
 
 - CMake 3.20 or newer
 - a C++20 compiler
-- GCC or Clang on x86/x86_64 and AArch64 for the Google Highway and NumKong multi-target build
+- GCC or Clang on x86/x86_64 and AArch64 for the native multi-target build
 
 Practical tools used by this repository:
 
@@ -23,13 +23,7 @@ Practical tools used by this repository:
 A fresh machine also needs normal outbound network access during the first
 configure because GoogleTest is downloaded as part of the standard build.
 
-On Ubuntu, the repository `Makefile` provides:
-
-```bash
-make prepare
-```
-
-That target runs:
+On Ubuntu:
 
 ```bash
 sudo apt update && sudo apt install -y build-essential cmake ninja-build
@@ -42,13 +36,6 @@ If `python3` is not already installed on the machine, install it separately.
 The project uses CMake as the primary build system. The root `Makefile` is a
 thin convenience layer over the main CMake commands.
 
-Build directories are engine-specific because `SKETCH2_COMPUTE_ENGINE` is cached at
-configure time. If you want a NumKong build, configure a fresh build directory
-for it instead of reusing a previously configured `highway` tree.
-
-The default compute engine is `highway`. Set `-DSKETCH2_COMPUTE_ENGINE=numkong` at
-configure time if you want the NumKong-backed build instead.
-
 Important build types:
 
 - `Debug`
@@ -57,24 +44,24 @@ Important build types:
 If no build type is provided, the top-level CMake configuration defaults to
 `Debug`.
 
-On x86/x86_64, Highway builds can compile higher-ISA targets through these
+On x86/x86_64, Sketch2 can compile higher-ISA targets through these
 options:
 
 - `SKETCH_ENABLE_AVX2`
 - `SKETCH_ENABLE_AVX512F`
 - `SKETCH_ENABLE_AVX512VNNI`
 
-All three are enabled by default. Highway's runtime dispatch picks the best
+All three are enabled by default. Runtime dispatch picks the best
 target for the host CPU, so a default build runs anywhere and uses AVX-512 when
 the CPU supports it.
 
-Non-Highway translation units (scanner logic, storage, utilities) use an
+Other translation units (scanner logic, storage, utilities) use an
 `-msse2` baseline so the resulting binary stays portable across x86_64 CPUs.
 Two optional tuning knobs bump that baseline for a specific deployment host:
 
 - `SKETCH_X86_MARCH` — sets `-march=<value>` (e.g. `native`, `znver4`,
   `icelake-server`). The resulting binary may not run on older x86_64 CPUs.
-  Highway kernels keep their per-function target attributes and are unaffected.
+  The per-function kernel targets remain unaffected.
 - `SKETCH_X86_MTUNE` — sets `-mtune=<value>` for scheduler tuning only; the
   binary remains portable.
 
@@ -126,15 +113,6 @@ The Makefile exposes the same knobs as `ARM_SVE=1` and `ARM_MCPU=<tune>`:
 make build-arm-sve ARM_MCPU=neoverse-v1
 ```
 
-To build the NumKong engine explicitly from a fresh clone or on another
-machine, use a dedicated build directory:
-
-```bash
-cmake -S . -B build-nk-dbg -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSKETCH2_COMPUTE_ENGINE=numkong
-cmake --build build-nk-dbg
-ctest --test-dir build-nk-dbg --output-on-failure
-```
-
 ## Main Artifacts
 
 The main runtime artifact is:
@@ -146,10 +124,8 @@ SQLite `vlite` extension entry points.
 
 Typical output layout:
 
-- highway release runtime binaries: `bin-hwy/`
-- highway debug runtime binaries: `bin-dbg-hwy/`
-- numkong release runtime binaries: `bin-nk/`
-- numkong debug runtime binaries: `bin-dbg-nk/`
+- release runtime binaries: `bin/`
+- debug runtime binaries: `bin-dbg/`
 - release shared libraries: `build/lib/`
 - debug shared libraries: `build-dbg/lib/`
 
@@ -180,30 +156,20 @@ run `cmake --build` with parallel jobs.
 Install the release artifacts for reuse by other projects:
 
 ```bash
-make install-hwy
+make install
 ```
 
-For the NumKong release artifacts, use:
-
-```bash
-make install-nk
-```
-
-`install-hwy` depends on `rtest`, while `install-nk` depends on `rtest-nk`.
-Each target first builds and tests its release configuration, then creates an
-engine-specific install tree in the repository root and copies the public C
-header plus the release shared library and its Python wrapper into it.
+That target first builds and tests the release configuration, then creates an
+install tree in the repository root and copies the public C header plus the
+release shared library and its Python wrapper into it.
 
 Installed layout:
 
-- `install-hwy/include/sketch2.h`
-- `install-hwy/bin/libsketch2.so`
-- `install-hwy/bin/sketch2_wrapper.py`
-- `install-nk/include/sketch2.h`
-- `install-nk/bin/libsketch2.so`
-- `install-nk/bin/sketch2_wrapper.py`
+- `install/include/sketch2.h`
+- `install/bin/libsketch2.so`
+- `install/bin/sketch2_wrapper.py`
 
-The `install-hwy/` and `install-nk/` directories are meant to hold the files
+The `install/` directory is meant to hold the files
 that consumers need without having to know the repository's internal build
 directories.
 
@@ -216,8 +182,8 @@ Examples:
 ## Building With CMake Directly
 
 If you want to work without the `Makefile`, use CMake directly.
-The repository-standard build directories (`build/`, `build-dbg/`, `build-nk/`,
-`build-nk-dbg/`) are intended to be Ninja trees.
+The repository-standard build directories (`build/`, `build-dbg/`) are intended
+to be Ninja trees.
 
 Debug:
 
@@ -258,17 +224,15 @@ If you are already in the repository root, you can also set it as:
 export SKETCH2_ROOT=$(pwd)
 ```
 
-After `make install-hwy` or `make install-nk`, the reusable install inputs are:
+After `make install`, the reusable install inputs are:
 
-- `$SKETCH2_ROOT/install-hwy/include`
-- `$SKETCH2_ROOT/install-hwy/bin`
-- `$SKETCH2_ROOT/install-nk/include`
-- `$SKETCH2_ROOT/install-nk/bin`
+- `$SKETCH2_ROOT/install/include`
+- `$SKETCH2_ROOT/install/bin`
 
 Example for Python tooling:
 
 ```bash
-export SKETCH2_LIB="$SKETCH2_ROOT/install-hwy/bin"
+export SKETCH2_LIB="$SKETCH2_ROOT/install/bin"
 python3 tutorial/run_all.py
 ```
 
@@ -277,13 +241,13 @@ header from the install tree:
 
 ```bash
 g++ -std=c++20 app.cpp \
-  -I"$SKETCH2_ROOT/install-hwy/include" \
-  -L"$SKETCH2_ROOT/install-hwy/bin" \
+  -I"$SKETCH2_ROOT/install/include" \
+  -L"$SKETCH2_ROOT/install/bin" \
   -lsketch2
 ```
 
 This keeps Python-facing consumers pointed at a stable runtime directory instead
-of the build-specific directories such as `build/lib` or `bin-hwy`.
+of the build-specific directories such as `build/lib` or `bin`.
 
 ## Using The Shared Library During Dev And Test Runs
 
@@ -293,7 +257,7 @@ the installed library directory to `LD_LIBRARY_PATH`.
 Example:
 
 ```bash
-export LD_LIBRARY_PATH="$SKETCH2_ROOT/install-hwy/bin:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="$SKETCH2_ROOT/install/bin:${LD_LIBRARY_PATH}"
 ```
 
 With that in place, locally built tools, integration tests, or other dependent
@@ -302,7 +266,7 @@ executables can locate `libsketch2.so` during development and test runs.
 For a one-off command, you can also set it inline:
 
 ```bash
-LD_LIBRARY_PATH="$SKETCH2_ROOT/install-hwy/bin:${LD_LIBRARY_PATH}" ./my_test_binary
+LD_LIBRARY_PATH="$SKETCH2_ROOT/install/bin:${LD_LIBRARY_PATH}" ./my_test_binary
 ```
 
 ## Running The Python Entry Points
@@ -311,10 +275,8 @@ The Python wrapper lives in `src/pytest/sketch2_wrapper.py`. It loads
 `libsketch2.so` through `ctypes` and searches the standard build locations in
 this order:
 
-1. `bin-dbg-hwy/libsketch2.so`
-2. `bin-hwy/libsketch2.so`
-3. `bin-dbg-nk/libsketch2.so`
-4. `bin-nk/libsketch2.so`
+1. `bin-dbg/libsketch2.so`
+2. `bin/libsketch2.so`
 
 Run the interactive Python shell helper:
 The search is temporary for the current development stage. It will be fixed
@@ -340,7 +302,7 @@ CREATE VIRTUAL TABLE nn USING vlite('/absolute/path/to/dataset.ini');
 The repository also builds a SQLite shell binary in the runtime output
 directory. In a debug build that binary is typically:
 
-- `bin-dbg-hwy/sqlite3`
+- `bin-dbg/sqlite3`
 
 ## Runtime Configuration
 
@@ -367,7 +329,5 @@ export SKETCH2_LOG_FILE=/tmp/sketch2.log
 
 - `Release` uses the compiler's standard CMake release flags, which typically
   means optimized code with `-DNDEBUG`
-- each configured build contains one top-level compute engine selected by
-  `SKETCH2_COMPUTE_ENGINE`
-- Highway builds can still contain multiple ISA targets inside that engine,
-  while NumKong builds keep their own internal capability-specific dispatch
+- each configured build contains one native compute path
+- the build can still contain multiple ISA-specialized kernels selected at runtime

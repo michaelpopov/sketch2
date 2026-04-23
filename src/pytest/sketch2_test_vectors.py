@@ -29,8 +29,6 @@ def find_library() -> Path:
     candidates = [
         root / "bin-hwy" / "libsketch2.so",
         root / "bin-dbg-hwy" / "libsketch2.so",
-        root / "bin-nk" / "libsketch2.so",
-        root / "bin-dbg-nk" / "libsketch2.so",
         root / "build" / "lib" / "libsketch2.so",
         root / "build-dbg" / "lib" / "libsketch2.so",
     ]

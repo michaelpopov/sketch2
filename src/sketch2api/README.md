@@ -141,8 +141,8 @@ If `SKETCH2_CONFIG` is missing, that is fine. Defaults and env overrides still
  work. If it is set but unreadable, startup logs a warning and continues with
  direct env overrides.
 
-The top-level compute engine is not part of runtime configuration. It is baked
-into the library at build time through `SKETCH2_COMPUTE_ENGINE`.
+The native compute path is not part of runtime configuration. It is built into
+the library.
 
 After the first successful initialization, the runtime is sealed:
 

@@ -220,7 +220,7 @@ void sk_set_log_level(const char* log_level);
 void sk_version(char* buf, size_t buf_size);
 
 /*
- * Write the compiled compute engine name into caller-provided buffer.
+ * Write the compiled Highway backend name into caller-provided buffer.
  */
 void sk_compute_engine(char* buf, int buf_size);
 

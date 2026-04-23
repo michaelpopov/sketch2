@@ -1,4 +1,4 @@
-// Declares the compute-engine-backed top-k scanner API.
+// Declares the Highway-backed top-k scanner API.
 
 #pragma once
 #include "core/compute/dist_item.h"
@@ -11,8 +11,8 @@ namespace sketch2 {
 
 class DatasetReader;
 
-// Scanner provides the same top-k search as the legacy scanner but delegates metric
-// score computation to the compute engine layer instead of the
+// Scanner provides the same top-k search as the legacy scanner but delegates
+// metric score computation to the Highway compute layer instead of the
 // Singleton-dispatched hand-written SIMD kernels.
 class Scanner {
 public:

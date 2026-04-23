@@ -1,4 +1,4 @@
-// Shared cosine-distance finalizers used across compute backends.
+// Shared cosine-distance finalizers used across Highway kernels.
 
 #pragma once
 
@@ -8,7 +8,7 @@
 namespace sketch2 {
 
 // Normalize the raw cosine ingredients into the public distance contract,
-// including the special zero-vector behavior shared by all backends.
+// including the special zero-vector behavior shared by all Highway kernels.
 inline double finalize_cosine_distance(double dot, double norm_a, double norm_b) {
     if (norm_a == 0.0 && norm_b == 0.0) {
         return 0.0;
