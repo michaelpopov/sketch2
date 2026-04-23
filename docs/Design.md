@@ -229,8 +229,8 @@ Supported vector element types today:
 
 ## Compute Path Selection
 
-The build, tests, and benchmark binaries all assume one native compute path per
-configured build, not a runtime-switchable mix of top-level implementations.
+The build, tests, and benchmark binaries all assume the Highway compute path
+for the configured build.
 
 Within that path, hardware specialization still happens close to the kernels:
 

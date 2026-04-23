@@ -14,9 +14,9 @@ set(SHARED_UTEST_MAIN "${CMAKE_SOURCE_DIR}/src/core/utils/utest_main.cpp")
 # Support for f16
 #----------------------------
 add_library(sketch_compile_options INTERFACE)
-option(SKETCH_ENABLE_AVX2 "Enable AVX2 runtime-dispatched x86_64 compute backends" ON)
-option(SKETCH_ENABLE_AVX512F "Enable AVX-512F runtime-dispatched x86_64 compute backends" ON)
-option(SKETCH_ENABLE_AVX512VNNI "Enable AVX-512 VNNI runtime-dispatched x86_64 compute backends" ON)
+option(SKETCH_ENABLE_AVX2 "Enable AVX2 runtime-dispatched x86_64 Highway kernels" ON)
+option(SKETCH_ENABLE_AVX512F "Enable AVX-512F runtime-dispatched x86_64 Highway kernels" ON)
+option(SKETCH_ENABLE_AVX512VNNI "Enable AVX-512 VNNI runtime-dispatched x86_64 Highway kernels" ON)
 option(SKETCH_ENABLE_ARM_SVE "Enable Arm SVE/SVE-half kernels for AArch64 builds on SVE-capable CPUs" OFF)
 target_compile_definitions(sketch_compile_options INTERFACE
   SKETCH_ENABLE_AVX2=$<IF:$<BOOL:${SKETCH_ENABLE_AVX2}>,1,0>

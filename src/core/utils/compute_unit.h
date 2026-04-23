@@ -1,4 +1,4 @@
-// Declares the process-wide calc backend identity used by query dispatch.
+// Declares the process-wide Highway runtime identity used by query dispatch.
 
 #pragma once
 

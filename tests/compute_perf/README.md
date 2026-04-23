@@ -15,7 +15,7 @@ The harness consists of six main components:
 3.  **`runner.py`**: Executes the actual benchmarks. It runs each score function in its own child process. It can run two complementary benchmark layers:
     - a **kernel-only** layer that times direct metric kernels without scanner traversal
     - a **scan** layer that performs full KNN queries through the existing dataset/scanner path
-4.  **`bench_compute`**: A native benchmark executable under `src/core/compute` that measures the direct kernels and composed scan-time score paths for the selected runtime, metric, type, and dimension. It always reports `dist`, adds `dot` and `squared_norm` whenever those kernels are available, and includes composed stored-norm paths (`dist_with_stored_norms`) plus the cosine query-norm fallback (`dist_with_query_norm`) when supported.
+4.  **`bench_compute`**: A native benchmark executable under `src/core/compute` that measures the direct Highway kernels and composed scan-time score paths for the selected metric, type, and dimension. It always reports `dist`, adds `dot` and `squared_norm` whenever those kernels are available, and includes composed stored-norm paths (`dist_with_stored_norms`) plus the cosine query-norm fallback (`dist_with_query_norm`) when supported.
 5.  **`common.py`**: Shared utility library containing configuration logic, binary discovery, query generation, and small reporting helpers. It imports shared vector logic from the central `sketch2_test_vectors.py` module.
 6.  **`sketch2_test_vectors.py`**: (Located in `src/pytest`) The authoritative source for all shared vector generation, quantization, formatting, and score functions used across tests and demos.
 
@@ -26,14 +26,14 @@ The harness consists of six main components:
 The driver is a Python script with a small shell wrapper that manages the lifecycle of a performance run.
 
 - **Environment Setup**: Applies defaults for all `COMPUTE_PERF_TEST_*` variables only when they are not already set (see [Configuration](#configuration)) and exports a diagnostic directory path for child processes.
-- **Runtime Selection**: Perf runs intentionally use release artifacts only from `REPO_ROOT/bin`. The driver uses `Sketch2.compute_engine()` backed by the `sk_compute_engine()` API from the selected `libsketch2.so` to confirm the expected runtime label.
+- **Runtime Identification**: Perf runs intentionally use release artifacts only from `REPO_ROOT/bin`. The driver uses `Sketch2.compute_engine()` backed by the `sk_compute_engine()` API from the selected `libsketch2.so` to confirm the compiled runtime label.
 - **Persistent Cache**: By default, uses a fixed dataset cache root at `/tmp/sketch2_tests_compute_perf`. If `SKETCH2_CONFIG_ROOT` is set externally, the driver uses that directory instead.
 - **Metadata Authority**: The cache root stores `dataset_metadata.json`. When that file exists, its dataset shape (`count`, `dims`, `k`, `type`, `dist`, `range_size`, dataset name) overrides the driver defaults and is reported in the driver output.
 - **Workflow**:
     1.  If the cache root does not exist, runs `initializer.py` once to create all datasets, then writes `dataset_metadata.json`.
     2.  If the cache root already exists, requires `dataset_metadata.json` and reuses the existing datasets instead of regenerating them.
     3.  Verifies the existence of all dataset directories described by the metadata.
-    4.  For each score function, runs `runner.py` against the single runtime reported by the loaded library.
+    4.  For each score function, runs `runner.py` against the single Highway runtime reported by the loaded library.
     5.  Captures stdout and stderr for each initializer/runner invocation into separate log files.
     6.  Runs `reporter.py` at the end so each harness invocation emits the summary tables for the just-collected logs.
 - **Crash Diagnostics**: Requests core dumps when the platform allows them, logs the current core-dump limit and core pattern, writes a `run_env.txt` snapshot of the exported harness variables, and points to per-runtime diagnostic files and repro scripts when a runner fails.
@@ -51,9 +51,9 @@ The initializer prepares the database for benchmarking.
 
 ## 3. Runner (`runner.py`)
 
-The runner performs the measurements for a single runtime.
+The runner performs the measurements for the compiled Highway runtime.
 
-- **Per-Metric Isolation**: Launches a child Python process for each score function. This localizes native crashes so the failing runtime/metric pair is explicit.
+- **Per-Metric Isolation**: Launches a child Python process for each score function. This localizes native crashes so the failing metric pair is explicit.
 - **Kernel Benchmark Layer**: When `kernel` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, runs the native `bench_compute` executable first and records direct-kernel timings without any dataset traversal, heap maintenance, or scanner logic. This makes it much easier to distinguish kernel regressions from scan-path overhead.
 - **Warm-up**: Executes one un-timed KNN query to ensure caches are primed and any lazy-initialization overhead is excluded from the performance report.
 - **Scan Benchmark Layer**: When `scan` is enabled in `COMPUTE_PERF_TEST_BENCHMARKS`, executes `COMPUTE_PERF_TEST_REPEAT` iterations of a KNN query.
@@ -89,7 +89,7 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_TEST_TYPE` | Data type of vectors (`f32`, `f16`, `i16`). | `f32` |
 | `COMPUTE_PERF_TEST_DIST` | Comma-separated list of score functions. | `cos,l2,dot` |
 | `COMPUTE_PERF_TEST_RANGE_SIZE` | Dataset range size used at creation time. | `10000` |
-| `COMPUTE_PERF_RUNTIME_LABEL` | Runtime label shown in the final summary tables. The driver sets this from `sk_compute_engine()`. | detected from `sk_compute_engine()` |
+| `COMPUTE_PERF_RUNTIME_LABEL` | Runtime label shown in the final summary tables. The driver sets this from `sk_compute_engine()`. | `highway` |
 | `COMPUTE_PERF_TEST_BENCHMARKS` | Comma-separated benchmark layers to run. Supported values: `scan`, `kernel`. | `scan,kernel` |
 | `COMPUTE_PERF_TEST_LOG_LEVEL` | Log level for the Sketch2 runtime. | `ERROR` |
 | `COMPUTE_PERF_TEST_THREAD_POOL_SIZE` | Internal thread pool size for Sketch2. | `1` |

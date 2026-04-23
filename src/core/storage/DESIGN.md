@@ -188,13 +188,13 @@ Scanner
 The query path now lives under `core/compute`.
 
 `Scanner` is the main facade used by higher-level code. It delegates a query
-to the configured compute engine and then runs one specialized path for:
+to the Highway compute layer and then runs one specialized path for:
 
   - distance function
   - vector element type
   - backend-specific kernel set
 
-The current backend implementations are:
+The scanner implementation lives in:
 
   - `highway.cpp` for the Highway-backed build
 
