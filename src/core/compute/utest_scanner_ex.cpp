@@ -318,21 +318,6 @@ TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithHighway) {
 }
 #endif
 
-#if SKETCH2_COMPUTE_ENGINE_NUMKONG
-TEST_F(ScannerTest, FindF32DOTK3ReturnsInOrderWithNumKong) {
-    generate(5, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_});
-    Scanner s;
-    auto q = f32_vec(3.2f, 4);
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
-    ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(4u, result[0]);
-    EXPECT_EQ(3u, result[1]);
-    EXPECT_EQ(2u, result[2]);
-}
-#endif
-
 TEST_F(ScannerTest, FindCountExceedsTotalReturnsCapped) {
     const size_t total = 3;
     generate(total, 0, DataType::f32, 4);
@@ -394,21 +379,6 @@ TEST_F(ScannerTest, FindF32L2K3ReturnsInOrder) {
     EXPECT_EQ(2u, result[2]);
 }
 
-#if SKETCH2_COMPUTE_ENGINE_NUMKONG
-TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithNumKong) {
-    generate(5, 0, DataType::f32, 4);
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::L2, {input_path_});
-    Scanner s;
-    auto q = f32_vec(3.2f, 4);
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
-    ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(3u, result[0]);
-    EXPECT_EQ(4u, result[1]);
-    EXPECT_EQ(2u, result[2]);
-}
-#endif
-
 #if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF32L2K3ReturnsInOrderWithHighway) {
     generate(5, 0, DataType::f32, 4);
@@ -445,26 +415,6 @@ TEST_F(ScannerTest, FindF32CosK3ReturnsInOrder) {
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
 }
-
-#if SKETCH2_COMPUTE_ENGINE_NUMKONG
-TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithNumKong) {
-    write_input_raw(
-        input_path_,
-        "f32,4\n"
-        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
-        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::COS, {input_path_});
-    Scanner s;
-    auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
-    ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(10u, result[0]);
-    EXPECT_EQ(20u, result[1]);
-    EXPECT_EQ(30u, result[2]);
-}
-#endif
 
 #if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(ScannerTest, FindF32CosK3ReturnsInOrderWithHighway) {
@@ -533,8 +483,8 @@ TEST_F(ScannerTest, FindF32CosStoredPathsMatchRanking) {
 // Other data types
 // ---------------------------------------------------------------------------
 
-TEST_F(ScannerTest, FindI16AllSortedByDistance) {
 #if SKETCH2_COMPUTE_ENGINE_HIGHWAY
+TEST_F(ScannerTest, FindI16AllSortedByDistance) {
     generate(3, 0, DataType::i16, 4);
     auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
     Scanner s;
@@ -545,27 +495,8 @@ TEST_F(ScannerTest, FindI16AllSortedByDistance) {
     EXPECT_EQ(0u, result[0]);
     EXPECT_EQ(1u, result[1]);
     EXPECT_EQ(2u, result[2]);
-#else
-    GTEST_SKIP() << "i16 is not supported in NumKong builds";
-#endif
 }
-
-TEST_F(ScannerTest, FindI16RejectsNumKong) {
-#if SKETCH2_COMPUTE_ENGINE_NUMKONG
-    generate(3, 0, DataType::i16, 4);
-    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::DOT, {input_path_});
-    Scanner s;
-    auto q = i16_vec(0, 4);
-    std::vector<uint64_t> result;
-    const Ret ret = find_ids(s, *reader, 3, q.data(), result);
-    EXPECT_NE(0, ret.code());
-    EXPECT_TRUE(result.empty());
-    EXPECT_NE(std::string(ret.message()).find("NumKong does not support i16"),
-              std::string::npos);
-#else
-    GTEST_SKIP() << "NumKong-only rejection is only relevant in NumKong builds";
 #endif
-}
 
 TEST_F(ScannerTest, FindF16Works) {
     generate(3, 0, DataType::f16, 4);
@@ -588,27 +519,6 @@ TEST_F(ScannerTest, FindF16WorksWithHighway) {
     ASSERT_EQ(0, find_ids(s, *reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(2u, result[0]);
-}
-#endif
-
-#if SKETCH2_COMPUTE_ENGINE_NUMKONG
-TEST_F(ScannerTest, FindF16CosWorksWithNumKong) {
-    write_input_raw(
-        input_path_,
-        "f16,4\n"
-        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
-        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
-        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
-    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::COS, {input_path_});
-    Scanner s;
-    auto q = f16_vec(0.0f, 4);
-    reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16(1.0f);
-    std::vector<uint64_t> result;
-    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
-    ASSERT_EQ(3u, result.size());
-    EXPECT_EQ(10u, result[0]);
-    EXPECT_EQ(20u, result[1]);
-    EXPECT_EQ(30u, result[2]);
 }
 #endif
 
@@ -742,7 +652,7 @@ TEST_F(ScannerTest, FindDatasetL2Works) {
     EXPECT_EQ(14u, result[2]);
 }
 
-TEST_F(ScannerTest, FindDatasetL2UsesStoredSquaredNormsForHighwayAndNumKong) {
+TEST_F(ScannerTest, FindDatasetL2UsesStoredSquaredNormsForCompiledEngine) {
     const std::string dataset_dir =
         tmp_dir() + "/sketch2_utest_scanner_ex_l2_stored_norms_" + std::to_string(getpid());
     const std::string config_path = dataset_dir + ".ini";

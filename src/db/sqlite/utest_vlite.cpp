@@ -36,13 +36,11 @@ using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
 
 constexpr const char* kScenarioEnv = "SKETCH2API_VLITE_COMPUTE_SCENARIO";
 
-#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
-constexpr const char* kCompiledEngine = "highway";
-#elif SKETCH2_COMPUTE_ENGINE_NUMKONG
-constexpr const char* kCompiledEngine = "numkong";
-#else
-#error "Exactly one calc engine must be compiled."
-#endif
+std::string compiled_engine_name() {
+    char buf[32] = {};
+    sk_compute_engine(buf, static_cast<int>(sizeof(buf)));
+    return buf;
+}
 
 class EnvVarGuard {
 public:
@@ -315,7 +313,7 @@ TEST_F(VliteTest, ChildScenario) {
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
 
-    EXPECT_EQ(kCompiledEngine, loaded_knn_engine_name());
+    EXPECT_EQ(compiled_engine_name(), loaded_knn_engine_name());
 
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "
@@ -372,10 +370,8 @@ TEST_F(VliteTest, UsesDatasetScoreFunctionForL2Queries) {
     EXPECT_NEAR(9.0, rows[1].second, 1e-9);
 }
 
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(VliteTest, SupportsI16Datasets) {
-#if SKETCH2_COMPUTE_ENGINE_NUMKONG
-    GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
-#endif
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");
@@ -395,6 +391,7 @@ TEST_F(VliteTest, SupportsI16Datasets) {
     EXPECT_NEAR(440.0, rows[0].second, 1e-9);
     EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
+#endif
 
 TEST_F(VliteTest, SupportsF16Datasets) {
     write_input("f16,4\n"
@@ -697,10 +694,8 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF32L2Dataset) {
     EXPECT_NEAR(9.0, rows[1].second, 1e-9);
 }
 
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
-#if SKETCH2_COMPUTE_ENGINE_NUMKONG
-    GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
-#endif
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");
@@ -720,6 +715,7 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForI16Dataset) {
     EXPECT_NEAR(440.0, rows[0].second, 1e-9);
     EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
+#endif
 
 TEST_F(VliteTest, SpaceDelimitedQueryWorksForF16Dataset) {
     write_input("f16,4\n"
@@ -808,10 +804,8 @@ TEST_F(VliteTest, AtPrefixLoadsVectorFromSpaceDelimitedFile) {
     EXPECT_NEAR(9.0, rows[1].second, 1e-9);
 }
 
+#if SKETCH2_COMPUTE_ENGINE_HIGHWAY
 TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
-#if SKETCH2_COMPUTE_ENGINE_NUMKONG
-    GTEST_SKIP() << "i16 queries are unsupported in NumKong builds";
-#endif
     write_input("i16,4\n"
                 "10 : [ 10, 10, 10, 10 ]\n"
                 "20 : [ 11, 11, 11, 11 ]\n");
@@ -833,6 +827,7 @@ TEST_F(VliteTest, AtPrefixWorksWithI16Dataset) {
     EXPECT_NEAR(440.0, rows[0].second, 1e-9);
     EXPECT_NEAR(400.0, rows[1].second, 1e-9);
 }
+#endif
 
 TEST_F(VliteTest, AtPrefixWorksWithF16Dataset) {
     write_input("f16,4\n"

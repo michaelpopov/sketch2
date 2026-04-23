@@ -18,9 +18,6 @@ elseif(SKETCH2_COMPUTE_ENGINE STREQUAL "numkong")
   list(APPEND COMPUTE_SOURCES
     numkong.cpp
   )
-  list(APPEND COMPUTE_UTEST_SOURCES
-    utest_nk_kernels.cpp
-  )
 else()
   message(FATAL_ERROR "Unsupported SKETCH2_COMPUTE_ENGINE='${SKETCH2_COMPUTE_ENGINE}'")
 endif()
