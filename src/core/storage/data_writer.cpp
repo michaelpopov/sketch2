@@ -9,13 +9,10 @@
 #include "core/utils/shared_consts.h"
 #include "core/utils/timer.h"
 #include <algorithm>
-#include <experimental/scope>
 #include <cstdint>
-#include <cstdio>
 #include <vector>
 #include <cassert>
 #include <limits>
-#include <unistd.h>
 
 namespace sketch2 {
 
@@ -38,35 +35,6 @@ Ret validate_active_range_u32(const IdStats& stats, uint64_t min_range_id) {
     }
     if (stats.max_id - min_range_id > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
         return Ret("DataWriter: data file range exceeds uint32_t");
-    }
-
-    return Ret(0);
-}
-
-Ret scan_ids(const InputReaderView& reader, IdStats* stats) {
-    const size_t count = reader.count();
-    uint64_t prev_id = 0;
-
-    for (size_t i = 0; i < count; ++i) {
-        const uint64_t id = reader.id(i);
-        if (i > 0 && prev_id >= id) {
-            return Ret("Invalid order of ids in input data.");
-        }
-        prev_id = id;
-
-        if (reader.is_no_data(i)) {
-            ++stats->deleted_count;
-            continue;
-        }
-
-        stats->min_id = std::min(stats->min_id, id);
-        stats->max_id = std::max(stats->max_id, id);
-        ++stats->active_count;
-    }
-
-    if (stats->deleted_count == count) {
-        stats->min_id = 0;
-        stats->max_id = 0;
     }
 
     return Ret(0);
@@ -95,7 +63,6 @@ Ret write_vector_section(
             case DistFunc::DOT:
                 return;
             default:
-                assert(false && "write_vector_section: unsupported distance function");
                 throw std::runtime_error("write_vector_section: unsupported distance function");
         }
     };
@@ -129,63 +96,70 @@ Ret write_vector_section(
     return Ret(0);
 }
 
-Ret build_roaring_ids(
+Ret increment_count(uint32_t* count, const char* error_message) {
+    if (*count == std::numeric_limits<uint32_t>::max()) {
+        return Ret(error_message);
+    }
+    ++(*count);
+    return Ret(0);
+}
+
+Ret build_roaring_ids_and_stats(
         const InputReaderView& reader,
         uint64_t min_range_id,
+        IdStats* stats,
         RoaringIds* active_ids,
         RoaringIds* deleted_ids) {
+    if (stats == nullptr) {
+        return Ret("DataWriter: missing id stats output");
+    }
     CHECK(active_ids->init_writable(min_range_id));
     CHECK(deleted_ids->init_writable(min_range_id));
 
-    bool have_prev_active_id = false;
-    bool have_prev_deleted_id = false;
-    uint64_t prev_active_id = 0;
-    uint64_t prev_deleted_id = 0;
+    uint64_t prev_id = 0;
 
     for (size_t i = 0; i < reader.count(); ++i) {
         const uint64_t id = reader.id(i);
+        if (i > 0 && prev_id >= id) {
+            return Ret("Invalid order of ids in input data.");
+        }
+        prev_id = id;
+
         if (reader.is_no_data(i)) {
-            if (have_prev_deleted_id && id <= prev_deleted_id) {
-                return Ret("DataWriter: deleted ids: ids must be strictly increasing");
-            }
             if (id < min_range_id) {
                 return Ret("DataWriter: deleted ids: id is below min_range_id");
             }
             if (id - min_range_id > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
                 return Ret("DataWriter: deleted ids: id range exceeds uint32_t");
             }
+            CHECK(increment_count(
+                &stats->deleted_count,
+                "DataWriter: deleted id count exceeds uint32_t"));
             CHECK(deleted_ids->add(id));
-            prev_deleted_id = id;
-            have_prev_deleted_id = true;
             continue;
         }
 
-        if (have_prev_active_id && id <= prev_active_id) {
-            return Ret("DataWriter: active ids: ids must be strictly increasing");
-        }
         if (id < min_range_id) {
             return Ret("DataWriter: active ids: min id is below min_range_id");
         }
         if (id - min_range_id > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret("DataWriter: active ids: id range exceeds uint32_t");
+            return Ret("DataWriter: data file range exceeds uint32_t");
         }
+        CHECK(increment_count(
+            &stats->active_count,
+            "DataWriter: active id count exceeds uint32_t"));
+        stats->min_id = std::min(stats->min_id, id);
+        stats->max_id = std::max(stats->max_id, id);
         CHECK(active_ids->add(id));
-        prev_active_id = id;
-        have_prev_active_id = true;
+    }
+
+    if (stats->active_count == 0) {
+        stats->min_id = 0;
+        stats->max_id = 0;
     }
 
     active_ids->compact();
     deleted_ids->compact();
-    return Ret(0);
-}
-
-Ret finalize_output_file(FILE* f) {
-    const int flush_ret = fflush(f);
-    const int sync_ret = fsync(fileno(f));
-    const int close_ret = fclose(f);
-    if (flush_ret != 0 || sync_ret != 0 || close_ret != 0) {
-        return Ret("DataWriter: failed to flush and close file");
-    }
     return Ret(0);
 }
 
@@ -222,12 +196,10 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     }
 
     IdStats stats;
-    CHECK(scan_ids(reader, &stats));
-    CHECK(validate_active_range_u32(stats, min_range_id));
-
     RoaringIds active_ids;
     RoaringIds deleted_ids;
-    CHECK(build_roaring_ids(reader, min_range_id, &active_ids, &deleted_ids));
+    CHECK(build_roaring_ids_and_stats(reader, min_range_id, &stats, &active_ids, &deleted_ids));
+    CHECK(validate_active_range_u32(stats, min_range_id));
     const size_t active_ids_bytes = serialized_bytes_or_zero(active_ids);
     const size_t deleted_ids_bytes = serialized_bytes_or_zero(deleted_ids);
 
@@ -247,52 +219,29 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
         active_ids_bytes,
         deleted_ids_bytes));
 
-    // Write output file
-    FILE *f = fopen(output_path.c_str(), "w+b");
-    if (!f) {
-        return Ret("DataWriter: failed to open output file: " + output_path);
-    }
+    OutputFile out;
+    CHECK(out.open(output_path, "DataWriter"));
 
-    // Use a larger stdio buffer to reduce write-related syscalls for large datasets.
-    std::vector<char> file_buffer(kFileBufferSize);
-    (void)setvbuf(f, file_buffer.data(), _IOFBF, file_buffer.size());
-
-    std::experimental::scope_exit file_guard([&f]() {
-        if (f) fclose(f);
-    });
-
-    // Write header
     static_assert(sizeof(hdr) % 8 == 0);
-    CHECK(write_header_and_data_padding(f, hdr, "DataWriter"));
+    CHECK(write_header_and_data_padding(out.file(), hdr, "DataWriter"));
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, stats.active_count);
     const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
         metadata_layout.ids_trailer_offset, active_ids_bytes, deleted_ids_bytes);
-    CHECK(write_vector_section(f, reader, hdr, dist_func));
-    CHECK(write_zero_padding(f, metadata_layout.vectors_padding,
+    CHECK(write_vector_section(out.file(), reader, hdr, dist_func));
+    CHECK(write_zero_padding(out.file(), metadata_layout.vectors_padding,
         "DataWriter: failed to write ids alignment padding"));
 
     CHECK(write_roaring_ids_trailer_mmap(
-        f,
+        out.file(),
         active_ids,
         deleted_ids,
         trailer_layout,
         "DataWriter"));
 
-#ifndef NDEBUG
-    const long file_pos_after_ids = ftell(f);
-    const long expected_file_pos_after_ids =
-        static_cast<long>(trailer_layout.file_size);
-    assert(file_pos_after_ids == expected_file_pos_after_ids);
-#endif
+    assert(ftell(out.file()) == static_cast<long>(trailer_layout.file_size));
 
-    const Ret finalize_ret = finalize_output_file(f);
-    f = nullptr;
-    if (finalize_ret.code() != 0) {
-        return finalize_ret;
-    }
-
-    return Ret(0);
+    return out.flush_and_close("DataWriter");
 }
 
 } // namespace sketch2

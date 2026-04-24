@@ -2,14 +2,37 @@
 
 #pragma once
 #include "core/storage/data_file.h"
+#include "core/storage/data_file_norms.h"
 #include "utils/roaring_ids.h"
 #include "utils/shared_types.h"
 #include <cassert>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace sketch2 {
+
+// RAII wrapper for a buffered output file. Both DataWriter and DataMerger
+// produce data files with the same open/setvbuf/flush+fsync+close lifecycle;
+// this class encapsulates it so callers cannot leak handles on early returns.
+class OutputFile {
+public:
+    OutputFile() = default;
+    OutputFile(const OutputFile&) = delete;
+    OutputFile& operator=(const OutputFile&) = delete;
+    OutputFile(OutputFile&&) = delete;
+    OutputFile& operator=(OutputFile&&) = delete;
+    ~OutputFile();
+
+    Ret open(const std::string& path, const std::string& context);
+    FILE* file() const { return f_; }
+    Ret flush_and_close(const std::string& context);
+
+private:
+    FILE* f_ = nullptr;
+    std::vector<char> file_buffer_;
+};
 
 struct DataRecordLayout {
     size_t vector_size = 0;
@@ -34,63 +57,6 @@ struct RoaringIdsTrailerLayout {
     size_t deleted_ids_offset = 0;
     size_t file_size = 0;
 };
-
-inline uint32_t data_file_norm_flags(const DataFileHeader& hdr) {
-    return hdr.flags & kDataFileNormKindMask;
-}
-
-inline bool data_file_has_norms(const DataFileHeader& hdr) {
-    return data_file_norm_flags(hdr) != 0u;
-}
-
-inline bool data_file_has_cosine_inv_norms(const DataFileHeader& hdr) {
-    return data_file_norm_flags(hdr) == kDataFileHasCosineInvNorms;
-}
-
-inline bool data_file_has_squared_norms(const DataFileHeader& hdr) {
-    return data_file_norm_flags(hdr) == kDataFileHasSquaredNorms;
-}
-
-inline uint32_t data_file_norm_flags_for_dist(DistFunc dist_func) {
-    switch (dist_func) {
-        case DistFunc::COS:
-            return kDataFileHasCosineInvNorms;
-        case DistFunc::L2:
-            return kDataFileHasSquaredNorms;
-        case DistFunc::DOT:
-            return 0u;
-        default:
-            throw std::runtime_error("data_file_norm_flags_for_dist: unsupported distance function");
-    }
-}
-
-inline bool data_file_has_valid_norm_flags(const DataFileHeader& hdr) {
-    const uint32_t norm_flags = data_file_norm_flags(hdr);
-    return norm_flags == 0u
-        || norm_flags == kDataFileHasCosineInvNorms
-        || norm_flags == kDataFileHasSquaredNorms;
-}
-
-inline bool data_file_matches_stored_norms_dist(const DataFileHeader& hdr, DistFunc dist_func) {
-    return data_file_norm_flags(hdr) == data_file_norm_flags_for_dist(dist_func);
-}
-
-inline DistFunc dist_func_for_data_file_norm_flags(uint32_t norm_flags) {
-    switch (norm_flags) {
-        case 0u:
-            return DistFunc::DOT;
-        case kDataFileHasCosineInvNorms:
-            return DistFunc::COS;
-        case kDataFileHasSquaredNorms:
-            return DistFunc::L2;
-        default:
-            throw std::runtime_error("dist_func_for_data_file_norm_flags: invalid norm flags");
-    }
-}
-
-inline bool dataset_requires_stored_norms(DistFunc dist_func) {
-    return dist_func == DistFunc::COS || dist_func == DistFunc::L2;
-}
 
 inline size_t compute_vector_size(DataType type, uint16_t dim) {
     return static_cast<size_t>(dim) * data_type_size(type);
@@ -209,92 +175,17 @@ Ret write_roaring_ids_trailer_mmap(FILE* f,
 
 Ret write_zero_padding(FILE* f, size_t size, const std::string& error_message);
 
-inline Ret write_header_and_data_padding(FILE* f, const DataFileHeader& hdr, const std::string& context) {
-    if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
-        return Ret(context + ": failed to write header");
-    }
-
-    const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
-    return write_zero_padding(f, pad_size, context + ": failed to write alignment padding");
-}
+Ret write_header_and_data_padding(FILE* f, const DataFileHeader& hdr, const std::string& context);
 
 Ret rewrite_header(FILE* f, const DataFileHeader& hdr, const std::string& context);
 
-inline Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, size_t vector_stride,
-        const std::string& context) {
-    if (data == nullptr) {
-        return Ret(context + ": missing vector data");
-    }
-    if (vec_size == 0 || vector_stride < vec_size) {
-        return Ret(context + ": invalid vector stride");
-    }
-    if (fwrite(data, vec_size, 1, f) != 1) {
-        return Ret(context + ": failed to write vector data");
-    }
-    if (vector_stride == vec_size) {
-        return Ret(0);
-    }
+Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, size_t vector_stride,
+        const std::string& context);
 
-    constexpr uint8_t kZeroPadding[kDataAlignment] = {};
-    const size_t padding_size = vector_stride - vec_size;
-    if (padding_size > sizeof(kZeroPadding)) {
-        return Ret(context + ": invalid vector padding size");
-    }
-    if (fwrite(kZeroPadding, 1, padding_size, f) != padding_size) {
-        return Ret(context + ": failed to write vector padding");
-    }
-    return Ret(0);
-}
-
-inline Ret write_data_record(FILE* f,
+Ret write_data_record(FILE* f,
         const uint8_t* data,
         const DataRecordLayout& layout,
         const float* norm,
-        const std::string& context) {
-    if (data == nullptr) {
-        return Ret(context + ": missing vector data");
-    }
-    if (layout.vector_size == 0 || layout.stride < layout.vector_size) {
-        return Ret(context + ": invalid vector stride");
-    }
-    if (norm != nullptr && layout.norm_offset + sizeof(float) > layout.stride) {
-        return Ret(context + ": invalid inline norm layout");
-    }
-
-    if (fwrite(data, layout.vector_size, 1, f) != 1) {
-        return Ret(context + ": failed to write vector data");
-    }
-
-    constexpr uint8_t kZeroPadding[kDataAlignment] = {};
-    const size_t bytes_before_norm = norm != nullptr
-        ? layout.norm_offset - layout.vector_size
-        : layout.stride - layout.vector_size;
-    // Valid layouts keep padding within one alignment block; retain the runtime guard so
-    // release builds still fail cleanly if a caller constructs a malformed layout by hand.
-    assert(bytes_before_norm <= sizeof(kZeroPadding));
-    if (bytes_before_norm > sizeof(kZeroPadding)) {
-        return Ret(context + ": invalid vector padding size");
-    }
-    if (bytes_before_norm > 0 && fwrite(kZeroPadding, 1, bytes_before_norm, f) != bytes_before_norm) {
-        return Ret(context + ": failed to write vector padding");
-    }
-
-    if (norm != nullptr) {
-        if (fwrite(norm, sizeof(float), 1, f) != 1) {
-            return Ret(context + ": failed to write inline norm");
-        }
-        const size_t bytes_after_norm = layout.stride - (layout.norm_offset + sizeof(float));
-        // Same belt-and-suspenders check as above for malformed externally-constructed layouts.
-        assert(bytes_after_norm <= sizeof(kZeroPadding));
-        if (bytes_after_norm > sizeof(kZeroPadding)) {
-            return Ret(context + ": invalid inline norm padding size");
-        }
-        if (bytes_after_norm > 0 && fwrite(kZeroPadding, 1, bytes_after_norm, f) != bytes_after_norm) {
-            return Ret(context + ": failed to write inline norm padding");
-        }
-    }
-
-    return Ret(0);
-}
+        const std::string& context);
 
 } // namespace sketch2

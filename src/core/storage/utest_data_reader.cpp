@@ -315,6 +315,19 @@ TEST_F(DataReaderTest, FailsOnPreviousVersionHardCutover) {
     EXPECT_NE(0, ret.code());
 }
 
+TEST_F(DataReaderTest, FailsWhenDimensionExceedsMaximum) {
+    const uint16_t dim = static_cast<uint16_t>(kMaxDimension + 1);
+    const std::vector<std::vector<uint8_t>> vecs = {
+        std::vector<uint8_t>(compute_vector_size(DataType::f32, dim), 0),
+    };
+    write_raw(DataType::f32, dim, 0, vecs);
+
+    DataReader r;
+    const Ret ret = r.init(data_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("dimension out of range"));
+}
+
 TEST_F(DataReaderTest, FailsOnInvalidCombinedNormFlags) {
     generate(1, 0, DataType::f32, 4);
     FILE* f = fopen(data_path_.c_str(), "r+b");

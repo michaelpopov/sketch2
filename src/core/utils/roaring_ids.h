@@ -91,6 +91,9 @@ public:
     // structure.
     size_t lower_bound_index(uint64_t id) const;
 
+    // Find the exact index of an id in the underlying CRoaring structure.
+    bool find_index(uint64_t id, size_t* index) const;
+
     // Generate a frozen view of the underlying CRoaring instance
     // and copy it into the buffer.
     Ret serialize(char* buffer) const;

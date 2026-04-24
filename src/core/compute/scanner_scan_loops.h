@@ -48,21 +48,21 @@ inline bool bitset_contains_id(const BitsetFilter* bitset, uint64_t id) {
 template <bool HasBitset, typename PushFn>
 inline void scan_reader_records(const DataReader& reader, size_t start_index, size_t end_index,
         const BitsetFilter* bitset, const PushFn& push_fn) {
-    size_t index = start_index;
-    while (index < end_index) {
-        const uint64_t id = reader.id_unchecked(index);
-        const size_t next_index = index + 1;
+    auto cursor = reader.base_scan_cursor_unchecked(start_index);
+    while (cursor.index() < end_index) {
+        const uint64_t id = cursor.id();
+        const size_t next_index = cursor.index() + 1;
         if (next_index < end_index) {
             prefetch_vector_record(reader.record_unchecked(next_index));
         }
         if constexpr (HasBitset) {
             if (!bitset_contains_id(bitset, id)) {
-                index = next_index;
+                cursor.advance_to(next_index);
                 continue;
             }
         }
-        push_fn(id, reader.record_unchecked(index));
-        index = next_index;
+        push_fn(id, cursor.record());
+        cursor.advance_to(next_index);
     }
 }
 
@@ -79,21 +79,21 @@ inline void scan_visible_base_records(const DataReader& reader,
         return;
     }
 
-    size_t index = reader.first_visible_base_index_unchecked();
-    while (index < end_index) {
-        const uint64_t id = reader.id_unchecked(index);
-        const size_t next_index = reader.next_visible_base_index_unchecked(index + 1);
+    auto cursor = reader.base_scan_cursor_unchecked(reader.first_visible_base_index_unchecked());
+    while (cursor.index() < end_index) {
+        const uint64_t id = cursor.id();
+        const size_t next_index = reader.next_visible_base_index_unchecked(cursor.index() + 1);
         if (next_index < end_index) {
             prefetch_vector_record(reader.record_unchecked(next_index));
         }
         if constexpr (HasBitset) {
             if (!bitset_contains_id(bitset, id)) {
-                index = next_index;
+                cursor.advance_to(next_index);
                 continue;
             }
         }
-        push_fn(id, reader.record_unchecked(index));
-        index = next_index;
+        push_fn(id, cursor.record());
+        cursor.advance_to(next_index);
     }
 }
 

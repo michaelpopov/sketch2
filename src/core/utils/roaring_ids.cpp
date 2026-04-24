@@ -233,6 +233,31 @@ size_t RoaringIds::lower_bound_index(uint64_t id) const {
     return static_cast<size_t>(roaring::api::roaring_bitmap_rank(bitmap(), offset32));
 }
 
+bool RoaringIds::find_index(uint64_t id, size_t* index) const {
+    if (index != nullptr) {
+        *index = npos;
+    }
+    if (bitmap() == nullptr || id < base_) {
+        return false;
+    }
+
+    const uint64_t offset = id - base_;
+    if (offset > std::numeric_limits<uint32_t>::max()) {
+        return false;
+    }
+
+    const int64_t exact_index =
+        roaring::api::roaring_bitmap_get_index(bitmap(), static_cast<uint32_t>(offset));
+    if (exact_index < 0) {
+        return false;
+    }
+
+    if (index != nullptr) {
+        *index = static_cast<size_t>(exact_index);
+    }
+    return true;
+}
+
 Ret RoaringIds::serialize(char* buffer) const {
     if (bitmap() == nullptr) {
         return Ret("RoaringIds::serialize: bitmap is not initialized");

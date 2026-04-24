@@ -13,20 +13,11 @@
 #include <cassert>
 #include <filesystem>
 #include <limits>
-#include <stdio.h>
-#include <errno.h>
-#include <string.h>
-#include <unistd.h>
 #include <utility>
 
 namespace sketch2 {
 
 namespace {
-
-// Small forward declarations so the RAII helpers below can call the low-level
-// file utilities that are defined later in this anonymous namespace.
-void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer);
-Ret flush_and_close_merge_file(FILE** f, const char* context);
 
 float compute_stored_norm_for_dist(const uint8_t* data, DataType type, size_t dim, DistFunc dist_func) {
     switch (dist_func) {
@@ -53,40 +44,21 @@ public:
     // The final counts/min/max ids are not known yet, so they are patched in at
     // the end once the merge body and trailing sections have been written.
     Ret open(const DataReader& source, uint32_t norm_flags, const std::string& path, const char* context) {
-        f_ = fopen(path.c_str(), "w+b");
-        if (!f_) {
-            return Ret(strerror(errno));
-        }
-
-        set_merge_file_buffer(f_, &file_buffer_);
+        CHECK(out_.open(path, context));
         header_ = make_data_header(
             0, 0, source.min_range_id(), 0, 0, source.type(), static_cast<uint16_t>(source.dim()), norm_flags);
-        Ret ret = write_header_and_data_padding(f_, header_, context);
-        if (ret.code() != 0) {
-            fclose(f_);
-            f_ = nullptr;
-        }
-        return ret;
+        return write_header_and_data_padding(out_.file(), header_, context);
     }
 
-    ~MergeFile() {
-        if (f_) {
-            fclose(f_);
-        }
-    }
-
-    FILE* file() const { return f_; }
+    FILE* file() const { return out_.file(); }
     DataFileHeader* header() { return &header_; }
 
-    // Completes the durable write path. The pointer-reset prevents the dtor from
-    // closing the same descriptor twice after ownership has conceptually ended.
     Ret flush_and_close(const char* context) {
-        return flush_and_close_merge_file(&f_, context);
+        return out_.flush_and_close(context);
     }
 
 private:
-    FILE* f_ = nullptr;
-    std::vector<char> file_buffer_;
+    OutputFile out_;
     DataFileHeader header_ = {};
 };
 
@@ -116,8 +88,7 @@ public:
     }
 
     // The text scratch buffer is only needed for direct-input text merges.
-    void reserve(size_t count, bool needs_text_buffer) {
-        (void)count;
+    void reserve(bool needs_text_buffer) {
         if (needs_text_buffer) {
             parsed_text_buffer_.resize(record_layout_.vector_size);
         }
@@ -228,20 +199,7 @@ public:
 
     bool eof() const { return iter_.eof(); }
     uint64_t id() const { return iter_.id(); }
-    void next() {
-        if (iter_.eof()) {
-            return;
-        }
-#ifndef NDEBUG
-        const uint64_t prev_id = iter_.id();
-#endif
-        iter_.next();
-#ifndef NDEBUG
-        if (!iter_.eof()) {
-            assert(prev_id < iter_.id());
-        }
-#endif
-    }
+    void next() { iter_.next(); }
 
     Ret write_current(MergeOutputWriter* output) const {
         float norm = 0.0f;
@@ -273,15 +231,7 @@ public:
     uint64_t id() const { return reader_.deleted_id(index_); }
     void next() {
         if (!eof()) {
-#ifndef NDEBUG
-            const uint64_t prev_id = reader_.deleted_id(index_);
-#endif
             ++index_;
-#ifndef NDEBUG
-            if (!eof()) {
-                assert(prev_id < reader_.deleted_id(index_));
-            }
-#endif
         }
     }
 
@@ -301,16 +251,8 @@ public:
     uint64_t id() const { return reader_.id(index_); }
     void next() {
         if (!eof()) {
-#ifndef NDEBUG
-            const uint64_t prev_id = reader_.id(index_);
-#endif
             ++index_;
             advance_to_live_row();
-#ifndef NDEBUG
-            if (!eof()) {
-                assert(prev_id < reader_.id(index_));
-            }
-#endif
         }
     }
 
@@ -353,16 +295,8 @@ public:
     uint64_t id() const { return reader_.id(index_); }
     void next() {
         if (!eof()) {
-#ifndef NDEBUG
-            const uint64_t prev_id = reader_.id(index_);
-#endif
             ++index_;
             advance_to_deleted_row();
-#ifndef NDEBUG
-            if (!eof()) {
-                assert(prev_id < reader_.id(index_));
-            }
-#endif
         }
     }
 
@@ -377,26 +311,15 @@ private:
     size_t index_ = 0;
 };
 
-template <typename UpdaterCursor>
-std::vector<uint64_t> collect_updater_live_ids(UpdaterCursor updater, size_t reserve_count) {
-    std::vector<uint64_t> live_ids;
-    live_ids.reserve(reserve_count);
-    for (; !updater.eof(); updater.next()) {
-        live_ids.push_back(updater.id());
-    }
-    return live_ids;
-}
-
-template <typename SourceDeletedCursor, typename UpdaterDeletedCursor>
+template <typename SourceDeletedCursor, typename UpdaterDeletedCursor, typename UpdaterLiveCursor>
 class DeltaDeleteCursor {
 public:
     DeltaDeleteCursor(SourceDeletedCursor source_deleted,
             UpdaterDeletedCursor updater_deleted,
-            const std::vector<uint64_t>* updater_live_ids)
+            UpdaterLiveCursor updater_live)
         : source_deleted_(std::move(source_deleted)),
           updater_deleted_(std::move(updater_deleted)),
-          updater_live_ids_(updater_live_ids) {
-        assert(updater_live_ids_ != nullptr);
+          updater_live_(std::move(updater_live)) {
         select_current();
     }
 
@@ -433,12 +356,10 @@ private:
     void skip_resurrected_source_deletes() {
         while (!source_deleted_.eof()) {
             const uint64_t source_id = source_deleted_.id();
-            while (updater_live_index_ < updater_live_ids_->size() &&
-                    (*updater_live_ids_)[updater_live_index_] < source_id) {
-                ++updater_live_index_;
+            while (!updater_live_.eof() && updater_live_.id() < source_id) {
+                updater_live_.next();
             }
-            if (updater_live_index_ < updater_live_ids_->size() &&
-                    (*updater_live_ids_)[updater_live_index_] == source_id) {
+            if (!updater_live_.eof() && updater_live_.id() == source_id) {
                 source_deleted_.next();
                 continue;
             }
@@ -482,8 +403,7 @@ private:
 
     SourceDeletedCursor source_deleted_;
     UpdaterDeletedCursor updater_deleted_;
-    const std::vector<uint64_t>* updater_live_ids_ = nullptr;
-    size_t updater_live_index_ = 0;
+    UpdaterLiveCursor updater_live_;
     uint64_t current_id_ = 0;
     bool has_current_ = false;
     CurrentSource current_source_ = CurrentSource::SourceOnly;
@@ -492,22 +412,39 @@ private:
 auto make_data_reader_delta_delete_cursor(
         const DataReader& source,
         const DataReader& updater,
-        const std::vector<uint64_t>* updater_live_ids) {
+        uint32_t target_norm_flags) {
     return DeltaDeleteCursor(
         DataReaderDeletedCursor(source),
         DataReaderDeletedCursor(updater),
-        updater_live_ids);
+        DataReaderLiveRowCursor(updater, target_norm_flags));
 }
 
 auto make_input_reader_delta_delete_cursor(
         const DataReader& source,
         const InputReaderView& updater,
-        const std::vector<uint64_t>* updater_live_ids) {
+        DistFunc dist_func,
+        bool compute_norms) {
     return DeltaDeleteCursor(
         DataReaderDeletedCursor(source),
         InputReaderDeletedCursor(updater),
-        updater_live_ids);
+        InputReaderUpdaterCursor(updater, dist_func, compute_norms));
 }
+
+class RoaringIdsCursor {
+public:
+    explicit RoaringIdsCursor(const RoaringIds& ids) : iter_(ids.begin()) {}
+
+    bool eof() const { return iter_.eof(); }
+    uint64_t id() const { return iter_.id(); }
+    void next() {
+        if (!iter_.eof()) {
+            iter_.next();
+        }
+    }
+
+private:
+    RoaringIds::Iterator iter_;
+};
 
 template <typename Cursor>
 Ret build_roaring_ids(Cursor cursor, uint64_t base, const char* context, RoaringIds* out) {
@@ -530,27 +467,6 @@ Ret build_roaring_ids(Cursor cursor, uint64_t base, const char* context, Roaring
         have_prev = true;
     }
     out->compact();
-    return Ret(0);
-}
-
-void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer) {
-    file_buffer->resize(kFileBufferSize);
-    (void)setvbuf(f, file_buffer->data(), _IOFBF, file_buffer->size());
-}
-
-// Merges are implemented as "write everything to a fresh file, then rename by
-// the caller". This helper makes the file durable before we report success.
-Ret flush_and_close_merge_file(FILE** f, const char* context) {
-    const int flush_ret = fflush(*f);
-    int fsync_ret = 0;
-    if (flush_ret == 0) {
-        fsync_ret = fsync(fileno(*f));
-    }
-    const int close_ret = fclose(*f);
-    *f = nullptr;
-    if (flush_ret != 0 || fsync_ret != 0 || close_ret != 0) {
-        return Ret(std::string(context) + ": failed to flush and close merge file");
-    }
     return Ret(0);
 }
 
@@ -652,28 +568,43 @@ void set_output_id_range(const MergeOutputWriter& output, DataFileHeader* header
     header->count = static_cast<uint32_t>(output.output_count());
 }
 
-} // namespace
+// Writes the trailer + final header for a merged file and flushes it durably.
+// Used by all four merge variants; for compact data merges, deleted_ids is
+// empty and deleted_count ends up zero.
+Ret finalize_merge_file(MergeFile* merge_file,
+        MergeOutputWriter* output,
+        const RoaringIds& deleted_ids,
+        const char* context) {
+    CHECK(output->write_ids_section(*merge_file->header(), deleted_ids));
+    merge_file->header()->deleted_count = static_cast<uint32_t>(deleted_ids.count());
+    set_output_id_range(*output, merge_file->header());
+    CHECK(set_data_header_layout(
+        merge_file->header(), output->output_ids_bytes(), output->deleted_ids_bytes()));
+    CHECK(rewrite_header(merge_file->file(), *merge_file->header(), context));
+    return merge_file->flush_and_close(context);
+}
 
-Ret DataMerger::merge_data_file(const DataReader& source, const DataReader& updater, const std::string& path) {
-    if (source.dim() != updater.dim() || source.type() != updater.type()) {
-        return Ret("DataMerger::merge_data_file: incompatible source and updater");
-    }
-
-    // The public wrapper is intentionally defensive: convert unexpected
-    // exceptions into Ret, and remove any partially-written destination file on
-    // failure so callers never observe a half-formed merge artifact.
+// Wraps a merge body with the standard failure contract: convert exceptions to
+// Ret, and remove any partial output file so callers either get a complete file
+// or no file.
+template <typename Fn>
+Ret run_merge(const std::string& path, Fn&& fn) {
     Ret ret(0);
     try {
-        ret = merge_data_file_(source, updater, path);
+        ret = fn();
     } catch (const std::exception& ex) {
         ret = Ret(ex.what());
     }
-
     if (ret.code() != 0 && std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
-
     return ret;
+}
+
+} // namespace
+
+Ret DataMerger::merge_data_file(const DataReader& source, const DataReader& updater, const std::string& path) {
+    return run_merge(path, [&]() { return merge_data_file_(source, updater, path); });
 }
 
 // Rewrites a full data file by merging persisted rows with another sorted file
@@ -681,6 +612,9 @@ Ret DataMerger::merge_data_file(const DataReader& source, const DataReader& upda
 Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
     if (source.dim() != updater.dim() || source.type() != updater.type()) {
         return Ret("DataMerger::merge_data_file: incompatible source and updater");
+    }
+    if (source.min_range_id() != updater.min_range_id()) {
+        return Ret("DataMerger::merge_data_file: incompatible source and updater range");
     }
     if (source.norm_flags() != updater.norm_flags()) {
         return Ret("DataMerger::merge_data_file: incompatible norm layout");
@@ -696,7 +630,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     CHECK(merge_file.open(source, source.norm_flags(), path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
-    output.reserve(source.count() + updater.count(), false);
+    output.reserve(false);
     CHECK(merge_records(
         source,
         DataReaderLiveRowCursor(updater, source.norm_flags()),
@@ -707,89 +641,36 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         &output));
     // After all vector records are streamed, write the trailing metadata needed
     // to reopen the new file as a normal compact `.data` file.
-    CHECK(output.write_ids_section(
-        *merge_file.header(),
-        {}));
-
-    set_output_id_range(output, merge_file.header());
-    CHECK(set_data_header_layout(
-        merge_file.header(), output.output_ids_bytes(), output.deleted_ids_bytes()));
-    CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files"));
-    Ret ret = merge_file.flush_and_close("DataMerger::merge_data_files");
+    const RoaringIds empty_deleted_ids;
+    const Ret ret = finalize_merge_file(&merge_file, &output, empty_deleted_ids, "DataMerger::merge_data_files");
 
     LOG_INFO << "Merged data file " << source.path() << " in " << timer.elapsed_ms() << " ms";
     return ret;
 }
 
 Ret DataMerger::merge_delta_file(const DataReader& source, const DataReader& updater, const std::string& path) {
-    if (source.dim() != updater.dim() || source.type() != updater.type()) {
-        return Ret("DataMerger::merge_delta_file: incompatible source and updater");
-    }
-
-    // Same failure contract as merge_data_file(): catch exceptions and remove
-    // partial outputs so the caller either gets a complete file or no file.
-    Ret ret(0);
-    try {
-        ret = merge_delta_file_(source, updater, path);
-    } catch (const std::exception& ex) {
-        ret = Ret(ex.what());
-    }
-
-    if (ret.code() != 0 && std::filesystem::exists(path)) {
-        std::filesystem::remove(path);
-    }
-
-    return ret;
+    return run_merge(path, [&]() { return merge_delta_file_(source, updater, path); });
 }
 
 Ret DataMerger::merge_data_file(const DataReader& source, const InputReaderView& updater,
         const std::string& path, DistFunc dist_func) {
-    if (source.dim() != updater.dim() || source.type() != updater.type()) {
-        return Ret("DataMerger::merge_data_file: incompatible source and updater");
-    }
-
-    // Public overload for direct-input merges. The failure contract intentionally
-    // matches the DataReader overload so DatasetWriter can switch between the
-    // two without having to special-case cleanup behavior.
-    Ret ret(0);
-    try {
-        ret = merge_data_file_(source, updater, path, dist_func);
-    } catch (const std::exception& ex) {
-        ret = Ret(ex.what());
-    }
-
-    if (ret.code() != 0 && std::filesystem::exists(path)) {
-        std::filesystem::remove(path);
-    }
-
-    return ret;
+    return run_merge(path, [&]() { return merge_data_file_(source, updater, path, dist_func); });
 }
 
 Ret DataMerger::merge_delta_file(const DataReader& source, const InputReaderView& updater,
         const std::string& path, DistFunc dist_func) {
-    if (source.dim() != updater.dim() || source.type() != updater.type()) {
-        return Ret("DataMerger::merge_delta_file: incompatible source and updater");
-    }
-
-    // Same wrapper contract as the persisted-file overload: exceptions become
-    // Ret and partial outputs are removed before the caller sees a result.
-    Ret ret(0);
-    try {
-        ret = merge_delta_file_(source, updater, path, dist_func);
-    } catch (const std::exception& ex) {
-        ret = Ret(ex.what());
-    }
-
-    if (ret.code() != 0 && std::filesystem::exists(path)) {
-        std::filesystem::remove(path);
-    }
-
-    return ret;
+    return run_merge(path, [&]() { return merge_delta_file_(source, updater, path, dist_func); });
 }
 
 // Rewrites a delta file while preserving delta semantics: live updates stay in
 // the record stream and the merged tombstone set is carried forward separately.
 Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& updater, const std::string& path) {
+    if (source.dim() != updater.dim() || source.type() != updater.type()) {
+        return Ret("DataMerger::merge_delta_file: incompatible source and updater");
+    }
+    if (source.min_range_id() != updater.min_range_id()) {
+        return Ret("DataMerger::merge_delta_file: incompatible source and updater range");
+    }
     if (source.norm_flags() != updater.norm_flags()) {
         return Ret("DataMerger::merge_delta_file: incompatible norm layout");
     }
@@ -800,11 +681,9 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     Timer timer("merge_delta_file");
     // Delta-to-delta merge keeps a tombstone section, but it must first remove
     // any old deletes that the updater resurrected as live rows.
-    const std::vector<uint64_t> updater_live_ids =
-        collect_updater_live_ids(DataReaderLiveRowCursor(updater, source.norm_flags()), updater.count());
     RoaringIds roaring_deleted_ids;
     CHECK(build_roaring_ids(
-        make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids),
+        make_data_reader_delta_delete_cursor(source, updater, source.norm_flags()),
         source.min_range_id(),
         "DataMerger::merge_delta_file: deleted ids",
         &roaring_deleted_ids));
@@ -812,28 +691,18 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     CHECK(merge_file.open(source, source.norm_flags(), path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
-    output.reserve(source.count() + updater.count(), false);
-    const auto merge_deleted_cursor =
-        make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids);
+    output.reserve(false);
     CHECK(merge_records(
         source,
         DataReaderLiveRowCursor(updater, source.norm_flags()),
-        merge_deleted_cursor,
-        merge_deleted_cursor,
+        RoaringIdsCursor(roaring_deleted_ids),
+        RoaringIdsCursor(roaring_deleted_ids),
         source.norm_flags(),
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
     // Delta files have the same live-row trailer as data files...
-    CHECK(output.write_ids_section(
-        *merge_file.header(),
-        roaring_deleted_ids));
-
-    merge_file.header()->deleted_count = static_cast<uint32_t>(roaring_deleted_ids.count());
-    set_output_id_range(output, merge_file.header());
-    CHECK(set_data_header_layout(
-        merge_file.header(), output.output_ids_bytes(), output.deleted_ids_bytes()));
-    CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file"));
-    Ret ret = merge_file.flush_and_close("DataMerger::merge_delta_file");
+    const Ret ret = finalize_merge_file(
+        &merge_file, &output, roaring_deleted_ids, "DataMerger::merge_delta_file");
 
     LOG_INFO << "Merged delta file " << source.path() << " in " << timer.elapsed_ms() << " ms";
     return ret;
@@ -855,7 +724,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
     CHECK(merge_file.open(source, target_norm_flags, path, "DataMerger::merge_data_files"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files");
-    output.reserve(source.count() + updater.count(), !updater.is_binary());
+    output.reserve(!updater.is_binary());
 #ifndef NDEBUG
     assert((target_norm_flags != 0u) == output.norms_enabled());
 #endif
@@ -867,15 +736,8 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
         target_norm_flags,
         "DataMerger::merge_data_files: updated id is also deleted",
         &output));
-    CHECK(output.write_ids_section(
-        *merge_file.header(),
-        empty_deleted_ids));
-
-    set_output_id_range(output, merge_file.header());
-    CHECK(set_data_header_layout(
-        merge_file.header(), output.output_ids_bytes(), output.deleted_ids_bytes()));
-    CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files"));
-    Ret ret = merge_file.flush_and_close("DataMerger::merge_data_files");
+    const Ret ret = finalize_merge_file(
+        &merge_file, &output, empty_deleted_ids, "DataMerger::merge_data_files");
 
     LOG_INFO << "Merged data file " << source.path() << " in " << timer.elapsed_ms() << " ms";
     return ret;
@@ -893,12 +755,9 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     Timer timer("merge_delta_file");
     const uint32_t target_norm_flags = data_file_norm_flags_for_dist(dist_func);
     const bool compute_norms = target_norm_flags != 0u;
-    const std::vector<uint64_t> updater_live_ids = collect_updater_live_ids(
-        InputReaderUpdaterCursor(updater, dist_func, compute_norms),
-        updater.count());
     RoaringIds roaring_deleted_ids;
     CHECK(build_roaring_ids(
-        make_input_reader_delta_delete_cursor(source, updater, &updater_live_ids),
+        make_input_reader_delta_delete_cursor(source, updater, dist_func, compute_norms),
         source.min_range_id(),
         "DataMerger::merge_delta_file: deleted ids",
         &roaring_deleted_ids));
@@ -906,30 +765,20 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     CHECK(merge_file.open(source, target_norm_flags, path, "DataMerger::merge_delta_file"));
 
     MergeOutputWriter output(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file");
-    output.reserve(source.count() + updater.count(), !updater.is_binary());
+    output.reserve(!updater.is_binary());
 #ifndef NDEBUG
     assert(compute_norms == output.norms_enabled());
 #endif
-    const auto merge_deleted_cursor =
-        make_input_reader_delta_delete_cursor(source, updater, &updater_live_ids);
     CHECK(merge_records(
         source,
         InputReaderUpdaterCursor(updater, dist_func, compute_norms),
-        merge_deleted_cursor,
-        merge_deleted_cursor,
+        RoaringIdsCursor(roaring_deleted_ids),
+        RoaringIdsCursor(roaring_deleted_ids),
         target_norm_flags,
         "DataMerger::merge_delta_file: updated id is also deleted",
         &output));
-    CHECK(output.write_ids_section(
-        *merge_file.header(),
-        roaring_deleted_ids));
-
-    merge_file.header()->deleted_count = static_cast<uint32_t>(roaring_deleted_ids.count());
-    set_output_id_range(output, merge_file.header());
-    CHECK(set_data_header_layout(
-        merge_file.header(), output.output_ids_bytes(), output.deleted_ids_bytes()));
-    CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file"));
-    Ret ret = merge_file.flush_and_close("DataMerger::merge_delta_file");
+    const Ret ret = finalize_merge_file(
+        &merge_file, &output, roaring_deleted_ids, "DataMerger::merge_delta_file");
 
     LOG_INFO << "Merged delta file " << source.path() << " in " << timer.elapsed_ms() << " ms";
     return ret;

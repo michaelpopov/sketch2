@@ -1,11 +1,13 @@
 # Source Index
 
 - `CMakeLists.txt`: Build rules for the storage library and storage tests.
-- `CHANGE.md`: Refactor/change log for Dataset, DatasetReader, and DatasetWriter evolution.
 - `DESIGN.md`: Design notes for the storage subsystem.
+- `MERGE.md`: Technical overview of how data merging works in the storage layer.
 - `README.md`: Storage module overview and file-format notes.
 - `data_file.h`: Shared binary file headers and file-format constants.
-- `data_file_layout.h`: Helpers for computing and writing binary data-file layout.
+- `data_file_layout.cpp`: OutputFile RAII wrapper and non-trivial data-file layout write helpers.
+- `data_file_layout.h`: Helpers for computing and writing binary data-file layout sections.
+- `data_file_norms.h`: Predicates and conversions for the inline-norm flags stored in DataFileHeader.
 - `data_merger.cpp`: Merge logic for data files and delta files.
 - `data_merger.h`: Merge API declarations for storage files.
 - `data_reader.cpp`: Memory-mapped reader for persisted data and delta files.
@@ -24,7 +26,8 @@
 - `input_generator.h`: Input generation patterns, binary-mode option, and helper declarations.
 - `input_reader.cpp`: Parser and range-view implementation for text and binary input files.
 - `input_reader.h`: Input reader and view declarations for text and binary imports.
-- `storage.cpp`: Placeholder storage module version function.
+- `input_writer.cpp`: Implementation of the indexed-binary input file writer.
+- `input_writer.h`: InputWriter declarations for producing indexed-binary import files.
 - `utest_data_file_layout.cpp`: Unit tests for binary data-file layout helpers.
 - `utest_data_merger.cpp`: Unit tests for file merge logic.
 - `utest_data_reader.cpp`: Unit tests for reading binary data files.
@@ -33,4 +36,5 @@
 - `utest_full_cycle.cpp`: End-to-end storage tests covering full write/read/merge flows.
 - `utest_input_generator.cpp`: Unit tests for synthetic text and binary input generation.
 - `utest_input_reader.cpp`: Unit tests for text and binary input parsing and views.
-- `utest_main.cpp`: Shared GoogleTest entry point (`src/core/utils/utest_main.cpp`) for the storage test binary.
+- `utest_input_writer.cpp`: Unit tests for indexed-binary input writing and reading.
+- `utest_roaring_ids_helpers.h`: Shared helpers for storage tests that build Roaring id trailers.

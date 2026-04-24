@@ -13,6 +13,28 @@ namespace sketch2 {
 
 namespace {
 
+class ScopedFd {
+public:
+    ScopedFd() = default;
+    explicit ScopedFd(int fd) : fd_(fd) {}
+    ScopedFd(const ScopedFd&) = delete;
+    ScopedFd& operator=(const ScopedFd&) = delete;
+    ~ScopedFd() { close(); }
+
+    int get() const { return fd_; }
+    explicit operator bool() const { return fd_ >= 0; }
+
+    void close() {
+        if (fd_ >= 0) {
+            ::close(fd_);
+            fd_ = -1;
+        }
+    }
+
+private:
+    int fd_ = -1;
+};
+
 Ret map_roaring_ids_section(
         int fd,
         uint64_t offset,
@@ -77,18 +99,11 @@ void DataReader::Iterator::next() {
 
 void DataReader::Iterator::sync_current_id_iter_() {
     if (index_ < reader_->count_unchecked()) {
-        while (base_ids_iter_ && !base_ids_iter_->eof() && base_ids_iter_->index() < index_) {
-            base_ids_iter_->next();
-        }
+        advance_id_iter_to_index(*base_ids_iter_, index_);
         return;
     }
-
-    if (delta_reader_ == nullptr) {
-        return;
-    }
-    const size_t delta_index = index_ - reader_->count_unchecked();
-    while (delta_ids_iter_ && !delta_ids_iter_->eof() && delta_ids_iter_->index() < delta_index) {
-        delta_ids_iter_->next();
+    if (delta_ids_iter_) {
+        advance_id_iter_to_index(*delta_ids_iter_, index_ - reader_->count_unchecked());
     }
 }
 
@@ -165,23 +180,18 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
 
     path_ = path;
 
-    int fd = -1;
-    size_t file_size = 0;
-    auto fail = [this, &fd](const std::string& message) {
-        if (fd >= 0) {
-            close(fd);
-            fd = -1;
-        }
+    auto fail = [this](const std::string& message) {
         reset_state_();
         return Ret(message);
     };
 
-    fd = open(path.c_str(), O_RDONLY);
-    if (fd < 0) {
+    ScopedFd fd(::open(path.c_str(), O_RDONLY));
+    if (!fd) {
         return Ret("DataReader: failed to open file: " + path);
     }
 
-    Ret ret = read_header_(fd, path, &file_size);
+    size_t file_size = 0;
+    Ret ret = read_header_(fd.get(), path, &file_size);
     if (ret.code() != 0) {
         return fail(ret.message());
     }
@@ -189,33 +199,24 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     DataMetadataLayout metadata_layout{};
     try {
         ret = validate_header_and_layout_(file_size, &metadata_layout);
-        if (ret.code() != 0) {
-            return fail(ret.message());
-        }
+        if (ret.code() != 0) return fail(ret.message());
         ret = validate_delta_(delta);
-        if (ret.code() != 0) {
-            return fail(ret.message());
-        }
-        ret = map_regions_(fd, metadata_layout);
-        if (ret.code() != 0) {
-            return fail(ret.message());
-        }
+        if (ret.code() != 0) return fail(ret.message());
+        ret = map_regions_(fd.get(), metadata_layout);
+        if (ret.code() != 0) return fail(ret.message());
     } catch (const std::exception& ex) {
         return fail(std::string("DataReader: failed to initialize mapped metadata: ") + ex.what());
     }
 
-    close(fd);
-    fd = -1;
+    fd.close();
 
     initialized_ = true;
-    delta_  = std::move(delta);
+    delta_ = std::move(delta);
 
     if (delta_) {
         changed_bitset_.resize(hdr_.count);
         ret = init_delta();
-        if (ret.code() != 0) {
-            return fail(ret.message());
-        }
+        if (ret.code() != 0) return fail(ret.message());
     }
 
     assert_invariants_();
@@ -280,8 +281,8 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     }
 
     const size_t dim = static_cast<size_t>(hdr_.dim);
-    if (dim < 4) {
-        return Ret("DataReader: dimension too small");
+    if (dim < kMinDimension || dim > kMaxDimension) {
+        return Ret("DataReader: dimension out of range");
     }
 
     const DataRecordLayout record_layout =
@@ -306,22 +307,25 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
         return Ret("DataReader: invalid inline norm layout");
     }
 
-    *metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
-    if (hdr_.vectors_bytes != metadata_layout->vectors_bytes
-            || hdr_.ids_offset != metadata_layout->ids_trailer_offset
+    const DataMetadataLayout computed = compute_data_metadata_layout(hdr_, hdr_.count);
+    if (hdr_.vectors_bytes != computed.vectors_bytes
+            || hdr_.ids_offset != computed.ids_trailer_offset
             || hdr_.deleted_ids_offset != compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)) {
         return Ret("DataReader: malformed section layout in header");
     }
-    metadata_layout->deleted_ids_offset = hdr_.deleted_ids_offset;
-    metadata_layout->deleted_ids_bytes = hdr_.deleted_ids_bytes;
-    metadata_layout->deleted_ids_padding = compute_deleted_ids_padding(hdr_.ids_offset, hdr_.ids_bytes);
-
     const size_t end_of_deleted_ids =
         static_cast<size_t>(hdr_.deleted_ids_offset) + static_cast<size_t>(hdr_.deleted_ids_bytes);
-    if (file_size < metadata_layout->ids_trailer_offset || end_of_deleted_ids != file_size) {
+    if (file_size < computed.ids_trailer_offset || end_of_deleted_ids != file_size) {
         return Ret("DataReader: truncated or malformed data file");
     }
 
+    metadata_layout->vectors_bytes = hdr_.vectors_bytes;
+    metadata_layout->vectors_padding = computed.vectors_padding;
+    metadata_layout->ids_trailer_offset = hdr_.ids_offset;
+    metadata_layout->ids_trailer_padding = 0;
+    metadata_layout->deleted_ids_offset = hdr_.deleted_ids_offset;
+    metadata_layout->deleted_ids_bytes = hdr_.deleted_ids_bytes;
+    metadata_layout->deleted_ids_padding = compute_deleted_ids_padding(hdr_.ids_offset, hdr_.ids_bytes);
     return Ret(0);
 }
 
@@ -473,51 +477,37 @@ void DataReader::assert_invariants_() const {
 }
 
 DataType DataReader::type() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::type: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::type");
     return type_;
 }
 
 size_t DataReader::dim() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::dim: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::dim");
     return hdr_.dim;
 }
 
 size_t DataReader::size() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::size: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::size");
     return vector_size_;
 }
 
 uint64_t DataReader::min_range_id() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::min_range_id: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::min_range_id");
     return hdr_.min_range_id;
 }
 
 uint32_t DataReader::norm_flags() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::norm_flags: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::norm_flags");
     return data_file_norm_flags(hdr_);
 }
 
 bool DataReader::has_norms() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::has_norms: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::has_norms");
     return data_file_has_norms(hdr_);
 }
 
 bool DataReader::has_matching_stored_norms(DistFunc dist_func) const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::has_matching_stored_norms: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::has_matching_stored_norms");
     return data_file_matches_stored_norms_dist(hdr_, dist_func);
 }
 
@@ -543,15 +533,8 @@ uint64_t DataReader::id(size_t index) const {
 // Looks up an id in the base file and falls back to the attached delta when the
 // base row is absent or hidden by newer updates.
 const uint8_t* DataReader::get(uint64_t id) const {
-    const size_t index = ids_.lower_bound_index(id);
-    if (index >= ids_.count()) {
-        if (delta_) {
-            return delta_->get(id);
-        }
-        return nullptr;
-    }
-
-    if (ids_.id(index) != id) {
+    size_t index = 0;
+    if (!ids_.find_index(id, &index)) {
         if (delta_) {
             return delta_->get(id);
         }

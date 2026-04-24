@@ -49,6 +49,40 @@ TEST(roaring_ids, lower_bound_index_matches_sorted_semantics) {
     EXPECT_EQ(4u, ids.lower_bound_index(100));
 }
 
+TEST(roaring_ids, find_index_returns_false_for_empty_states) {
+    RoaringIds ids;
+    size_t index = 123u;
+
+    EXPECT_FALSE(ids.find_index(10, &index));
+    EXPECT_EQ(RoaringIds::npos, index);
+
+    EXPECT_EQ(0, ids.init_writable(1000).code());
+    index = 123u;
+    EXPECT_FALSE(ids.find_index(1000, &index));
+    EXPECT_EQ(RoaringIds::npos, index);
+}
+
+TEST(roaring_ids, find_index_matches_exact_membership) {
+    RoaringIds ids;
+    EXPECT_EQ(0, ids.init_writable(1000).code());
+    EXPECT_EQ(0, ids.add(1000).code());
+    EXPECT_EQ(0, ids.add(1010).code());
+    EXPECT_EQ(0, ids.add(1020).code());
+
+    size_t index = RoaringIds::npos;
+    EXPECT_TRUE(ids.find_index(1000, &index));
+    EXPECT_EQ(0u, index);
+    EXPECT_TRUE(ids.find_index(1020, &index));
+    EXPECT_EQ(2u, index);
+
+    EXPECT_FALSE(ids.find_index(999, &index));
+    EXPECT_EQ(RoaringIds::npos, index);
+    EXPECT_FALSE(ids.find_index(1015, &index));
+    EXPECT_EQ(RoaringIds::npos, index);
+    EXPECT_FALSE(ids.find_index(1000ull + std::numeric_limits<uint32_t>::max() + 1ull, &index));
+    EXPECT_EQ(RoaringIds::npos, index);
+}
+
 TEST(roaring_ids, contains_matches_base_adjusted_membership) {
     RoaringIds ids;
     EXPECT_FALSE(ids.contains(100));

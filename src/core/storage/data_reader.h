@@ -17,6 +17,15 @@
 
 namespace sketch2 {
 
+// Advances a RoaringIds iterator forward until it reaches target_index or eof.
+// Used by all iterator types in DataReader to keep their RoaringIds cursor in
+// sync with a positional index that can jump (e.g. when skipping hidden rows).
+inline void advance_id_iter_to_index(RoaringIds::Iterator& it, size_t target_index) {
+    while (!it.eof() && it.index() < target_index) {
+        it.next();
+    }
+}
+
 // DataReader exists to expose persisted storage files as fast queryable views.
 // It memory-maps the binary file layout, optionally layers a delta over a base
 // file, and provides iterators and point lookups over the visible rows.
@@ -138,11 +147,8 @@ public:
         }
 
         inline void sync_id_iter_() {
-            if (!id_iter_) {
-                return;
-            }
-            while (!id_iter_->eof() && id_iter_->index() < index_) {
-                id_iter_->next();
+            if (id_iter_) {
+                advance_id_iter_to_index(*id_iter_, index_);
             }
         }
 
@@ -150,6 +156,56 @@ public:
         Source            source_ = Source::Base;
         size_t            index_  = 0;
         std::optional<RoaringIds::Iterator> id_iter_;
+    };
+
+    // Fast cursor for scanner hot loops that need contiguous record access plus
+    // sequential ids. Unlike id_unchecked(index), this advances the underlying
+    // Roaring iterator instead of issuing a select for every row.
+    class BaseScanCursor {
+    public:
+        BaseScanCursor(const BaseScanCursor&)            = delete;
+        BaseScanCursor& operator=(const BaseScanCursor&) = delete;
+        BaseScanCursor(BaseScanCursor&&)                 = default;
+        BaseScanCursor& operator=(BaseScanCursor&&)      = default;
+
+        inline size_t index() const {
+            return index_;
+        }
+
+        inline uint64_t id() const {
+            assert(index_ < reader_->count_unchecked());
+            assert(!id_iter_.eof());
+            assert(id_iter_.index() == index_);
+            return id_iter_.id();
+        }
+
+        inline const uint8_t* record() const {
+            assert(index_ < reader_->count_unchecked());
+            return reader_->record_unchecked_(index_);
+        }
+
+        inline void advance_to(size_t index) {
+            assert(reader_ != nullptr);
+            assert(index >= index_);
+            index_ = index;
+            sync_id_iter_();
+        }
+
+    private:
+        friend class DataReader;
+
+        BaseScanCursor(const DataReader* reader, size_t index)
+            : reader_(reader), index_(index), id_iter_(reader->ids_.begin()) {
+            sync_id_iter_();
+        }
+
+        inline void sync_id_iter_() {
+            advance_id_iter_to_index(id_iter_, index_);
+        }
+
+        const DataReader* reader_ = nullptr;
+        size_t index_ = 0;
+        RoaringIds::Iterator id_iter_;
     };
 
     ~DataReader() = default;
@@ -166,9 +222,7 @@ public:
     }
     size_t stride() const { return stride_; } // distance between persisted vector records in bytes
     inline size_t count() const { // number of vectors
-        if (!initialized_) {
-            throw std::runtime_error("DataReader::count: reader is not initialized");
-        }
+        ensure_initialized_("DataReader::count");
         return count_unchecked();
     }
     inline size_t count_unchecked() const {
@@ -186,6 +240,11 @@ public:
     inline uint64_t id_unchecked(size_t index) const {
         assert(index < count_unchecked());
         return ids_.id_unchecked(index);
+    }
+    inline BaseScanCursor base_scan_cursor_unchecked(size_t index) const {
+        assert(initialized_);
+        assert(index <= count_unchecked());
+        return BaseScanCursor(this, index);
     }
     inline const uint8_t* record_unchecked(size_t index) const {
         return record_unchecked_(index);
@@ -261,13 +320,15 @@ public:
     bool has_delta() const { return delta_ != nullptr; }
 
 private:
+    inline void ensure_initialized_(const char* where) const {
+        if (!initialized_) {
+            throw std::runtime_error(std::string(where) + ": reader is not initialized");
+        }
+    }
+
     inline const uint8_t* record_unchecked_(size_t index) const {
         assert(index < count_unchecked());
         return vectors_region_.data() + index * stride_;
-    }
-
-    inline const uint8_t* at_unchecked_(size_t index) const {
-        return record_unchecked_(index);
     }
 
     MappedRegion             vectors_region_;
