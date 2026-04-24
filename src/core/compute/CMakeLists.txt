@@ -1,6 +1,5 @@
 set(COMPUTE_SOURCES
   highway.cpp
-  scanner.cpp
 )
 
 set(COMPUTE_UTEST_SOURCES

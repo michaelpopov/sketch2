@@ -16,7 +16,7 @@ inline double query_inverse_norm(double query_norm_sq) {
     return 1.0 / std::sqrt(query_norm_sq);
 }
 
-inline double finalize_squared_l2_distance_from_squared_norms(
+inline double l2_dist_from_dot_and_norms(
         double dot, double norm_a_sq, double norm_b_sq) {
     return std::max(0.0, norm_a_sq + norm_b_sq - (2.0 * dot));
 }

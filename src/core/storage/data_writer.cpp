@@ -87,7 +87,7 @@ Ret write_vector_section(
         switch (dist_func) {
             case DistFunc::COS:
                 *norm_value = static_cast<float>(
-                    compute_cosine_inverse_norm(vector_data, reader.type(), reader.dim()));
+                    inverse_norm(vector_data, reader.type(), reader.dim()));
                 return;
             case DistFunc::L2:
                 *norm_value = static_cast<float>(

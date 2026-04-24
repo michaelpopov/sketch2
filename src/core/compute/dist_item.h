@@ -9,11 +9,19 @@
 
 namespace sketch2 {
 
-struct DistItemEx {
+// Per-reader top-k entry. Uses a 32-bit reader-local id (the reader base id is
+// added when results are merged) and a float score to keep the hot scan heap
+// at 8 bytes per item — twice the items per cache line as DistItem. Kernels
+// compute scores in double; the truncation to float here means top-k order
+// can differ from a full-precision implementation when neighbours' scores are
+// within ~1e-7 of each other. sketch2 does not promise exact ordering.
+struct LocalDistItem {
     uint32_t id;
     float score;
 };
 
+// Public top-k entry returned to callers. Carries the full 64-bit dataset id
+// and a double score (promoted from the per-reader float).
 struct DistItem {
     uint64_t id;
     double score;
@@ -40,7 +48,7 @@ inline bool dist_item_is_better(bool smaller_score_better, const DistItem& a, co
     return a.id < b.id;
 }
 
-inline bool dist_item_ex_is_better(bool smaller_score_better, const DistItemEx& a, const DistItemEx& b) {
+inline bool local_dist_item_is_better(bool smaller_score_better, const LocalDistItem& a, const LocalDistItem& b) {
     if (a.score != b.score) {
         return smaller_score_better ? (a.score < b.score) : (a.score > b.score);
     }
@@ -57,13 +65,13 @@ struct DistItemCompare {
     }
 };
 
-struct DistItemExCompare {
-    explicit DistItemExCompare(DistFunc func_) : smaller_score_better(smaller_score_is_better(func_)) {}
+struct LocalDistItemCompare {
+    explicit LocalDistItemCompare(DistFunc func_) : smaller_score_better(smaller_score_is_better(func_)) {}
 
     bool smaller_score_better;
 
-    bool operator()(const DistItemEx& a, const DistItemEx& b) const {
-        return dist_item_ex_is_better(smaller_score_better, a, b);
+    bool operator()(const LocalDistItem& a, const LocalDistItem& b) const {
+        return local_dist_item_is_better(smaller_score_better, a, b);
     }
 };
 

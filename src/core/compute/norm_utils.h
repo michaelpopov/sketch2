@@ -34,8 +34,8 @@ inline double compute_norm_sq(const uint8_t* data, DataType type, size_t dim, co
     }
 }
 
-inline double compute_cosine_inverse_norm(const uint8_t* data, DataType type, size_t dim) {
-    const double norm_sq = compute_norm_sq(data, type, dim, "compute_cosine_inverse_norm");
+inline double inverse_norm(const uint8_t* data, DataType type, size_t dim) {
+    const double norm_sq = compute_norm_sq(data, type, dim, "inverse_norm");
 
     if (norm_sq == 0.0) {
         return 0.0;

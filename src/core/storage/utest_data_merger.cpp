@@ -108,7 +108,7 @@ protected:
             float* norm_ptr = nullptr;
             if (has_norms) {
                 if (stored_norm_dist_func == DistFunc::COS) {
-                    norm = compute_cosine_inverse_norm(
+                    norm = inverse_norm(
                         reinterpret_cast<const uint8_t*>(vec.data()), DataType::f32, dim);
                 } else if (stored_norm_dist_func == DistFunc::L2) {
                     norm = compute_squared_norm(
@@ -193,7 +193,7 @@ protected:
             float* norm_ptr = nullptr;
             if (has_norms) {
                 if (stored_norm_dist_func == DistFunc::COS) {
-                    norm = compute_cosine_inverse_norm(
+                    norm = inverse_norm(
                         reinterpret_cast<const uint8_t*>(vec.data()), DataType::i16, dim);
                 } else if (stored_norm_dist_func == DistFunc::L2) {
                     norm = compute_squared_norm(

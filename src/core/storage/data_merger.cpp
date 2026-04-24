@@ -32,7 +32,7 @@ Ret flush_and_close_merge_file(FILE** f, const char* context);
 float compute_stored_norm_for_dist(const uint8_t* data, DataType type, size_t dim, DistFunc dist_func) {
     switch (dist_func) {
         case DistFunc::COS:
-            return static_cast<float>(compute_cosine_inverse_norm(data, type, dim));
+            return static_cast<float>(inverse_norm(data, type, dim));
         case DistFunc::L2:
             return static_cast<float>(compute_squared_norm(data, type, dim));
         case DistFunc::DOT:

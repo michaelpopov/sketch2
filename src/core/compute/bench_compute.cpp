@@ -214,7 +214,7 @@ std::vector<CaseStats> run_compute_bench(const Args& args, const uint8_t* a, con
             }));
         results.push_back(benchmark_case(
             "dist_with_stored_norms", args.warmup_iterations, args.iterations, args.repeats, [&] {
-                return finalize_cosine_distance_from_inverse_norms(
+                return cos_dist_from_inv_norms(
                     kernels.dot(a, b, args.dim), stored_inv_norm, query_inv_norm);
             }));
     }
@@ -224,7 +224,7 @@ std::vector<CaseStats> run_compute_bench(const Args& args, const uint8_t* a, con
         const double stored_norm_sq = kernels.squared_norm(a, args.dim);
         results.push_back(benchmark_case(
             "dist_with_stored_norms", args.warmup_iterations, args.iterations, args.repeats, [&] {
-                return finalize_squared_l2_distance_from_squared_norms(
+                return l2_dist_from_dot_and_norms(
                     kernels.dot(a, b, args.dim), stored_norm_sq, query_norm_sq);
             }));
     }

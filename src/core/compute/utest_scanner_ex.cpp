@@ -46,14 +46,14 @@ Ret find_ids(const Scanner& scanner, const DatasetReader& dataset, size_t count,
     return ret;
 }
 
-void extract_absolute_reader_heap_items(const DataReader& reader, DistHeapEx* heap,
+void extract_absolute_reader_heap_items(const DataReader& reader, LocalDistHeap* heap,
         std::vector<DistItem>* result) {
-    std::vector<DistItemEx> local_items;
-    extract_items_ex(heap, &local_items);
+    std::vector<LocalDistItem> local_items;
+    extract_local_items(heap, &local_items);
     result->clear();
     result->reserve(local_items.size());
     const uint64_t heap_base_id = reader_heap_base_id(reader);
-    for (const DistItemEx& item : local_items) {
+    for (const LocalDistItem& item : local_items) {
         result->push_back(DistItem{item.id + heap_base_id, item.score});
     }
 }
@@ -703,11 +703,11 @@ TEST_F(ScannerTest, L2StoredNormScanSkipsDotWhenNormLowerBoundCannotBeatHeap) {
 
     const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     const QueryL2Context query{q.data(), 4, 1.0};
-    DistHeapEx heap(DistItemExCompare{DistFunc::L2});
+    LocalDistHeap heap(LocalDistItemCompare{DistFunc::L2});
     heap.reserve(1);
 
     g_counting_dot_calls = 0;
-    scan_data_reader_with_l2_stored_norms<counting_f32_dot>(reader, 1, &heap, query);
+    scan_l2_stored_norms<counting_f32_dot>(reader, 1, &heap, query);
 
     std::vector<DistItem> result;
     extract_absolute_reader_heap_items(reader, &heap, &result);
@@ -740,11 +740,11 @@ TEST_F(ScannerTest, L2StoredNormScanRefreshesCachedBoundsWhenHeapThresholdTighte
 
     const auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
     const QueryL2Context query{q.data(), 4, 0.0};
-    DistHeapEx heap(DistItemExCompare{DistFunc::L2});
+    LocalDistHeap heap(LocalDistItemCompare{DistFunc::L2});
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
-    scan_data_reader_with_l2_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
+    scan_l2_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
     extract_absolute_reader_heap_items(reader, &heap, &result);
@@ -778,11 +778,11 @@ TEST_F(ScannerTest, CosStoredNormScanSkipsDotForZeroStoredVector) {
     const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     const double query_norm_sq = 1.0;
     const QueryCosContext query{q.data(), 4, query_norm_sq, query_inverse_norm(query_norm_sq)};
-    DistHeapEx heap(DistItemExCompare{DistFunc::COS});
+    LocalDistHeap heap(LocalDistItemCompare{DistFunc::COS});
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
-    scan_data_reader_with_cos_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
+    scan_cos_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
     extract_absolute_reader_heap_items(reader, &heap, &result);
@@ -816,11 +816,11 @@ TEST_F(ScannerTest, CosStoredNormScanTreatsBothZeroVectorsAsExactMatchWithoutDot
     const auto q = f32_values({0.0f, 0.0f, 0.0f, 0.0f});
     const double query_norm_sq = 0.0;
     const QueryCosContext query{q.data(), 4, query_norm_sq, query_inverse_norm(query_norm_sq)};
-    DistHeapEx heap(DistItemExCompare{DistFunc::COS});
+    LocalDistHeap heap(LocalDistItemCompare{DistFunc::COS});
     heap.reserve(2);
 
     g_counting_dot_calls = 0;
-    scan_data_reader_with_cos_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
+    scan_cos_stored_norms<counting_f32_dot>(reader, 2, &heap, query);
 
     std::vector<DistItem> result;
     extract_absolute_reader_heap_items(reader, &heap, &result);

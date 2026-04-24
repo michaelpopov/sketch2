@@ -152,7 +152,7 @@ protected:
             float* norm_ptr = nullptr;
             if (norm_flags != 0) {
                 if (norm_flags == kDataFileHasCosineInvNorms) {
-                    norm = compute_cosine_inverse_norm(v.data(), type_field, dim);
+                    norm = inverse_norm(v.data(), type_field, dim);
                 } else if (norm_flags == kDataFileHasSquaredNorms) {
                     norm = compute_squared_norm(v.data(), type_field, dim);
                 } else {
@@ -350,7 +350,7 @@ TEST_F(DataReaderTest, FailsWhenInlineNormUsesNonCanonicalStride) {
         std::vector<uint8_t> pad(bytes_before_shifted_norm, 0);
         ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
     }
-    const float norm = static_cast<float>(compute_cosine_inverse_norm(
+    const float norm = static_cast<float>(inverse_norm(
         reinterpret_cast<const uint8_t*>(vector_values.data()), type, dim));
     ASSERT_EQ(1u, fwrite(&norm, sizeof(norm), 1, f));
     const size_t bytes_after_norm = noncanonical_stride - (shifted_norm_offset + sizeof(norm));
