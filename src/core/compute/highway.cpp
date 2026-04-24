@@ -757,7 +757,7 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
         query_id = next_scanner_query_id();
     }
     log_query_start(query_id, dataset.name(), func, type, dim, count,
-        ComputeEngine::highway, bitset != nullptr);
+        bitset != nullptr);
 
     DistHeap heap(DistItemCompare{func});
     heap.reserve(count);
@@ -838,7 +838,7 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
 
     extract_items(&heap, result);
     log_query_finish(query_id, dataset.name(), func, type, dim, count,
-        ComputeEngine::highway, timer.elapsed_ms(), *result);
+        timer.elapsed_ms(), *result);
     return Ret(0);
 }
 

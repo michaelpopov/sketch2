@@ -1,21 +1,13 @@
-// Implements the Scanner facade over engine-specific scanner backends.
+// Implements the Scanner facade over the Highway compute backend.
 
 #include "core/compute/scanner.h"
 
-#include "core/compute/compute_engine.h"
 #include "core/compute/scanner_log_utils.h"
 #include "core/compute/highway.h"
 
 #include <exception>
 
 namespace sketch2 {
-
-const char* compute_engine_name(ComputeEngine engine) {
-    switch (engine) {
-        case ComputeEngine::highway: return "highway";
-        default: return "unknown";
-    }
-}
 
 Ret Scanner::find_items(const DatasetReader& dataset, size_t count, const uint8_t* vec,
         std::vector<DistItem>& result, const BitsetFilter* bitset) const {

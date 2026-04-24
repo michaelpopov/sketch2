@@ -148,7 +148,6 @@ def run_kernel_benchmark(config, dist: str) -> dict:
     bench_path = find_binary("bench_compute")
     cmd = [
         str(bench_path),
-        "--engine", config.runtime_label,
         "--dist", dist,
         "--type", config.type_name,
         "--dim", str(config.dims),
@@ -187,7 +186,6 @@ def print_kernel_report(payload: dict) -> None:
     print(f"Warmup Iterations: {payload['warmup_iterations']}")
     print(f"Iterations:        {payload['iterations']}")
     print(f"Repeats:           {payload['repeats']}")
-    print(f"Active Backend:    {payload['active_compute_backend']}")
     for entry in payload["cases"]:
         print(
             "Kernel Case:      "

@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "core/compute/compute_engine.h"
+#include "core/compute/compute_kernels.h"
 #include "core/compute/dist_item.h"
 #include "core/utils/bitset_filter.h"
 
@@ -18,5 +18,9 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
 
 // Runtime kernel resolver kept for benchmarks and kernel-focused tests.
 ComputeKernels resolve_hwy_kernels(DistFunc func, DataType type);
+
+// One-time Highway runtime warm-up so dispatched function pointers are
+// resolved before scan hot loops begin.
+void initialize_hwy_runtime();
 
 } // namespace sketch2

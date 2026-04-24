@@ -30,8 +30,7 @@ unsigned int max_thread_pool_size() {
 
 } // namespace
 
-Singleton::Singleton()
-    : compute_unit_(ComputeUnit::detect_best()) {}
+Singleton::Singleton() = default;
 
 Singleton& Singleton::instance() {
     static Singleton singleton;
@@ -68,10 +67,6 @@ void Singleton::force_thread_pool_for_testing(std::shared_ptr<ThreadPool> pool) 
     instance().thread_pool_ = std::move(pool);
 }
 
-const ComputeUnit& Singleton::compute_unit() const {
-    return compute_unit_;
-}
-
 const std::shared_ptr<ThreadPool>& Singleton::thread_pool() const {
     return thread_pool_;
 }
@@ -86,7 +81,7 @@ bool Singleton::release_file_path(const std::string& file_path) {
 
 // runtime_init_ always seals the singleton, even when it ends up using only
 // defaults. Once the process commits to a runtime configuration, later init
-// attempts are rejected so logging, threading, and compute dispatch stay fixed.
+// attempts are rejected so logging and threading stay fixed.
 bool Singleton::runtime_init_() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {

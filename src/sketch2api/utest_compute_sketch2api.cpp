@@ -1,4 +1,4 @@
-// End-to-end tests for build-selected calc-engine behavior through sketch2api.
+// End-to-end tests for compute-chain behavior through sketch2api.
 
 #include "internal.h"
 #include "sketch2.h"
@@ -21,12 +21,6 @@ namespace {
 
 constexpr const char* kScenarioEnv = "SKETCH2API_COMPUTE_SCENARIO";
 constexpr const char* kConfigEnv = "SKETCH2_CONFIG";
-
-std::string compiled_engine_name() {
-    char buf[32] = {};
-    sk_compute_engine(buf, static_cast<int>(sizeof(buf)));
-    return buf;
-}
 
 std::filesystem::path make_temp_dir() {
     const std::filesystem::path base = std::filesystem::temp_directory_path();
@@ -148,7 +142,7 @@ void run_compute_chain_assertions() {
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
     ASSERT_NE(nullptr, handle);
-    ASSERT_STREQ(compiled_engine_name().c_str(), sketch2api::detail::sk_knn_engine_name_for_testing_());
+    ASSERT_STREQ("highway", sketch2api::detail::sk_knn_engine_name_for_testing_());
 
     populate_dataset(handle, "l2_ds", "l2", {
         {10, "0.0, 0.0, 0.0, 0.0"},
@@ -208,10 +202,4 @@ TEST(sketch2api_compute_chain, MissingConfigDefaultsToCompiledEngine) {
 
 TEST(sketch2api_compute_chain, MissingConfigFileDefaultsToCompiledEngine) {
     run_child_scenario("missing_config_file_defaults_compiled");
-}
-
-TEST(sketch2api_compute_chain, ComputeEngineReturnsCompiledEngineName) {
-    char buf[32] = {};
-    sk_compute_engine(buf, static_cast<int>(sizeof(buf)));
-    EXPECT_STREQ(compiled_engine_name().c_str(), buf);
 }

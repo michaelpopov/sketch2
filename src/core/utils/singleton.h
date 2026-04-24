@@ -16,10 +16,6 @@
 // - sk_new_handle() in the Parasol C API
 // - tests and focused init paths that call Singleton::runtime_init() directly
 //
-// The top-level calc engine is selected at build time and does not participate
-// in runtime configuration. The singleton just exposes the compiled
-// ComputeUnit together with the rest of the process-wide state.
-//
 // Configuration precedence is:
 // - start from built-in defaults
 // - if SKETCH2_CONFIG points to a readable ini file, read values from it
@@ -42,7 +38,6 @@
 
 #pragma once
 
-#include "compute_unit.h"
 #include "utils/file_path_lock.h"
 
 #include <memory>
@@ -67,7 +62,6 @@ public:
     // restore whatever was in place before a test overrode it.
     static void force_thread_pool_for_testing(std::shared_ptr<ThreadPool> pool);
 
-    const ComputeUnit& compute_unit() const;
     const std::shared_ptr<ThreadPool>& thread_pool() const;
     bool check_file_path(const std::string& file_path);
     bool release_file_path(const std::string& file_path);
@@ -96,7 +90,6 @@ private:
     bool apply_log_file_(const std::string& path);
 
     std::mutex mutex_;
-    ComputeUnit compute_unit_;
     std::shared_ptr<ThreadPool> thread_pool_;
     FilePathLock file_path_lock_;
     bool initialized_ = false;

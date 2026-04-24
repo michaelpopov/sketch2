@@ -11,7 +11,6 @@
 #include <memory>
 #include <filesystem>
 #include <experimental/scope>
-#include "core/compute/compute_engine.h"
 #include "core/compute/scanner.h"
 #include "core/compute/scanner_heap_utils.h"
 #include "core/compute/scanner_query_context.h"
@@ -29,7 +28,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr ComputeEngine kCompiledComputeEngine = compiled_compute_engine();
 size_t g_counting_dot_calls = 0;
 
 Scanner make_compiled_scanner() {
@@ -677,13 +675,12 @@ TEST_F(ScannerTest, FindDatasetL2UsesStoredSquaredNormsForCompiledEngine) {
     const auto q = f32_values({1.0f, 0.0f, 0.0f, 0.0f});
     Scanner s = make_compiled_scanner();
     std::vector<DistItem> result;
-    ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code())
-        << "engine=" << compute_engine_name(kCompiledComputeEngine);
+    ASSERT_EQ(0, s.find_items(reader, 2, q.data(), result).code());
     ASSERT_EQ(2u, result.size());
-    EXPECT_EQ(20u, result[0].id) << "engine=" << compute_engine_name(kCompiledComputeEngine);
-    EXPECT_NEAR(2.0, result[0].score, 1e-6) << "engine=" << compute_engine_name(kCompiledComputeEngine);
-    EXPECT_EQ(10u, result[1].id) << "engine=" << compute_engine_name(kCompiledComputeEngine);
-    EXPECT_NEAR(99.0, result[1].score, 1e-6) << "engine=" << compute_engine_name(kCompiledComputeEngine);
+    EXPECT_EQ(20u, result[0].id);
+    EXPECT_NEAR(2.0, result[0].score, 1e-6);
+    EXPECT_EQ(10u, result[1].id);
+    EXPECT_NEAR(99.0, result[1].score, 1e-6);
 }
 
 TEST_F(ScannerTest, L2StoredNormScanSkipsDotWhenNormLowerBoundCannotBeatHeap) {

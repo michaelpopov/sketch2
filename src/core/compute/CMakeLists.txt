@@ -1,17 +1,11 @@
 set(COMPUTE_SOURCES
-  compute_engine.cpp
+  highway.cpp
   scanner.cpp
 )
 
 set(COMPUTE_UTEST_SOURCES
-  utest_scanner_ex.cpp
-)
-
-list(APPEND COMPUTE_SOURCES
-  highway.cpp
-)
-list(APPEND COMPUTE_UTEST_SOURCES
   utest_hwy_kernels.cpp
+  utest_scanner_ex.cpp
 )
 
 add_library(compute STATIC ${COMPUTE_SOURCES})

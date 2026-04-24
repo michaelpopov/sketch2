@@ -36,12 +36,6 @@ using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
 
 constexpr const char* kScenarioEnv = "SKETCH2API_VLITE_COMPUTE_SCENARIO";
 
-std::string compiled_engine_name() {
-    char buf[32] = {};
-    sk_compute_engine(buf, static_cast<int>(sizeof(buf)));
-    return buf;
-}
-
 class EnvVarGuard {
 public:
     explicit EnvVarGuard(const char* name) : name_(name) {
@@ -313,7 +307,7 @@ TEST_F(VliteTest, ChildScenario) {
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
 
-    EXPECT_EQ(compiled_engine_name(), loaded_knn_engine_name());
+    EXPECT_EQ("highway", loaded_knn_engine_name());
 
     const auto rows = query_results(db.get(),
         "SELECT id, score FROM nn "

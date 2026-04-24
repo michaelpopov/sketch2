@@ -5,7 +5,7 @@
 #include "internal.h"
 #include "sketch2api_utils.h"
 
-#include "core/compute/compute_engine.h"
+#include "core/compute/highway.h"
 #include "core/utils/singleton.h"
 #include "core/utils/log.h"
 #include "core/utils/shared_consts.h"
@@ -24,7 +24,7 @@ namespace sketch2 {
 bool sketch2_runtime_init() {
     const bool initialized = Singleton::runtime_init();
     if (initialized) {
-        initialize_compute_engine_runtime();
+        initialize_hwy_runtime();
     }
     return initialized;
 }
@@ -370,19 +370,6 @@ void sk_version(char* buf, size_t buf_size) {
     const size_t version_len = std::strlen(kSketch2Version);
     const size_t copy_len = (version_len < (buf_size - 1)) ? version_len : (buf_size - 1);
     std::memcpy(buf, kSketch2Version, copy_len);
-    buf[copy_len] = '\0';
-}
-
-void sk_compute_engine(char* buf, int buf_size) {
-    if (buf == nullptr || buf_size <= 0) {
-        return;
-    }
-    const char* const engine_name = compute_engine_name(compiled_compute_engine());
-    const size_t engine_len = std::strlen(engine_name);
-    const size_t copy_len = (engine_len < static_cast<size_t>(buf_size - 1))
-        ? engine_len
-        : static_cast<size_t>(buf_size - 1);
-    std::memcpy(buf, engine_name, copy_len);
     buf[copy_len] = '\0';
 }
 

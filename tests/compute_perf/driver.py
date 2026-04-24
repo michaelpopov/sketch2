@@ -10,16 +10,15 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-from common import dataset_metadata_path, load_config, load_dataset_metadata, load_sketch2_types
+from common import dataset_metadata_path, load_config, load_dataset_metadata
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 RUNTIME_DIR = REPO_ROOT / "bin"
-EXPECTED_RUNTIME_LABEL = "highway"
+RUNTIME_LABEL = "highway"
 
 
 def release_build_target_for() -> str:
@@ -231,20 +230,6 @@ def print_diag_paths(diag_dir: Path, runtime_label: str) -> None:
             print(path, flush=True)
 
 
-def probe_runtime_label(runtime_dir: Path, config_root: str) -> str:
-    try:
-        Sketch2, _ = load_sketch2_types()
-        with Sketch2(config_root, lib_path=runtime_dir / "libsketch2.so") as sketch2:
-            runtime_label = sketch2.compute_engine().strip().lower()
-    except AttributeError as exc:
-        raise SystemExit(
-            f"[driver] ERROR: {runtime_dir / 'libsketch2.so'} does not export the "
-            "new sk_compute_engine() API. Rebuild that runtime directory before "
-            "running compute perf tests."
-        ) from exc
-    return runtime_label
-
-
 def install_signal_handlers() -> None:
     def _raise_keyboard_interrupt(signum, _frame):
         raise KeyboardInterrupt(f"signal {signum}")
@@ -296,16 +281,7 @@ def main() -> int:
     runtime_dir = RUNTIME_DIR
     ensure_runtime_artifacts(runtime_dir)
 
-    probe_root = tempfile.mkdtemp(prefix="sketch2_compute_perf_probe.", dir="/tmp")
-    try:
-        runtime_label = probe_runtime_label(runtime_dir, probe_root)
-    finally:
-        shutil.rmtree(probe_root, ignore_errors=True)
-    if runtime_label != EXPECTED_RUNTIME_LABEL:
-        raise SystemExit(
-            f"[driver] ERROR: expected {runtime_dir / 'libsketch2.so'} to report "
-            f"{EXPECTED_RUNTIME_LABEL!r}, but it reported {runtime_label!r}."
-        )
+    runtime_label = RUNTIME_LABEL
 
     env = build_env(runtime_dir, runtime_label)
     config, cache_state = ensure_cache_state(env)

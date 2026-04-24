@@ -138,9 +138,6 @@ class Sketch2:
         self.lib.sk_version.argtypes = [POINTER(c_char), c_size_t]
         self.lib.sk_version.restype = None
 
-        self.lib.sk_compute_engine.argtypes = [POINTER(c_char), c_int]
-        self.lib.sk_compute_engine.restype = None
-
         self.lib.sk_error.argtypes = [c_void_p]
         self.lib.sk_error.restype = c_int
 
@@ -329,11 +326,4 @@ class Sketch2:
             raise ValueError("buf_size must be >= 1")
         buf = ctypes.create_string_buffer(buf_size)
         self.lib.sk_version(buf, c_size_t(buf_size))
-        return buf.value.decode("utf-8", errors="replace")
-
-    def compute_engine(self, buf_size: int = 128) -> str:
-        if buf_size < 1:
-            raise ValueError("buf_size must be >= 1")
-        buf = ctypes.create_string_buffer(buf_size)
-        self.lib.sk_compute_engine(buf, c_int(buf_size))
         return buf.value.decode("utf-8", errors="replace")

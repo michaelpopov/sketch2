@@ -29,8 +29,5 @@ All vectorized compute kernels and architecture-dependent code should include
 
 ## Runtime State
 
-- `singleton.h`: Manages global process state, including the active
-  `ComputeUnit` (the compiled Highway runtime identity for this build) and
-  configuration.
-- `compute_unit.h`: Encapsulates the compiled Highway runtime identity used by query
-  dispatch.
+- `singleton.h`: Manages global process state including configuration and the
+  shared thread pool.

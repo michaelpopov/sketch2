@@ -1,10 +1,9 @@
 // Direct kernel benchmark for the compiled Highway backend.
 
-#include "core/compute/compute_engine.h"
 #include "core/compute/cosine_distance.h"
+#include "core/compute/highway.h"
 #include "core/compute/scanner_query_context.h"
 #include "core/utils/shared_types.h"
-#include "core/utils/singleton.h"
 
 #include <algorithm>
 #include <chrono>
@@ -138,7 +137,6 @@ CaseStats benchmark_case(std::string name, size_t warmup_iterations, size_t iter
 
 Args parse_args(int argc, char** argv) {
     Args args;
-    const std::string compiled_engine_name = compute_engine_name(compiled_compute_engine());
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         auto require_value = [&](const char* flag) -> std::string {
@@ -148,14 +146,7 @@ Args parse_args(int argc, char** argv) {
             return argv[++i];
         };
 
-        if (arg == "--engine") {
-            // Backward-compatible flag: this build can benchmark only one engine.
-            const std::string value = require_value("--engine");
-            if (value != compiled_engine_name) {
-                throw std::runtime_error(
-                    "--engine does not match compiled engine: " + compiled_engine_name);
-            }
-        } else if (arg == "--dist") {
+        if (arg == "--dist") {
             args.dist = dist_func_from_string(require_value("--dist"));
         } else if (arg == "--type") {
             args.type = data_type_from_string(require_value("--type"));
@@ -191,7 +182,7 @@ std::pair<const uint8_t*, const uint8_t*> prepare_bytes(std::vector<T>* a, std::
 }
 
 std::vector<CaseStats> run_compute_bench(const Args& args, const uint8_t* a, const uint8_t* b) {
-    const ComputeKernels kernels = resolve_compute_kernels(args.dist, args.type);
+    const ComputeKernels kernels = resolve_hwy_kernels(args.dist, args.type);
     std::vector<CaseStats> results;
     const bool is_dot = args.dist == DistFunc::DOT;
     results.push_back(benchmark_case(
@@ -266,18 +257,16 @@ std::vector<CaseStats> run_benchmarks(const Args& args) {
 }
 
 void print_json(const Args& args, const std::vector<CaseStats>& cases) {
-    const std::string engine = compute_engine_name(compiled_compute_engine());
     std::cout << std::fixed << std::setprecision(3);
     std::cout << "{\n";
-    std::cout << "  \"engine\": \"" << json_escape(engine) << "\",\n";
+    std::cout << "  \"engine\": \"highway\",\n";
     std::cout << "  \"dist\": \"" << json_escape(dist_func_to_string(args.dist)) << "\",\n";
     std::cout << "  \"type\": \"" << json_escape(data_type_to_string(args.type)) << "\",\n";
     std::cout << "  \"dim\": " << args.dim << ",\n";
     std::cout << "  \"iterations\": " << args.iterations << ",\n";
     std::cout << "  \"warmup_iterations\": " << args.warmup_iterations << ",\n";
     std::cout << "  \"repeats\": " << args.repeats << ",\n";
-    std::cout << "  \"active_compute_backend\": \"" << json_escape(get_singleton().compute_unit().name()) << "\"";
-    std::cout << ",\n  \"cases\": [\n";
+    std::cout << "  \"cases\": [\n";
     for (size_t i = 0; i < cases.size(); ++i) {
         const auto& entry = cases[i];
         std::cout << "    {\n";
@@ -299,7 +288,7 @@ void print_json(const Args& args, const std::vector<CaseStats>& cases) {
 
 int main(int argc, char** argv) {
     try {
-        initialize_compute_engine_runtime();
+        initialize_hwy_runtime();
         const Args args = parse_args(argc, argv);
         const std::vector<CaseStats> cases = run_benchmarks(args);
         if (std::isnan(g_sink)) {

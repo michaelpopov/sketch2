@@ -1,9 +1,7 @@
 #include "internal.h"
 
-#include "core/compute/compute_engine.h"
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
-#include "core/utils/compute_unit.h"
 #include "core/utils/log.h"
 #include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
@@ -692,7 +690,7 @@ int sk_score_ascending_is_better_(sk_handle_t* handle, bool* out) {
 }
 
 const char* sk_knn_engine_name_for_testing_() {
-    return compute_engine_name(compiled_compute_engine());
+    return "highway";
 }
 
 int sk_merge_delta_(sk_handle_t* handle) {

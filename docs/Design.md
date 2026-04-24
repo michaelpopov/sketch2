@@ -15,7 +15,7 @@ That gives the project room to optimize for:
 - compact persisted vector storage
 - predictable scans over stored vectors
 - efficient batched ingestion and merge flows
-- a build-selected compute path with hardware-specialized kernels
+- a Highway-backed compute path with hardware-specialized kernels
 - integration points for other systems instead of a full database surface
 
 This boundary is visible across the repository:

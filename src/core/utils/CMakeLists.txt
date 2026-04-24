@@ -1,5 +1,5 @@
 add_library(utils STATIC
-    ini_reader.cpp string_utils.cpp dynamic_bitset.cpp compute_unit.cpp singleton.cpp log.cpp update_notifier.cpp file_path_lock.cpp mapped_region.cpp)
+    ini_reader.cpp string_utils.cpp dynamic_bitset.cpp singleton.cpp log.cpp update_notifier.cpp file_path_lock.cpp mapped_region.cpp)
 
 target_include_directories(utils PUBLIC ${CMAKE_SOURCE_DIR}/src/core)
 

@@ -3,8 +3,6 @@
 - `README.md`: Overview of the core utilities and architecture detection.
 - `CMakeLists.txt`: Build rules for the shared utilities library and tests.
 - `arch_detection.h`: Centralized architecture detection and SIMD feature flags.
-- `compute_unit.cpp`: Runtime helpers for the compiled Highway backend identity.
-- `compute_unit.h`: Process-wide identifiers for the compiled Highway backend.
 - `dynamic_bitset.cpp`: Growable bitset implementation used by storage readers.
 - `dynamic_bitset.h`: Growable bitset declarations.
 - `file_lock.h`: Filesystem lock helper declarations.
@@ -14,7 +12,7 @@
 - `log.h`: Lightweight logging helper macros and utilities.
 - `shared_consts.h`: Shared constants used across the codebase.
 - `shared_types.h`: Shared enums, return types, and type-conversion helpers.
-- `singleton.cpp`: Process-wide singleton implementation for config loading and compute-unit selection.
+- `singleton.cpp`: Process-wide singleton implementation for config loading and shared runtime state.
 - `singleton.h`: Singleton declaration for shared runtime state and test overrides.
 - `string_utils.cpp`: Parsing and formatting helpers for textual vectors.
 - `string_utils.h`: Declarations for textual vector parsing and formatting.
