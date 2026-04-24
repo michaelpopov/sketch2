@@ -3,7 +3,7 @@
 #pragma once
 
 #include "core/compute/compute_kernels.h"
-#include "core/compute/cosine_distance.h"
+#include "core/compute/metric_finalizers.h"
 #include "core/compute/scanner_heap_utils.h"
 #include "core/compute/scanner_query_context.h"
 #include "core/storage/data_reader.h"

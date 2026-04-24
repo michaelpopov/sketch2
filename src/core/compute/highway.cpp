@@ -4,7 +4,7 @@
 
 #include "core/compute/highway.h"
 
-#include "core/compute/cosine_distance.h"
+#include "core/compute/metric_finalizers.h"
 #include "core/compute/scanner_dataset_scan.h"
 #include "core/compute/scanner_heap_utils.h"
 #include "core/compute/scanner_log_utils.h"

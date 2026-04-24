@@ -1,6 +1,6 @@
 // Direct kernel benchmark for the compiled Highway backend.
 
-#include "core/compute/cosine_distance.h"
+#include "core/compute/metric_finalizers.h"
 #include "core/compute/highway.h"
 #include "core/compute/scanner_query_context.h"
 #include "core/utils/shared_types.h"

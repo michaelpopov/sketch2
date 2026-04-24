@@ -4,7 +4,7 @@ set(COMPUTE_SOURCES
 
 set(COMPUTE_UTEST_SOURCES
   utest_hwy_kernels.cpp
-  utest_scanner_ex.cpp
+  utest_scanner.cpp
 )
 
 add_library(compute STATIC ${COMPUTE_SOURCES})

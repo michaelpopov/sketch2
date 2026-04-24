@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include "core/compute/highway.h"
-#include "core/compute/utest_computer_helpers.h"
+#include "core/compute/utest_compute_helpers.h"
 
 using namespace sketch2;
 using namespace sketch2::test;
