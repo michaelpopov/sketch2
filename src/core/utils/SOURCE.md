@@ -1,15 +1,24 @@
 # Source Index
 
-- `README.md`: Overview of the core utilities and architecture detection.
 - `CMakeLists.txt`: Build rules for the shared utilities library and tests.
+- `README.md`: Overview of the core utilities and architecture detection.
 - `arch_detection.h`: Centralized architecture detection and SIMD feature flags.
+- `bitset_filter.h`: Shared bitset-based allowlist filter struct used by scanner APIs.
 - `dynamic_bitset.cpp`: Growable bitset implementation used by storage readers.
 - `dynamic_bitset.h`: Growable bitset declarations.
 - `file_lock.h`: Filesystem lock helper declarations.
+- `file_path_lock.cpp`: In-process file-path lock implementation with realpath aliasing.
+- `file_path_lock.h`: FilePathLock declarations for tracking exclusively held file paths.
+- `high_perf_heap.h`: Vector-backed heap with fused root-replacement operations for hot paths.
 - `ini_reader.cpp`: Minimal INI parser implementation for dataset config files.
 - `ini_reader.h`: INI reader interface.
 - `log.cpp`: Shared logging state and sink implementation for the utilities library.
 - `log.h`: Lightweight logging helper macros and utilities.
+- `mapped_region.cpp`: MappedRegion implementation wrapping mmap/munmap lifecycle.
+- `mapped_region.h`: RAII wrapper declarations for read-only and writable mapped memory regions.
+- `roaring_ids.cpp`: RoaringIds implementation backed by CRoaring bitmaps.
+- `roaring_ids.h`: RoaringIds container declarations for compact uint64_t id sets.
+- `rw_lock.h`: Reader-writer lock wrapper used by shared caches in read-heavy code paths.
 - `shared_consts.h`: Shared constants used across the codebase.
 - `shared_types.h`: Shared enums, return types, and type-conversion helpers.
 - `singleton.cpp`: Process-wide singleton implementation for config loading and shared runtime state.
@@ -22,12 +31,13 @@
 - `update_notifier.h`: Update notifier interface used by storage reader/writer paths.
 - `utest_dynamic_bitset.cpp`: Unit tests for the dynamic bitset.
 - `utest_file_lock.cpp`: Unit tests for file locking behavior.
+- `utest_high_perf_heap.cpp`: Unit tests for the high-performance heap utility.
 - `utest_ini_reader.cpp`: Unit tests for the INI reader.
 - `utest_log.cpp`: Unit tests for the logging helpers.
 - `utest_main.cpp`: GoogleTest entry point for the utils test binary and the shared runner for all other test binaries.
+- `utest_mapped_region.cpp`: Unit tests for MappedRegion lifecycle and access modes.
+- `utest_roaring_ids.cpp`: Unit tests for RoaringIds container behavior and serialization.
 - `utest_singleton.cpp`: Unit tests for config-driven singleton initialization helpers.
 - `utest_string_utils.cpp`: Unit tests for textual vector parsing and printing.
 - `utest_thread_pool.cpp`: Unit tests for thread-pool submission and shutdown behavior.
 - `utest_update_notifier.cpp`: Unit tests for notifier update/checker behavior and counter persistence.
-- `utils.cpp`: Placeholder translation unit for the utilities library.
-- `rw_lock.h`: Reader-writer lock wrapper used by shared caches in read-heavy code paths.

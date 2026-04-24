@@ -11,6 +11,7 @@ target_link_libraries(sketch2
     compute
     stor
     utils
+    croaring
     hwy
     sketch_warnings
 )

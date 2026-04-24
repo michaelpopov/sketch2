@@ -2,8 +2,6 @@
 
 #include "utils/mapped_region.h"
 
-#include <sys/mman.h>
-
 #include <gtest/gtest.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -142,10 +140,11 @@ TEST_F(MappedRegionTest, WritableMappingAllowsModification) {
 
     MappedRegion region;
     ASSERT_EQ(0, region.init(fd, 0, 4096, false, MappedRegionAccess::Writable).code());
-    uint8_t* writable = const_cast<uint8_t*>(region.data());
+    uint8_t* writable = region.mutable_data();
+    ASSERT_NE(nullptr, writable);
     writable[0] = 42;
     writable[1] = 77;
-    ASSERT_EQ(0, msync(writable, region.size(), MS_SYNC));
+    ASSERT_EQ(0, region.sync("sync failed").code());
     close(fd);
 
     const int read_fd = open(path_.c_str(), O_RDONLY);

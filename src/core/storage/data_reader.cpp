@@ -11,16 +11,99 @@
 
 namespace sketch2 {
 
+namespace {
+
+class ScopedFd {
+public:
+    ScopedFd() = default;
+    explicit ScopedFd(int fd) : fd_(fd) {}
+    ScopedFd(const ScopedFd&) = delete;
+    ScopedFd& operator=(const ScopedFd&) = delete;
+    ~ScopedFd() { close(); }
+
+    int get() const { return fd_; }
+    explicit operator bool() const { return fd_ >= 0; }
+
+    void close() {
+        if (fd_ >= 0) {
+            ::close(fd_);
+            fd_ = -1;
+        }
+    }
+
+private:
+    int fd_ = -1;
+};
+
+Ret map_roaring_ids_section(
+        int fd,
+        uint64_t offset,
+        uint64_t bytes,
+        uint32_t count,
+        uint64_t base,
+        const char* section_name,
+        MappedRegion* region,
+        RoaringIds* ids) {
+    if (region == nullptr || ids == nullptr) {
+        return Ret("DataReader: missing id section output");
+    }
+
+    ids->clear();
+    region->reset();
+
+    if (count == 0) {
+        if (bytes != 0) {
+            return Ret(std::string("DataReader: empty ") + section_name + " section has non-zero size");
+        }
+        return Ret(0);
+    }
+    if (bytes == 0) {
+        return Ret(std::string("DataReader: non-empty ") + section_name + " section has zero size");
+    }
+
+    CHECK(region->init(
+        fd,
+        static_cast<size_t>(offset),
+        static_cast<size_t>(bytes),
+        false,
+        MappedRegionAccess::ReadOnly,
+        std::string("DataReader: failed to mmap ") + section_name + " trailer"));
+    CHECK(ids->init_frozen_view(region->data(), region->size(), base));
+    if (ids->count() != count) {
+        return Ret(std::string("DataReader: ") + section_name + " trailer count does not match header");
+    }
+    return Ret(0);
+}
+
+} // namespace
+
 // --- Iterator ---
 
 DataReader::Iterator::Iterator(const DataReader* reader, const DataReader* delta_reader, size_t index)
     : reader_(reader), delta_reader_(delta_reader), index_(index),
-      count_(reader_->count() + (delta_reader_ ? delta_reader_->count() : 0)) {}
+      count_(reader_->count() + (delta_reader_ ? delta_reader_->count() : 0)) {
+    base_ids_iter_.emplace(reader_->ids_.begin());
+    if (delta_reader_ != nullptr) {
+        delta_ids_iter_.emplace(delta_reader_->ids_.begin());
+    }
+    sync_current_id_iter_();
+}
 
 void DataReader::Iterator::next() {
     ++index_;
     if (index_ < reader_->count_unchecked()) {
         index_ = reader_->next_visible_base_index_unchecked(index_);
+    }
+    sync_current_id_iter_();
+}
+
+void DataReader::Iterator::sync_current_id_iter_() {
+    if (index_ < reader_->count_unchecked()) {
+        advance_id_iter_to_index(*base_ids_iter_, index_);
+        return;
+    }
+    if (delta_ids_iter_) {
+        advance_id_iter_to_index(*delta_ids_iter_, index_ - reader_->count_unchecked());
     }
 }
 
@@ -64,10 +147,16 @@ uint64_t DataReader::Iterator::id() const {
     if (index_ >= reader_->count()) {
         assert(delta_reader_);
         const size_t ind = index_ - reader_->count();
-        return delta_reader_->ids_.id(ind);
+        if (delta_ids_iter_ && !delta_ids_iter_->eof() && delta_ids_iter_->index() == ind) {
+            return delta_ids_iter_->id();
+        }
+        return delta_reader_->ids_.id_unchecked(ind);
     }
 
-    return reader_->ids_.id(index_);
+    if (base_ids_iter_ && !base_ids_iter_->eof() && base_ids_iter_->index() == index_) {
+        return base_ids_iter_->id();
+    }
+    return reader_->ids_.id_unchecked(index_);
 }
 
 Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta) {
@@ -91,23 +180,18 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
 
     path_ = path;
 
-    int fd = -1;
-    size_t file_size = 0;
-    auto fail = [this, &fd](const std::string& message) {
-        if (fd >= 0) {
-            close(fd);
-            fd = -1;
-        }
+    auto fail = [this](const std::string& message) {
         reset_state_();
         return Ret(message);
     };
 
-    fd = open(path.c_str(), O_RDONLY);
-    if (fd < 0) {
+    ScopedFd fd(::open(path.c_str(), O_RDONLY));
+    if (!fd) {
         return Ret("DataReader: failed to open file: " + path);
     }
 
-    Ret ret = read_header_(fd, path, &file_size);
+    size_t file_size = 0;
+    Ret ret = read_header_(fd.get(), path, &file_size);
     if (ret.code() != 0) {
         return fail(ret.message());
     }
@@ -115,33 +199,24 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
     DataMetadataLayout metadata_layout{};
     try {
         ret = validate_header_and_layout_(file_size, &metadata_layout);
-        if (ret.code() != 0) {
-            return fail(ret.message());
-        }
+        if (ret.code() != 0) return fail(ret.message());
         ret = validate_delta_(delta);
-        if (ret.code() != 0) {
-            return fail(ret.message());
-        }
-        ret = map_regions_(fd, file_size, metadata_layout);
-        if (ret.code() != 0) {
-            return fail(ret.message());
-        }
+        if (ret.code() != 0) return fail(ret.message());
+        ret = map_regions_(fd.get(), metadata_layout);
+        if (ret.code() != 0) return fail(ret.message());
     } catch (const std::exception& ex) {
         return fail(std::string("DataReader: failed to initialize mapped metadata: ") + ex.what());
     }
 
-    close(fd);
-    fd = -1;
+    fd.close();
 
     initialized_ = true;
-    delta_  = std::move(delta);
+    delta_ = std::move(delta);
 
     if (delta_) {
         changed_bitset_.resize(hdr_.count);
         ret = init_delta();
-        if (ret.code() != 0) {
-            return fail(ret.message());
-        }
+        if (ret.code() != 0) return fail(ret.message());
     }
 
     assert_invariants_();
@@ -149,13 +224,13 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
 }
 
 void DataReader::reset_state_() {
+    ids_.clear();
+    deleted_ids_.clear();
     vectors_region_.reset();
     ids_region_.reset();
     deleted_ids_region_.reset();
     hdr_ = {};
     initialized_ = false;
-    ids_.clear();
-    deleted_ids_.clear();
     vector_size_ = 0;
     norm_offset_in_record_ = 0;
     stride_ = 0;
@@ -206,8 +281,8 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     }
 
     const size_t dim = static_cast<size_t>(hdr_.dim);
-    if (dim < 4) {
-        return Ret("DataReader: dimension too small");
+    if (dim < kMinDimension || dim > kMaxDimension) {
+        return Ret("DataReader: dimension out of range");
     }
 
     const DataRecordLayout record_layout =
@@ -232,22 +307,25 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
         return Ret("DataReader: invalid inline norm layout");
     }
 
-    *metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
-    if (hdr_.vectors_bytes != metadata_layout->vectors_bytes
-            || hdr_.ids_offset != metadata_layout->ids_trailer_offset
+    const DataMetadataLayout computed = compute_data_metadata_layout(hdr_, hdr_.count);
+    if (hdr_.vectors_bytes != computed.vectors_bytes
+            || hdr_.ids_offset != computed.ids_trailer_offset
             || hdr_.deleted_ids_offset != compute_deleted_ids_offset(hdr_.ids_offset, hdr_.ids_bytes)) {
         return Ret("DataReader: malformed section layout in header");
     }
-    metadata_layout->deleted_ids_offset = hdr_.deleted_ids_offset;
-    metadata_layout->deleted_ids_bytes = hdr_.deleted_ids_bytes;
-    metadata_layout->deleted_ids_padding = compute_deleted_ids_padding(hdr_.ids_offset, hdr_.ids_bytes);
-
     const size_t end_of_deleted_ids =
         static_cast<size_t>(hdr_.deleted_ids_offset) + static_cast<size_t>(hdr_.deleted_ids_bytes);
-    if (file_size < metadata_layout->ids_trailer_offset || end_of_deleted_ids != file_size) {
+    if (file_size < computed.ids_trailer_offset || end_of_deleted_ids != file_size) {
         return Ret("DataReader: truncated or malformed data file");
     }
 
+    metadata_layout->vectors_bytes = hdr_.vectors_bytes;
+    metadata_layout->vectors_padding = computed.vectors_padding;
+    metadata_layout->ids_trailer_offset = hdr_.ids_offset;
+    metadata_layout->ids_trailer_padding = 0;
+    metadata_layout->deleted_ids_offset = hdr_.deleted_ids_offset;
+    metadata_layout->deleted_ids_bytes = hdr_.deleted_ids_bytes;
+    metadata_layout->deleted_ids_padding = compute_deleted_ids_padding(hdr_.ids_offset, hdr_.ids_bytes);
     return Ret(0);
 }
 
@@ -269,39 +347,35 @@ Ret DataReader::validate_delta_(const std::unique_ptr<DataReader>& delta) const 
     return Ret(0);
 }
 
-Ret DataReader::map_regions_(int fd, size_t file_size, const DataMetadataLayout& metadata_layout) {
+Ret DataReader::map_regions_(int fd, const DataMetadataLayout& metadata_layout) {
     if (metadata_layout.vectors_bytes > 0) {
-        CHECK(vectors_region_.init(fd, hdr_.data_offset, metadata_layout.vectors_bytes, true));
+        CHECK(vectors_region_.init(
+            fd,
+            hdr_.data_offset,
+            metadata_layout.vectors_bytes,
+            true,
+            MappedRegionAccess::ReadOnly,
+            "DataReader: failed to mmap vector data"));
     }
 
-    CHECK(ids_region_.init(fd, hdr_.ids_offset, hdr_.ids_bytes));
-    size_t active_ids_bytes = 0;
-    size_t exact_active_ids_bytes = 0;
-    CHECK(ids_.map(ids_region_.data(), ids_region_.size(), &exact_active_ids_bytes));
-    if (exact_active_ids_bytes != ids_region_.size()) {
-        return Ret("DataReader: malformed ids trailer size");
-    }
-    active_ids_bytes = exact_active_ids_bytes;
-    if (active_ids_bytes != hdr_.ids_bytes) {
-        return Ret("DataReader: ids trailer size does not match header");
-    }
-
-    CHECK(deleted_ids_region_.init(fd, hdr_.deleted_ids_offset, hdr_.deleted_ids_bytes));
-    size_t exact_deleted_ids_bytes = 0;
-    CHECK(deleted_ids_.map(
-        deleted_ids_region_.data(), deleted_ids_region_.size(), &exact_deleted_ids_bytes));
-    if (exact_deleted_ids_bytes != deleted_ids_region_.size()) {
-        return Ret("DataReader: malformed ids trailer size");
-    }
-    const size_t deleted_ids_bytes = exact_deleted_ids_bytes;
-
-    const size_t parsed_file_size = static_cast<size_t>(hdr_.deleted_ids_offset) + deleted_ids_bytes;
-    if (parsed_file_size != file_size) {
-        return Ret("DataReader: malformed ids trailer size");
-    }
-    if (ids_.count() != hdr_.count || deleted_ids_.count() != hdr_.deleted_count) {
-        return Ret("DataReader: ids trailer count does not match header");
-    }
+    CHECK(map_roaring_ids_section(
+        fd,
+        hdr_.ids_offset,
+        hdr_.ids_bytes,
+        hdr_.count,
+        hdr_.min_range_id,
+        "ids",
+        &ids_region_,
+        &ids_));
+    CHECK(map_roaring_ids_section(
+        fd,
+        hdr_.deleted_ids_offset,
+        hdr_.deleted_ids_bytes,
+        hdr_.deleted_count,
+        hdr_.min_range_id,
+        "deleted_ids",
+        &deleted_ids_region_,
+        &deleted_ids_));
 
     return Ret(0);
 }
@@ -314,22 +388,23 @@ Ret DataReader::init_delta() {
     }
 
     has_hidden_rows_ = false;
-    auto mark_hidden = [this](const CompactIds& other_ids) {
-        const size_t base_count = ids_.count();
-        const size_t other_count = other_ids.count();
-        for (size_t i = 0, j = 0; i < base_count; ++i) {
-            const uint64_t id = ids_.id_unchecked(i);
-            while (j < other_count && other_ids.id_unchecked(j) < id) {
-                ++j;
+    auto mark_hidden = [this](const RoaringIds& other_ids) {
+        auto base_it = ids_.begin();
+        auto other_it = other_ids.begin();
+        for (; !base_it.eof() && !other_it.eof(); base_it.next()) {
+            const uint64_t id = base_it.id();
+            while (!other_it.eof() && other_it.id() < id) {
+                other_it.next();
             }
 
-            if (j >= other_count) {
+            if (other_it.eof()) {
                 break;
             }
 
-            if (other_ids.id_unchecked(j) == id) {
-                changed_bitset_.set(i);
+            if (other_it.id() == id) {
+                changed_bitset_.set(base_it.index());
                 has_hidden_rows_ = true;
+                other_it.next();
             }
         }
     };
@@ -369,8 +444,8 @@ void DataReader::assert_invariants_() const {
     assert((stride_ % kDataAlignment) == 0);
     assert(ids_.count() == hdr_.count);
     assert(deleted_ids_.count() == hdr_.deleted_count);
-    assert(!ids_region_.empty());
-    assert(!deleted_ids_region_.empty());
+    assert((hdr_.ids_bytes == 0) == ids_region_.empty());
+    assert((hdr_.deleted_ids_bytes == 0) == deleted_ids_region_.empty());
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr_, hdr_.count);
     assert(vectors_region_.size() == metadata_layout.vectors_bytes);
@@ -402,51 +477,37 @@ void DataReader::assert_invariants_() const {
 }
 
 DataType DataReader::type() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::type: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::type");
     return type_;
 }
 
 size_t DataReader::dim() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::dim: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::dim");
     return hdr_.dim;
 }
 
 size_t DataReader::size() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::size: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::size");
     return vector_size_;
 }
 
 uint64_t DataReader::min_range_id() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::min_range_id: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::min_range_id");
     return hdr_.min_range_id;
 }
 
 uint32_t DataReader::norm_flags() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::norm_flags: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::norm_flags");
     return data_file_norm_flags(hdr_);
 }
 
 bool DataReader::has_norms() const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::has_norms: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::has_norms");
     return data_file_has_norms(hdr_);
 }
 
 bool DataReader::has_matching_stored_norms(DistFunc dist_func) const {
-    if (!initialized_) {
-        throw std::runtime_error("DataReader::has_matching_stored_norms: reader is not initialized");
-    }
+    ensure_initialized_("DataReader::has_matching_stored_norms");
     return data_file_matches_stored_norms_dist(hdr_, dist_func);
 }
 
@@ -472,15 +533,8 @@ uint64_t DataReader::id(size_t index) const {
 // Looks up an id in the base file and falls back to the attached delta when the
 // base row is absent or hidden by newer updates.
 const uint8_t* DataReader::get(uint64_t id) const {
-    const size_t index = ids_.lower_bound_index(id);
-    if (index >= ids_.count()) {
-        if (delta_) {
-            return delta_->get(id);
-        }
-        return nullptr;
-    }
-
-    if (ids_.id(index) != id) {
+    size_t index = 0;
+    if (!ids_.find_index(id, &index)) {
         if (delta_) {
             return delta_->get(id);
         }
@@ -511,34 +565,41 @@ bool DataReader::check_consistency() const {
         return false;
     }
 
-    const size_t ids_count = count();
-    const size_t deleted_count_ = deleted_count();
-
-    for (size_t i = 1; i < deleted_count_; ++i) {
-        if (deleted_ids_.id_unchecked(i - 1) >= deleted_ids_.id_unchecked(i)) {
-            return false;
+    auto is_strictly_sorted = [](const RoaringIds& roaring_ids) {
+        auto it = roaring_ids.begin();
+        if (it.eof()) {
+            return true;
         }
+
+        uint64_t prev_id = it.id();
+        it.next();
+        for (; !it.eof(); it.next()) {
+            const uint64_t id = it.id();
+            if (prev_id >= id) {
+                return false;
+            }
+            prev_id = id;
+        }
+        return true;
+    };
+
+    if (!is_strictly_sorted(deleted_ids_) || !is_strictly_sorted(ids_)) {
+        return false;
     }
 
-    for (size_t i = 1; i < ids_count; ++i) {
-        if (ids_.id_unchecked(i - 1) >= ids_.id_unchecked(i)) {
-            return false;
-        }
-    }
-
-    size_t i = 0;
-    size_t j = 0;
-    while (i < ids_count && j < deleted_count_) {
-        const uint64_t id = ids_.id_unchecked(i);
-        const uint64_t deleted_id = deleted_ids_.id_unchecked(j);
+    auto ids_it = ids_.begin();
+    auto deleted_it = deleted_ids_.begin();
+    while (!ids_it.eof() && !deleted_it.eof()) {
+        const uint64_t id = ids_it.id();
+        const uint64_t deleted_id = deleted_it.id();
 
         if (id == deleted_id) {
             return false;
         }
         if (id < deleted_id) {
-            ++i;
+            ids_it.next();
         } else {
-            ++j;
+            deleted_it.next();
         }
     }
     return true;

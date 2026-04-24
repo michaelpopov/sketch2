@@ -15,8 +15,8 @@
 #include "core/storage/data_merger.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/input_reader.h"
-#include "core/storage/compact_ids.h"
-#include "core/storage/compact_ids_shared.h"
+#include "core/utils/roaring_ids.h"
+#include "utest_roaring_ids_helpers.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -26,17 +26,6 @@ class DataMergerTest : public ::testing::Test {
 protected:
     static constexpr uint16_t kDim = 4;
     std::string base_dir_;
-    struct CompactIdsHeaderForTest {
-        uint8_t encoding = 0;
-        uint8_t reserved0 = 0;
-        uint16_t reserved1 = 0;
-        uint32_t count = 0;
-        uint32_t max_offset = 0;
-        uint32_t payload_size = 0;
-        uint64_t base = 0;
-    };
-
-    static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIdsOffsets header size");
 
     void SetUp() override {
         base_dir_ = tmp_dir() + "/sketch2_utest_dm_" + std::to_string(getpid());
@@ -55,6 +44,26 @@ protected:
         for (size_t i = 1; i < ids.size(); ++i) {
             ASSERT_LT(ids[i - 1], ids[i]);
         }
+    }
+
+    void write_roaring_ids_trailer(
+            FILE* f,
+            const DataMetadataLayout& metadata_layout,
+            const RoaringIds& ids,
+            const RoaringIds& deleted_ids,
+            const char* context) {
+        ASSERT_EQ(0, write_zero_padding(
+            f,
+            metadata_layout.vectors_padding,
+            std::string(context) + ": failed to write ids alignment padding").code());
+        const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
+            metadata_layout.ids_trailer_offset, ids, deleted_ids);
+        ASSERT_EQ(0, write_roaring_ids_trailer_mmap(
+            f,
+            ids,
+            deleted_ids,
+            trailer_layout,
+            context).code());
     }
 
     void write_f32_file(const std::string& path,
@@ -83,15 +92,16 @@ protected:
             dim,
             has_norms ? data_file_norm_flags_for_dist(stored_norm_dist_func) : 0u);
         hdr.base.kind = static_cast<uint16_t>(kind);
-        CompactIds compact_active_ids;
-        ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
-        CompactIds compact_deleted_ids;
-        std::vector<uint64_t> deleted_ids = deleted;
-        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+        RoaringIds roaring_active_ids;
+        init_roaring_ids_for_test(min_range_id, active_ids, &roaring_active_ids);
+        RoaringIds roaring_deleted_ids;
+        init_roaring_ids_for_test(min_range_id, deleted, &roaring_deleted_ids);
+        const size_t active_ids_bytes = serialized_bytes_or_zero(roaring_active_ids);
+        const size_t deleted_ids_bytes = serialized_bytes_or_zero(roaring_deleted_ids);
         ASSERT_EQ(0, set_data_header_layout(
-            &hdr, compact_active_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
+            &hdr, active_ids_bytes, deleted_ids_bytes).code());
 
-        FILE* f = fopen(path.c_str(), "wb");
+        FILE* f = fopen(path.c_str(), "w+b");
         ASSERT_NE(nullptr, f);
         ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
         const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -126,19 +136,12 @@ protected:
                 "DataMergerTest::write_f32_file").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
-        const size_t ids_pad_size = metadata_layout.vectors_padding;
-        if (ids_pad_size > 0) {
-            std::vector<uint8_t> pad(ids_pad_size, 0);
-            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-        }
-        ASSERT_EQ(0, compact_active_ids.write(f, "DataMergerTest::write_f32_file active ids").code());
-        const size_t deleted_ids_pad_size =
-            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_active_ids.serialized_size_bytes());
-        if (deleted_ids_pad_size > 0) {
-            std::vector<uint8_t> pad(deleted_ids_pad_size, 0);
-            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-        }
-        ASSERT_EQ(0, compact_deleted_ids.write(f, "DataMergerTest::write_f32_file deleted ids").code());
+        write_roaring_ids_trailer(
+            f,
+            metadata_layout,
+            roaring_active_ids,
+            roaring_deleted_ids,
+            "DataMergerTest::write_f32_file");
         fclose(f);
     }
 
@@ -168,15 +171,16 @@ protected:
             dim,
             has_norms ? data_file_norm_flags_for_dist(stored_norm_dist_func) : 0u);
         hdr.base.kind = static_cast<uint16_t>(kind);
-        CompactIds compact_active_ids;
-        ASSERT_EQ(0, compact_active_ids.init(active_ids).code());
-        CompactIds compact_deleted_ids;
-        std::vector<uint64_t> deleted_ids = deleted;
-        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+        RoaringIds roaring_active_ids;
+        init_roaring_ids_for_test(min_range_id, active_ids, &roaring_active_ids);
+        RoaringIds roaring_deleted_ids;
+        init_roaring_ids_for_test(min_range_id, deleted, &roaring_deleted_ids);
+        const size_t active_ids_bytes = serialized_bytes_or_zero(roaring_active_ids);
+        const size_t deleted_ids_bytes = serialized_bytes_or_zero(roaring_deleted_ids);
         ASSERT_EQ(0, set_data_header_layout(
-            &hdr, compact_active_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
+            &hdr, active_ids_bytes, deleted_ids_bytes).code());
 
-        FILE* f = fopen(path.c_str(), "wb");
+        FILE* f = fopen(path.c_str(), "w+b");
         ASSERT_NE(nullptr, f);
         ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
         const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -211,19 +215,12 @@ protected:
                 "DataMergerTest::write_i16_file").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
-        const size_t ids_pad_size = metadata_layout.vectors_padding;
-        if (ids_pad_size > 0) {
-            std::vector<uint8_t> pad(ids_pad_size, 0);
-            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-        }
-        ASSERT_EQ(0, compact_active_ids.write(f, "DataMergerTest::write_i16_file active ids").code());
-        const size_t deleted_ids_pad_size =
-            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_active_ids.serialized_size_bytes());
-        if (deleted_ids_pad_size > 0) {
-            std::vector<uint8_t> pad(deleted_ids_pad_size, 0);
-            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-        }
-        ASSERT_EQ(0, compact_deleted_ids.write(f, "DataMergerTest::write_i16_file deleted ids").code());
+        write_roaring_ids_trailer(
+            f,
+            metadata_layout,
+            roaring_active_ids,
+            roaring_deleted_ids,
+            "DataMergerTest::write_i16_file");
         fclose(f);
     }
 
@@ -242,41 +239,6 @@ protected:
     void expect_inline_norm_layout(const std::string& path) {
         const DataFileHeader hdr = read_header(path);
         EXPECT_TRUE(data_file_has_norms(hdr));
-    }
-
-    CompactIdsExtEncoding read_active_ids_encoding(const std::string& path) {
-        const DataFileHeader hdr = read_header(path);
-        const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
-        FILE* f = fopen(path.c_str(), "rb");
-        EXPECT_NE(nullptr, f);
-        if (f == nullptr) {
-            return CompactIdsExtEncoding::Offsets32;
-        }
-        EXPECT_EQ(0, fseek(f, static_cast<long>(ids_offset), SEEK_SET));
-        CompactIdsHeaderForTest active_hdr{};
-        EXPECT_EQ(1u, fread(&active_hdr, sizeof(active_hdr), 1, f));
-        fclose(f);
-        return static_cast<CompactIdsExtEncoding>(active_hdr.encoding);
-    }
-
-    CompactIdsExtEncoding read_deleted_ids_encoding(const std::string& path) {
-        const DataFileHeader hdr = read_header(path);
-        const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
-        FILE* f = fopen(path.c_str(), "rb");
-        EXPECT_NE(nullptr, f);
-        if (f == nullptr) {
-            return CompactIdsExtEncoding::Offsets32;
-        }
-        EXPECT_EQ(0, fseek(f, static_cast<long>(ids_offset), SEEK_SET));
-        CompactIdsHeaderForTest active_hdr{};
-        EXPECT_EQ(1u, fread(&active_hdr, sizeof(active_hdr), 1, f));
-        const size_t active_size = sizeof(CompactIdsHeaderForTest) + active_hdr.payload_size;
-        const size_t deleted_offset = compute_deleted_ids_offset(ids_offset, active_size);
-        EXPECT_EQ(0, fseek(f, static_cast<long>(deleted_offset), SEEK_SET));
-        CompactIdsHeaderForTest deleted_hdr{};
-        EXPECT_EQ(1u, fread(&deleted_hdr, sizeof(deleted_hdr), 1, f));
-        fclose(f);
-        return static_cast<CompactIdsExtEncoding>(deleted_hdr.encoding);
     }
 
     float first_f32(const DataReader& reader, uint64_t id) {
@@ -809,7 +771,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsIncompatibleDim) {
     EXPECT_FALSE(fs::exists(out_path));
 }
 
-TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsActiveIdSpanBeyondCompactIdsRange) {
+TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsActiveIdSpanBeyondRoaringIdsRange) {
     const std::string source_path = p("source_wide_span.data");
     const std::string input_path = p("updates_wide_span.txt");
     const std::string out_path = p("merged_wide_span.data");
@@ -835,7 +797,7 @@ TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsActiveIdSpanBeyondCompac
     EXPECT_FALSE(fs::exists(out_path));
 }
 
-TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsDeletedIdSpanBeyondCompactIdsRange) {
+TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsDeletedIdSpanBeyondRoaringIdsRange) {
     const std::string source_path = p("source_deleted_wide_span.delta");
     const std::string input_path = p("updates_deleted_wide_span.txt");
     const std::string out_path = p("merged_deleted_wide_span.delta");
@@ -861,7 +823,7 @@ TEST_F(DataMergerTest, MergeDeltaFileFromInputViewRejectsDeletedIdSpanBeyondComp
     EXPECT_FALSE(fs::exists(out_path));
 }
 
-TEST_F(DataMergerTest, MergeDataFileDenseActiveIdsUseBitsetEncoding) {
+TEST_F(DataMergerTest, MergeDataFileDenseActiveIdsWritesReadableRoaringTrailer) {
     const std::string source_path = p("source_dense.data");
     const std::string input_path = p("updates_dense.txt");
     const std::string out_path = p("merged_dense.data");
@@ -884,10 +846,16 @@ TEST_F(DataMergerTest, MergeDataFileDenseActiveIdsUseBitsetEncoding) {
 
     DataMerger merger;
     ASSERT_EQ(0, merger.merge_data_file(source_reader, view, out_path, DistFunc::DOT).code());
-    EXPECT_EQ(CompactIdsExtEncoding::Bitset, read_active_ids_encoding(out_path));
+    const DataFileHeader hdr = read_header(out_path);
+    EXPECT_EQ(0u, hdr.ids_offset % kDataRegionAlignment);
+    EXPECT_GT(hdr.ids_bytes, 0u);
+    DataReader out_reader;
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(20000u, out_reader.id(0));
+    EXPECT_EQ(20000u + (8999u * 2u), out_reader.id(8999));
 }
 
-TEST_F(DataMergerTest, MergeDeltaFileDenseDeletedIdsUseBitsetEncoding) {
+TEST_F(DataMergerTest, MergeDeltaFileDenseDeletedIdsWritesReadableRoaringTrailer) {
     const std::string source_path = p("source_dense_deleted.delta");
     const std::string updater_path = p("updater_dense_deleted.delta");
     const std::string out_path = p("merged_dense_deleted.delta");
@@ -908,7 +876,13 @@ TEST_F(DataMergerTest, MergeDeltaFileDenseDeletedIdsUseBitsetEncoding) {
 
     DataMerger merger;
     ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
-    EXPECT_EQ(CompactIdsExtEncoding::Bitset, read_deleted_ids_encoding(out_path));
+    const DataFileHeader hdr = read_header(out_path);
+    EXPECT_EQ(0u, hdr.deleted_ids_offset % kDataRegionAlignment);
+    EXPECT_GT(hdr.deleted_ids_bytes, 0u);
+    DataReader out_reader;
+    ASSERT_EQ(0, out_reader.init(out_path).code());
+    EXPECT_EQ(20000u, out_reader.deleted_id(0));
+    EXPECT_EQ(20000u + (8999u * 2u), out_reader.deleted_id(8999));
 }
 
 TEST_F(DataMergerTest, MergeDeltaFileMergesRecordsAndDeletes) {
