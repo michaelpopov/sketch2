@@ -11,6 +11,7 @@
 #include <cstring>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -41,6 +42,10 @@ public:
         const DataReader*  delta_reader_ = nullptr;
         size_t             index_  = 0;
         const size_t       count_;
+        std::optional<RoaringIds::Iterator> base_ids_iter_;
+        std::optional<RoaringIds::Iterator> delta_ids_iter_;
+
+        void sync_current_id_iter_();
     };
 
     // Iterates visible rows from the base data file only, ordered by id.
@@ -51,11 +56,13 @@ public:
         inline void next() {
             ++index_;
             if (!reader_ || source_ != Source::Base) {
+                sync_id_iter_();
                 return;
             }
             if (index_ < reader_->count_unchecked()) {
                 index_ = reader_->next_visible_base_index_unchecked(index_);
             }
+            sync_id_iter_();
         }
 
         inline bool eof() const {
@@ -101,10 +108,16 @@ public:
             }
 
             if (source_ == Source::Base) {
+                if (id_iter_ && !id_iter_->eof() && id_iter_->index() == index_) {
+                    return id_iter_->id();
+                }
                 return reader_->id_unchecked(index_);
             }
 
-            return reader_->delta_->ids_.id(index_);
+            if (id_iter_ && !id_iter_->eof() && id_iter_->index() == index_) {
+                return id_iter_->id();
+            }
+            return reader_->delta_->ids_.id_unchecked(index_);
         }
 
     private:
@@ -115,11 +128,28 @@ public:
 
         friend class DataReader;
         OrderedIterator(const DataReader* reader, Source source, size_t index)
-            : reader_(reader), source_(source), index_(index) {}
+            : reader_(reader), source_(source), index_(index) {
+            if (source_ == Source::Base && reader_ != nullptr) {
+                id_iter_.emplace(reader_->ids_.begin());
+            } else if (source_ == Source::Delta && reader_ != nullptr && reader_->delta_) {
+                id_iter_.emplace(reader_->delta_->ids_.begin());
+            }
+            sync_id_iter_();
+        }
+
+        inline void sync_id_iter_() {
+            if (!id_iter_) {
+                return;
+            }
+            while (!id_iter_->eof() && id_iter_->index() < index_) {
+                id_iter_->next();
+            }
+        }
 
         const DataReader* reader_ = nullptr;
         Source            source_ = Source::Base;
         size_t            index_  = 0;
+        std::optional<RoaringIds::Iterator> id_iter_;
     };
 
     ~DataReader() = default;

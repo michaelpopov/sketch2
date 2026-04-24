@@ -53,7 +53,7 @@ public:
     // The final counts/min/max ids are not known yet, so they are patched in at
     // the end once the merge body and trailing sections have been written.
     Ret open(const DataReader& source, uint32_t norm_flags, const std::string& path, const char* context) {
-        f_ = fopen(path.c_str(), "wb");
+        f_ = fopen(path.c_str(), "w+b");
         if (!f_) {
             return Ret(strerror(errno));
         }
@@ -177,25 +177,21 @@ public:
     // sections. Norms live inside each record, so there is no separate norms
     // section between vectors and ids.
     Ret write_ids_section(const DataFileHeader& header,
-            const RoaringIds& deleted_ids,
-            const char* ids_message,
-            const char* deleted_ids_message) {
+            const RoaringIds& deleted_ids) {
         output_ids_.compact();
-        output_ids_bytes_ = output_ids_.empty() ? 0 : output_ids_.serialized_size_bytes();
-        deleted_ids_bytes_ = deleted_ids.empty() ? 0 : deleted_ids.serialized_size_bytes();
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(header, output_ids_.count());
+        const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
+            metadata_layout.ids_trailer_offset, output_ids_, deleted_ids);
+        output_ids_bytes_ = trailer_layout.ids_bytes;
+        deleted_ids_bytes_ = trailer_layout.deleted_ids_bytes;
         CHECK(write_zero_padding(f_, metadata_layout.vectors_padding,
             std::string(context_) + ": failed to write ids alignment padding"));
-        if (!output_ids_.empty()) {
-            CHECK(output_ids_.write(f_, ids_message));
-        }
-        CHECK(write_zero_padding(
+        CHECK(write_roaring_ids_trailer_mmap(
             f_,
-            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, output_ids_bytes_),
-            std::string(context_) + ": failed to write deleted_ids alignment padding"));
-        if (!deleted_ids.empty()) {
-            CHECK(deleted_ids.write(f_, deleted_ids_message));
-        }
+            output_ids_,
+            deleted_ids,
+            trailer_layout,
+            context_));
         return Ret(0);
     }
 
@@ -223,12 +219,11 @@ private:
     std::vector<uint8_t> parsed_text_buffer_;
 };
 
-class DataReaderUpdaterCursor {
+class DataReaderLiveRowCursor {
 public:
-    // We intentionally iterate updater base rows only. Merge entry points reject
-    // updater files with attached deltas, so base_begin() is equivalent to
-    // begin() here and avoids pulling delta semantics into this cursor.
-    explicit DataReaderUpdaterCursor(const DataReader& reader, uint32_t target_norm_flags)
+    // Merge entry points reject readers with attached deltas, so base_begin()
+    // is equivalent to a full live-row scan here and keeps id access sequential.
+    explicit DataReaderLiveRowCursor(const DataReader& reader, uint32_t target_norm_flags)
         : reader_(&reader), iter_(reader.base_begin()), target_norm_flags_(target_norm_flags) {}
 
     bool eof() const { return iter_.eof(); }
@@ -538,21 +533,6 @@ Ret build_roaring_ids(Cursor cursor, uint64_t base, const char* context, Roaring
     return Ret(0);
 }
 
-float compute_source_output_norm(const DataReader& source, size_t index, uint32_t target_norm_flags) {
-    if (target_norm_flags == 0u) {
-        return 0.0f;
-    }
-    if (source.norm_flags() == target_norm_flags) {
-        return source.get_norm(index);
-    }
-
-    return compute_stored_norm_for_dist(
-        source.at(index),
-        source.type(),
-        source.dim(),
-        dist_func_for_data_file_norm_flags(target_norm_flags));
-}
-
 void set_merge_file_buffer(FILE* f, std::vector<char>* file_buffer) {
     file_buffer->resize(kFileBufferSize);
     (void)setvbuf(f, file_buffer->data(), _IOFBF, file_buffer->size());
@@ -585,27 +565,28 @@ Ret merge_records(const DataReader& source,
         uint32_t target_norm_flags,
         const std::string& conflict_message,
         MergeOutputWriter* output) {
-    // i  -> current live row in the persisted source file
-    // j  -> current live row in the updater stream
-    // di -> current delete id checked against source ids
-    // dj -> current delete id checked against updater ids
+    // source_rows -> current live row in the persisted source file
+    // updater     -> current live row in the updater stream
+    // source_deletes  -> current delete id checked against source ids
+    // updater_deletes -> current delete id checked against updater ids
     //
-    // The arrays are all sorted, so each index only moves forward. That keeps
+    // The streams are all sorted, so each cursor only moves forward. That keeps
     // the merge linear in the total number of source rows, update rows, and
     // delete ids.
-    for (size_t i = 0; i < source.count() || !updater.eof(); ) {
-        const bool has_source = i < source.count();
+    DataReaderLiveRowCursor source_rows(source, target_norm_flags);
+    for (; !source_rows.eof() || !updater.eof(); ) {
+        const bool has_source = !source_rows.eof();
         const bool has_update = !updater.eof();
 
         if (has_source) {
-            const uint64_t source_id = source.id(i);
+            const uint64_t source_id = source_rows.id();
             // A delete means "this id must not appear as a live row". When the
             // current source row is deleted, we simply skip it and keep merging.
             while (!source_deletes.eof() && source_deletes.id() < source_id) {
                 source_deletes.next();
             }
             if (!source_deletes.eof() && source_deletes.id() == source_id) {
-                ++i;
+                source_rows.next();
                 continue;
             }
         }
@@ -625,13 +606,12 @@ Ret merge_records(const DataReader& source,
         }
 
         if (has_source && has_update) {
-            const uint64_t source_id = source.id(i);
+            const uint64_t source_id = source_rows.id();
             const uint64_t update_id = updater.id();
             if (source_id < update_id) {
                 // Source id comes first and is not shadowed by an update.
-                const float norm = compute_source_output_norm(source, i, target_norm_flags);
-                CHECK(output->write_binary_record(source_id, source.at(i), norm));
-                ++i;
+                CHECK(source_rows.write_current(output));
+                source_rows.next();
             } else if (source_id > update_id) {
                 // Updater inserted a new id before the current source id.
                 CHECK(updater.write_current(output));
@@ -639,18 +619,16 @@ Ret merge_records(const DataReader& source,
             } else {
                 // Same id in both streams means "replace source with updater".
                 CHECK(updater.write_current(output));
-                ++i;
+                source_rows.next();
                 updater.next();
             }
             continue;
         }
 
         if (has_source) {
-            const uint64_t source_id = source.id(i);
             // No updater rows remain, so every remaining source row survives.
-            const float norm = compute_source_output_norm(source, i, target_norm_flags);
-            CHECK(output->write_binary_record(source_id, source.at(i), norm));
-            ++i;
+            CHECK(source_rows.write_current(output));
+            source_rows.next();
         } else {
             // No source rows remain, so every remaining updater row is appended.
             CHECK(updater.write_current(output));
@@ -721,7 +699,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     output.reserve(source.count() + updater.count(), false);
     CHECK(merge_records(
         source,
-        DataReaderUpdaterCursor(updater, source.norm_flags()),
+        DataReaderLiveRowCursor(updater, source.norm_flags()),
         DataReaderDeletedCursor(updater),
         DataReaderDeletedCursor(updater),
         source.norm_flags(),
@@ -731,9 +709,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
     // to reopen the new file as a normal compact `.data` file.
     CHECK(output.write_ids_section(
         *merge_file.header(),
-        {},
-        "DataMerger::merge_data_files: failed to write ids to merge file",
-        "DataMerger::merge_data_files: failed to write deleted_ids to merge file"));
+        {}));
 
     set_output_id_range(output, merge_file.header());
     CHECK(set_data_header_layout(
@@ -825,7 +801,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     // Delta-to-delta merge keeps a tombstone section, but it must first remove
     // any old deletes that the updater resurrected as live rows.
     const std::vector<uint64_t> updater_live_ids =
-        collect_updater_live_ids(DataReaderUpdaterCursor(updater, source.norm_flags()), updater.count());
+        collect_updater_live_ids(DataReaderLiveRowCursor(updater, source.norm_flags()), updater.count());
     RoaringIds roaring_deleted_ids;
     CHECK(build_roaring_ids(
         make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids),
@@ -841,7 +817,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
         make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids);
     CHECK(merge_records(
         source,
-        DataReaderUpdaterCursor(updater, source.norm_flags()),
+        DataReaderLiveRowCursor(updater, source.norm_flags()),
         merge_deleted_cursor,
         merge_deleted_cursor,
         source.norm_flags(),
@@ -850,9 +826,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     // Delta files have the same live-row trailer as data files...
     CHECK(output.write_ids_section(
         *merge_file.header(),
-        roaring_deleted_ids,
-        "DataMerger::merge_delta_file: failed to write ids to merge file",
-        "DataMerger::merge_delta_file: failed to write deleted_ids to merge file"));
+        roaring_deleted_ids));
 
     merge_file.header()->deleted_count = static_cast<uint32_t>(roaring_deleted_ids.count());
     set_output_id_range(output, merge_file.header());
@@ -895,9 +869,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
         &output));
     CHECK(output.write_ids_section(
         *merge_file.header(),
-        empty_deleted_ids,
-        "DataMerger::merge_data_files: failed to write ids to merge file",
-        "DataMerger::merge_data_files: failed to write deleted_ids to merge file"));
+        empty_deleted_ids));
 
     set_output_id_range(output, merge_file.header());
     CHECK(set_data_header_layout(
@@ -950,9 +922,7 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
         &output));
     CHECK(output.write_ids_section(
         *merge_file.header(),
-        roaring_deleted_ids,
-        "DataMerger::merge_delta_file: failed to write ids to merge file",
-        "DataMerger::merge_delta_file: failed to write deleted_ids to merge file"));
+        roaring_deleted_ids));
 
     merge_file.header()->deleted_count = static_cast<uint32_t>(roaring_deleted_ids.count());
     set_output_id_range(output, merge_file.header());

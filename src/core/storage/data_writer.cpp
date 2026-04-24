@@ -228,10 +228,8 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     RoaringIds active_ids;
     RoaringIds deleted_ids;
     CHECK(build_roaring_ids(reader, min_range_id, &active_ids, &deleted_ids));
-    const size_t active_ids_bytes =
-        stats.active_count == 0 ? 0 : active_ids.serialized_size_bytes();
-    const size_t deleted_ids_bytes =
-        stats.deleted_count == 0 ? 0 : deleted_ids.serialized_size_bytes();
+    const size_t active_ids_bytes = serialized_bytes_or_zero(active_ids);
+    const size_t deleted_ids_bytes = serialized_bytes_or_zero(deleted_ids);
 
     const uint32_t norm_flags = data_file_norm_flags_for_dist(dist_func);
     // Build DataFileHeader
@@ -250,7 +248,7 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
         deleted_ids_bytes));
 
     // Write output file
-    FILE *f = fopen(output_path.c_str(), "wb");
+    FILE *f = fopen(output_path.c_str(), "w+b");
     if (!f) {
         return Ret("DataWriter: failed to open output file: " + output_path);
     }
@@ -268,29 +266,23 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     CHECK(write_header_and_data_padding(f, hdr, "DataWriter"));
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, stats.active_count);
+    const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
+        metadata_layout.ids_trailer_offset, active_ids_bytes, deleted_ids_bytes);
     CHECK(write_vector_section(f, reader, hdr, dist_func));
     CHECK(write_zero_padding(f, metadata_layout.vectors_padding,
         "DataWriter: failed to write ids alignment padding"));
 
-    // Write Roaring id sections (active ids then deleted ids).
-    if (!active_ids.empty()) {
-        CHECK(active_ids.write(f, "DataWriter: failed to write ids"));
-    }
-    CHECK(write_zero_padding(f,
-        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, active_ids_bytes),
-        "DataWriter: failed to write deleted_ids alignment padding"));
-    if (!deleted_ids.empty()) {
-        CHECK(deleted_ids.write(f, "DataWriter: failed to write deleted_ids"));
-    }
+    CHECK(write_roaring_ids_trailer_mmap(
+        f,
+        active_ids,
+        deleted_ids,
+        trailer_layout,
+        "DataWriter"));
 
 #ifndef NDEBUG
-    const size_t ids_trailer_size =
-        active_ids_bytes
-        + compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, active_ids_bytes)
-        + deleted_ids_bytes;
     const long file_pos_after_ids = ftell(f);
     const long expected_file_pos_after_ids =
-        static_cast<long>(metadata_layout.ids_trailer_offset + ids_trailer_size);
+        static_cast<long>(trailer_layout.file_size);
     assert(file_pos_after_ids == expected_file_pos_after_ids);
 #endif
 

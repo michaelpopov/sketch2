@@ -5,7 +5,6 @@
 #include <limits>
 #include <stdexcept>
 #include <utility>
-#include <vector>
 
 namespace sketch2 {
 
@@ -190,29 +189,6 @@ size_t RoaringIds::serialized_size_bytes() const {
         return 0;
     }
     return roaring::api::roaring_bitmap_frozen_size_in_bytes(bitmap());
-}
-
-Ret RoaringIds::write(FILE* f, const std::string& error_message) const {
-    const std::string base_message =
-        error_message.empty() ? "RoaringIds::write failed" : error_message;
-    if (f == nullptr) {
-        return Ret(base_message + ": file handle is null");
-    }
-    if (bitmap() == nullptr) {
-        return Ret(base_message + ": bitmap is not initialized");
-    }
-
-    const size_t size = serialized_size_bytes();
-    std::vector<uint8_t> storage(size + 31u);
-    const uintptr_t raw = reinterpret_cast<uintptr_t>(storage.data());
-    const uintptr_t aligned = (raw + 31u) & ~uintptr_t{31u};
-    char* data = reinterpret_cast<char*>(aligned);
-    CHECK(serialize(data));
-
-    if (fwrite(data, 1, size, f) != size) {
-        return Ret(base_message);
-    }
-    return Ret(0);
 }
 
 uint64_t RoaringIds::id(size_t index) const {

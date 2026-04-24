@@ -39,7 +39,13 @@ Ret map_roaring_ids_section(
         return Ret(std::string("DataReader: non-empty ") + section_name + " section has zero size");
     }
 
-    CHECK(region->init(fd, static_cast<size_t>(offset), static_cast<size_t>(bytes)));
+    CHECK(region->init(
+        fd,
+        static_cast<size_t>(offset),
+        static_cast<size_t>(bytes),
+        false,
+        MappedRegionAccess::ReadOnly,
+        std::string("DataReader: failed to mmap ") + section_name + " trailer"));
     CHECK(ids->init_frozen_view(region->data(), region->size(), base));
     if (ids->count() != count) {
         return Ret(std::string("DataReader: ") + section_name + " trailer count does not match header");
@@ -53,12 +59,36 @@ Ret map_roaring_ids_section(
 
 DataReader::Iterator::Iterator(const DataReader* reader, const DataReader* delta_reader, size_t index)
     : reader_(reader), delta_reader_(delta_reader), index_(index),
-      count_(reader_->count() + (delta_reader_ ? delta_reader_->count() : 0)) {}
+      count_(reader_->count() + (delta_reader_ ? delta_reader_->count() : 0)) {
+    base_ids_iter_.emplace(reader_->ids_.begin());
+    if (delta_reader_ != nullptr) {
+        delta_ids_iter_.emplace(delta_reader_->ids_.begin());
+    }
+    sync_current_id_iter_();
+}
 
 void DataReader::Iterator::next() {
     ++index_;
     if (index_ < reader_->count_unchecked()) {
         index_ = reader_->next_visible_base_index_unchecked(index_);
+    }
+    sync_current_id_iter_();
+}
+
+void DataReader::Iterator::sync_current_id_iter_() {
+    if (index_ < reader_->count_unchecked()) {
+        while (base_ids_iter_ && !base_ids_iter_->eof() && base_ids_iter_->index() < index_) {
+            base_ids_iter_->next();
+        }
+        return;
+    }
+
+    if (delta_reader_ == nullptr) {
+        return;
+    }
+    const size_t delta_index = index_ - reader_->count_unchecked();
+    while (delta_ids_iter_ && !delta_ids_iter_->eof() && delta_ids_iter_->index() < delta_index) {
+        delta_ids_iter_->next();
     }
 }
 
@@ -102,10 +132,16 @@ uint64_t DataReader::Iterator::id() const {
     if (index_ >= reader_->count()) {
         assert(delta_reader_);
         const size_t ind = index_ - reader_->count();
-        return delta_reader_->ids_.id(ind);
+        if (delta_ids_iter_ && !delta_ids_iter_->eof() && delta_ids_iter_->index() == ind) {
+            return delta_ids_iter_->id();
+        }
+        return delta_reader_->ids_.id_unchecked(ind);
     }
 
-    return reader_->ids_.id(index_);
+    if (base_ids_iter_ && !base_ids_iter_->eof() && base_ids_iter_->index() == index_) {
+        return base_ids_iter_->id();
+    }
+    return reader_->ids_.id_unchecked(index_);
 }
 
 Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta) {
@@ -309,7 +345,13 @@ Ret DataReader::validate_delta_(const std::unique_ptr<DataReader>& delta) const 
 
 Ret DataReader::map_regions_(int fd, const DataMetadataLayout& metadata_layout) {
     if (metadata_layout.vectors_bytes > 0) {
-        CHECK(vectors_region_.init(fd, hdr_.data_offset, metadata_layout.vectors_bytes, true));
+        CHECK(vectors_region_.init(
+            fd,
+            hdr_.data_offset,
+            metadata_layout.vectors_bytes,
+            true,
+            MappedRegionAccess::ReadOnly,
+            "DataReader: failed to mmap vector data"));
     }
 
     CHECK(map_roaring_ids_section(

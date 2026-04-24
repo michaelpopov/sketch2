@@ -7,9 +7,10 @@
 namespace sketch2 {
 
 MappedRegion::MappedRegion(MappedRegion&& other) noexcept
-    : data_(other.data_), size_(other.size_) {
+    : data_(other.data_), size_(other.size_), access_(other.access_) {
     other.data_ = nullptr;
     other.size_ = 0;
+    other.access_ = MappedRegionAccess::ReadOnly;
 }
 
 MappedRegion& MappedRegion::operator=(MappedRegion&& other) noexcept {
@@ -20,8 +21,10 @@ MappedRegion& MappedRegion::operator=(MappedRegion&& other) noexcept {
     reset();
     data_ = other.data_;
     size_ = other.size_;
+    access_ = other.access_;
     other.data_ = nullptr;
     other.size_ = 0;
+    other.access_ = MappedRegionAccess::ReadOnly;
     return *this;
 }
 
@@ -29,15 +32,28 @@ MappedRegion::~MappedRegion() {
     reset();
 }
 
-Ret MappedRegion::init(int fd, size_t offset, size_t size, bool is_seq, MappedRegionAccess access) {
+Ret MappedRegion::init(
+        int fd,
+        size_t offset,
+        size_t size,
+        bool is_seq,
+        MappedRegionAccess access,
+        const std::string& context) {
+    const auto error = [&context](const std::string& message) {
+        if (context.empty()) {
+            return Ret("MappedRegion::init: " + message);
+        }
+        return Ret(context + ": " + message);
+    };
+
     if (data_ != nullptr) {
-        return Ret("MappedRegion::init: region is initialized already");
+        return error("region is initialized already");
     }
     if (fd < 0) {
-        return Ret("MappedRegion::init: invalid file descriptor");
+        return error("invalid file descriptor");
     }
     if (size == 0) {
-        return Ret("MappedRegion::init: size must be greater than zero");
+        return error("size must be greater than zero");
     }
 
     int prot = PROT_READ;
@@ -55,23 +71,35 @@ Ret MappedRegion::init(int fd, size_t offset, size_t size, bool is_seq, MappedRe
 
     void* region = mmap(nullptr, size, prot, flags, fd, static_cast<off_t>(offset));
     if (region == MAP_FAILED) {
-        return Ret("MappedRegion::init: failed to mmap region");
+        return error("failed to mmap region");
     }
     if (is_seq && madvise(region, size, MADV_SEQUENTIAL) != 0) {
         munmap(region, size);
-        return Ret("MappedRegion::init: failed to madvise region");
+        return error("failed to madvise region");
     }
 
-    data_ = static_cast<const uint8_t*>(region);
+    data_ = static_cast<uint8_t*>(region);
     size_ = size;
+    access_ = access;
+    return Ret(0);
+}
+
+Ret MappedRegion::sync(const std::string& error_message) const {
+    if (data_ == nullptr || size_ == 0) {
+        return Ret(0);
+    }
+    if (msync(data_, size_, MS_SYNC) != 0) {
+        return Ret(error_message);
+    }
     return Ret(0);
 }
 
 void MappedRegion::reset() {
     if (data_ != nullptr) {
-        munmap(const_cast<uint8_t*>(data_), size_);
+        munmap(data_, size_);
         data_ = nullptr;
         size_ = 0;
+        access_ = MappedRegionAccess::ReadOnly;
     }
 }
 

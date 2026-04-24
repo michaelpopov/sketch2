@@ -2,12 +2,12 @@
 
 #pragma once
 #include "core/storage/data_file.h"
+#include "utils/roaring_ids.h"
 #include "utils/shared_types.h"
 #include <cassert>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 namespace sketch2 {
 
@@ -25,6 +25,14 @@ struct DataMetadataLayout {
     size_t deleted_ids_offset = 0;
     size_t deleted_ids_bytes = 0;
     size_t deleted_ids_padding = 0;
+};
+
+struct RoaringIdsTrailerLayout {
+    size_t ids_offset = 0;
+    size_t ids_bytes = 0;
+    size_t deleted_ids_bytes = 0;
+    size_t deleted_ids_offset = 0;
+    size_t file_size = 0;
 };
 
 inline uint32_t data_file_norm_flags(const DataFileHeader& hdr) {
@@ -117,6 +125,33 @@ inline size_t compute_deleted_ids_padding(size_t ids_offset, size_t active_ids_b
     return deleted_ids_offset - (ids_offset + active_ids_bytes);
 }
 
+inline size_t serialized_bytes_or_zero(const RoaringIds& ids) {
+    return ids.empty() ? 0 : ids.serialized_size_bytes();
+}
+
+inline RoaringIdsTrailerLayout compute_roaring_ids_trailer_layout(
+        size_t ids_offset,
+        size_t ids_bytes,
+        size_t deleted_ids_bytes) {
+    RoaringIdsTrailerLayout layout{};
+    layout.ids_offset = ids_offset;
+    layout.ids_bytes = ids_bytes;
+    layout.deleted_ids_bytes = deleted_ids_bytes;
+    layout.deleted_ids_offset = compute_deleted_ids_offset(ids_offset, ids_bytes);
+    layout.file_size = layout.deleted_ids_offset + deleted_ids_bytes;
+    return layout;
+}
+
+inline RoaringIdsTrailerLayout compute_roaring_ids_trailer_layout(
+        size_t ids_offset,
+        const RoaringIds& ids,
+        const RoaringIds& deleted_ids) {
+    return compute_roaring_ids_trailer_layout(
+        ids_offset,
+        serialized_bytes_or_zero(ids),
+        serialized_bytes_or_zero(deleted_ids));
+}
+
 inline DataFileHeader make_data_header(uint64_t min_id, uint64_t max_id,
                                        uint64_t min_range_id,
                                        uint32_t count, uint32_t deleted_count,
@@ -166,16 +201,13 @@ inline Ret set_data_header_layout(DataFileHeader* hdr, size_t ids_bytes, size_t 
     return Ret(0);
 }
 
-inline Ret write_zero_padding(FILE* f, size_t size, const std::string& error_message) {
-    if (size == 0) {
-        return Ret(0);
-    }
-    std::vector<uint8_t> pad(size, 0);
-    if (fwrite(pad.data(), 1, pad.size(), f) != pad.size()) {
-        return Ret(error_message);
-    }
-    return Ret(0);
-}
+Ret write_roaring_ids_trailer_mmap(FILE* f,
+        const RoaringIds& ids,
+        const RoaringIds& deleted_ids,
+        const RoaringIdsTrailerLayout& trailer_layout,
+        const std::string& context);
+
+Ret write_zero_padding(FILE* f, size_t size, const std::string& error_message);
 
 inline Ret write_header_and_data_padding(FILE* f, const DataFileHeader& hdr, const std::string& context) {
     if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
@@ -186,15 +218,7 @@ inline Ret write_header_and_data_padding(FILE* f, const DataFileHeader& hdr, con
     return write_zero_padding(f, pad_size, context + ": failed to write alignment padding");
 }
 
-inline Ret rewrite_header(FILE* f, const DataFileHeader& hdr, const std::string& context) {
-    if (0 != fseek(f, 0, SEEK_SET)) {
-        return Ret(context + ": failed to rewind to header");
-    }
-    if (fwrite(&hdr, sizeof(hdr), 1, f) != 1) {
-        return Ret(context + ": failed to write header");
-    }
-    return Ret(0);
-}
+Ret rewrite_header(FILE* f, const DataFileHeader& hdr, const std::string& context);
 
 inline Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, size_t vector_stride,
         const std::string& context) {

@@ -2,7 +2,6 @@
 
 #include "roaring_ids.h"
 
-#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -234,17 +233,7 @@ TEST(roaring_ids, frozen_view_rejects_malformed_buffer) {
     EXPECT_NE(0, ret.code());
 }
 
-TEST(roaring_ids, write_rejects_null_file_handle) {
-    RoaringIds ids;
-    EXPECT_EQ(0, ids.init_writable(0).code());
-
-    const Ret ret = ids.write(nullptr, "write failed");
-
-    EXPECT_NE(0, ret.code());
-    EXPECT_EQ("write failed: file handle is null", ret.message());
-}
-
-TEST(roaring_ids, write_round_trip_preserves_values) {
+TEST(roaring_ids, serialize_round_trip_preserves_values) {
     RoaringIds ids;
     EXPECT_EQ(0, ids.init_writable(1000).code());
     EXPECT_EQ(0, ids.add(1000).code());
@@ -252,26 +241,15 @@ TEST(roaring_ids, write_round_trip_preserves_values) {
     EXPECT_EQ(0, ids.add(1010).code());
     ids.compact();
 
-    FILE* f = tmpfile();
-    ASSERT_NE(nullptr, f);
-    ASSERT_EQ(0, ids.write(f, "write failed").code());
-
-    ASSERT_EQ(0, fseek(f, 0, SEEK_END));
-    const long file_size = ftell(f);
-    ASSERT_GT(file_size, 0);
-    ASSERT_EQ(0, fseek(f, 0, SEEK_SET));
-
-    std::vector<uint8_t> serialized(static_cast<size_t>(file_size));
-    ASSERT_EQ(serialized.size(), fread(serialized.data(), 1, serialized.size(), f));
-    ASSERT_EQ(0, fclose(f));
-
-    std::vector<uint8_t> aligned_storage(serialized.size() + 31u);
+    const size_t size = ids.serialized_size_bytes();
+    ASSERT_GT(size, 0u);
+    std::vector<uint8_t> aligned_storage(size + 31u);
     char* data = aligned_32_data(aligned_storage);
-    std::memcpy(data, serialized.data(), serialized.size());
+    ASSERT_EQ(0, ids.serialize(data).code());
 
     RoaringIds mapped;
     EXPECT_EQ(0, mapped.init_frozen_view(
-        reinterpret_cast<const uint8_t*>(data), serialized.size(), 1000).code());
+        reinterpret_cast<const uint8_t*>(data), size, 1000).code());
     EXPECT_EQ(3u, mapped.count());
     EXPECT_EQ(1000u, mapped.id(0));
     EXPECT_EQ(1003u, mapped.id(1));

@@ -1,4 +1,5 @@
 add_library(stor STATIC
+  data_file_layout.cpp
   input_generator.cpp
   input_reader.cpp
   input_writer.cpp

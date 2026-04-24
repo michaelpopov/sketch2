@@ -87,10 +87,43 @@ protected:
         return delta;
     }
 
-    void write_roaring_ids(FILE* f, const RoaringIds& ids, const char* context) {
-        if (!ids.empty()) {
-            ASSERT_EQ(0, ids.write(f, context).code());
-        }
+    void write_roaring_ids_trailer(
+            FILE* f,
+            const DataMetadataLayout& metadata_layout,
+            const RoaringIds& ids,
+            const RoaringIds& deleted_ids,
+            const char* context) {
+        ASSERT_EQ(0, write_zero_padding(
+            f,
+            metadata_layout.vectors_padding,
+            std::string(context) + ": failed to write ids alignment padding").code());
+        const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
+            metadata_layout.ids_trailer_offset, ids, deleted_ids);
+        ASSERT_EQ(0, write_roaring_ids_trailer_mmap(
+            f,
+            ids,
+            deleted_ids,
+            trailer_layout,
+            context).code());
+    }
+
+    void overwrite_roaring_ids_section(
+            FILE* f,
+            uint64_t offset,
+            uint64_t bytes,
+            const RoaringIds& ids,
+            const char* context) {
+        const int fd = fileno(f);
+        ASSERT_GE(fd, 0);
+        MappedRegion region;
+        ASSERT_EQ(0, region.init(
+            fd,
+            static_cast<size_t>(offset),
+            static_cast<size_t>(bytes),
+            false,
+            MappedRegionAccess::Writable).code());
+        ASSERT_EQ(0, ids.serialize(reinterpret_cast<char*>(region.mutable_data())).code());
+        ASSERT_EQ(0, region.sync(context).code());
     }
 
     DataFileHeader read_data_header() {
@@ -129,9 +162,8 @@ protected:
         init_roaring_ids_for_test(min_id, ids, &roaring_ids);
         RoaringIds roaring_deleted_ids;
         init_roaring_ids_for_test(min_id, deleted_ids, &roaring_deleted_ids);
-        const size_t ids_bytes = ids.empty() ? 0 : roaring_ids.serialized_size_bytes();
-        const size_t deleted_ids_bytes =
-            deleted_ids.empty() ? 0 : roaring_deleted_ids.serialized_size_bytes();
+        const size_t ids_bytes = serialized_bytes_or_zero(roaring_ids);
+        const size_t deleted_ids_bytes = serialized_bytes_or_zero(roaring_deleted_ids);
 
         uint64_t max_id = min_id;
         if (!ids.empty()) {
@@ -152,7 +184,8 @@ protected:
             norm_flags);
         ASSERT_EQ(0, set_data_header_layout(
             &hdr, ids_bytes, deleted_ids_bytes).code());
-        FILE* f = fopen(data_path_.c_str(), "wb");
+        FILE* f = fopen(data_path_.c_str(), "w+b");
+        ASSERT_NE(nullptr, f);
         fwrite(&hdr, sizeof(hdr), 1, f);
         const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
         if (pad_size > 0) {
@@ -177,20 +210,8 @@ protected:
                 f, v.data(), record_layout, norm_ptr, "DataReaderTest::write_raw").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, vecs.size());
-        const size_t ids_pad_size = metadata_layout.vectors_padding;
-        if (ids_pad_size > 0) {
-            std::vector<uint8_t> pad(ids_pad_size, 0);
-            fwrite(pad.data(), 1, pad.size(), f);
-        }
-        write_roaring_ids(f, roaring_ids, "DataReaderTest::write_raw ids write failed");
-        const size_t deleted_ids_padding =
-            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, ids_bytes);
-        if (deleted_ids_padding > 0) {
-            std::vector<uint8_t> pad(deleted_ids_padding, 0);
-            fwrite(pad.data(), 1, pad.size(), f);
-        }
-        write_roaring_ids(
-            f, roaring_deleted_ids, "DataReaderTest::write_raw deleted ids write failed");
+        write_roaring_ids_trailer(
+            f, metadata_layout, roaring_ids, roaring_deleted_ids, "DataReaderTest::write_raw");
         fclose(f);
     }
 
@@ -339,14 +360,14 @@ TEST_F(DataReaderTest, FailsWhenInlineNormUsesNonCanonicalStride) {
 
     RoaringIds roaring_ids;
     init_roaring_ids_for_test(7, {7}, &roaring_ids);
-    const size_t ids_bytes = roaring_ids.serialized_size_bytes();
+    const size_t ids_bytes = serialized_bytes_or_zero(roaring_ids);
 
     DataFileHeader hdr = make_data_header(7, 7, 7, 1, 0, type, dim, kDataFileHasCosineInvNorms);
     hdr.vector_stride = static_cast<uint32_t>(noncanonical_stride);
     ASSERT_EQ(0, set_data_header_layout(
         &hdr, ids_bytes, 0).code());
 
-    FILE* f = fopen(data_path_.c_str(), "wb");
+    FILE* f = fopen(data_path_.c_str(), "w+b");
     ASSERT_NE(nullptr, f);
     ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
     const size_t header_padding = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -373,17 +394,13 @@ TEST_F(DataReaderTest, FailsWhenInlineNormUsesNonCanonicalStride) {
     }
 
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, 1);
-    if (metadata_layout.vectors_padding > 0) {
-        std::vector<uint8_t> pad(metadata_layout.vectors_padding, 0);
-        ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-    }
-    write_roaring_ids(f, roaring_ids, "DataReaderTest::FailsWhenInlineNormUsesNonCanonicalStride ids");
-    const size_t deleted_ids_padding =
-        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, ids_bytes);
-    if (deleted_ids_padding > 0) {
-        std::vector<uint8_t> pad(deleted_ids_padding, 0);
-        ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-    }
+    RoaringIds empty_deleted_ids;
+    write_roaring_ids_trailer(
+        f,
+        metadata_layout,
+        roaring_ids,
+        empty_deleted_ids,
+        "DataReaderTest::FailsWhenInlineNormUsesNonCanonicalStride");
     fclose(f);
 
     DataReader r;
@@ -572,7 +589,7 @@ TEST_F(DataReaderTest, WriteRawSupportsInlineNormsForI16) {
 TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, 0, DataType::f32, 4);
     ASSERT_EQ(0, set_data_header_layout(&hdr, 0, 0).code());
-    FILE* f = fopen(data_path_.c_str(), "wb");
+    FILE* f = fopen(data_path_.c_str(), "w+b");
     ASSERT_NE(nullptr, f);
     ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
     const size_t padding = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -581,12 +598,14 @@ TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
         ASSERT_EQ(padding, fwrite(zeros.data(), 1, padding, f));
     }
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, 0);
-    const size_t deleted_ids_padding =
-        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, 0);
-    if (deleted_ids_padding > 0) {
-        std::vector<uint8_t> zeros(deleted_ids_padding, 0);
-        ASSERT_EQ(deleted_ids_padding, fwrite(zeros.data(), 1, deleted_ids_padding, f));
-    }
+    RoaringIds empty_ids;
+    RoaringIds empty_deleted_ids;
+    write_roaring_ids_trailer(
+        f,
+        metadata_layout,
+        empty_ids,
+        empty_deleted_ids,
+        "DataReaderTest::EmptyDataFileInitSucceeds");
     fclose(f);
 
     const DataFileHeader stored_hdr = read_data_header();
@@ -1255,8 +1274,10 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     f = fopen(data_path_.c_str(), "r+b");
     ASSERT_NE(nullptr, f);
     ASSERT_EQ(0, fseek(f, static_cast<long>(hdr.deleted_ids_offset), SEEK_SET));
-    write_roaring_ids(
+    overwrite_roaring_ids_section(
         f,
+        hdr.deleted_ids_offset,
+        hdr.deleted_ids_bytes,
         overlapping_deleted_ids,
         "DataReaderTest::CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds write failed");
     fclose(f);

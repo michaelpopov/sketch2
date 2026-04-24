@@ -46,6 +46,26 @@ protected:
         }
     }
 
+    void write_roaring_ids_trailer(
+            FILE* f,
+            const DataMetadataLayout& metadata_layout,
+            const RoaringIds& ids,
+            const RoaringIds& deleted_ids,
+            const char* context) {
+        ASSERT_EQ(0, write_zero_padding(
+            f,
+            metadata_layout.vectors_padding,
+            std::string(context) + ": failed to write ids alignment padding").code());
+        const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
+            metadata_layout.ids_trailer_offset, ids, deleted_ids);
+        ASSERT_EQ(0, write_roaring_ids_trailer_mmap(
+            f,
+            ids,
+            deleted_ids,
+            trailer_layout,
+            context).code());
+    }
+
     void write_f32_file(const std::string& path,
                         FileType kind,
                         const std::vector<std::pair<uint64_t, float>>& active,
@@ -76,14 +96,12 @@ protected:
         init_roaring_ids_for_test(min_range_id, active_ids, &roaring_active_ids);
         RoaringIds roaring_deleted_ids;
         init_roaring_ids_for_test(min_range_id, deleted, &roaring_deleted_ids);
-        const size_t active_ids_bytes =
-            active_ids.empty() ? 0 : roaring_active_ids.serialized_size_bytes();
-        const size_t deleted_ids_bytes =
-            deleted.empty() ? 0 : roaring_deleted_ids.serialized_size_bytes();
+        const size_t active_ids_bytes = serialized_bytes_or_zero(roaring_active_ids);
+        const size_t deleted_ids_bytes = serialized_bytes_or_zero(roaring_deleted_ids);
         ASSERT_EQ(0, set_data_header_layout(
             &hdr, active_ids_bytes, deleted_ids_bytes).code());
 
-        FILE* f = fopen(path.c_str(), "wb");
+        FILE* f = fopen(path.c_str(), "w+b");
         ASSERT_NE(nullptr, f);
         ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
         const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -118,23 +136,12 @@ protected:
                 "DataMergerTest::write_f32_file").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
-        const size_t ids_pad_size = metadata_layout.vectors_padding;
-        if (ids_pad_size > 0) {
-            std::vector<uint8_t> pad(ids_pad_size, 0);
-            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-        }
-        if (!roaring_active_ids.empty()) {
-            ASSERT_EQ(0, roaring_active_ids.write(f, "DataMergerTest::write_f32_file active ids").code());
-        }
-        const size_t deleted_ids_pad_size =
-            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, active_ids_bytes);
-        if (deleted_ids_pad_size > 0) {
-            std::vector<uint8_t> pad(deleted_ids_pad_size, 0);
-            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-        }
-        if (!roaring_deleted_ids.empty()) {
-            ASSERT_EQ(0, roaring_deleted_ids.write(f, "DataMergerTest::write_f32_file deleted ids").code());
-        }
+        write_roaring_ids_trailer(
+            f,
+            metadata_layout,
+            roaring_active_ids,
+            roaring_deleted_ids,
+            "DataMergerTest::write_f32_file");
         fclose(f);
     }
 
@@ -168,14 +175,12 @@ protected:
         init_roaring_ids_for_test(min_range_id, active_ids, &roaring_active_ids);
         RoaringIds roaring_deleted_ids;
         init_roaring_ids_for_test(min_range_id, deleted, &roaring_deleted_ids);
-        const size_t active_ids_bytes =
-            active_ids.empty() ? 0 : roaring_active_ids.serialized_size_bytes();
-        const size_t deleted_ids_bytes =
-            deleted.empty() ? 0 : roaring_deleted_ids.serialized_size_bytes();
+        const size_t active_ids_bytes = serialized_bytes_or_zero(roaring_active_ids);
+        const size_t deleted_ids_bytes = serialized_bytes_or_zero(roaring_deleted_ids);
         ASSERT_EQ(0, set_data_header_layout(
             &hdr, active_ids_bytes, deleted_ids_bytes).code());
 
-        FILE* f = fopen(path.c_str(), "wb");
+        FILE* f = fopen(path.c_str(), "w+b");
         ASSERT_NE(nullptr, f);
         ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
         const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -210,23 +215,12 @@ protected:
                 "DataMergerTest::write_i16_file").code());
         }
         const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, active.size());
-        const size_t ids_pad_size = metadata_layout.vectors_padding;
-        if (ids_pad_size > 0) {
-            std::vector<uint8_t> pad(ids_pad_size, 0);
-            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-        }
-        if (!roaring_active_ids.empty()) {
-            ASSERT_EQ(0, roaring_active_ids.write(f, "DataMergerTest::write_i16_file active ids").code());
-        }
-        const size_t deleted_ids_pad_size =
-            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, active_ids_bytes);
-        if (deleted_ids_pad_size > 0) {
-            std::vector<uint8_t> pad(deleted_ids_pad_size, 0);
-            ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
-        }
-        if (!roaring_deleted_ids.empty()) {
-            ASSERT_EQ(0, roaring_deleted_ids.write(f, "DataMergerTest::write_i16_file deleted ids").code());
-        }
+        write_roaring_ids_trailer(
+            f,
+            metadata_layout,
+            roaring_active_ids,
+            roaring_deleted_ids,
+            "DataMergerTest::write_i16_file");
         fclose(f);
     }
 

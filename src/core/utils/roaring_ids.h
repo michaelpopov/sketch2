@@ -6,7 +6,6 @@
 #include "shared_types.h"
 
 #include <cstddef>
-#include <cstdio>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -79,9 +78,6 @@ public:
     // Size of a buffer required for holding the frozen view
     // of the underlying CRoaring structure.
     size_t serialized_size_bytes() const;
-
-    // Write a frozen view after compaction into a file.
-    Ret write(FILE* f, const std::string& error_message) const;
 
     // Get an id at a specific position.
     uint64_t id(size_t index) const;
