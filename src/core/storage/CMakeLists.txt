@@ -36,5 +36,5 @@ add_executable(utest_stor
   utest_compact_ids_offsets.cpp
   utest_compact_ids_ext.cpp
 )
-target_link_libraries(utest_stor PRIVATE stor GTest::gtest Threads::Threads sketch_warnings)
+target_link_libraries(utest_stor PRIVATE stor croaring GTest::gtest Threads::Threads sketch_warnings)
 add_test(NAME utest_stor COMMAND utest_stor)

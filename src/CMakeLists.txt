@@ -1,3 +1,4 @@
+add_subdirectory(third-party/croaring)
 add_subdirectory(core)
 add_subdirectory(db)
 add_subdirectory(libsketch2)
