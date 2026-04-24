@@ -4,9 +4,8 @@
 #include "core/compute/norm_utils.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/input_reader.h"
-#include "core/storage/compact_ids.h"
-#include "core/storage/compact_ids_shared.h"
 #include "core/utils/log.h"
+#include "core/utils/roaring_ids.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/string_utils.h"
 #include "core/utils/timer.h"
@@ -109,13 +108,16 @@ public:
           min_range_id_(header.min_range_id),
           record_layout_(compute_data_record_layout(type_, dim_, data_file_has_norms(header))),
           context_(context),
-          norms_enabled_(data_file_has_norms(header)) {}
+          norms_enabled_(data_file_has_norms(header)) {
+        const Ret ret = output_ids_.init_writable(min_range_id_);
+        if (ret.code() != 0) {
+            throw std::runtime_error(ret.message());
+        }
+    }
 
-    // The merge emits at most source.count() + updater.count() live rows.
-    // Reserving once keeps the hot merge loop simple and avoids reallocations.
     // The text scratch buffer is only needed for direct-input text merges.
     void reserve(size_t count, bool needs_text_buffer) {
-        output_ids_capacity_ = count;
+        (void)count;
         if (needs_text_buffer) {
             parsed_text_buffer_.resize(record_layout_.vector_size);
         }
@@ -132,18 +134,16 @@ public:
         if (id - min_range_id_ > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
             return Ret(std::string(context_) + ": active ids: data file range exceeds uint32_t");
         }
-        if (!output_ids_initialized_) {
-            output_ids_.init(id, output_ids_capacity_);
+        if (output_ids_.empty()) {
             output_ids_min_ = id;
             output_ids_max_ = id;
-            output_ids_initialized_ = true;
         } else {
             if (id <= output_ids_max_) {
                 return Ret(std::string(context_) + ": active ids: ids must be strictly increasing");
             }
             output_ids_max_ = id;
         }
-        output_ids_.add(id);
+        CHECK(output_ids_.add(id));
         CHECK(write_data_record(
             f_, data, record_layout_, norms_enabled_ ? &norm : nullptr, context_));
         return Ret(0);
@@ -173,35 +173,39 @@ public:
     }
 
     // Writes the trailer that follows the inline record area in every merged
-    // file: alignment padding before ids, then the compact active/deleted id
+    // file: alignment padding before ids, then the Roaring active/deleted id
     // sections. Norms live inside each record, so there is no separate norms
     // section between vectors and ids.
     Ret write_ids_section(const DataFileHeader& header,
-            const CompactIds& deleted_ids,
+            const RoaringIds& deleted_ids,
             const char* ids_message,
             const char* deleted_ids_message) {
-        CompactIds output_ids_ext;
-        output_ids_.complete_adding();
-        CHECK(output_ids_ext.init(output_ids_));
-        output_ids_bytes_ = output_ids_ext.serialized_size_bytes();
-        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(header, output_ids_.size());
+        output_ids_.compact();
+        output_ids_bytes_ = output_ids_.empty() ? 0 : output_ids_.serialized_size_bytes();
+        deleted_ids_bytes_ = deleted_ids.empty() ? 0 : deleted_ids.serialized_size_bytes();
+        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(header, output_ids_.count());
         CHECK(write_zero_padding(f_, metadata_layout.vectors_padding,
             std::string(context_) + ": failed to write ids alignment padding"));
-        CHECK(output_ids_ext.write(f_, ids_message));
+        if (!output_ids_.empty()) {
+            CHECK(output_ids_.write(f_, ids_message));
+        }
         CHECK(write_zero_padding(
             f_,
-            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, output_ids_ext.serialized_size_bytes()),
+            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, output_ids_bytes_),
             std::string(context_) + ": failed to write deleted_ids alignment padding"));
-        CHECK(deleted_ids.write(f_, deleted_ids_message));
+        if (!deleted_ids.empty()) {
+            CHECK(deleted_ids.write(f_, deleted_ids_message));
+        }
         return Ret(0);
     }
 
-    size_t output_count() const { return output_ids_.size(); }
-    bool output_empty() const { return output_ids_.size() == 0; }
+    size_t output_count() const { return output_ids_.count(); }
+    bool output_empty() const { return output_ids_.empty(); }
     uint64_t output_min_id() const { return output_ids_min_; }
     uint64_t output_max_id() const { return output_ids_max_; }
     bool norms_enabled() const { return norms_enabled_; }
     size_t output_ids_bytes() const { return output_ids_bytes_; }
+    size_t deleted_ids_bytes() const { return deleted_ids_bytes_; }
 
 private:
     FILE* f_ = nullptr;
@@ -211,10 +215,9 @@ private:
     DataRecordLayout record_layout_{};
     const char* context_ = "";
     bool norms_enabled_ = false;
-    CompactIdsAccumulator output_ids_;
-    size_t output_ids_capacity_ = 0;
+    RoaringIds output_ids_;
     size_t output_ids_bytes_ = 0;
-    bool output_ids_initialized_ = false;
+    size_t deleted_ids_bytes_ = 0;
     uint64_t output_ids_min_ = 0;
     uint64_t output_ids_max_ = 0;
     std::vector<uint8_t> parsed_text_buffer_;
@@ -379,16 +382,6 @@ private:
     size_t index_ = 0;
 };
 
-size_t count_input_reader_view_deleted_rows(const InputReaderView& reader) {
-    size_t deleted_count = 0;
-    for (size_t i = 0; i < reader.count(); ++i) {
-        if (reader.is_no_data(i)) {
-            ++deleted_count;
-        }
-    }
-    return deleted_count;
-}
-
 template <typename UpdaterCursor>
 std::vector<uint64_t> collect_updater_live_ids(UpdaterCursor updater, size_t reserve_count) {
     std::vector<uint64_t> live_ids;
@@ -522,20 +515,26 @@ auto make_input_reader_delta_delete_cursor(
 }
 
 template <typename Cursor>
-Ret build_compact_accumulator(Cursor cursor, const char* context, size_t reserve_count, CompactIdsAccumulator* out) {
-    bool initialized = false;
-    uint64_t base = 0;
+Ret build_roaring_ids(Cursor cursor, uint64_t base, const char* context, RoaringIds* out) {
+    CHECK(out->init_writable(base));
+    bool have_prev = false;
+    uint64_t prev_id = 0;
     for (; !cursor.eof(); cursor.next()) {
         const uint64_t id = cursor.id();
-        if (!initialized) {
-            out->init(id, reserve_count);
-            base = id;
-            initialized = true;
-        } else if (id - base > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+        if (have_prev && id <= prev_id) {
+            return Ret(std::string(context) + ": ids must be strictly increasing");
+        }
+        if (id < base) {
+            return Ret(std::string(context) + ": id is below min_range_id");
+        }
+        if (id - base > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
             return Ret(std::string(context) + ": id range exceeds uint32_t");
         }
-        out->add(id);
+        CHECK(out->add(id));
+        prev_id = id;
+        have_prev = true;
     }
+    out->compact();
     return Ret(0);
 }
 
@@ -736,10 +735,9 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const DataReader& upd
         "DataMerger::merge_data_files: failed to write ids to merge file",
         "DataMerger::merge_data_files: failed to write deleted_ids to merge file"));
 
-    const CompactIds empty_deleted_ids;
     set_output_id_range(output, merge_file.header());
     CHECK(set_data_header_layout(
-        merge_file.header(), output.output_ids_bytes(), empty_deleted_ids.serialized_size_bytes()));
+        merge_file.header(), output.output_ids_bytes(), output.deleted_ids_bytes()));
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_data_files");
 
@@ -828,15 +826,12 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     // any old deletes that the updater resurrected as live rows.
     const std::vector<uint64_t> updater_live_ids =
         collect_updater_live_ids(DataReaderUpdaterCursor(updater, source.norm_flags()), updater.count());
-    CompactIdsAccumulator compact_deleted_ids_accum;
-    CHECK(build_compact_accumulator(
+    RoaringIds roaring_deleted_ids;
+    CHECK(build_roaring_ids(
         make_data_reader_delta_delete_cursor(source, updater, &updater_live_ids),
+        source.min_range_id(),
         "DataMerger::merge_delta_file: deleted ids",
-        source.deleted_count() + updater.deleted_count(),
-        &compact_deleted_ids_accum));
-    CompactIds compact_deleted_ids;
-    compact_deleted_ids_accum.complete_adding();
-    CHECK(compact_deleted_ids.init(compact_deleted_ids_accum));
+        &roaring_deleted_ids));
     MergeFile merge_file;
     CHECK(merge_file.open(source, source.norm_flags(), path, "DataMerger::merge_delta_file"));
 
@@ -855,14 +850,14 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
     // Delta files have the same live-row trailer as data files...
     CHECK(output.write_ids_section(
         *merge_file.header(),
-        compact_deleted_ids,
+        roaring_deleted_ids,
         "DataMerger::merge_delta_file: failed to write ids to merge file",
         "DataMerger::merge_delta_file: failed to write deleted_ids to merge file"));
 
-    merge_file.header()->deleted_count = static_cast<uint32_t>(compact_deleted_ids.count());
+    merge_file.header()->deleted_count = static_cast<uint32_t>(roaring_deleted_ids.count());
     set_output_id_range(output, merge_file.header());
     CHECK(set_data_header_layout(
-        merge_file.header(), output.output_ids_bytes(), compact_deleted_ids.serialized_size_bytes()));
+        merge_file.header(), output.output_ids_bytes(), output.deleted_ids_bytes()));
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_delta_file");
 
@@ -880,7 +875,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
     }
 
     Timer timer("merge_data_file");
-    const CompactIds empty_deleted_ids;
+    const RoaringIds empty_deleted_ids;
     const uint32_t target_norm_flags = data_file_norm_flags_for_dist(dist_func);
     MergeFile merge_file;
     CHECK(merge_file.open(source, target_norm_flags, path, "DataMerger::merge_data_files"));
@@ -906,7 +901,7 @@ Ret DataMerger::merge_data_file_(const DataReader& source, const InputReaderView
 
     set_output_id_range(output, merge_file.header());
     CHECK(set_data_header_layout(
-        merge_file.header(), output.output_ids_bytes(), empty_deleted_ids.serialized_size_bytes()));
+        merge_file.header(), output.output_ids_bytes(), output.deleted_ids_bytes()));
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_data_files"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_data_files");
 
@@ -929,16 +924,12 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
     const std::vector<uint64_t> updater_live_ids = collect_updater_live_ids(
         InputReaderUpdaterCursor(updater, dist_func, compute_norms),
         updater.count());
-    const size_t updater_deleted_count = count_input_reader_view_deleted_rows(updater);
-    CompactIdsAccumulator compact_deleted_ids_accum;
-    CHECK(build_compact_accumulator(
+    RoaringIds roaring_deleted_ids;
+    CHECK(build_roaring_ids(
         make_input_reader_delta_delete_cursor(source, updater, &updater_live_ids),
+        source.min_range_id(),
         "DataMerger::merge_delta_file: deleted ids",
-        source.deleted_count() + updater_deleted_count,
-        &compact_deleted_ids_accum));
-    CompactIds compact_deleted_ids;
-    compact_deleted_ids_accum.complete_adding();
-    CHECK(compact_deleted_ids.init(compact_deleted_ids_accum));
+        &roaring_deleted_ids));
     MergeFile merge_file;
     CHECK(merge_file.open(source, target_norm_flags, path, "DataMerger::merge_delta_file"));
 
@@ -959,14 +950,14 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const InputReaderVie
         &output));
     CHECK(output.write_ids_section(
         *merge_file.header(),
-        compact_deleted_ids,
+        roaring_deleted_ids,
         "DataMerger::merge_delta_file: failed to write ids to merge file",
         "DataMerger::merge_delta_file: failed to write deleted_ids to merge file"));
 
-    merge_file.header()->deleted_count = static_cast<uint32_t>(compact_deleted_ids.count());
+    merge_file.header()->deleted_count = static_cast<uint32_t>(roaring_deleted_ids.count());
     set_output_id_range(output, merge_file.header());
     CHECK(set_data_header_layout(
-        merge_file.header(), output.output_ids_bytes(), compact_deleted_ids.serialized_size_bytes()));
+        merge_file.header(), output.output_ids_bytes(), output.deleted_ids_bytes()));
     CHECK(rewrite_header(merge_file.file(), *merge_file.header(), "DataMerger::merge_delta_file"));
     Ret ret = merge_file.flush_and_close("DataMerger::merge_delta_file");
 

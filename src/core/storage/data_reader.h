@@ -3,8 +3,8 @@
 #pragma once
 #include "utils/shared_types.h"
 #include "core/utils/dynamic_bitset.h"
-#include "core/storage/compact_ids.h"
 #include "core/utils/mapped_region.h"
+#include "core/utils/roaring_ids.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
 #include <cassert>
@@ -245,8 +245,8 @@ private:
     MappedRegion             deleted_ids_region_;
     DataFileHeader           hdr_     = {};
     bool                     initialized_ = false;
-    CompactIds               ids_;
-    CompactIds               deleted_ids_;
+    RoaringIds               ids_;
+    RoaringIds               deleted_ids_;
     DataType                 type_    = DataType::f32;
     size_t                   vector_size_ = 0;    // size of one vector in bytes
     size_t                   norm_offset_in_record_ = 0;    // inline norm slot within one persisted record
@@ -262,7 +262,7 @@ private:
     Ret read_header_(int fd, const std::string& path, size_t* file_size);
     Ret validate_header_and_layout_(size_t file_size, DataMetadataLayout* metadata_layout);
     Ret validate_delta_(const std::unique_ptr<DataReader>& delta) const;
-    Ret map_regions_(int fd, size_t file_size, const DataMetadataLayout& metadata_layout);
+    Ret map_regions_(int fd, const DataMetadataLayout& metadata_layout);
     Ret init_delta();
     void assert_invariants_() const;
 };

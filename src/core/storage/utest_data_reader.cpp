@@ -1,6 +1,7 @@
 // Unit tests for binary data-file reading.
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
@@ -16,39 +17,13 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
-#include "core/storage/compact_ids.h"
+#include "core/utils/roaring_ids.h"
+#include "utest_roaring_ids_helpers.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
 
 namespace {
-
-std::vector<uint8_t> read_file_bytes(const std::string& path) {
-    FILE* f = fopen(path.c_str(), "rb");
-    if (f == nullptr) {
-        return {};
-    }
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        return {};
-    }
-    const long size = ftell(f);
-    if (size < 0) {
-        fclose(f);
-        return {};
-    }
-    rewind(f);
-    std::vector<uint8_t> bytes(static_cast<size_t>(size));
-    if (!bytes.empty()) {
-        const size_t read = fread(bytes.data(), 1, bytes.size(), f);
-        if (read != bytes.size()) {
-            fclose(f);
-            return {};
-        }
-    }
-    fclose(f);
-    return bytes;
-}
 
 } // namespace
 
@@ -112,33 +87,71 @@ protected:
         return delta;
     }
 
-    // Write a minimal valid binary data file with vector bytes and compact id trailer.
+    void write_roaring_ids(FILE* f, const RoaringIds& ids, const char* context) {
+        if (!ids.empty()) {
+            ASSERT_EQ(0, ids.write(f, context).code());
+        }
+    }
+
+    DataFileHeader read_data_header() {
+        DataFileHeader hdr{};
+        FILE* f = fopen(data_path_.c_str(), "rb");
+        if (f == nullptr) {
+            ADD_FAILURE() << "failed to open data file: " << data_path_;
+            return hdr;
+        }
+        EXPECT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
+        EXPECT_EQ(0, fclose(f));
+        return hdr;
+    }
+
+    size_t data_file_size() {
+        std::ifstream f(data_path_, std::ios::binary | std::ios::ate);
+        if (!f.good()) {
+            ADD_FAILURE() << "failed to open data file: " << data_path_;
+            return 0;
+        }
+        return static_cast<size_t>(f.tellg());
+    }
+
+    // Write a minimal valid binary data file with vector bytes and Roaring id trailer.
     // type_field: 0=f16, 1=f32, 2=i16  (matches DataWriter encoding)
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs,
-                   uint32_t norm_flags = 0) {
-        CompactIds compact_ids;
+                   uint32_t norm_flags = 0,
+                   const std::vector<uint64_t>& deleted_ids = {}) {
         std::vector<uint64_t> ids;
         ids.reserve(vecs.size());
         for (size_t i = 0; i < vecs.size(); ++i) {
             ids.push_back(min_id + static_cast<uint64_t>(i));
         }
-        ASSERT_EQ(0, compact_ids.init(ids).code());
-        CompactIds compact_deleted_ids;
-        std::vector<uint64_t> deleted_ids;
-        ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
+        RoaringIds roaring_ids;
+        init_roaring_ids_for_test(min_id, ids, &roaring_ids);
+        RoaringIds roaring_deleted_ids;
+        init_roaring_ids_for_test(min_id, deleted_ids, &roaring_deleted_ids);
+        const size_t ids_bytes = ids.empty() ? 0 : roaring_ids.serialized_size_bytes();
+        const size_t deleted_ids_bytes =
+            deleted_ids.empty() ? 0 : roaring_deleted_ids.serialized_size_bytes();
+
+        uint64_t max_id = min_id;
+        if (!ids.empty()) {
+            max_id = ids.back();
+        }
+        for (uint64_t deleted_id : deleted_ids) {
+            max_id = std::max(max_id, deleted_id);
+        }
 
         DataFileHeader hdr = make_data_header(
             min_id,
-            min_id + static_cast<uint64_t>(vecs.size()) - 1,
+            max_id,
             min_id,
             static_cast<uint32_t>(vecs.size()),
-            0,
+            static_cast<uint32_t>(deleted_ids.size()),
             type_field,
             dim,
             norm_flags);
         ASSERT_EQ(0, set_data_header_layout(
-            &hdr, compact_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
+            &hdr, ids_bytes, deleted_ids_bytes).code());
         FILE* f = fopen(data_path_.c_str(), "wb");
         fwrite(&hdr, sizeof(hdr), 1, f);
         const size_t pad_size = static_cast<size_t>(hdr.data_offset) - sizeof(DataFileHeader);
@@ -169,14 +182,15 @@ protected:
             std::vector<uint8_t> pad(ids_pad_size, 0);
             fwrite(pad.data(), 1, pad.size(), f);
         }
-        ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::write_raw ids write failed").code());
+        write_roaring_ids(f, roaring_ids, "DataReaderTest::write_raw ids write failed");
         const size_t deleted_ids_padding =
-            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_ids.serialized_size_bytes());
+            compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, ids_bytes);
         if (deleted_ids_padding > 0) {
             std::vector<uint8_t> pad(deleted_ids_padding, 0);
             fwrite(pad.data(), 1, pad.size(), f);
         }
-        ASSERT_EQ(0, compact_deleted_ids.write(f, "DataReaderTest::write_raw deleted ids write failed").code());
+        write_roaring_ids(
+            f, roaring_deleted_ids, "DataReaderTest::write_raw deleted ids write failed");
         fclose(f);
     }
 
@@ -323,15 +337,14 @@ TEST_F(DataReaderTest, FailsWhenInlineNormUsesNonCanonicalStride) {
     const size_t shifted_norm_offset = canonical_layout.norm_offset + kDataAlignment;
     const size_t noncanonical_stride = canonical_layout.stride + kDataAlignment;
 
-    CompactIds compact_ids;
-    ASSERT_EQ(0, compact_ids.init(std::vector<uint64_t>{7}).code());
-    CompactIds compact_deleted_ids;
-    ASSERT_EQ(0, compact_deleted_ids.init(std::vector<uint64_t>{}).code());
+    RoaringIds roaring_ids;
+    init_roaring_ids_for_test(7, {7}, &roaring_ids);
+    const size_t ids_bytes = roaring_ids.serialized_size_bytes();
 
     DataFileHeader hdr = make_data_header(7, 7, 7, 1, 0, type, dim, kDataFileHasCosineInvNorms);
     hdr.vector_stride = static_cast<uint32_t>(noncanonical_stride);
     ASSERT_EQ(0, set_data_header_layout(
-        &hdr, compact_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
+        &hdr, ids_bytes, 0).code());
 
     FILE* f = fopen(data_path_.c_str(), "wb");
     ASSERT_NE(nullptr, f);
@@ -364,15 +377,13 @@ TEST_F(DataReaderTest, FailsWhenInlineNormUsesNonCanonicalStride) {
         std::vector<uint8_t> pad(metadata_layout.vectors_padding, 0);
         ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
     }
-    ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::FailsWhenInlineNormUsesNonCanonicalStride ids").code());
+    write_roaring_ids(f, roaring_ids, "DataReaderTest::FailsWhenInlineNormUsesNonCanonicalStride ids");
     const size_t deleted_ids_padding =
-        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_ids.serialized_size_bytes());
+        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, ids_bytes);
     if (deleted_ids_padding > 0) {
         std::vector<uint8_t> pad(deleted_ids_padding, 0);
         ASSERT_EQ(pad.size(), fwrite(pad.data(), 1, pad.size(), f));
     }
-    ASSERT_EQ(0, compact_deleted_ids.write(
-        f, "DataReaderTest::FailsWhenInlineNormUsesNonCanonicalStride deleted ids").code());
     fclose(f);
 
     DataReader r;
@@ -560,14 +571,7 @@ TEST_F(DataReaderTest, WriteRawSupportsInlineNormsForI16) {
 
 TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, 0, DataType::f32, 4);
-    CompactIds compact_ids;
-    std::vector<uint64_t> ids;
-    ASSERT_EQ(0, compact_ids.init(ids).code());
-    CompactIds compact_deleted_ids;
-    std::vector<uint64_t> deleted_ids;
-    ASSERT_EQ(0, compact_deleted_ids.init(deleted_ids).code());
-    ASSERT_EQ(0, set_data_header_layout(
-        &hdr, compact_ids.serialized_size_bytes(), compact_deleted_ids.serialized_size_bytes()).code());
+    ASSERT_EQ(0, set_data_header_layout(&hdr, 0, 0).code());
     FILE* f = fopen(data_path_.c_str(), "wb");
     ASSERT_NE(nullptr, f);
     ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
@@ -576,22 +580,80 @@ TEST_F(DataReaderTest, EmptyDataFileInitSucceeds) {
         std::vector<uint8_t> zeros(padding, 0);
         ASSERT_EQ(padding, fwrite(zeros.data(), 1, padding, f));
     }
-    ASSERT_EQ(0, compact_ids.write(f, "DataReaderTest::EmptyDataFileInitSucceeds ids write failed").code());
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, 0);
     const size_t deleted_ids_padding =
-        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, compact_ids.serialized_size_bytes());
+        compute_deleted_ids_padding(metadata_layout.ids_trailer_offset, 0);
     if (deleted_ids_padding > 0) {
         std::vector<uint8_t> zeros(deleted_ids_padding, 0);
         ASSERT_EQ(deleted_ids_padding, fwrite(zeros.data(), 1, deleted_ids_padding, f));
     }
-    ASSERT_EQ(0, compact_deleted_ids.write(f, "DataReaderTest::EmptyDataFileInitSucceeds deleted ids write failed").code());
     fclose(f);
+
+    const DataFileHeader stored_hdr = read_data_header();
+    EXPECT_EQ(0u, stored_hdr.count);
+    EXPECT_EQ(0u, stored_hdr.deleted_count);
+    EXPECT_EQ(0u, stored_hdr.ids_bytes);
+    EXPECT_EQ(0u, stored_hdr.deleted_ids_bytes);
+    EXPECT_EQ(stored_hdr.ids_offset, stored_hdr.deleted_ids_offset);
+    EXPECT_EQ(static_cast<size_t>(stored_hdr.deleted_ids_offset), data_file_size());
 
     DataReader r;
     ASSERT_EQ(0, r.init(data_path_).code());
     EXPECT_EQ(0u, r.count());
+    EXPECT_EQ(0u, r.deleted_count());
     EXPECT_TRUE(r.begin().eof());
     EXPECT_EQ(nullptr, r.get(123));
+}
+
+TEST_F(DataReaderTest, RawFileWithActiveIdsOmitsEmptyDeletedIdsSection) {
+    const std::vector<float> vec0 = {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::vector<float> vec1 = {5.0f, 6.0f, 7.0f, 8.0f};
+    const std::vector<std::vector<uint8_t>> vecs = {
+        std::vector<uint8_t>(
+            reinterpret_cast<const uint8_t*>(vec0.data()),
+            reinterpret_cast<const uint8_t*>(vec0.data()) + vec0.size() * sizeof(float)),
+        std::vector<uint8_t>(
+            reinterpret_cast<const uint8_t*>(vec1.data()),
+            reinterpret_cast<const uint8_t*>(vec1.data()) + vec1.size() * sizeof(float)),
+    };
+
+    write_raw(DataType::f32, 4, 10, vecs);
+
+    const DataFileHeader hdr = read_data_header();
+    EXPECT_EQ(2u, hdr.count);
+    EXPECT_EQ(0u, hdr.deleted_count);
+    EXPECT_GT(hdr.ids_bytes, 0u);
+    EXPECT_EQ(0u, hdr.deleted_ids_bytes);
+    EXPECT_EQ(compute_deleted_ids_offset(hdr.ids_offset, hdr.ids_bytes), hdr.deleted_ids_offset);
+    EXPECT_EQ(static_cast<size_t>(hdr.deleted_ids_offset), data_file_size());
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_EQ(2u, r.count());
+    EXPECT_EQ(0u, r.deleted_count());
+    EXPECT_TRUE(r.check_consistency());
+}
+
+TEST_F(DataReaderTest, RawFileWithDeletedIdsOmitsEmptyActiveIdsSection) {
+    write_raw(DataType::f32, 4, 10, {}, 0, {10, 12});
+
+    const DataFileHeader hdr = read_data_header();
+    EXPECT_EQ(0u, hdr.count);
+    EXPECT_EQ(2u, hdr.deleted_count);
+    EXPECT_EQ(0u, hdr.ids_bytes);
+    EXPECT_GT(hdr.deleted_ids_bytes, 0u);
+    EXPECT_EQ(hdr.ids_offset, hdr.deleted_ids_offset);
+    EXPECT_EQ(
+        static_cast<size_t>(hdr.deleted_ids_offset + hdr.deleted_ids_bytes),
+        data_file_size());
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_EQ(0u, r.count());
+    ASSERT_EQ(2u, r.deleted_count());
+    EXPECT_EQ(10u, r.deleted_id(0));
+    EXPECT_EQ(12u, r.deleted_id(1));
+    EXPECT_TRUE(r.check_consistency());
 }
 
 TEST_F(DataReaderTest, SizeF32IsCorrect) {
@@ -921,7 +983,7 @@ TEST_F(DataReaderTest, DeltaIdsOutsideDataRangeAreIgnored) {
     write_raw_to_data_file(
         delta_input_path_, delta_path_,
         "f32,4\n"
-        "1 : []\n"
+        "100 : []\n"
         "200 : []\n",
         10);
 
@@ -1117,6 +1179,29 @@ TEST_F(DataReaderTest, DeletedCountAndDeletedIdsAreReadable) {
     EXPECT_EQ(4u, r.deleted_id(1));
 }
 
+TEST_F(DataReaderTest, RawFileWithDeletedIdsTrailerIsReadable) {
+    const std::vector<float> vec0 = {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::vector<float> vec1 = {5.0f, 6.0f, 7.0f, 8.0f};
+    const std::vector<std::vector<uint8_t>> vecs = {
+        std::vector<uint8_t>(
+            reinterpret_cast<const uint8_t*>(vec0.data()),
+            reinterpret_cast<const uint8_t*>(vec0.data()) + vec0.size() * sizeof(float)),
+        std::vector<uint8_t>(
+            reinterpret_cast<const uint8_t*>(vec1.data()),
+            reinterpret_cast<const uint8_t*>(vec1.data()) + vec1.size() * sizeof(float)),
+    };
+
+    write_raw(DataType::f32, 4, 10, vecs, 0, {12, 14});
+
+    DataReader r;
+    ASSERT_EQ(0, r.init(data_path_).code());
+    EXPECT_EQ(2u, r.count());
+    ASSERT_EQ(2u, r.deleted_count());
+    EXPECT_EQ(12u, r.deleted_id(0));
+    EXPECT_EQ(14u, r.deleted_id(1));
+    EXPECT_TRUE(r.check_consistency());
+}
+
 TEST_F(DataReaderTest, DeletedIdOutOfBoundsThrows) {
     generate(6, 0, DataType::f32, 4, 2);
     DataReader r;
@@ -1154,33 +1239,26 @@ TEST_F(DataReaderTest, CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds) {
     const DataType type = data_type_from_int(hdr.type);
     const size_t vec_size = compute_vector_size(type, hdr.dim);
     EXPECT_LE(vec_size, static_cast<size_t>(hdr.vector_stride));
-    const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
     fclose(f);
 
-    const std::vector<uint8_t> bytes = read_file_bytes(data_path_);
-    ASSERT_FALSE(bytes.empty());
-    CompactIds active_ids;
-    size_t active_ids_size = 0;
-    ASSERT_EQ(0, active_ids.map(bytes.data() + ids_offset, bytes.size() - ids_offset, &active_ids_size).code());
-    const size_t deleted_ids_offset = compute_deleted_ids_offset(ids_offset, active_ids_size);
-
-    CompactIds deleted_ids;
-    ASSERT_EQ(0, deleted_ids.map(bytes.data() + deleted_ids_offset, bytes.size() - deleted_ids_offset, nullptr).code());
-    const size_t original_deleted_serialized_size = deleted_ids.serialized_size_bytes();
+    DataReader original_reader;
+    ASSERT_EQ(0, original_reader.init(data_path_).code());
     std::vector<uint64_t> overlapping_deleted;
-    overlapping_deleted.reserve(deleted_ids.count());
-    for (size_t i = 0; i < deleted_ids.count(); ++i) {
-        overlapping_deleted.push_back(deleted_ids.id(i) + 1u);
+    overlapping_deleted.reserve(original_reader.deleted_count());
+    for (size_t i = 0; i < original_reader.deleted_count(); ++i) {
+        overlapping_deleted.push_back(original_reader.deleted_id(i) + 1u);
     }
-    CompactIds overlapping_deleted_ids;
-    ASSERT_EQ(0, overlapping_deleted_ids.init(overlapping_deleted).code());
-    ASSERT_EQ(original_deleted_serialized_size, overlapping_deleted_ids.serialized_size_bytes());
+    RoaringIds overlapping_deleted_ids;
+    init_roaring_ids_for_test(hdr.min_range_id, overlapping_deleted, &overlapping_deleted_ids);
+    ASSERT_EQ(static_cast<size_t>(hdr.deleted_ids_bytes), overlapping_deleted_ids.serialized_size_bytes());
 
     f = fopen(data_path_.c_str(), "r+b");
     ASSERT_NE(nullptr, f);
-    ASSERT_EQ(0, fseek(f, deleted_ids_offset, SEEK_SET));
-    ASSERT_EQ(0, overlapping_deleted_ids.write(f,
-        "DataReaderTest::CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds write failed").code());
+    ASSERT_EQ(0, fseek(f, static_cast<long>(hdr.deleted_ids_offset), SEEK_SET));
+    write_roaring_ids(
+        f,
+        overlapping_deleted_ids,
+        "DataReaderTest::CheckConsistencyReturnsFalseWhenIdsOverlapDeletedIds write failed");
     fclose(f);
 
     DataReader r;

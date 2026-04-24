@@ -65,6 +65,22 @@ TEST(roaring_ids, contains_matches_base_adjusted_membership) {
     EXPECT_FALSE(ids.contains(1000ull + std::numeric_limits<uint32_t>::max() + 1ull));
 }
 
+TEST(roaring_ids, clear_and_empty_reset_container) {
+    RoaringIds ids;
+    EXPECT_TRUE(ids.empty());
+    EXPECT_EQ(0, ids.init_writable(100).code());
+    EXPECT_TRUE(ids.empty());
+    EXPECT_EQ(0, ids.add(101).code());
+    EXPECT_FALSE(ids.empty());
+    EXPECT_EQ(101u, ids.id_unchecked(0));
+
+    ids.clear();
+
+    EXPECT_TRUE(ids.empty());
+    EXPECT_EQ(0u, ids.count());
+    EXPECT_FALSE(ids.contains(101));
+}
+
 TEST(roaring_ids, iterator_visits_ids_in_order) {
     RoaringIds ids;
     EXPECT_EQ(0, ids.init_writable(0).code());
@@ -79,6 +95,31 @@ TEST(roaring_ids, iterator_visits_ids_in_order) {
     }
 
     EXPECT_EQ((std::vector<uint64_t>{1, 3, 5}), visited);
+}
+
+TEST(roaring_ids, iterator_on_empty_container_is_eof) {
+    RoaringIds ids;
+    EXPECT_EQ(0, ids.init_writable(0).code());
+
+    auto it = ids.begin();
+
+    EXPECT_TRUE(it.eof());
+    EXPECT_EQ(it, ids.end());
+}
+
+TEST(roaring_ids, iterator_access_after_eof_throws) {
+    RoaringIds ids;
+    EXPECT_EQ(0, ids.init_writable(0).code());
+    EXPECT_EQ(0, ids.add(1).code());
+
+    auto it = ids.begin();
+    ASSERT_FALSE(it.eof());
+    it.next();
+    ASSERT_TRUE(it.eof());
+
+    EXPECT_THROW(it.id(), std::out_of_range);
+    EXPECT_THROW(it.index(), std::out_of_range);
+    EXPECT_THROW(*it, std::out_of_range);
 }
 
 TEST(roaring_ids, range_for_visits_ids_in_order) {
@@ -118,6 +159,35 @@ TEST(roaring_ids, frozen_round_trip_preserves_values) {
     EXPECT_NE(0, mapped.add(2000).code());
 }
 
+TEST(roaring_ids, empty_frozen_round_trip_preserves_empty_state) {
+    RoaringIds ids;
+    EXPECT_EQ(0, ids.init_writable(1000).code());
+    ids.compact();
+
+    const size_t size = ids.serialized_size_bytes();
+    ASSERT_GT(size, 0u);
+    std::vector<uint8_t> storage(size + 31u);
+    char* data = aligned_32_data(storage);
+    EXPECT_EQ(0, ids.serialize(data).code());
+
+    RoaringIds mapped;
+    EXPECT_EQ(0, mapped.init_frozen_view(reinterpret_cast<const uint8_t*>(data), size, 1000).code());
+    EXPECT_TRUE(mapped.empty());
+    EXPECT_EQ(0u, mapped.count());
+    EXPECT_TRUE(mapped.begin().eof());
+    EXPECT_FALSE(mapped.contains(1000));
+    EXPECT_EQ(0u, mapped.lower_bound_index(1000));
+}
+
+TEST(roaring_ids, frozen_view_rejects_null_buffer) {
+    RoaringIds mapped;
+
+    const Ret ret = mapped.init_frozen_view(nullptr, 1, 0);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::init_frozen_view: data pointer is null", ret.message());
+}
+
 TEST(roaring_ids, frozen_view_rejects_unaligned_buffer) {
     RoaringIds ids;
     EXPECT_EQ(0, ids.init_writable(0).code());
@@ -130,6 +200,37 @@ TEST(roaring_ids, frozen_view_rejects_unaligned_buffer) {
 
     RoaringIds mapped;
     const auto ret = mapped.init_frozen_view(reinterpret_cast<const uint8_t*>(data + 1), size, 0);
+    EXPECT_NE(0, ret.code());
+}
+
+TEST(roaring_ids, frozen_view_rejects_truncated_buffer) {
+    RoaringIds ids;
+    EXPECT_EQ(0, ids.init_writable(0).code());
+    for (uint32_t value : {1u, 2u, 3u, 1000u, 70000u}) {
+        EXPECT_EQ(0, ids.add(value).code());
+    }
+    ids.compact();
+
+    const size_t size = ids.serialized_size_bytes();
+    ASSERT_GT(size, 1u);
+    std::vector<uint8_t> storage(size + 31u);
+    char* data = aligned_32_data(storage);
+    EXPECT_EQ(0, ids.serialize(data).code());
+
+    RoaringIds mapped;
+    const Ret ret = mapped.init_frozen_view(
+        reinterpret_cast<const uint8_t*>(data), size - 1u, 0);
+
+    EXPECT_NE(0, ret.code());
+}
+
+TEST(roaring_ids, frozen_view_rejects_malformed_buffer) {
+    std::vector<uint8_t> storage(64u + 31u, 0xff);
+    char* data = aligned_32_data(storage);
+
+    RoaringIds mapped;
+    const Ret ret = mapped.init_frozen_view(reinterpret_cast<const uint8_t*>(data), 64u, 0);
+
     EXPECT_NE(0, ret.code());
 }
 
@@ -201,6 +302,66 @@ TEST(roaring_ids, rejects_ids_outside_uint32_offset_range) {
 
     EXPECT_NE(0, ids.add(999).code());
     EXPECT_NE(0, ids.add(1000ull + std::numeric_limits<uint32_t>::max() + 1ull).code());
+}
+
+TEST(roaring_ids, add_rejects_frozen_read_only_instance) {
+    RoaringIds ids;
+    EXPECT_EQ(0, ids.init_writable(0).code());
+    EXPECT_EQ(0, ids.add(10).code());
+    ids.compact();
+
+    const size_t size = ids.serialized_size_bytes();
+    std::vector<uint8_t> storage(size + 31u);
+    char* data = aligned_32_data(storage);
+    EXPECT_EQ(0, ids.serialize(data).code());
+
+    RoaringIds mapped;
+    EXPECT_EQ(0, mapped.init_frozen_view(reinterpret_cast<const uint8_t*>(data), size, 0).code());
+
+    const Ret ret = mapped.add(20);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::add: bitmap is read-only", ret.message());
+    EXPECT_EQ(1u, mapped.count());
+    EXPECT_TRUE(mapped.contains(10));
+    EXPECT_FALSE(mapped.contains(20));
+}
+
+TEST(roaring_ids, large_set_round_trip_spans_multiple_containers) {
+    constexpr uint64_t base = 1000;
+    constexpr size_t values_count = 10000;
+    constexpr uint64_t stride = 97;
+
+    RoaringIds ids;
+    EXPECT_EQ(0, ids.init_writable(base).code());
+    for (size_t i = 0; i < values_count; ++i) {
+        EXPECT_EQ(0, ids.add(base + i * stride).code());
+    }
+    ids.compact();
+
+    EXPECT_EQ(values_count, ids.count());
+    EXPECT_EQ(base, ids.id(0));
+    EXPECT_EQ(base + 65536u / stride * stride, ids.id(65536u / stride));
+    EXPECT_EQ(base + (values_count - 1u) * stride, ids.id(values_count - 1u));
+    EXPECT_EQ(1u, ids.lower_bound_index(base + 1u));
+
+    size_t index = 0;
+    for (auto it = ids.begin(); !it.eof(); it.next(), ++index) {
+        EXPECT_EQ(index, it.index());
+        EXPECT_EQ(base + index * stride, it.id());
+    }
+    EXPECT_EQ(values_count, index);
+
+    const size_t size = ids.serialized_size_bytes();
+    std::vector<uint8_t> storage(size + 31u);
+    char* data = aligned_32_data(storage);
+    EXPECT_EQ(0, ids.serialize(data).code());
+
+    RoaringIds mapped;
+    EXPECT_EQ(0, mapped.init_frozen_view(reinterpret_cast<const uint8_t*>(data), size, base).code());
+    EXPECT_EQ(values_count, mapped.count());
+    EXPECT_EQ(base, mapped.id(0));
+    EXPECT_EQ(base + (values_count - 1u) * stride, mapped.id(values_count - 1u));
 }
 
 TEST(roaring_ids, frozen_round_trip_applies_new_base) {

@@ -44,12 +44,12 @@ struct DataFileHeader {
 
 static_assert(sizeof(DataFileHeader) == 104, "Unexpected DataFileHeader size");
 
-// Data file payload contract (v12):
+// Data file payload contract (v13):
 // 1) aligned vector records with optional inline norm
 // 2) region-alignment padding
-// 3) CompactIdsOffsets(active ids)
+// 3) frozen RoaringIds(active ids), omitted when count is zero
 // 4) region-alignment padding
-// 5) CompactIdsOffsets(deleted ids)
+// 5) frozen RoaringIds(deleted ids), omitted when deleted_count is zero
 
 struct WalFileHeader {
     BaseFileHeader base;

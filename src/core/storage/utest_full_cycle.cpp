@@ -11,7 +11,6 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/dataset_node.h"
 #include "core/storage/data_reader.h"
-#include "core/storage/compact_ids_shared.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
@@ -19,18 +18,6 @@ namespace fs = std::filesystem;
 
 class DatasetFullCycleTest : public ::testing::Test {
 protected:
-    struct CompactIdsHeaderForTest {
-        uint8_t encoding = 0;
-        uint8_t reserved0 = 0;
-        uint16_t reserved1 = 0;
-        uint32_t count = 0;
-        uint32_t max_offset = 0;
-        uint32_t payload_size = 0;
-        uint64_t base = 0;
-    };
-
-    static_assert(sizeof(CompactIdsHeaderForTest) == 24, "Unexpected CompactIdsOffsets header size");
-
     std::string base_dir_;
     std::string input_path_;
 
@@ -76,20 +63,16 @@ protected:
         return n;
     }
 
-    CompactIdsExtEncoding read_active_ids_encoding(const std::string& data_path) {
+    DataFileHeader read_header(const std::string& data_path) {
         FILE* f = fopen(data_path.c_str(), "rb");
         EXPECT_NE(nullptr, f);
-        if (f == nullptr) {
-            return CompactIdsExtEncoding::Offsets32;
-        }
         DataFileHeader hdr{};
+        if (f == nullptr) {
+            return hdr;
+        }
         EXPECT_EQ(1u, fread(&hdr, sizeof(hdr), 1, f));
-        const size_t ids_offset = compute_data_metadata_layout(hdr, hdr.count).ids_trailer_offset;
-        EXPECT_EQ(0, fseek(f, static_cast<long>(ids_offset), SEEK_SET));
-        CompactIdsHeaderForTest compact_hdr{};
-        EXPECT_EQ(1u, fread(&compact_hdr, sizeof(compact_hdr), 1, f));
         fclose(f);
-        return static_cast<CompactIdsExtEncoding>(compact_hdr.encoding);
+        return hdr;
     }
 };
 
@@ -289,7 +272,7 @@ TEST_F(DatasetFullCycleTest, FullCycleI16WithOverrideAndDelete) {
     EXPECT_EQ(5, v5[0]); // untouched value
 }
 
-TEST_F(DatasetFullCycleTest, DenseRangeStoredWithBitsetCompactIdsTrailer) {
+TEST_F(DatasetFullCycleTest, DenseRangeStoredWithRoaringIdsTrailer) {
     const std::string dir = make_dir("dense");
     DatasetNode ds;
     ASSERT_EQ(0, ds.init_for_test({dir}, 100000, DataType::f32, 4).code());
@@ -305,5 +288,11 @@ TEST_F(DatasetFullCycleTest, DenseRangeStoredWithBitsetCompactIdsTrailer) {
 
     const std::string data_path = dir + "/0.data";
     ASSERT_TRUE(fs::exists(data_path));
-    EXPECT_EQ(CompactIdsExtEncoding::Bitset, read_active_ids_encoding(data_path));
+    const DataFileHeader hdr = read_header(data_path);
+    EXPECT_EQ(0u, hdr.ids_offset % kDataRegionAlignment);
+    EXPECT_GT(hdr.ids_bytes, 0u);
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path).code());
+    EXPECT_EQ(20000u, reader.id(0));
+    EXPECT_EQ(20000u + 8999u * 2u, reader.id(8999));
 }

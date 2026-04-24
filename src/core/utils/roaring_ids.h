@@ -60,8 +60,14 @@ public:
     // Add a value to underlying CRoaring structure.
     Ret add(uint64_t id);
 
+    // Reset to an uninitialized empty state.
+    void clear();
+
     // Number of ids in the underlying CRoaring structure.
     size_t count() const;
+
+    // Check whether the underlying CRoaring structure contains no ids.
+    bool empty() const;
 
     // Check whether an id is present in the underlying CRoaring structure.
     bool contains(uint64_t id) const;
@@ -79,6 +85,11 @@ public:
 
     // Get an id at a specific position.
     uint64_t id(size_t index) const;
+
+    // Get an id at a specific position when the caller has already validated
+    // the index. "Unchecked" means this skips the explicit count() precheck;
+    // CRoaring select failures and uint64_t overflow are still reported.
+    uint64_t id_unchecked(size_t index) const;
 
     // Find the index of the value in the underlying CRoaring
     // structure.

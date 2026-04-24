@@ -148,11 +148,21 @@ Ret RoaringIds::add(uint64_t id) {
     return Ret(0);
 }
 
+void RoaringIds::clear() {
+    bitmap_.reset();
+    read_only_ = false;
+    base_ = 0;
+}
+
 size_t RoaringIds::count() const {
     if (bitmap() == nullptr) {
         return 0;
     }
     return static_cast<size_t>(roaring::api::roaring_bitmap_get_cardinality(bitmap()));
+}
+
+bool RoaringIds::empty() const {
+    return count() == 0;
 }
 
 bool RoaringIds::contains(uint64_t id) const {
@@ -210,12 +220,17 @@ uint64_t RoaringIds::id(size_t index) const {
         throw std::out_of_range("RoaringIds::id: index out of range");
     }
 
+    return id_unchecked(index);
+}
+
+uint64_t RoaringIds::id_unchecked(size_t index) const {
     uint32_t value = 0;
     if (!roaring::api::roaring_bitmap_select(bitmap(), static_cast<uint32_t>(index), &value)) {
-        throw std::out_of_range("RoaringIds::id: index out of range");
+        throw std::out_of_range("RoaringIds::id_unchecked: index out of range");
     }
     if (base_ > std::numeric_limits<uint64_t>::max() - value) {
-        throw std::overflow_error("RoaringIds::id: base plus id offset overflows uint64_t");
+        throw std::overflow_error(
+            "RoaringIds::id_unchecked: base plus id offset overflows uint64_t");
     }
     return base_ + value;
 }
