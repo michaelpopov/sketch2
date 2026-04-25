@@ -47,6 +47,13 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
 int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
                  const void* allowed_ids_blob, size_t allowed_ids_blob_size,
                  uint64_t** ids_out, double** scores_out, size_t* count_out);
+int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size,
+                        unsigned int k, const void* allowed_ids_blob,
+                        size_t allowed_ids_blob_size, uint64_t** ids_out,
+                        double** scores_out, size_t* count_out);
+int sk_knn_items_allowlist(sk_handle_t* handle, const char* vec, unsigned int k,
+                           const void* allowed_ids, uint64_t** ids_out,
+                           double** scores_out, size_t* count_out);
 int sk_score_ascending_is_better(sk_handle_t* handle, bool* out);
 int sk_get(sk_handle_t* handle, uint64_t id, char** value_out);
 int sk_start_writing(sk_handle_t* handle);
@@ -54,23 +61,25 @@ int sk_write_vector(sk_handle_t* handle, uint64_t id, const char* data);
 int sk_write_deleted(sk_handle_t* handle, uint64_t id);
 int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
-int sk_bitset_create(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name);
-int sk_bitset_drop(sk_handle_t* handle, const char* name);
-int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
-int sk_bitset_builder_add(
-    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
-int sk_bitset_builder_finish(
-    void** state, void** blob_out, size_t* blob_size_out,
-    bool* out_of_memory, const char** error_message_out);
 void sk_free(void* ptr);
+int sk_allowlist_builder_add(
+    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
+int sk_allowlist_builder_finish(
+    void** state, void** out, bool* out_of_memory, const char** error_message_out);
+void sk_release_allowlist(void* ptr);
 ```
 
 `sk_knn()` and `sk_get()` return allocated results through out-parameters. The
 caller owns those returned buffers and must release them with `sk_free()`.
 
-`sk_knn_items()` extends `sk_knn()` by returning scores and accepting an
-optional allowlist bitset blob. The blob layout is documented in
-`src/sketch2api/BITSET.md`.
+`sk_knn_items()` and `sk_knn_vector_items()` return scores and accept an
+optional allowlist BLOB. Non-null allowlist BLOB pointers must use the
+serialized chunked-Roaring format and be 32-byte aligned. The blob layout is
+documented in `src/sketch2api/BITSET.md`.
+
+`sk_allowlist_builder_*()` builds an opaque API-owned allowlist object for
+in-process adapters. Pass that object to `sk_knn_items_allowlist()` and release
+it with `sk_release_allowlist()`.
 
 For incremental ingest, the staged-writing API accumulates vectors and delete
 markers into a temporary input file owned by the open dataset. Calling

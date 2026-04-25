@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
-#include <experimental/scope>
 #include <filesystem>
 #include <limits>
 #include <memory>
@@ -49,7 +48,7 @@ constexpr const char* kVliteSchemaWithAllowedIds =
     "id INTEGER, "
     "score REAL)";
 constexpr const char* kVliteModuleName = "vlite";
-constexpr const char* kChunkedBitsPointerType = "sketch2.ChunkedBits";
+constexpr const char* kAllowlistPointerType = "sketch2.AllowlistBlob";
 
 // Removes the outer quoting syntax SQLite may preserve in module arguments so
 // the dataset path can be passed to Dataset::init verbatim.
@@ -178,20 +177,27 @@ sqlite3_int64 saturating_add(sqlite3_int64 lhs, sqlite3_int64 rhs) {
     return lhs + rhs;
 }
 
-void release_chunked_bits(void* ptr) {
-    sk_release_chunked_bits(ptr);
+void release_allowlist(void* ptr) {
+    sk_release_allowlist(ptr);
 }
 
 // SQLite owns this aggregate context per GROUP BY group. We keep only the
-// process-local ChunkedBits builder here; finalization returns it as a typed
-// SQLite pointer instead of a byte blob so large future implementations can
-// own mmap state and release it with the correct destructor.
+// API-owned builder here. Finalization returns an API-owned typed pointer.
 struct BitsetAggState {
-    void* chunked_bits = nullptr;
+    void* allowlist_builder = nullptr;
     bool has_error = false;
     bool has_nomem = false;
     const char* error_message = nullptr;
 };
+
+void set_bitset_agg_error(BitsetAggState* state, bool nomem, const char* message) {
+    if (state == nullptr) {
+        return;
+    }
+    state->has_error = true;
+    state->has_nomem = nomem;
+    state->error_message = message;
+}
 
 void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     if (context == nullptr) {
@@ -217,71 +223,65 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
         return;
     }
     if (value_type != SQLITE_INTEGER) {
-        state->has_error = true;
-        state->error_message = "bitset_agg: id must be an integer";
+        set_bitset_agg_error(state, false, "bitset_agg: id must be an integer");
         sqlite3_result_error(context, state->error_message, -1);
         return;
     }
 
     const sqlite3_int64 id = sqlite3_value_int64(value);
     if (id < 0) {
-        state->has_error = true;
-        state->error_message = "bitset_agg: id must be non-negative";
+        set_bitset_agg_error(state, false, "bitset_agg: id must be non-negative");
         sqlite3_result_error(context, state->error_message, -1);
         return;
     }
 
     const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
-    if (sk_chunked_bits_add(&state->chunked_bits, id_u64, &state->has_nomem, &state->error_message) != 0) {
+    if (sk_allowlist_builder_add(
+            &state->allowlist_builder, id_u64, &state->has_nomem, &state->error_message) != 0) {
         state->has_error = true;
-        if (state->has_nomem) {
-            sqlite3_result_error_nomem(context);
-        } else {
-            const char* message = state->error_message ? state->error_message : "bitset_agg: aggregation failed";
-            sqlite3_result_error(context, message, -1);
-        }
-    }
-}
-
-void bitset_agg_final(sqlite3_context* context) {
-    auto* state = static_cast<BitsetAggState*>(sqlite3_aggregate_context(context, 0));
-    void* chunked_bits = nullptr;
-    bool finish_nomem = false;
-    const char* finish_error = nullptr;
-    if (state != nullptr) {
-        int ret = sk_chunked_bits_finish(
-            &state->chunked_bits, &chunked_bits, &finish_nomem, &finish_error);
-        if (ret != 0) {
-            state->has_error = true;
-            state->has_nomem = finish_nomem;
-            state->error_message = finish_error;
-        }
-    }
-
-    std::experimental::scope_exit cleanup([&]() {
-        sk_release_chunked_bits(chunked_bits);
-    });
-
-    if (state != nullptr && state->has_error) {
         if (state->has_nomem) {
             sqlite3_result_error_nomem(context);
             return;
         }
-        const char* message = state->error_message ? state->error_message : "bitset_agg: aggregation failed";
+        const char* message =
+            state->error_message != nullptr ? state->error_message : "bitset_agg: aggregation failed";
+        sqlite3_result_error(context, message, -1);
+    }
+}
+
+void bitset_agg_final(sqlite3_context* context) {
+    auto* state = static_cast<BitsetAggState*>(
+        sqlite3_aggregate_context(context, sizeof(BitsetAggState)));
+    if (state == nullptr) {
+        sqlite3_result_error_nomem(context);
+        return;
+    }
+
+    void* allowlist = nullptr;
+    bool finish_nomem = false;
+    const char* finish_error = nullptr;
+    if (sk_allowlist_builder_finish(
+            &state->allowlist_builder, &allowlist, &finish_nomem, &finish_error) != 0) {
+        state->has_error = true;
+        state->has_nomem = finish_nomem;
+        state->error_message = finish_error;
+    }
+
+    if (state->has_error) {
+        sk_release_allowlist(allowlist);
+        if (state->has_nomem) {
+            sqlite3_result_error_nomem(context);
+            return;
+        }
+        const char* message =
+            state->error_message != nullptr ? state->error_message : "bitset_agg: aggregation failed";
         sqlite3_result_error(context, message, -1);
         return;
     }
 
-    if (chunked_bits == nullptr) {
-        sqlite3_result_blob(context, "", 0, SQLITE_STATIC);
-        return;
-    }
+    assert(allowlist != nullptr);
 
-    // This is intentionally not a BLOB. The value is valid only inside this
-    // SQLite process/expression flow and is recovered in vlite_filter() with
-    // sqlite3_value_pointer() using the same type tag.
-    sqlite3_result_pointer(context, chunked_bits, kChunkedBitsPointerType, release_chunked_bits);
-    chunked_bits = nullptr;
+    sqlite3_result_pointer(context, allowlist, kAllowlistPointerType, release_allowlist);
 }
 
 // VliteVTab exists to bind SQLite's virtual-table object to the dataset state
@@ -568,7 +568,7 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
 
         const void* allowed_ids_blob = nullptr;
         int allowed_ids_blob_size = 0;
-        const void* allowed_ids_chunked = nullptr;
+        const void* allowed_ids = nullptr;
         if ((idx_num & kConstraintAllowedIds) != 0) {
             if (arg_index >= argc) {
                 set_vtab_error(vlite_vtab, "vlite missing allowed_ids value");
@@ -576,19 +576,20 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             }
 
             sqlite3_value* allowed_ids_value = argv[arg_index++];
-            // bitset_agg() now returns a typed pointer for the fast in-process
-            // path. Persisted/legacy allowlists still arrive as ordinary BLOBs
-            // and use the existing dense bitset decoder.
-            allowed_ids_chunked = sqlite3_value_pointer(allowed_ids_value, kChunkedBitsPointerType);
+            allowed_ids = sqlite3_value_pointer(allowed_ids_value, kAllowlistPointerType);
             const int allowed_ids_type = sqlite3_value_type(allowed_ids_value);
-            if (allowed_ids_chunked == nullptr &&
+            if (allowed_ids == nullptr &&
                     allowed_ids_type != SQLITE_NULL && allowed_ids_type != SQLITE_BLOB) {
                 set_vtab_error(vlite_vtab, "vlite allowed_ids must be a BLOB or NULL");
                 return SQLITE_ERROR;
             }
-            if (allowed_ids_chunked == nullptr && allowed_ids_type == SQLITE_BLOB) {
+            if (allowed_ids == nullptr && allowed_ids_type == SQLITE_BLOB) {
                 allowed_ids_blob = sqlite3_value_blob(allowed_ids_value);
                 allowed_ids_blob_size = sqlite3_value_bytes(allowed_ids_value);
+                if (allowed_ids_blob_size == 0) {
+                    set_vtab_error(vlite_vtab, "vlite allowed_ids BLOB must not be empty");
+                    return SQLITE_ERROR;
+                }
             }
         }
 
@@ -615,12 +616,12 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
         uint64_t* ids = nullptr;
         double* scores = nullptr;
         size_t count = 0;
-        const int rc = allowed_ids_chunked != nullptr
-            ? sk_knn_items_chunked(
+        const int rc = allowed_ids != nullptr
+            ? sk_knn_items_allowlist(
                 vlite_vtab->handle,
                 vlite_cursor->query_text.c_str(),
                 static_cast<unsigned int>(effective_k),
-                allowed_ids_chunked,
+                allowed_ids,
                 &ids,
                 &scores,
                 &count)

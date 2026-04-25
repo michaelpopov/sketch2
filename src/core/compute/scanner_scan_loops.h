@@ -31,24 +31,8 @@ inline void prefetch_vector_record(const uint8_t* data) {
 
 inline bool bitset_contains_id(const BitsetFilter* bitset, uint64_t id) {
     assert(bitset != nullptr);
-    // bitset_agg() can hand the scanner a process-local chunked Roaring
-    // allowlist. Older callers still use the dense byte bitset below.
-    if (bitset->chunked_bits != nullptr) {
-        return bitset->chunked_bits->contains(id);
-    }
-    assert(bitset->data != nullptr || bitset->size == 0);
-    if (id < bitset->base_id) {
-        return false;
-    }
-
-    const uint64_t relative_id = id - bitset->base_id;
-    const uint64_t byte_index = relative_id >> 3;
-    if (byte_index >= bitset->size) {
-        return false;
-    }
-
-    const uint8_t mask = static_cast<uint8_t>(1u << (relative_id & 7u));
-    return (bitset->data[byte_index] & mask) != 0u;
+    assert(bitset->view != nullptr);
+    return bitset->view->contains(id);
 }
 
 template <bool HasBitset, typename PushFn>

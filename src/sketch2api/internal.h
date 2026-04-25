@@ -19,7 +19,7 @@ SKETCH2API_HIDDEN int sk_knn_items_(
     sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids_blob, size_t allowed_ids_blob_size,
     uint64_t** ids_out, double** scores_out, size_t* count_out);
-SKETCH2API_HIDDEN int sk_knn_items_chunked_(
+SKETCH2API_HIDDEN int sk_knn_items_allowlist_(
     sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out);
 SKETCH2API_HIDDEN int sk_score_ascending_is_better_(sk_handle_t* handle, bool* out);
@@ -38,19 +38,6 @@ SKETCH2API_HIDDEN int sk_generate_test_data_(
 SKETCH2API_HIDDEN int sk_generate_test_metadata_(sk_handle_t* handle, 
     const char* path, uint64_t count, uint64_t start_id);
 SKETCH2API_HIDDEN int sk_load_file_(sk_handle_t* handle, const char* path);
-SKETCH2API_HIDDEN int sk_bitset_create_(
-    sk_handle_t* handle, const void* blob, size_t blob_size, const char* name);
-SKETCH2API_HIDDEN int sk_bitset_drop_(sk_handle_t* handle, const char* name);
-SKETCH2API_HIDDEN int sk_bitset_load_(
-    sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
-SKETCH2API_HIDDEN int sk_bitset_builder_add_(
-    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
-SKETCH2API_HIDDEN int sk_bitset_builder_finish_(
-    void** state, void** blob_out, size_t* blob_size_out,
-    bool* out_of_memory, const char** error_message_out);
-SKETCH2API_HIDDEN int sk_bitset_build_(
-    uint64_t* ids, uint64_t count, void** blob_out, size_t* blob_size_out,
-    bool* out_of_memory, const char** error_message_out);
 SKETCH2API_HIDDEN int sk_stats_(sk_handle_t* handle, const char* path = nullptr);
 
 } // namespace sketch2api::detail

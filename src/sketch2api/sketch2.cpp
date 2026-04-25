@@ -14,6 +14,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <limits>
+#include <memory>
 #include <new>
 
 using namespace sketch2;
@@ -45,6 +47,15 @@ namespace {
     } \
     handle->error = 0; \
     handle->message[0] = '\0';
+
+bool align_up_size(size_t value, size_t alignment, size_t* out) {
+    const size_t mask = alignment - 1u;
+    if (value > std::numeric_limits<size_t>::max() - mask) {
+        return false;
+    }
+    *out = (value + mask) & ~mask;
+    return true;
+}
 
 void set_builder_error(bool* out_of_memory, const char** error_message_out,
         bool is_nomem, const char* message) {
@@ -146,10 +157,11 @@ int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
     }
 }
 
-int sk_knn_items_chunked(sk_handle_t* handle, const char* vec, unsigned int k,
+int sk_knn_items_allowlist(sk_handle_t* handle, const char* vec, unsigned int k,
         const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out) {
     try {
-        return sk_knn_items_chunked_(handle, vec, k, allowed_ids, ids_out, scores_out, count_out);
+        return sk_knn_items_allowlist_(
+            handle, vec, k, allowed_ids, ids_out, scores_out, count_out);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
@@ -253,92 +265,6 @@ int sk_load_file(sk_handle_t* handle, const char* path) {
     }
 }
 
-int sk_bitset_create(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name) {
-    try {
-        return sk_bitset_create_(handle, blob, blob_size, name);
-    } catch (const std::exception& ex) {
-        ERR(ex.what())
-    }
-}
-
-int sk_bitset_drop(sk_handle_t* handle, const char* name) {
-    try {
-        return sk_bitset_drop_(handle, name);
-    } catch (const std::exception& ex) {
-        ERR(ex.what())
-    }
-}
-
-int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out) {
-    try {
-        return sk_bitset_load_(handle, name, blob_out, blob_size_out);
-    } catch (const std::exception& ex) {
-        ERR(ex.what())
-    }
-}
-
-int sk_bitset_build(
-        uint64_t* ids, uint64_t count, void** blob_out, size_t* blob_size_out,
-        bool* out_of_memory, const char** error_message_out) {
-    if (blob_out != nullptr) {
-        *blob_out = nullptr;
-    }
-    if (blob_size_out != nullptr) {
-        *blob_size_out = 0;
-    }
-    try {
-        return sk_bitset_build_(ids, count, blob_out, blob_size_out, out_of_memory, error_message_out);
-    } catch (const std::bad_alloc&) {
-        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
-        return -1;
-    } catch (const std::exception&) {
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
-        return -1;
-    } catch (...) {
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
-        return -1;
-    }
-}
-
-int sk_bitset_builder_add(
-        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
-    try {
-        return sk_bitset_builder_add_(state, id, out_of_memory, error_message_out);
-    } catch (const std::bad_alloc&) {
-        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
-        return -1;
-    } catch (const std::exception&) {
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
-        return -1;
-    } catch (...) {
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
-        return -1;
-    }
-}
-
-int sk_bitset_builder_finish(
-        void** state, void** blob_out, size_t* blob_size_out,
-        bool* out_of_memory, const char** error_message_out) {
-    if (blob_out != nullptr) {
-        *blob_out = nullptr;
-    }
-    if (blob_size_out != nullptr) {
-        *blob_size_out = 0;
-    }
-    try {
-        return sk_bitset_builder_finish_(state, blob_out, blob_size_out, out_of_memory, error_message_out);
-    } catch (const std::bad_alloc&) {
-        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
-        return -1;
-    } catch (const std::exception&) {
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
-        return -1;
-    } catch (...) {
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
-        return -1;
-    }
-}
-
 int sk_stats(sk_handle_t* handle, const char* path) {
     try {
         return sk_stats_(handle, path);
@@ -365,6 +291,120 @@ void sk_free(void* ptr) {
     std::free(ptr);
 }
 
+int sk_allowlist_builder_add(
+        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
+    set_builder_error(out_of_memory, error_message_out, false, nullptr);
+    if (state == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "allowlist builder: invalid builder state");
+        return -1;
+    }
+
+    try {
+        auto* chunked_bits = static_cast<ChunkedBits*>(*state);
+        if (chunked_bits == nullptr) {
+            chunked_bits = new ChunkedBits();
+            *state = chunked_bits;
+        }
+
+        const Ret ret = chunked_bits->add(id);
+        if (ret.code() != 0) {
+            set_builder_error(out_of_memory, error_message_out, false,
+                "allowlist builder: add failed");
+            return -1;
+        }
+        return 0;
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
+int sk_allowlist_builder_finish(
+        void** state, void** out, bool* out_of_memory, const char** error_message_out) {
+    set_builder_error(out_of_memory, error_message_out, false, nullptr);
+    if (state == nullptr || out == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "allowlist builder: invalid finish arguments");
+        return -1;
+    }
+    *out = nullptr;
+
+    auto* chunked_bits = static_cast<ChunkedBits*>(*state);
+    *state = nullptr;
+
+    try {
+        if (chunked_bits == nullptr) {
+            chunked_bits = new ChunkedBits();
+        }
+        std::unique_ptr<ChunkedBits> bits(chunked_bits);
+
+        const Ret finish_ret = bits->finish();
+        if (finish_ret.code() != 0) {
+            set_builder_error(out_of_memory, error_message_out, false,
+                "allowlist builder: finish failed");
+            return -1;
+        }
+
+        const size_t blob_size = bits->serialized_size_bytes();
+        size_t allocation_size = 0;
+        if (blob_size == 0) {
+            set_builder_error(out_of_memory, error_message_out, false,
+                "allowlist builder: serialized blob size is unavailable");
+            return -1;
+        }
+        if (!align_up_size(blob_size, kChunkedBitsBlobAlignment, &allocation_size)) {
+            set_builder_error(out_of_memory, error_message_out, false,
+                "allowlist builder: serialized blob is too large");
+            return -1;
+        }
+
+        void* blob = std::aligned_alloc(kChunkedBitsBlobAlignment, allocation_size);
+        if (blob == nullptr) {
+            set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+            return -1;
+        }
+        std::unique_ptr<void, decltype(&std::free)> blob_guard(blob, std::free);
+
+        const Ret serialize_ret = bits->serialize(blob, blob_size);
+        if (serialize_ret.code() != 0) {
+            set_builder_error(out_of_memory, error_message_out, false,
+                "allowlist builder: serialize failed");
+            return -1;
+        }
+
+        auto view = std::make_unique<ChunkedBitsView>();
+        const Ret view_ret = view->init_owned_blob(blob, blob_size);
+        if (view_ret.code() != 0) {
+            set_builder_error(out_of_memory, error_message_out, false,
+                "allowlist builder: view init failed");
+            return -1;
+        }
+        blob_guard.release();
+        *out = view.release();
+        return 0;
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
+void sk_release_allowlist(void* ptr) {
+    delete static_cast<ChunkedBitsView*>(ptr);
+}
+
 void sk_set_log_level(const char* log_level) {
     if (!log_level) {
         return;
@@ -388,90 +428,5 @@ const char* sk_knn_engine_name_for_testing(void) {
         return sk_knn_engine_name_for_testing_();
     } catch (...) {
         return "";
-    }
-}
-
-void sk_release_chunked_bits(void* ptr) {
-    ChunkedBits* cb = static_cast<ChunkedBits*>(ptr);
-    delete cb;
-}
-
-int sk_chunked_bits_add(
-        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
-    set_builder_error(out_of_memory, error_message_out, false, nullptr);
-    if (state == nullptr) {
-        set_builder_error(out_of_memory, error_message_out, false,
-            "chunked bits: invalid builder state");
-        return -1;
-    }
-
-    try {
-        auto* chunked_bits = static_cast<ChunkedBits*>(*state);
-        if (chunked_bits == nullptr) {
-            // Lazily allocate so empty aggregates do not create a filter object.
-            chunked_bits = new ChunkedBits();
-            *state = chunked_bits;
-        }
-
-        const Ret ret = chunked_bits->add(id);
-        if (ret.code() != 0) {
-            set_builder_error(out_of_memory, error_message_out, false, "chunked bits: add failed");
-            return -1;
-        }
-        return 0;
-    } catch (const std::bad_alloc&) {
-        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
-        return -1;
-    } catch (const std::exception&) {
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
-        return -1;
-    } catch (...) {
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
-        return -1;
-    }
-}
-
-int sk_chunked_bits_finish(
-        void** state, void** out,
-        bool* out_of_memory, const char** error_message_out) {
-    set_builder_error(out_of_memory, error_message_out, false, nullptr);
-    if (state == nullptr || out == nullptr) {
-        set_builder_error(out_of_memory, error_message_out, false,
-            "chunked bits: invalid finish arguments");
-        return -1;
-    }
-    *out = nullptr;
-
-    auto* chunked_bits = static_cast<ChunkedBits*>(*state);
-    *state = nullptr;
-    if (chunked_bits == nullptr) {
-        return 0;
-    }
-
-    try {
-        // Ownership moves to the caller on success. SQLite stores this pointer
-        // with sqlite3_result_pointer() and calls sk_release_chunked_bits() when
-        // the value is destroyed.
-        const Ret ret = chunked_bits->finish();
-        if (ret.code() != 0) {
-            delete chunked_bits;
-            set_builder_error(out_of_memory, error_message_out, false, "chunked bits: finish failed");
-            return -1;
-        }
-
-        *out = chunked_bits;
-        return 0;
-    } catch (const std::bad_alloc&) {
-        delete chunked_bits;
-        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
-        return -1;
-    } catch (const std::exception&) {
-        delete chunked_bits;
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
-        return -1;
-    } catch (...) {
-        delete chunked_bits;
-        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
-        return -1;
     }
 }

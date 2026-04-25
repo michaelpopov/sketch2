@@ -3,11 +3,11 @@
 #include "sketch2.h"
 #include "internal.h"
 
+#include "core/utils/chunked_bits.h"
 #include "storage/input_generator.h"
 
 #include <chrono>
 #include <cstdlib>
-#include <cstring>
 #include <experimental/scope>
 #include <filesystem>
 #include <fstream>
@@ -15,6 +15,7 @@
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -118,92 +119,51 @@ std::vector<uint64_t> api_knn_vector(sk_handle_t* handle, const std::vector<floa
     return out;
 }
 
-std::vector<uint8_t> api_load_bitset(sk_handle_t* handle, const char* name) {
-    void* blob = nullptr;
-    size_t blob_size = 0;
-    EXPECT_EQ(0, sk_bitset_load(handle, name, &blob, &blob_size)) << sk_error_message(handle);
+struct AlignedBlob {
+    void* data = nullptr;
+    size_t size = 0;
+    size_t allocation_size = 0;
 
-    std::vector<uint8_t> out;
-    if (blob != nullptr && blob_size > 0) {
-        const auto* ptr = static_cast<const uint8_t*>(blob);
-        out.assign(ptr, ptr + blob_size);
-    }
-    sk_free(blob);
-    return out;
-}
-
-std::vector<uint8_t> build_bitset_blob(const std::vector<uint64_t>& ids, int* rc_out = nullptr,
-        bool* out_of_memory = nullptr, std::string* error_message_out = nullptr) {
-    void* state = nullptr;
-    bool local_nomem = false;
-    const char* local_error = nullptr;
-    int rc = 0;
-    for (uint64_t id : ids) {
-        rc = sk_bitset_builder_add(&state, id, &local_nomem, &local_error);
-        if (rc != 0) {
-            break;
+    AlignedBlob() = default;
+    AlignedBlob(const AlignedBlob&) = delete;
+    AlignedBlob& operator=(const AlignedBlob&) = delete;
+    AlignedBlob(AlignedBlob&& other) noexcept
+        : data(std::exchange(other.data, nullptr)),
+          size(std::exchange(other.size, 0)),
+          allocation_size(std::exchange(other.allocation_size, 0)) {}
+    AlignedBlob& operator=(AlignedBlob&& other) noexcept {
+        if (this != &other) {
+            std::free(data);
+            data = std::exchange(other.data, nullptr);
+            size = std::exchange(other.size, 0);
+            allocation_size = std::exchange(other.allocation_size, 0);
         }
+        return *this;
     }
+    ~AlignedBlob() {
+        std::free(data);
+    }
+};
 
-    void* blob = nullptr;
-    size_t blob_size = 0;
-    const bool prior_nomem = local_nomem;
-    const char* const prior_error = local_error;
-    const int finish_rc = sk_bitset_builder_finish(
-        &state, &blob, &blob_size, &local_nomem, &local_error);
-    if (rc == 0) {
-        rc = finish_rc;
-    } else {
-        local_nomem = prior_nomem;
-        local_error = prior_error;
-    }
-
-    if (rc_out != nullptr) {
-        *rc_out = rc;
-    }
-    if (out_of_memory != nullptr) {
-        *out_of_memory = local_nomem;
-    }
-    if (error_message_out != nullptr) {
-        *error_message_out = local_error != nullptr ? local_error : "";
-    }
-
-    std::vector<uint8_t> out;
-    if (blob != nullptr && blob_size > 0) {
-        const auto* ptr = static_cast<const uint8_t*>(blob);
-        out.assign(ptr, ptr + blob_size);
-    }
-    sk_free(blob);
-    return out;
+size_t align_up(size_t value, size_t alignment) {
+    const size_t mask = alignment - 1u;
+    return (value + mask) & ~mask;
 }
 
-std::vector<uint8_t> build_bitset_blob_api(const std::vector<uint64_t>& ids, int* rc_out = nullptr,
-        bool* out_of_memory = nullptr, std::string* error_message_out = nullptr) {
-    void* blob = nullptr;
-    size_t blob_size = 0;
-    bool local_nomem = false;
-    const char* local_error = nullptr;
-    const int rc = sk_bitset_build(
-        ids.empty() ? nullptr : const_cast<uint64_t*>(ids.data()), ids.size(),
-        &blob, &blob_size, &local_nomem, &local_error);
+void build_allowed_ids_blob(const std::vector<uint64_t>& ids, AlignedBlob* blob) {
+    ASSERT_NE(nullptr, blob);
 
-    if (rc_out != nullptr) {
-        *rc_out = rc;
+    sketch2::ChunkedBits bits;
+    for (uint64_t id : ids) {
+        EXPECT_EQ(0, bits.add(id).code());
     }
-    if (out_of_memory != nullptr) {
-        *out_of_memory = local_nomem;
-    }
-    if (error_message_out != nullptr) {
-        *error_message_out = local_error != nullptr ? local_error : "";
-    }
+    EXPECT_EQ(0, bits.finish().code());
 
-    std::vector<uint8_t> out;
-    if (blob != nullptr && blob_size > 0) {
-        const auto* ptr = static_cast<const uint8_t*>(blob);
-        out.assign(ptr, ptr + blob_size);
-    }
-    sk_free(blob);
-    return out;
+    blob->size = bits.serialized_size_bytes();
+    blob->allocation_size = align_up(blob->size, sketch2::kChunkedBitsBlobAlignment);
+    blob->data = std::aligned_alloc(sketch2::kChunkedBitsBlobAlignment, blob->allocation_size);
+    ASSERT_NE(nullptr, blob->data);
+    EXPECT_EQ(0, bits.serialize(blob->data, blob->size).code());
 }
 
 } // namespace
@@ -266,195 +226,6 @@ TEST(sketch2api, reopen_restores_pending_wal_for_get_and_knn) {
 
     sk_release_handle(handle);
     std::filesystem::remove_all(root);
-}
-
-TEST(sketch2api, bitset_create_load_drop_roundtrip) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_new_handle(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
-
-    const std::vector<uint8_t> expected = {0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01};
-    ASSERT_OK(handle, sk_bitset_create(handle, expected.data(), expected.size(), "label3"));
-
-    const std::filesystem::path bitset_path = root / "ds" / "label3.bitset";
-    EXPECT_TRUE(std::filesystem::exists(bitset_path));
-    EXPECT_EQ(expected, api_load_bitset(handle, "label3"));
-
-    ASSERT_OK(handle, sk_bitset_drop(handle, "label3"));
-    EXPECT_FALSE(std::filesystem::exists(bitset_path));
-
-    void* blob = nullptr;
-    size_t blob_size = 0;
-    EXPECT_NE(0, sk_bitset_load(handle, "label3", &blob, &blob_size));
-    EXPECT_EQ("Failed to stat bitset file: " + bitset_path.string(), std::string(sk_error_message(handle)));
-    sk_free(blob);
-
-    EXPECT_OK(handle, sk_close(handle));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_release_handle(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(sketch2api, bitset_operations_require_open_dataset) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_new_handle(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
-    ASSERT_OK(handle, sk_close(handle));
-
-    const uint8_t blob[] = {0x01};
-    EXPECT_NE(0, sk_bitset_create(handle, blob, sizeof(blob), "x"));
-    EXPECT_NE(0, sk_bitset_drop(handle, "x"));
-
-    void* loaded = nullptr;
-    size_t loaded_size = 0;
-    EXPECT_NE(0, sk_bitset_load(handle, "x", &loaded, &loaded_size));
-    sk_free(loaded);
-
-    EXPECT_OK(handle, sk_open(handle, "ds"));
-    EXPECT_OK(handle, sk_close(handle));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_release_handle(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(sketch2api, bitset_rejects_invalid_name) {
-    const std::filesystem::path root = make_temp_dir();
-
-    sk_handle_t* handle = sk_new_handle(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-
-    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
-
-    const uint8_t blob[] = {0x01};
-    EXPECT_NE(0, sk_bitset_create(handle, blob, sizeof(blob), "../x"));
-    EXPECT_NE(0, sk_bitset_drop(handle, "../x"));
-
-    void* loaded = nullptr;
-    size_t loaded_size = 0;
-    EXPECT_NE(0, sk_bitset_load(handle, "../x", &loaded, &loaded_size));
-    sk_free(loaded);
-
-    EXPECT_OK(handle, sk_close(handle));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_release_handle(handle);
-    std::filesystem::remove_all(root);
-}
-
-TEST(sketch2api, bitset_builder_builds_dense_blob) {
-    int rc = -1;
-    bool out_of_memory = false;
-    std::string error_message;
-    const std::vector<uint8_t> blob = build_bitset_blob(
-        {10u, 11u, 18u, 18u}, &rc, &out_of_memory, &error_message);
-
-    EXPECT_EQ(0, rc);
-    EXPECT_FALSE(out_of_memory);
-    EXPECT_TRUE(error_message.empty());
-    ASSERT_EQ(10u, blob.size());
-
-    uint64_t first_id = 0;
-    std::memcpy(&first_id, blob.data(), sizeof(first_id));
-    EXPECT_EQ(10u, first_id);
-    EXPECT_EQ(0x03u, blob[8]);
-    EXPECT_EQ(0x01u, blob[9]);
-}
-
-TEST(sketch2api, bitset_builder_returns_empty_blob_for_empty_input) {
-    int rc = -1;
-    std::string error_message;
-    const std::vector<uint8_t> blob = build_bitset_blob({}, &rc, nullptr, &error_message);
-
-    EXPECT_EQ(0, rc);
-    EXPECT_TRUE(error_message.empty());
-    EXPECT_TRUE(blob.empty());
-}
-
-TEST(sketch2api, bitset_builder_rejects_descending_ids) {
-    int rc = 0;
-    bool out_of_memory = false;
-    std::string error_message;
-    const std::vector<uint8_t> blob = build_bitset_blob(
-        {2u, 1u}, &rc, &out_of_memory, &error_message);
-
-    EXPECT_NE(0, rc);
-    EXPECT_FALSE(out_of_memory);
-    EXPECT_EQ("bitset builder: ids must be ordered in non-decreasing order", error_message);
-    EXPECT_TRUE(blob.empty());
-}
-
-TEST(sketch2api, bitset_builder_rejects_ids_above_maximum) {
-    int rc = 0;
-    bool out_of_memory = false;
-    std::string error_message;
-    const std::vector<uint8_t> blob = build_bitset_blob(
-        {100000001u}, &rc, &out_of_memory, &error_message);
-
-    EXPECT_NE(0, rc);
-    EXPECT_FALSE(out_of_memory);
-    EXPECT_EQ("bitset builder: id must be <= 100000000", error_message);
-    EXPECT_TRUE(blob.empty());
-}
-
-TEST(sketch2api, internal_bitset_build_matches_streaming_builder) {
-    const std::vector<uint64_t> ids = {10u, 11u, 18u, 18u};
-
-    int streaming_rc = -1;
-    bool streaming_nomem = false;
-    std::string streaming_error;
-    const std::vector<uint8_t> streaming_blob = build_bitset_blob(
-        ids, &streaming_rc, &streaming_nomem, &streaming_error);
-
-    void* blob = nullptr;
-    size_t blob_size = 0;
-    bool build_nomem = false;
-    const char* build_error = nullptr;
-    const int build_rc = sketch2api::detail::sk_bitset_build_(
-        const_cast<uint64_t*>(ids.data()), ids.size(),
-        &blob, &blob_size, &build_nomem, &build_error);
-
-    EXPECT_EQ(0, streaming_rc);
-    EXPECT_EQ(0, build_rc);
-    EXPECT_FALSE(streaming_nomem);
-    EXPECT_FALSE(build_nomem);
-    EXPECT_TRUE(streaming_error.empty());
-    EXPECT_EQ(nullptr, build_error);
-
-    std::vector<uint8_t> build_blob;
-    if (blob != nullptr && blob_size > 0) {
-        const auto* ptr = static_cast<const uint8_t*>(blob);
-        build_blob.assign(ptr, ptr + blob_size);
-    }
-    sk_free(blob);
-
-    EXPECT_EQ(streaming_blob, build_blob);
-}
-
-TEST(sketch2api, public_bitset_build_matches_streaming_builder) {
-    int build_rc = -1;
-    bool build_nomem = false;
-    std::string build_error;
-    const std::vector<uint8_t> build_blob = build_bitset_blob_api(
-        {10u, 11u, 18u, 18u}, &build_rc, &build_nomem, &build_error);
-
-    int streaming_rc = -1;
-    bool streaming_nomem = false;
-    std::string streaming_error;
-    const std::vector<uint8_t> streaming_blob = build_bitset_blob(
-        {10u, 11u, 18u, 18u}, &streaming_rc, &streaming_nomem, &streaming_error);
-
-    EXPECT_EQ(0, build_rc);
-    EXPECT_EQ(0, streaming_rc);
-    EXPECT_FALSE(build_nomem);
-    EXPECT_FALSE(streaming_nomem);
-    EXPECT_TRUE(build_error.empty());
-    EXPECT_TRUE(streaming_error.empty());
-    EXPECT_EQ(streaming_blob, build_blob);
 }
 
 TEST(sketch2api, generate_stats_and_print_smoke) {
@@ -708,14 +479,14 @@ TEST(sketch2api, knn_vector_items_matches_text_knn_items_with_bitset_filter) {
     ASSERT_OK(handle, sk_write_vector(handle, 30, "30.0, 30.0, 30.0, 30.0"));
     ASSERT_OK(handle, sk_complete_writing(handle));
 
-    const std::vector<uint8_t> allowed = build_bitset_blob_api({20, 30});
-    ASSERT_FALSE(allowed.empty());
+    AlignedBlob allowed;
+    ASSERT_NO_FATAL_FAILURE(build_allowed_ids_blob({20, 30}, &allowed));
 
     uint64_t* text_ids = nullptr;
     double* text_scores = nullptr;
     size_t text_count = 0;
     ASSERT_EQ(0, sk_knn_items(handle, "10.0, 10.0, 10.0, 10.0", 3,
-        allowed.data(), allowed.size(), &text_ids, &text_scores, &text_count))
+        allowed.data, allowed.size, &text_ids, &text_scores, &text_count))
         << sk_error_message(handle);
 
     const std::vector<float> vector_query = {10.0f, 10.0f, 10.0f, 10.0f};
@@ -723,7 +494,7 @@ TEST(sketch2api, knn_vector_items_matches_text_knn_items_with_bitset_filter) {
     double* vector_scores = nullptr;
     size_t vector_count = 0;
     ASSERT_EQ(0, sk_knn_vector_items(handle, vector_query.data(), vector_query.size(), 3,
-        allowed.data(), allowed.size(), &vector_ids, &vector_scores, &vector_count))
+        allowed.data, allowed.size, &vector_ids, &vector_scores, &vector_count))
         << sk_error_message(handle);
 
     ASSERT_EQ(text_count, vector_count);

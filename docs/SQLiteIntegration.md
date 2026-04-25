@@ -143,7 +143,7 @@ Meaning:
 - `query`: hidden input query vector
 - `match_expr`: alternate hidden input query vector
 - `k`: hidden input top-k count
-- `allowed_ids`: optional hidden input bitset filter
+- `allowed_ids`: optional hidden input allowlist filter
 - `id`: output vector id
 - `score`: output score
 
@@ -284,38 +284,31 @@ the final KNN results are returned.
 Rules:
 
 - `NULL` means no filtering
-- a `BLOB` applies filtering
-- the process-local value returned by `bitset_agg(id)` applies filtering
+- the typed pointer returned by `bitset_agg(id)` applies filtering
+- a 32-byte-aligned serialized chunked-Roaring `BLOB` applies filtering
 - other non-`BLOB` and non-`NULL` inputs are rejected
 
-Persisted BLOB filters use the Sketch2 dense bitset format. The SQL aggregate
-`bitset_agg(id)` uses an in-process chunked allowlist and can be used directly
-in the `allowed_ids` expression.
+SQLite does not allocate the `bitset_agg(id)` buffer. It receives an API-owned
+typed pointer and calls Sketch2's release function when the value is destroyed.
 
 ## `bitset_agg(id)`
 
 `bitset_agg(id)` is an aggregate helper function exported by the extension.
-It accepts integer ids in any order and builds an `allowed_ids` filter without
-leaving SQLite.
+It accepts integer ids in any order and returns an API-owned typed pointer that
+wraps the serialized chunked-Roaring format documented in
+`src/sketch2api/BITSET.md`.
 
 Example:
 
 ```sql
-SELECT id, score
-FROM nn AS n
-WHERE n.query = :query
-  AND n.k = :k
-  AND n.allowed_ids = (
-        SELECT bitset_agg(id)
-        FROM (
-            SELECT 8 AS id
-            UNION ALL
-            SELECT 0
-            UNION ALL
-            SELECT 1
-        )
-      )
-ORDER BY n.score;
+SELECT bitset_agg(id)
+FROM (
+    SELECT 8 AS id
+    UNION ALL
+    SELECT 0
+    UNION ALL
+    SELECT 1
+);
 ```
 
 The aggregate input does not need to be sorted:
@@ -389,9 +382,6 @@ WHERE n.match_expr MATCH '0.5, 0.5, 0.5, 0.5'
 ORDER BY n.score;
 ```
 
-This pattern is useful when the SQL layer knows a prefiltered candidate set
-and wants Sketch2 to run KNN only within that subset.
-
 ## Error Handling
 
 Typical failures include:
@@ -402,6 +392,7 @@ Typical failures include:
 - wrong dimension or type for the dataset
 - `k <= 0`
 - `allowed_ids` value that is neither `BLOB` nor `NULL`
+- unaligned ordinary `allowed_ids` BLOB pointer
 
 Example of an invalid query:
 

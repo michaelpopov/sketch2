@@ -55,7 +55,9 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
  * Run KNN for an in-memory float query vector with optional bitset filtering
  * and return allocated id/score arrays. The caller owns *ids_out and
  * *scores_out and must release both with sk_free(). If allowed_ids_blob is
- * nullptr and allowed_ids_blob_size is 0, no bitset filtering is applied.
+ * nullptr and allowed_ids_blob_size is 0, no filtering is applied. Otherwise
+ * allowed_ids_blob must point to a 32-byte-aligned serialized chunked-Roaring
+ * allowlist BLOB.
  */
 int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
     const void* allowed_ids_blob, size_t allowed_ids_blob_size,
@@ -64,18 +66,21 @@ int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size
 /*
  * Run KNN with optional bitset filtering and return allocated id/score arrays.
  * The caller owns *ids_out and *scores_out and must release both with sk_free().
- * If allowed_ids_blob is nullptr and allowed_ids_blob_size is 0, no bitset
- * filtering is applied.
+ * If allowed_ids_blob is nullptr and allowed_ids_blob_size is 0, no filtering
+ * is applied. Otherwise allowed_ids_blob must point to a 32-byte-aligned
+ * serialized chunked-Roaring allowlist BLOB.
  */
 int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids_blob, size_t allowed_ids_blob_size,
     uint64_t** ids_out, double** scores_out, size_t* count_out);
 
 /*
- * Run KNN with a process-local chunked allowlist object returned by
- * bitset_agg(). This pointer is not a persistent blob.
+ * Run KNN with an opaque API-owned allowlist object produced by
+ * sk_allowlist_builder_finish(). This is intended for in-process adapters such
+ * as SQLite that need to pass an allowlist without copying it through their own
+ * BLOB storage.
  */
-int sk_knn_items_chunked(sk_handle_t* handle, const char* vec, unsigned int k,
+int sk_knn_items_allowlist(sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out);
 
 /*
@@ -148,55 +153,6 @@ int sk_generate_test_metadata(sk_handle_t* handle,
 int sk_load_file(sk_handle_t* handle, const char* path);
 
 /*
- * Persist an allowlist bitset blob for the currently open dataset.
- * The blob is stored in the first dataset directory as <name>.bitset.
- */
-int sk_bitset_create(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name);
-
-/*
- * Remove a persisted allowlist bitset blob (<name>.bitset) for the currently
- * open dataset.
- */
-int sk_bitset_drop(sk_handle_t* handle, const char* name);
-
-/*
- * Load a persisted allowlist bitset blob (<name>.bitset) for the currently
- * open dataset. The caller owns *blob_out and must release it with sk_free().
- */
-int sk_bitset_load(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out);
-
-/*
- * Build an in-memory allowlist bitset blob from an ordered array of ids.
- * Expectations:
- * - ids must point to count ids sorted in non-decreasing order
- * - duplicate ids are allowed
- * - ids may be nullptr only when count is 0
- * - blob_out and blob_size_out must be non-null
- * - count == 0 is valid and returns an empty blob
- * - out_of_memory and error_message_out are optional outputs
- * On success, the caller owns *blob_out and must release it with sk_free().
- */
-int sk_bitset_build(
-    uint64_t* ids, uint64_t count, void** blob_out, size_t* blob_size_out,
-    bool* out_of_memory, const char** error_message_out);
-
-/*
- * Internal-facing utility used by adapters (for example SQLite) to build an
- * in-memory allowlist bitset blob in the Sketch2 API binary format.
- */
-int sk_bitset_builder_add(
-    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
-
-/*
- * Finalize and release the bitset builder state. Must be called even if a
- * prior sk_bitset_builder_add() returned an error. On success, the caller
- * owns *blob_out and must release it with sk_free().
- */
-int sk_bitset_builder_finish(
-    void** state, void** blob_out, size_t* blob_size_out,
-    bool* out_of_memory, const char** error_message_out);
-
-/*
  * Print dataset file statistics to stdout or a text file.
  */
 int sk_stats(sk_handle_t* handle, const char* path);
@@ -217,6 +173,17 @@ const char* sk_error_message(sk_handle_t* handle);
 void sk_free(void* ptr);
 
 /*
+ * Build an API-owned serialized chunked-Roaring allowlist object. The finished
+ * object is opaque; pass it to sk_knn_items_allowlist() and release it with
+ * sk_release_allowlist().
+ */
+int sk_allowlist_builder_add(
+    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
+int sk_allowlist_builder_finish(
+    void** state, void** out, bool* out_of_memory, const char** error_message_out);
+void sk_release_allowlist(void* ptr);
+
+/*
  * Set global log level in Sketch2
  */
 void sk_set_log_level(const char* log_level);
@@ -226,17 +193,6 @@ void sk_set_log_level(const char* log_level);
  */
 void sk_version(char* buf, size_t buf_size);
 
-
-/*
- * Process-local ChunkedBits helpers used by SQLite bitset_agg(). The finished
- * pointer is owned by the caller and must be released with
- * sk_release_chunked_bits().
- */
-void sk_release_chunked_bits(void* ptr);
-int sk_chunked_bits_add(
-    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
-int sk_chunked_bits_finish(
-    void** state, void** out, bool* out_of_memory, const char** error_message_out);
 
 #ifdef __cplusplus
 }

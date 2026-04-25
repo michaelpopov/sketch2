@@ -54,7 +54,7 @@ Column notes:
 
 - `query` / `match_expr` (hidden input): query vector text
 - `k` (hidden input): top-k size, default `10`
-- `allowed_ids` (hidden input): optional bitset BLOB filter
+- `allowed_ids` (hidden input): optional allowlist filter
 - `id` (output): vector id
 - `score` (output): score according to dataset metric
 
@@ -114,27 +114,11 @@ LIMIT 5 OFFSET 10;
 `allowed_ids` is optional.
 
 - `NULL` means no filtering
-- `BLOB` applies filtering
+- the typed pointer returned by `bitset_agg(id)` applies filtering
+- `BLOB` applies filtering when SQLite provides a 32-byte-aligned pointer
 - non-`BLOB` and non-`NULL` values are rejected
 
-Example with SQL-side producer:
-
-```sql
-SELECT id, score
-FROM nn
-WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1'
-  AND k = 3
-  AND allowed_ids = (
-        SELECT bitset_agg(id)
-        FROM (SELECT 0 AS id)
-      )
-ORDER BY score;
-```
-
-This returns only neighbors whose ids are present in the bitset.
-
-`bitset_agg(id)` accepts ids in any order, so callers can aggregate directly
-from SQL filters without adding an ordering step:
+`bitset_agg(id)` accepts ids in any order:
 
 ```sql
 SELECT bitset_agg(id)
@@ -142,8 +126,9 @@ FROM labels
 WHERE label = 3;
 ```
 
-Use `bitset_agg(id)` to build the `allowed_ids` value. For format details on
-persisted dense bitset BLOBs, see `src/sketch2api/BITSET.md`.
+The aggregate returns an API-owned typed pointer that wraps the serialized
+chunked-Roaring format documented in `src/sketch2api/BITSET.md`. SQLite calls
+Sketch2's release function when that pointer value is destroyed.
 
 ## Dataset Metadata (`dataset.ini`)
 

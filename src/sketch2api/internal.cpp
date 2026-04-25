@@ -152,96 +152,24 @@ std::string join_dirs(const std::vector<std::filesystem::path>& dirs) {
     return out;
 }
 
-Ret bitset_file_path(const sk_handle_t* handle, const char* name, std::filesystem::path* out) {
-    if (handle == nullptr || handle->ds == nullptr) {
-        return Ret("No dataset is open");
-    }
-    if (!is_valid_dataset_name(name)) {
-        return Ret("Invalid bitset name");
-    }
-    if (out == nullptr) {
-        return Ret("Invalid output path argument");
-    }
-
-    const std::vector<std::string>& dirs = handle->ds->dirs();
-    if (dirs.empty() || dirs.front().empty()) {
-        return Ret("Dataset dirs are not set");
-    }
-
-    *out = std::filesystem::path(dirs.front()) / (std::string(name) + ".bitset");
-    return Ret(0);
-}
-
-struct BitsetBuilderState {
-    uint8_t* data = nullptr;
-    size_t size = 0;
-    size_t capacity = 0;
-    uint64_t first_id = 0;
-    uint64_t last_id = 0;
-    bool has_first_id = false;
-    bool has_error = false;
-    bool has_nomem = false;
-    const char* error_message = nullptr;
-};
-
-constexpr const char* kBitsetBuilderOrderError =
-    "bitset builder: ids must be ordered in non-decreasing order";
-constexpr uint64_t kBitsetBuilderMaxId = 100000000u;
-constexpr const char* kBitsetBuilderMaxIdError =
-    "bitset builder: id must be <= 100000000";
-constexpr const char* kBitsetBuilderSizeError =
-    "bitset builder: required bitset size exceeds supported limit";
-constexpr const char* kBitsetBuilderNomemError = "sketch2: out of memory";
-constexpr size_t kBitsetHeaderBytes = sizeof(uint64_t);
-
-void set_bitset_builder_error(bool* out_of_memory, const char** error_message_out,
-    bool is_nomem, const char* message) {
-    if (out_of_memory != nullptr) {
-        *out_of_memory = is_nomem;
-    }
-    if (error_message_out != nullptr) {
-        *error_message_out = message;
-    }
-}
-
-int return_bitset_builder_error(BitsetBuilderState* builder, bool is_nomem, const char* message,
-        bool* out_of_memory, const char** error_message_out) {
-    if (builder != nullptr) {
-        builder->has_error = true;
-        builder->has_nomem = is_nomem;
-        builder->error_message = message;
-    }
-    set_bitset_builder_error(out_of_memory, error_message_out, is_nomem, message);
-    return -1;
-}
-
 Ret build_bitset_filter(const void* allowed_ids_blob, size_t allowed_ids_blob_size,
-        uint64_t* allowed_ids_base_id, const uint8_t** allowed_ids_bits,
-        uint64_t* allowed_ids_bits_size, bool* has_allowed_ids_out) {
-    if (allowed_ids_base_id == nullptr || allowed_ids_bits == nullptr ||
-            allowed_ids_bits_size == nullptr || has_allowed_ids_out == nullptr) {
+        ChunkedBitsView* view, const BitsetFilter** bitset_filter_out,
+        BitsetFilter* bitset_filter_storage) {
+    if (view == nullptr || bitset_filter_out == nullptr || bitset_filter_storage == nullptr) {
         return Ret("Invalid arguments");
     }
 
-    const bool has_allowed_ids =
-        !(allowed_ids_blob == nullptr && allowed_ids_blob_size == 0);
-    if (has_allowed_ids && allowed_ids_blob == nullptr) {
+    *bitset_filter_out = nullptr;
+    if (allowed_ids_blob == nullptr && allowed_ids_blob_size == 0) {
+        return Ret(0);
+    }
+    if (allowed_ids_blob == nullptr) {
         return Ret("Invalid allowed_ids blob argument");
     }
 
-    *allowed_ids_base_id = 0;
-    *allowed_ids_bits = static_cast<const uint8_t*>(allowed_ids_blob);
-    *allowed_ids_bits_size = static_cast<uint64_t>(allowed_ids_blob_size);
-    *has_allowed_ids_out = has_allowed_ids;
-
-    if (has_allowed_ids) {
-        if (allowed_ids_blob_size < sizeof(uint64_t)) {
-            return Ret("allowed_ids blob is too small");
-        }
-        std::memcpy(allowed_ids_base_id, *allowed_ids_bits, sizeof(uint64_t));
-        *allowed_ids_bits += sizeof(uint64_t);
-        *allowed_ids_bits_size -= sizeof(uint64_t);
-    }
+    CHECK(view->init_blob(allowed_ids_blob, allowed_ids_blob_size));
+    *bitset_filter_storage = BitsetFilter{.view = view};
+    *bitset_filter_out = bitset_filter_storage;
     return Ret(0);
 }
 
@@ -600,22 +528,15 @@ int sk_knn_vector_items_(sk_handle_t* handle, const float* vec, uint64_t vec_siz
     *scores_out = nullptr;
     *count_out = 0;
 
-    uint64_t allowed_ids_base_id = 0;
-    const uint8_t* allowed_ids_bits = nullptr;
-    uint64_t allowed_ids_bits_size = 0;
-    bool has_allowed_ids = false;
+    ChunkedBitsView allowed_ids_view;
+    BitsetFilter bitset_filter;
+    const BitsetFilter* bitset_filter_ptr = nullptr;
     Ret ret = build_bitset_filter(
-        allowed_ids_blob, allowed_ids_blob_size, &allowed_ids_base_id,
-        &allowed_ids_bits, &allowed_ids_bits_size, &has_allowed_ids);
+        allowed_ids_blob, allowed_ids_blob_size,
+        &allowed_ids_view, &bitset_filter_ptr, &bitset_filter);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
-    const BitsetFilter bitset_filter {
-        .base_id = allowed_ids_base_id,
-        .data = allowed_ids_bits,
-        .size = allowed_ids_bits_size,
-    };
-    const BitsetFilter* bitset_filter_ptr = has_allowed_ids ? &bitset_filter : nullptr;
 
     std::vector<DistItem> items;
     ret = run_knn_items_query(
@@ -646,22 +567,15 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
     *scores_out = nullptr;
     *count_out = 0;
 
-    uint64_t allowed_ids_base_id = 0;
-    const uint8_t* allowed_ids_bits = nullptr;
-    uint64_t allowed_ids_bits_size = 0;
-    bool has_allowed_ids = false;
+    ChunkedBitsView allowed_ids_view;
+    BitsetFilter bitset_filter;
+    const BitsetFilter* bitset_filter_ptr = nullptr;
     Ret ret = build_bitset_filter(
-        allowed_ids_blob, allowed_ids_blob_size, &allowed_ids_base_id,
-        &allowed_ids_bits, &allowed_ids_bits_size, &has_allowed_ids);
+        allowed_ids_blob, allowed_ids_blob_size,
+        &allowed_ids_view, &bitset_filter_ptr, &bitset_filter);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
-    const BitsetFilter bitset_filter {
-        .base_id = allowed_ids_base_id,
-        .data = allowed_ids_bits,
-        .size = allowed_ids_bits_size,
-    };
-    const BitsetFilter* bitset_filter_ptr = has_allowed_ids ? &bitset_filter : nullptr;
 
     std::vector<DistItem> items;
     ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), bitset_filter_ptr, &items);
@@ -676,8 +590,13 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
     return 0;
 }
 
-int sk_knn_items_chunked_(sk_handle_t* handle, const char* vec, unsigned int k,
+int sk_knn_items_allowlist_(sk_handle_t* handle, const char* vec, unsigned int k,
         const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out) {
+    if (allowed_ids == nullptr) {
+        return sk_knn_items_(handle, vec, k, nullptr, 0, ids_out, scores_out, count_out);
+    }
+
+    const auto* view = static_cast<const ChunkedBitsView*>(allowed_ids);
     DECL
 
     if (handle->ds == nullptr) {
@@ -686,24 +605,11 @@ int sk_knn_items_chunked_(sk_handle_t* handle, const char* vec, unsigned int k,
     if (vec == nullptr || k == 0 || ids_out == nullptr || scores_out == nullptr || count_out == nullptr) {
         ERR("Invalid arguments")
     }
-    if (allowed_ids == nullptr) {
-        ERR("Invalid chunked allowed_ids argument")
-    }
     *ids_out = nullptr;
     *scores_out = nullptr;
     *count_out = 0;
 
-    const auto* chunked_bits = static_cast<const ChunkedBits*>(allowed_ids);
-    // Reuse the existing scanner filter plumbing: data/size describe the old
-    // dense bitset representation, while chunked_bits selects the sparse
-    // Roaring-backed membership path.
-    const BitsetFilter bitset_filter {
-        .base_id = 0,
-        .data = nullptr,
-        .size = 0,
-        .chunked_bits = chunked_bits,
-    };
-
+    const BitsetFilter bitset_filter{.view = view};
     std::vector<DistItem> items;
     Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), &bitset_filter, &items);
     if (ret.code() != 0) {
@@ -954,314 +860,6 @@ int sk_load_file_(sk_handle_t* handle, const char* path) {
         ERR(ret.message().c_str())
     }
 
-    return 0;
-}
-
-int sk_bitset_create_(sk_handle_t* handle, const void* blob, size_t blob_size, const char* name) {
-    DECL
-
-    std::filesystem::path path;
-    const Ret path_ret = bitset_file_path(handle, name, &path);
-    if (path_ret.code() != 0) {
-        ERR(path_ret.message().c_str())
-    }
-    if (blob == nullptr && blob_size > 0) {
-        ERR("Invalid bitset blob argument")
-    }
-
-    std::filesystem::create_directories(path.parent_path());
-
-    FILE* f = std::fopen(path.c_str(), "wb");
-    if (f == nullptr) {
-        ERR("Failed to open bitset file for writing: " + path.string())
-    }
-
-    std::experimental::scope_exit cleanup([&]() {
-        std::fclose(f);
-    });
-
-    if (blob_size > 0) {
-        const size_t written = std::fwrite(blob, 1, blob_size, f);
-        if (written != blob_size) {
-            ERR("Failed to write bitset file: " + path.string())
-        }
-    }
-    if (std::fflush(f) != 0) {
-        ERR("Failed to flush bitset file: " + path.string())
-    }
-
-    return 0;
-}
-
-int sk_bitset_drop_(sk_handle_t* handle, const char* name) {
-    DECL
-
-    std::filesystem::path path;
-    const Ret path_ret = bitset_file_path(handle, name, &path);
-    if (path_ret.code() != 0) {
-        ERR(path_ret.message().c_str())
-    }
-
-    std::error_code ec;
-    std::filesystem::remove(path, ec);
-    if (ec) {
-        ERR("Failed to remove bitset file: " + path.string())
-    }
-
-    return 0;
-}
-
-int sk_bitset_load_(sk_handle_t* handle, const char* name, void** blob_out, size_t* blob_size_out) {
-    DECL
-
-    if (blob_out == nullptr || blob_size_out == nullptr) {
-        ERR("Invalid output arguments")
-    }
-    *blob_out = nullptr;
-    *blob_size_out = 0;
-
-    std::filesystem::path path;
-    const Ret path_ret = bitset_file_path(handle, name, &path);
-    if (path_ret.code() != 0) {
-        ERR(path_ret.message().c_str())
-    }
-
-    std::error_code ec;
-    const auto file_size_u64 = std::filesystem::file_size(path, ec);
-    if (ec) {
-        ERR("Failed to stat bitset file: " + path.string())
-    }
-    if (file_size_u64 > static_cast<uintmax_t>(std::numeric_limits<size_t>::max())) {
-        ERR("Bitset file is too large")
-    }
-    const size_t file_size = static_cast<size_t>(file_size_u64);
-
-    void* buffer = nullptr;
-    if (file_size > 0) {
-        buffer = std::malloc(file_size);
-        if (buffer == nullptr) {
-            ERR("Out of memory")
-        }
-    }
-
-    std::experimental::scope_exit cleanup([&]() {
-        if (*blob_out == nullptr) {
-            std::free(buffer);
-        }
-    });
-
-    FILE* f = std::fopen(path.c_str(), "rb");
-    if (f == nullptr) {
-        ERR("Failed to open bitset file for reading: " + path.string())
-    }
-
-    std::experimental::scope_exit close_file([&]() {
-        std::fclose(f);
-    });
-
-    if (file_size > 0) {
-        const size_t read = std::fread(buffer, 1, file_size, f);
-        if (read != file_size) {
-            ERR("Failed to read bitset file: " + path.string())
-        }
-    }
-
-    *blob_out = buffer;
-    *blob_size_out = file_size;
-    return 0;
-}
-
-int sk_bitset_builder_add_(
-        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
-    set_bitset_builder_error(out_of_memory, error_message_out, false, nullptr);
-
-    if (state == nullptr) {
-        set_bitset_builder_error(out_of_memory, error_message_out, false,
-            "bitset builder: invalid builder state");
-        return -1;
-    }
-
-    auto* builder = static_cast<BitsetBuilderState*>(*state);
-    if (builder == nullptr) {
-        builder = new (std::nothrow) BitsetBuilderState();
-        if (builder == nullptr) {
-            set_bitset_builder_error(out_of_memory, error_message_out, true, kBitsetBuilderNomemError);
-            return -1;
-        }
-        *state = builder;
-    }
-    if (builder->has_error) {
-        set_bitset_builder_error(
-            out_of_memory, error_message_out, builder->has_nomem, builder->error_message);
-        return -1;
-    }
-    if (id > kBitsetBuilderMaxId) {
-        return return_bitset_builder_error(
-            builder, false, kBitsetBuilderMaxIdError, out_of_memory, error_message_out);
-    }
-
-    if (!builder->has_first_id) {
-        builder->first_id = id;
-        builder->has_first_id = true;
-    } else if (id < builder->last_id) {
-        return return_bitset_builder_error(
-            builder, false, kBitsetBuilderOrderError, out_of_memory, error_message_out);
-    }
-    builder->last_id = id;
-
-    const uint64_t relative_id = id - builder->first_id;
-    const uint64_t byte_index_u64 = relative_id >> 3u;
-    if (byte_index_u64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - kBitsetHeaderBytes - 1u)) {
-        return return_bitset_builder_error(
-            builder, false, kBitsetBuilderSizeError, out_of_memory, error_message_out);
-    }
-
-    const size_t byte_index = static_cast<size_t>(byte_index_u64);
-    const size_t needed_size = kBitsetHeaderBytes + byte_index + 1u;
-    if (needed_size > builder->capacity) {
-        size_t new_capacity = builder->capacity > 0 ? builder->capacity : 1u;
-        while (new_capacity < needed_size) {
-            if (new_capacity > std::numeric_limits<size_t>::max() / 2u) {
-                new_capacity = needed_size;
-                break;
-            }
-            new_capacity *= 2u;
-        }
-        if (new_capacity < needed_size) {
-            return return_bitset_builder_error(
-                builder, false, kBitsetBuilderSizeError, out_of_memory, error_message_out);
-        }
-
-        uint8_t* new_data = static_cast<uint8_t*>(std::realloc(builder->data, new_capacity));
-        if (new_data == nullptr) {
-            return return_bitset_builder_error(
-                builder, true, kBitsetBuilderNomemError, out_of_memory, error_message_out);
-        }
-
-        if (new_capacity > builder->capacity) {
-            std::memset(new_data + builder->capacity, 0, new_capacity - builder->capacity);
-        }
-        if (builder->data == nullptr) {
-            std::memcpy(new_data, &builder->first_id, sizeof(builder->first_id));
-        }
-
-        builder->data = new_data;
-        builder->capacity = new_capacity;
-    }
-    if (needed_size > builder->size) {
-        builder->size = needed_size;
-    }
-
-    builder->data[kBitsetHeaderBytes + byte_index] |= static_cast<uint8_t>(1u << (relative_id & 7u));
-    return 0;
-}
-
-int sk_bitset_build_(
-        uint64_t* ids, uint64_t count, void** blob_out, size_t* blob_size_out,
-        bool* out_of_memory, const char** error_message_out) {
-    set_bitset_builder_error(out_of_memory, error_message_out, false, nullptr);
-
-    if (blob_out == nullptr || blob_size_out == nullptr) {
-        set_bitset_builder_error(out_of_memory, error_message_out, false,
-            "bitset builder: invalid output arguments");
-        return -1;
-    }
-    *blob_out = nullptr;
-    *blob_size_out = 0;
-
-    if (count == 0) {
-        return 0;
-    }
-    if (ids == nullptr) {
-        set_bitset_builder_error(out_of_memory, error_message_out, false,
-            "bitset builder: invalid ids argument");
-        return -1;
-    }
-
-    const uint64_t first_id = ids[0];
-    const uint64_t last_id = ids[count - 1];
-    if (first_id > kBitsetBuilderMaxId || last_id > kBitsetBuilderMaxId) {
-        set_bitset_builder_error(out_of_memory, error_message_out, false, kBitsetBuilderMaxIdError);
-        return -1;
-    }
-    for (uint64_t i = 1; i < count; ++i) {
-        if (ids[i] < ids[i - 1]) {
-            set_bitset_builder_error(out_of_memory, error_message_out, false, kBitsetBuilderOrderError);
-            return -1;
-        }
-    }
-
-    const uint64_t relative_last_id = last_id - first_id;
-    const uint64_t bitset_bytes_u64 = (relative_last_id >> 3u) + 1u;
-    if (bitset_bytes_u64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - kBitsetHeaderBytes)) {
-        set_bitset_builder_error(out_of_memory, error_message_out, false, kBitsetBuilderSizeError);
-        return -1;
-    }
-
-    const size_t bitset_bytes = static_cast<size_t>(bitset_bytes_u64);
-    const size_t blob_size = kBitsetHeaderBytes + bitset_bytes;
-    uint8_t* blob = static_cast<uint8_t*>(std::malloc(blob_size));
-    if (blob == nullptr) {
-        set_bitset_builder_error(out_of_memory, error_message_out, true, kBitsetBuilderNomemError);
-        return -1;
-    }
-
-    std::memset(blob, 0, blob_size);
-    std::memcpy(blob, &first_id, sizeof(first_id));
-    for (uint64_t i = 0; i < count; ++i) {
-        const uint64_t relative_id = ids[i] - first_id;
-        const size_t byte_index = static_cast<size_t>(relative_id >> 3u);
-        blob[kBitsetHeaderBytes + byte_index] |= static_cast<uint8_t>(1u << (relative_id & 7u));
-    }
-
-    *blob_out = blob;
-    *blob_size_out = blob_size;
-    return 0;
-}
-
-int sk_bitset_builder_finish_(void** state, void** blob_out, size_t* blob_size_out,
-        bool* out_of_memory, const char** error_message_out) {
-    set_bitset_builder_error(out_of_memory, error_message_out, false, nullptr);
-
-    if (blob_out == nullptr || blob_size_out == nullptr) {
-        set_bitset_builder_error(out_of_memory, error_message_out, false,
-            "bitset builder: invalid output arguments");
-        return -1;
-    }
-    *blob_out = nullptr;
-    *blob_size_out = 0;
-
-    if (state == nullptr) {
-        set_bitset_builder_error(out_of_memory, error_message_out, false,
-            "bitset builder: invalid builder state");
-        return -1;
-    }
-
-    auto* builder = static_cast<BitsetBuilderState*>(*state);
-    *state = nullptr;
-    if (builder == nullptr) {
-        return 0;
-    }
-
-    std::experimental::scope_exit cleanup([&]() {
-        std::free(builder->data);
-        delete builder;
-    });
-
-    if (builder->has_error) {
-        set_bitset_builder_error(
-            out_of_memory, error_message_out, builder->has_nomem, builder->error_message);
-        return -1;
-    }
-    if (builder->size == 0 || builder->data == nullptr || !builder->has_first_id) {
-        return 0;
-    }
-
-    *blob_out = builder->data;
-    *blob_size_out = builder->size;
-    builder->data = nullptr;
-    builder->size = 0;
-    builder->capacity = 0;
     return 0;
 }
 

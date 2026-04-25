@@ -191,36 +191,6 @@ protected:
         sqlite3_finalize(stmt);
     }
 
-    std::vector<uint8_t> query_blob_result(sqlite3* db, const std::string& sql) {
-        sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-            ADD_FAILURE() << sqlite3_errmsg(db);
-            return {};
-        }
-
-        const int rc = sqlite3_step(stmt);
-        if (rc != SQLITE_ROW) {
-            ADD_FAILURE() << sqlite3_errmsg(db);
-            sqlite3_finalize(stmt);
-            return {};
-        }
-
-        const auto* blob = static_cast<const uint8_t*>(sqlite3_column_blob(stmt, 0));
-        const int blob_size = sqlite3_column_bytes(stmt, 0);
-        std::vector<uint8_t> out;
-        if (blob != nullptr && blob_size > 0) {
-            out.assign(blob, blob + blob_size);
-        }
-
-        if (sqlite3_step(stmt) != SQLITE_DONE) {
-            ADD_FAILURE() << sqlite3_errmsg(db);
-        }
-        if (sqlite3_finalize(stmt) != SQLITE_OK) {
-            ADD_FAILURE() << sqlite3_errmsg(db);
-        }
-        return out;
-    }
-
     std::string loaded_knn_engine_name() {
         void* handle = dlopen(VLITE_EXTENSION_PATH, RTLD_NOW | RTLD_LOCAL);
         EXPECT_NE(nullptr, handle);
@@ -906,7 +876,7 @@ TEST_F(VliteTest, AtPrefixMalformedVectorFileReturnsError) {
         "invalid f32 token");
 }
 
-TEST_F(VliteTest, BitsetAggBuildsChunkedAllowlistFromUnsortedIds) {
+TEST_F(VliteTest, BitsetAggBuildsAllowlistFromUnsortedIds) {
     write_input("f32,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n"
@@ -930,16 +900,6 @@ TEST_F(VliteTest, BitsetAggBuildsChunkedAllowlistFromUnsortedIds) {
     std::vector<uint64_t> ids{rows[0].first, rows[1].first};
     std::sort(ids.begin(), ids.end());
     EXPECT_EQ((std::vector<uint64_t>{10, 18}), ids);
-}
-
-TEST_F(VliteTest, BitsetAggReturnsEmptyBlobForEmptyInput) {
-    SqliteDbPtr db = open_db_with_extension();
-    ASSERT_NE(nullptr, db);
-
-    const std::vector<uint8_t> blob = query_blob_result(db.get(),
-        "SELECT bitset_agg(id) FROM (SELECT 1 AS id WHERE 0)");
-
-    EXPECT_TRUE(blob.empty());
 }
 
 TEST_F(VliteTest, BitsetAggRejectsInvalidInputValues) {
@@ -975,7 +935,7 @@ TEST_F(VliteTest, BitsetAggAcceptsDescendingIds) {
     EXPECT_EQ((std::vector<uint64_t>{1, 2}), ids);
 }
 
-TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
+TEST_F(VliteTest, AllowedIdsBitsetAggConstraintFiltersResults) {
     write_input("f32,4\n"
                 "0 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
                 "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
@@ -1003,7 +963,7 @@ TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
     EXPECT_EQ((std::vector<uint64_t>{0, 2}), ids);
 }
 
-TEST_F(VliteTest, AllowedIdsBlobConstraintSupportsNonZeroBaseId) {
+TEST_F(VliteTest, AllowedIdsBitsetAggConstraintSupportsNonZeroIds) {
     write_input("f32,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "20 : [ 20.0, 20.0, 20.0, 20.0 ]\n");
@@ -1021,6 +981,47 @@ TEST_F(VliteTest, AllowedIdsBlobConstraintSupportsNonZeroBaseId) {
     std::vector<uint64_t> ids{filtered_rows[0].first, filtered_rows[1].first};
     std::sort(ids.begin(), ids.end());
     EXPECT_EQ((std::vector<uint64_t>{10, 20}), ids);
+}
+
+TEST_F(VliteTest, AllowedIdsEmptyBitsetMatchesNothing) {
+    write_input("f32,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+                "20 : [ 20.0, 20.0, 20.0, 20.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto rows = query_results(db.get(),
+        "SELECT id, score FROM nn "
+        "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 1 AS id WHERE 0))");
+
+    EXPECT_TRUE(rows.empty());
+}
+
+TEST_F(VliteTest, AllowedIdsBitsetAggConstraintFiltersAcrossChunks) {
+    constexpr uint64_t kCrossChunkId = (1ull << 20u) + 5u;
+    write_input(
+        std::string("f32,4\n")
+        + "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+        + std::to_string(kCrossChunkId) + " : [ 5.0, 5.0, 5.0, 5.0 ]\n"
+        + "9 : [ 9.0, 9.0, 9.0, 9.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const auto rows = query_results(db.get(),
+        "SELECT id, score FROM nn "
+        "WHERE query = '5.0, 5.0, 5.0, 5.0' AND k = 3 "
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 1 AS id UNION ALL SELECT " +
+            std::to_string(kCrossChunkId) + "))");
+
+    ASSERT_EQ(2u, rows.size());
+    std::vector<uint64_t> ids{rows[0].first, rows[1].first};
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ((std::vector<uint64_t>{1u, kCrossChunkId}), ids);
 }
 
 TEST_F(VliteTest, AllowedIdsNullIsTreatedAsNoFilter) {
@@ -1063,6 +1064,21 @@ TEST_F(VliteTest, AllowedIdsRejectsNonBlobValues) {
         "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 1 "
         "AND allowed_ids = 'not_a_blob'",
         "allowed_ids must be a BLOB or NULL");
+}
+
+TEST_F(VliteTest, AllowedIdsRejectsEmptyBlob) {
+    write_input("f32,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
+
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    expect_query_error(db.get(),
+        "SELECT id FROM nn "
+        "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 1 "
+        "AND allowed_ids = X''",
+        "allowed_ids BLOB must not be empty");
 }
 
 } // namespace
