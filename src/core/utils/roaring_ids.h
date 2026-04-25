@@ -10,13 +10,18 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace sketch2 {
 
+class RoaringIdsBuilder;
+
 // Class RoaringIds is a wrapper/umbrella class for CRoaring
-// structure that stores uint64_t values and provides access
-// to these values.
+// structure that stores uint64_t values and provides read-only access
+// to these values after they have been built or mapped from storage.
 class RoaringIds {
+    friend class RoaringIdsBuilder;
+
 public:
     static constexpr size_t npos = std::numeric_limits<size_t>::max();
 
@@ -48,33 +53,12 @@ public:
         roaring::api::roaring_uint32_iterator_t iterator_{};
     };
 
-    // Initialize the underlying CRoaring structure for
-    // adding new values.
-    Ret init_writable(uint64_t base);
-
-    // Initialize as a writable clone of `other`. Both must share `base`.
-    Ret init_writable_copy(const RoaringIds& other, uint64_t base);
-
     // Initialize the underlying CRoaring structure from
     // the "frozen view" buffer for the read-only access.
     Ret init_frozen_view(const uint8_t* data, size_t size, uint64_t base);
 
-    // Add a value to underlying CRoaring structure.
-    Ret add(uint64_t id);
-
-    // Add multiple values to underlying CRoaring structure.
-    // Sort the array before passing it to the function!!!
-    Ret load(const uint64_t* values, size_t size);
-
-    // In-place set union: *this |= other. Both must share base.
-    Ret union_in_place(const RoaringIds& other);
-
-    // In-place set difference: *this -= other. Both must share base.
-    // Refuses self-difference (would empty the bitmap; pass an explicit clear()).
-    Ret andnot_in_place(const RoaringIds& other);
-
-    // Reset to an uninitialized empty state.
-    void clear();
+    // Drop the current bitmap/view and reset to an uninitialized empty state.
+    void reset_view();
 
     // Number of ids in the underlying CRoaring structure.
     size_t count() const;
@@ -84,10 +68,6 @@ public:
 
     // Check whether an id is present in the underlying CRoaring structure.
     bool contains(uint64_t id) const;
-
-    // Compact the underlying CRoaring structure for copying
-    // frozen view into a buffer
-    void compact();
 
     // Size of a buffer required for holding the frozen view
     // of the underlying CRoaring structure.
@@ -128,8 +108,65 @@ private:
     const roaring::api::roaring_bitmap_t* bitmap() const;
 
     BitmapPtr bitmap_;
-    bool read_only_ = false;
     uint64_t base_ = 0;
+};
+
+// RoaringIdsBuilder owns the mutable construction stage for RoaringIds. Build
+// ids here, then call build() and hand the resulting RoaringIds to readers or
+// serializers.
+class RoaringIdsBuilder {
+public:
+    RoaringIdsBuilder() = default;
+    RoaringIdsBuilder(const RoaringIdsBuilder&) = delete;
+    RoaringIdsBuilder& operator=(const RoaringIdsBuilder&) = delete;
+    RoaringIdsBuilder(RoaringIdsBuilder&&) noexcept = default;
+    RoaringIdsBuilder& operator=(RoaringIdsBuilder&&) noexcept = default;
+
+    // Initialize the underlying CRoaring structure for adding new values.
+    // Reinitialization resets buffered mode; use init_buffered() to enable it.
+    Ret init(uint64_t base);
+
+    // Initialize the underlying CRoaring structure with buffered add() mode.
+    Ret init_buffered(uint64_t base, size_t buffer_size, bool needs_sorting = true);
+
+    // Initialize as a writable clone of `other`. Both must share `base`.
+    // Reinitialization resets buffered mode; use init_buffered() to enable it.
+    Ret init_copy(const RoaringIds& other, uint64_t base);
+
+    // Add a value to underlying CRoaring structure.
+    Ret add(uint64_t id);
+
+    // Add multiple values to underlying CRoaring structure.
+    // Sort the array before passing it to the function!!!
+    Ret load(const uint64_t* values, size_t size);
+
+    // In-place set union: *this |= other. Both must share base.
+    Ret union_in_place(const RoaringIds& other);
+
+    // In-place set difference: *this -= other. Both must share base.
+    Ret andnot_in_place(const RoaringIds& other);
+
+    // Number of ids added to the underlying CRoaring structure.
+    size_t count() const;
+
+    // Check whether the builder currently has no ids.
+    bool empty() const;
+
+    // Finish construction, compact storage, and move the bitmap into RoaringIds.
+    RoaringIds build() &&;
+
+private:
+    roaring::api::roaring_bitmap_t* bitmap();
+    const roaring::api::roaring_bitmap_t* bitmap() const;
+    Ret flush_buffer();
+    Ret load_unbuffered(const uint64_t* values, size_t size);
+    Ret compact();
+
+    RoaringIds::BitmapPtr bitmap_;
+    std::vector<uint64_t> buffer_;
+    size_t fill_size_ = 0;
+    uint64_t base_ = 0;
+    bool needs_sorting_ = true;
 };
 
 } // namespace sketch2

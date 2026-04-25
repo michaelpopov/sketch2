@@ -48,7 +48,7 @@ Ret map_roaring_ids_section(
         return Ret("DataReader: missing id section output");
     }
 
-    ids->clear();
+    ids->reset_view();
     region->reset();
 
     if (count == 0) {
@@ -224,8 +224,8 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
 }
 
 void DataReader::reset_state_() {
-    ids_.clear();
-    deleted_ids_.clear();
+    ids_.reset_view();
+    deleted_ids_.reset_view();
     vectors_region_.reset();
     ids_region_.reset();
     deleted_ids_region_.reset();

@@ -2,6 +2,7 @@
 
 #include "roaring_ids.h"
 
+#include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -88,36 +89,6 @@ bool RoaringIds::Iterator::operator!=(const Iterator& other) const {
     return !(*this == other);
 }
 
-Ret RoaringIds::init_writable(uint64_t base) {
-    BitmapPtr new_bitmap(roaring::api::roaring_bitmap_create());
-    if (!new_bitmap) {
-        return Ret("RoaringIds::init_writable: failed to allocate bitmap");
-    }
-
-    bitmap_ = std::move(new_bitmap);
-    read_only_ = false;
-    base_ = base;
-    return Ret(0);
-}
-
-Ret RoaringIds::init_writable_copy(const RoaringIds& other, uint64_t base) {
-    // An uninitialized other has no data: treat as empty, base is irrelevant.
-    if (other.bitmap() == nullptr) {
-        return init_writable(base);
-    }
-    if (other.base_ != base) {
-        return Ret("RoaringIds::init_writable_copy: base mismatch");
-    }
-    BitmapPtr new_bitmap(roaring::api::roaring_bitmap_copy(other.bitmap()));
-    if (!new_bitmap) {
-        return Ret("RoaringIds::init_writable_copy: failed to clone bitmap");
-    }
-    bitmap_ = std::move(new_bitmap);
-    read_only_ = false;
-    base_ = base;
-    return Ret(0);
-}
-
 Ret RoaringIds::init_frozen_view(const uint8_t* data, size_t size, uint64_t base) {
     if (data == nullptr) {
         return Ret("RoaringIds::init_frozen_view: data pointer is null");
@@ -140,120 +111,12 @@ Ret RoaringIds::init_frozen_view(const uint8_t* data, size_t size, uint64_t base
 
     BitmapPtr new_bitmap(const_cast<roaring::api::roaring_bitmap_t*>(view));
     bitmap_ = std::move(new_bitmap);
-    read_only_ = true;
     base_ = base;
     return Ret(0);
 }
 
-Ret RoaringIds::add(uint64_t id) {
-    if (bitmap() == nullptr) {
-        return Ret("RoaringIds::add: bitmap is not initialized");
-    }
-    if (read_only_) {
-        return Ret("RoaringIds::add: bitmap is read-only");
-    }
-    if (id < base_) {
-        return Ret("RoaringIds::add: id is below base");
-    }
-
-    const uint64_t offset = id - base_;
-    if (offset > std::numeric_limits<uint32_t>::max()) {
-        return Ret("RoaringIds::add: id offset exceeds uint32_t range");
-    }
-
-    roaring::api::roaring_bitmap_add(bitmap(), static_cast<uint32_t>(offset));
-    return Ret(0);
-}
-
-Ret RoaringIds::load(const uint64_t* values, size_t size) {
-    if (bitmap() == nullptr) {
-        return Ret("RoaringIds::load: bitmap is not initialized");
-    }
-    if (read_only_) {
-        return Ret("RoaringIds::load: bitmap is read-only");
-    }
-    if (size == 0) {
-        return Ret(0);
-    }
-    if (values == nullptr) {
-        return Ret("RoaringIds::load: values pointer is null");
-    }
-    if (values[0] < base_ || values[size - 1] < base_) {
-        return Ret("RoaringIds::load: id is below base");
-    }
-    if (values[size - 1] - base_ > std::numeric_limits<uint32_t>::max()) {
-        return Ret("RoaringIds::load: id offset exceeds uint32_t range");
-    }
-
-    roaring::api::roaring_bulk_context_t ctx = {};
-    size_t i = 0;
-    while (i < size) {
-        size_t j = i + 1;
-        while (j < size && values[j] == values[j - 1] + 1) {
-            ++j;
-        }
-        const size_t len = j - i;
-
-        if (len >= 4) {
-            roaring::api::roaring_bitmap_add_range_closed(
-                bitmap(),
-                static_cast<uint32_t>(values[i] - base_),
-                static_cast<uint32_t>(values[j - 1] - base_));
-            // Non-bulk modification invalidates the bulk context.
-            ctx = {};
-        } else {
-            for (size_t k = i; k < j; ++k) {
-                roaring::api::roaring_bitmap_add_bulk(
-                    bitmap(), &ctx,
-                    static_cast<uint32_t>(values[k] - base_));
-            }
-        }
-        i = j;
-    }
-    return Ret(0);
-}
-
-Ret RoaringIds::union_in_place(const RoaringIds& other) {
-    if (bitmap() == nullptr) {
-        return Ret("RoaringIds::union_in_place: bitmap is not initialized");
-    }
-    if (read_only_) {
-        return Ret("RoaringIds::union_in_place: bitmap is read-only");
-    }
-    // Uninitialized or self-merge: nothing to do, base is irrelevant.
-    if (other.bitmap() == nullptr || this == &other) {
-        return Ret(0);
-    }
-    if (other.base_ != base_) {
-        return Ret("RoaringIds::union_in_place: base mismatch");
-    }
-    roaring::api::roaring_bitmap_or_inplace(bitmap(), other.bitmap());
-    return Ret(0);
-}
-
-Ret RoaringIds::andnot_in_place(const RoaringIds& other) {
-    if (bitmap() == nullptr) {
-        return Ret("RoaringIds::andnot_in_place: bitmap is not initialized");
-    }
-    if (read_only_) {
-        return Ret("RoaringIds::andnot_in_place: bitmap is read-only");
-    }
-    if (this == &other) {
-        return Ret("RoaringIds::andnot_in_place: self-difference is not allowed");
-    }
-    if (other.bitmap() == nullptr) {
-        return Ret(0);
-    }
-    if (other.base_ != base_) {
-        return Ret("RoaringIds::andnot_in_place: base mismatch");
-    }
-    roaring::api::roaring_bitmap_andnot_inplace(bitmap(), other.bitmap());
-    return Ret(0);
-}
-
-void RoaringIds::clear() {
+void RoaringIds::reset_view() {
     bitmap_.reset();
-    read_only_ = false;
     base_ = 0;
 }
 
@@ -278,14 +141,6 @@ bool RoaringIds::contains(uint64_t id) const {
         return false;
     }
     return roaring::api::roaring_bitmap_contains(bitmap(), static_cast<uint32_t>(offset));
-}
-
-void RoaringIds::compact() {
-    if (bitmap() == nullptr || read_only_) {
-        return;
-    }
-    roaring::api::roaring_bitmap_run_optimize(bitmap());
-    roaring::api::roaring_bitmap_shrink_to_fit(bitmap());
 }
 
 size_t RoaringIds::serialized_size_bytes() const {
@@ -383,6 +238,215 @@ RoaringIds::Iterator RoaringIds::begin() const {
 
 RoaringIds::Iterator RoaringIds::end() const {
     return Iterator(nullptr);
+}
+
+roaring::api::roaring_bitmap_t* RoaringIdsBuilder::bitmap() {
+    return bitmap_.get();
+}
+
+const roaring::api::roaring_bitmap_t* RoaringIdsBuilder::bitmap() const {
+    return bitmap_.get();
+}
+
+Ret RoaringIdsBuilder::init(uint64_t base) {
+    RoaringIds::BitmapPtr new_bitmap(roaring::api::roaring_bitmap_create());
+    if (!new_bitmap) {
+        return Ret("RoaringIdsBuilder::init: failed to allocate bitmap");
+    }
+
+    bitmap_ = std::move(new_bitmap);
+    buffer_.clear();
+    fill_size_ = 0;
+    base_ = base;
+    return Ret(0);
+}
+
+Ret RoaringIdsBuilder::init_buffered(uint64_t base, size_t buffer_size, bool needs_sorting) {
+    if (buffer_size == 0) {
+        return Ret("RoaringIdsBuilder::init_buffered: buffer size must be greater than 0");
+    }
+    CHECK(init(base));
+    buffer_.resize(buffer_size);
+    needs_sorting_ = needs_sorting;
+    return Ret(0);
+}
+
+Ret RoaringIdsBuilder::init_copy(const RoaringIds& other, uint64_t base) {
+    // An uninitialized other has no data: treat as empty, base is irrelevant.
+    if (other.bitmap() == nullptr) {
+        return init(base);
+    }
+    if (other.base_ != base) {
+        return Ret("RoaringIdsBuilder::init_copy: base mismatch");
+    }
+    RoaringIds::BitmapPtr new_bitmap(roaring::api::roaring_bitmap_copy(other.bitmap()));
+    if (!new_bitmap) {
+        return Ret("RoaringIdsBuilder::init_copy: failed to clone bitmap");
+    }
+    bitmap_ = std::move(new_bitmap);
+    buffer_.clear();
+    fill_size_ = 0;
+    base_ = base;
+    return Ret(0);
+}
+
+Ret RoaringIdsBuilder::add(uint64_t id) {
+    if (bitmap() == nullptr) {
+        return Ret("RoaringIdsBuilder::add: bitmap is not initialized");
+    }
+    if (id < base_) {
+        return Ret("RoaringIdsBuilder::add: id is below base");
+    }
+
+    const uint64_t offset = id - base_;
+    if (offset > std::numeric_limits<uint32_t>::max()) {
+        return Ret("RoaringIdsBuilder::add: id offset exceeds uint32_t range");
+    }
+
+    if (!buffer_.empty()) {
+        buffer_[fill_size_] = id;
+        ++fill_size_;
+        if (fill_size_ == buffer_.size()) {
+            CHECK(flush_buffer());
+        }
+        return Ret(0);
+    }
+
+    roaring::api::roaring_bitmap_add(bitmap(), static_cast<uint32_t>(offset));
+    return Ret(0);
+}
+
+Ret RoaringIdsBuilder::load(const uint64_t* values, size_t size) {
+    if (bitmap() == nullptr) {
+        return Ret("RoaringIdsBuilder::load: bitmap is not initialized");
+    }
+    if (size == 0) {
+        return Ret(0);
+    }
+    if (values == nullptr) {
+        return Ret("RoaringIdsBuilder::load: values pointer is null");
+    }
+    if (values[0] < base_ || values[size - 1] < base_) {
+        return Ret("RoaringIdsBuilder::load: id is below base");
+    }
+    if (values[size - 1] - base_ > std::numeric_limits<uint32_t>::max()) {
+        return Ret("RoaringIdsBuilder::load: id offset exceeds uint32_t range");
+    }
+
+    CHECK(flush_buffer());
+    return load_unbuffered(values, size);
+}
+
+Ret RoaringIdsBuilder::load_unbuffered(const uint64_t* values, size_t size) {
+    roaring::api::roaring_bulk_context_t ctx = {};
+    size_t i = 0;
+    while (i < size) {
+        size_t j = i + 1;
+        while (j < size && values[j] == values[j - 1] + 1) {
+            ++j;
+        }
+        const size_t len = j - i;
+
+        if (len >= 4) {
+            roaring::api::roaring_bitmap_add_range_closed(
+                bitmap(),
+                static_cast<uint32_t>(values[i] - base_),
+                static_cast<uint32_t>(values[j - 1] - base_));
+            // Non-bulk modification invalidates the bulk context.
+            ctx = {};
+        } else {
+            for (size_t k = i; k < j; ++k) {
+                roaring::api::roaring_bitmap_add_bulk(
+                    bitmap(), &ctx,
+                    static_cast<uint32_t>(values[k] - base_));
+            }
+        }
+        i = j;
+    }
+    return Ret(0);
+}
+
+Ret RoaringIdsBuilder::union_in_place(const RoaringIds& other) {
+    if (bitmap() == nullptr) {
+        return Ret("RoaringIdsBuilder::union_in_place: bitmap is not initialized");
+    }
+    CHECK(flush_buffer());
+    // Uninitialized other has no data: nothing to do, base is irrelevant.
+    if (other.bitmap() == nullptr) {
+        return Ret(0);
+    }
+    if (other.base_ != base_) {
+        return Ret("RoaringIdsBuilder::union_in_place: base mismatch");
+    }
+    roaring::api::roaring_bitmap_or_inplace(bitmap(), other.bitmap());
+    return Ret(0);
+}
+
+Ret RoaringIdsBuilder::andnot_in_place(const RoaringIds& other) {
+    if (bitmap() == nullptr) {
+        return Ret("RoaringIdsBuilder::andnot_in_place: bitmap is not initialized");
+    }
+    CHECK(flush_buffer());
+    if (other.bitmap() == nullptr) {
+        return Ret(0);
+    }
+    if (other.base_ != base_) {
+        return Ret("RoaringIdsBuilder::andnot_in_place: base mismatch");
+    }
+    roaring::api::roaring_bitmap_andnot_inplace(bitmap(), other.bitmap());
+    return Ret(0);
+}
+
+size_t RoaringIdsBuilder::count() const {
+    if (bitmap() == nullptr) {
+        return 0;
+    }
+    return static_cast<size_t>(roaring::api::roaring_bitmap_get_cardinality(bitmap())) + fill_size_;
+}
+
+bool RoaringIdsBuilder::empty() const {
+    return count() == 0;
+}
+
+Ret RoaringIdsBuilder::flush_buffer() {
+    if (fill_size_ == 0) {
+        return Ret(0);
+    }
+    if (bitmap() == nullptr) {
+        return Ret("RoaringIdsBuilder::flush_buffer: bitmap is not initialized");
+    }
+
+    if (needs_sorting_) {
+        std::sort(buffer_.begin(), buffer_.begin() + fill_size_);
+    }
+
+    CHECK(load_unbuffered(buffer_.data(), fill_size_));
+    fill_size_ = 0;
+    return Ret(0);
+}
+
+Ret RoaringIdsBuilder::compact() {
+    if (bitmap() == nullptr) {
+        return Ret(0);
+    }
+    CHECK(flush_buffer());
+    roaring::api::roaring_bitmap_run_optimize(bitmap());
+    roaring::api::roaring_bitmap_shrink_to_fit(bitmap());
+    return Ret(0);
+}
+
+RoaringIds RoaringIdsBuilder::build() && {
+    const Ret ret = compact();
+    if (ret.code() != 0) {
+        throw std::runtime_error(ret.message());
+    }
+    RoaringIds ids;
+    ids.bitmap_ = std::move(bitmap_);
+    ids.base_ = base_;
+    buffer_.clear();
+    fill_size_ = 0;
+    base_ = 0;
+    return ids;
 }
 
 } // namespace sketch2

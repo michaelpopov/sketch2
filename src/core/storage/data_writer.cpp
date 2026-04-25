@@ -13,6 +13,7 @@
 #include <vector>
 #include <cassert>
 #include <limits>
+#include <utility>
 
 namespace sketch2 {
 
@@ -108,13 +109,13 @@ Ret build_roaring_ids_and_stats(
         const InputReaderView& reader,
         uint64_t min_range_id,
         IdStats* stats,
-        RoaringIds* active_ids,
-        RoaringIds* deleted_ids) {
+        RoaringIdsBuilder* active_ids,
+        RoaringIdsBuilder* deleted_ids) {
     if (stats == nullptr) {
         return Ret("DataWriter: missing id stats output");
     }
-    CHECK(active_ids->init_writable(min_range_id));
-    CHECK(deleted_ids->init_writable(min_range_id));
+    CHECK(active_ids->init(min_range_id));
+    CHECK(deleted_ids->init(min_range_id));
 
     const size_t count = reader.count();
     if (count == 0) {
@@ -177,8 +178,6 @@ Ret build_roaring_ids_and_stats(
         stats->max_id = 0;
     }
 
-    active_ids->compact();
-    deleted_ids->compact();
     return Ret(0);
 }
 
@@ -215,9 +214,12 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     }
 
     IdStats stats;
-    RoaringIds active_ids;
-    RoaringIds deleted_ids;
-    CHECK(build_roaring_ids_and_stats(reader, min_range_id, &stats, &active_ids, &deleted_ids));
+    RoaringIdsBuilder active_ids_builder;
+    RoaringIdsBuilder deleted_ids_builder;
+    CHECK(build_roaring_ids_and_stats(
+        reader, min_range_id, &stats, &active_ids_builder, &deleted_ids_builder));
+    RoaringIds active_ids = std::move(active_ids_builder).build();
+    RoaringIds deleted_ids = std::move(deleted_ids_builder).build();
     CHECK(validate_active_range_u32(stats, min_range_id));
     const size_t active_ids_bytes = serialized_bytes_or_zero(active_ids);
     const size_t deleted_ids_bytes = serialized_bytes_or_zero(deleted_ids);

@@ -19,6 +19,12 @@ namespace sketch2 {
 
 namespace {
 
+// Scratch buffer size for the streaming output ids builder. Big enough to let
+// load_unbuffered see long runs of consecutive ids across batch boundaries
+// (and emit them as roaring_bitmap_add_range_closed), small enough to stay
+// cache-friendly at 512 KB.
+constexpr size_t kOutputIdsBufferSize = 64 * 1024;
+
 float compute_stored_norm_for_dist(const uint8_t* data, DataType type, size_t dim, DistFunc dist_func) {
     switch (dist_func) {
         case DistFunc::COS:
@@ -81,7 +87,11 @@ public:
           record_layout_(compute_data_record_layout(type_, dim_, data_file_has_norms(header))),
           context_(context),
           norms_enabled_(data_file_has_norms(header)) {
-        const Ret ret = output_ids_.init_writable(min_range_id_);
+        // Buffered ingest with needs_sorting=false: write_binary_record's
+        // strictly-increasing check below runs before each add(), so the
+        // builder never sees an out-of-order batch.
+        const Ret ret = output_ids_builder_.init_buffered(
+            min_range_id_, kOutputIdsBufferSize, /*needs_sorting=*/false);
         if (ret.code() != 0) {
             throw std::runtime_error(ret.message());
         }
@@ -105,7 +115,7 @@ public:
         if (id - min_range_id_ > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
             return Ret(std::string(context_) + ": active ids: data file range exceeds uint32_t");
         }
-        if (output_ids_.empty()) {
+        if (output_count_ == 0) {
             output_ids_min_ = id;
             output_ids_max_ = id;
         } else {
@@ -114,7 +124,8 @@ public:
             }
             output_ids_max_ = id;
         }
-        CHECK(output_ids_.add(id));
+        CHECK(output_ids_builder_.add(id));
+        ++output_count_;
         CHECK(write_data_record(
             f_, data, record_layout_, norms_enabled_ ? &norm : nullptr, context_));
         return Ret(0);
@@ -149,8 +160,8 @@ public:
     // section between vectors and ids.
     Ret write_ids_section(const DataFileHeader& header,
             const RoaringIds& deleted_ids) {
-        output_ids_.compact();
-        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(header, output_ids_.count());
+        output_ids_ = std::move(output_ids_builder_).build();
+        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(header, output_count_);
         const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
             metadata_layout.ids_trailer_offset, output_ids_, deleted_ids);
         output_ids_bytes_ = trailer_layout.ids_bytes;
@@ -166,8 +177,8 @@ public:
         return Ret(0);
     }
 
-    size_t output_count() const { return output_ids_.count(); }
-    bool output_empty() const { return output_ids_.empty(); }
+    size_t output_count() const { return output_count_; }
+    bool output_empty() const { return output_count_ == 0; }
     uint64_t output_min_id() const { return output_ids_min_; }
     uint64_t output_max_id() const { return output_ids_max_; }
     bool norms_enabled() const { return norms_enabled_; }
@@ -182,9 +193,11 @@ private:
     DataRecordLayout record_layout_{};
     const char* context_ = "";
     bool norms_enabled_ = false;
+    RoaringIdsBuilder output_ids_builder_;
     RoaringIds output_ids_;
     size_t output_ids_bytes_ = 0;
     size_t deleted_ids_bytes_ = 0;
+    size_t output_count_ = 0;
     uint64_t output_ids_min_ = 0;
     uint64_t output_ids_max_ = 0;
     std::vector<uint8_t> parsed_text_buffer_;
@@ -456,16 +469,18 @@ Ret build_delta_delete_roaring_ids(
         }
         return Ret(std::string(context) + ": " + ret.message());
     };
-    CHECK(wrap(out->init_writable_copy(source.deleted_ids(), base)));
-    CHECK(wrap(out->andnot_in_place(updater.ids())));
-    CHECK(wrap(out->union_in_place(updater.deleted_ids())));
-    out->compact();
+    RoaringIdsBuilder builder;
+    CHECK(wrap(builder.init_copy(source.deleted_ids(), base)));
+    CHECK(wrap(builder.andnot_in_place(updater.ids())));
+    CHECK(wrap(builder.union_in_place(updater.deleted_ids())));
+    *out = std::move(builder).build();
     return Ret(0);
 }
 
 template <typename Cursor>
 Ret build_roaring_ids(Cursor cursor, uint64_t base, const char* context, RoaringIds* out) {
-    CHECK(out->init_writable(base));
+    RoaringIdsBuilder builder;
+    CHECK(builder.init(base));
     bool have_prev = false;
     uint64_t prev_id = 0;
     for (; !cursor.eof(); cursor.next()) {
@@ -479,11 +494,11 @@ Ret build_roaring_ids(Cursor cursor, uint64_t base, const char* context, Roaring
         if (id - base > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
             return Ret(std::string(context) + ": id range exceeds uint32_t");
         }
-        CHECK(out->add(id));
+        CHECK(builder.add(id));
         prev_id = id;
         have_prev = true;
     }
-    out->compact();
+    *out = std::move(builder).build();
     return Ret(0);
 }
 

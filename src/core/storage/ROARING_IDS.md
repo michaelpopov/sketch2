@@ -4,16 +4,21 @@ This document provides a comprehensive overview of how vector IDs are handled wi
 
 ## 1. Overview of `RoaringIds`
 
-At the heart of ID management is the `RoaringIds` class (`src/core/utils/roaring_ids.h`). It acts as a wrapper around the `CRoaring` library, which provides a highly optimized implementation of Roaring Bitmaps.
+At the heart of ID management are `RoaringIds` and `RoaringIdsBuilder` (`src/core/utils/roaring_ids.h`). They wrap the `CRoaring` library, which provides a highly optimized implementation of Roaring Bitmaps.
 
 Vectors in `sketch2` are identified by a user-provided `uint64_t` ID. While the underlying CRoaring bitmap operates on 32-bit integers natively, `RoaringIds` manages 64-bit IDs by storing them as offsets from a base ID (passed as `base` to the API; persisted as `min_range_id` in the file header). This delta encoding enables the system to support a 64-bit ID space while leveraging the memory and performance efficiency of 32-bit Roaring bitmaps, provided the maximum ID minus the base within a single file fits within a 32-bit range.
 
-A `RoaringIds` instance is a single-bitmap container with no notion of active vs. deleted. Each storage file holds **two** `RoaringIds` instances: one for active IDs (`ids_`) and one for tombstones (`deleted_ids_`).
+A `RoaringIds` instance is a single-bitmap, read-stage container with no notion of active vs. deleted. Each storage file holds **two** `RoaringIds` instances: one for active IDs (`ids_`) and one for tombstones (`deleted_ids_`). New or derived sets are assembled with `RoaringIdsBuilder`, then finalized into `RoaringIds`.
 
 **Key responsibilities of `RoaringIds`:**
 - Maintaining a sorted, compact set of `uint64_t` IDs as a single bitmap.
 - Providing sequential iterators (`RoaringIds::Iterator`), exact membership/index lookup (`find_index`), and positional lookup (`id(index)`, `id_unchecked(index)`).
 - Serializing to and deserializing from memory-mapped regions ("frozen views") via `init_frozen_view`, without copying the bitmap payload during reads.
+
+**Key responsibilities of `RoaringIdsBuilder`:**
+- Owning the mutable construction stage (`init`, `add`, `load`, `union_in_place`, `andnot_in_place`).
+- Supporting optional buffered `add()` ingestion via `init_buffered`, where buffered IDs are sorted and flushed in batches.
+- Compacting the bitmap and moving it into a read-stage `RoaringIds` with `build()`.
 
 ## 2. Storage Layout and Serialization
 
@@ -34,12 +39,12 @@ The `DataFileHeader` tracks these sections via the following ID-related fields:
 - `min_id` & `max_id`: The smallest and largest active IDs in the file (inclusive bounds).
 - `min_range_id`: The base ID used for delta-encoding the 32-bit bitmaps.
 
-During the writing phase, both `DataWriter` and `DataMerger` build writable `RoaringIds` instances for active and deleted IDs. Initial writes do this while scanning an `InputReaderView`; merge writes do this while streaming surviving rows through `MergeOutputWriter`. Once all records are flushed, the writable bitmaps are compacted with `RoaringIds::compact()` and serialized directly into the trailing sections of the file.
+During the writing phase, both `DataWriter` and `DataMerger` use `RoaringIdsBuilder` instances for active and deleted IDs. Initial writes do this while scanning an `InputReaderView`; merge writes do this while streaming surviving rows through `MergeOutputWriter`. Once all records are flushed, builders are finalized with `build()`, which compacts the bitmap and moves it into `RoaringIds` for serialization into the trailing sections of the file.
 
 ## 3. Read Path and Hot Loop Scanning
 
 ### Deserialization
-When a `DataReader` opens a file, it validates the header and maps the vector and ID sections. Instead of parsing the ID trailers into new bitmap payloads, it initializes `RoaringIds` in a read-only mode directly over the memory-mapped regions using `init_frozen_view`. This zero-copy-payload approach keeps opening large datasets fast and memory-efficient.
+When a `DataReader` opens a file, it validates the header and maps the vector and ID sections. Instead of parsing the ID trailers into new bitmap payloads, it initializes `RoaringIds` directly over the memory-mapped regions using `init_frozen_view`. This zero-copy-payload approach keeps opening large datasets fast and memory-efficient.
 
 ### Lookup Modes
 `RoaringIds` exposes several access patterns, and the caller should choose based on workload:
