@@ -2,6 +2,7 @@
 
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
+#include "core/utils/chunked_bits.h"
 #include "core/utils/log.h"
 #include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
@@ -664,6 +665,47 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
 
     std::vector<DistItem> items;
     ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), bitset_filter_ptr, &items);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+
+    ret = extract_items_outputs(items, ids_out, scores_out, count_out);
+    if (ret.code() != 0) {
+        ERR(ret.message().c_str())
+    }
+    return 0;
+}
+
+int sk_knn_items_chunked_(sk_handle_t* handle, const char* vec, unsigned int k,
+        const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+    if (vec == nullptr || k == 0 || ids_out == nullptr || scores_out == nullptr || count_out == nullptr) {
+        ERR("Invalid arguments")
+    }
+    if (allowed_ids == nullptr) {
+        ERR("Invalid chunked allowed_ids argument")
+    }
+    *ids_out = nullptr;
+    *scores_out = nullptr;
+    *count_out = 0;
+
+    const auto* chunked_bits = static_cast<const ChunkedBits*>(allowed_ids);
+    // Reuse the existing scanner filter plumbing: data/size describe the old
+    // dense bitset representation, while chunked_bits selects the sparse
+    // Roaring-backed membership path.
+    const BitsetFilter bitset_filter {
+        .base_id = 0,
+        .data = nullptr,
+        .size = 0,
+        .chunked_bits = chunked_bits,
+    };
+
+    std::vector<DistItem> items;
+    Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), &bitset_filter, &items);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }

@@ -49,6 +49,7 @@ constexpr const char* kVliteSchemaWithAllowedIds =
     "id INTEGER, "
     "score REAL)";
 constexpr const char* kVliteModuleName = "vlite";
+constexpr const char* kChunkedBitsPointerType = "sketch2.ChunkedBits";
 
 // Removes the outer quoting syntax SQLite may preserve in module arguments so
 // the dataset path can be passed to Dataset::init verbatim.
@@ -177,8 +178,16 @@ sqlite3_int64 saturating_add(sqlite3_int64 lhs, sqlite3_int64 rhs) {
     return lhs + rhs;
 }
 
+void release_chunked_bits(void* ptr) {
+    sk_release_chunked_bits(ptr);
+}
+
+// SQLite owns this aggregate context per GROUP BY group. We keep only the
+// process-local ChunkedBits builder here; finalization returns it as a typed
+// SQLite pointer instead of a byte blob so large future implementations can
+// own mmap state and release it with the correct destructor.
 struct BitsetAggState {
-    void* builder_state = nullptr;
+    void* chunked_bits = nullptr;
     bool has_error = false;
     bool has_nomem = false;
     const char* error_message = nullptr;
@@ -223,8 +232,7 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     }
 
     const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
-    if (sk_bitset_builder_add(
-            &state->builder_state, id_u64, &state->has_nomem, &state->error_message) != 0) {
+    if (sk_chunked_bits_add(&state->chunked_bits, id_u64, &state->has_nomem, &state->error_message) != 0) {
         state->has_error = true;
         if (state->has_nomem) {
             sqlite3_result_error_nomem(context);
@@ -237,20 +245,21 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
 
 void bitset_agg_final(sqlite3_context* context) {
     auto* state = static_cast<BitsetAggState*>(sqlite3_aggregate_context(context, 0));
-    void* blob = nullptr;
-    size_t blob_size = 0;
+    void* chunked_bits = nullptr;
     bool finish_nomem = false;
     const char* finish_error = nullptr;
-    if (state != nullptr &&
-            sk_bitset_builder_finish(
-                &state->builder_state, &blob, &blob_size, &finish_nomem, &finish_error) != 0) {
-        state->has_error = true;
-        state->has_nomem = finish_nomem;
-        state->error_message = finish_error;
+    if (state != nullptr) {
+        int ret = sk_chunked_bits_finish(
+            &state->chunked_bits, &chunked_bits, &finish_nomem, &finish_error);
+        if (ret != 0) {
+            state->has_error = true;
+            state->has_nomem = finish_nomem;
+            state->error_message = finish_error;
+        }
     }
 
     std::experimental::scope_exit cleanup([&]() {
-        std::free(blob);
+        sk_release_chunked_bits(chunked_bits);
     });
 
     if (state != nullptr && state->has_error) {
@@ -263,17 +272,16 @@ void bitset_agg_final(sqlite3_context* context) {
         return;
     }
 
-    if (blob_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        sqlite3_result_error(context, "bitset_agg: required bitset size exceeds supported limit", -1);
-        return;
-    }
-    if (blob == nullptr || blob_size == 0) {
+    if (chunked_bits == nullptr) {
         sqlite3_result_blob(context, "", 0, SQLITE_STATIC);
         return;
     }
 
-    sqlite3_result_blob(context, blob, static_cast<int>(blob_size), std::free);
-    blob = nullptr;
+    // This is intentionally not a BLOB. The value is valid only inside this
+    // SQLite process/expression flow and is recovered in vlite_filter() with
+    // sqlite3_value_pointer() using the same type tag.
+    sqlite3_result_pointer(context, chunked_bits, kChunkedBitsPointerType, release_chunked_bits);
+    chunked_bits = nullptr;
 }
 
 // VliteVTab exists to bind SQLite's virtual-table object to the dataset state
@@ -560,6 +568,7 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
 
         const void* allowed_ids_blob = nullptr;
         int allowed_ids_blob_size = 0;
+        const void* allowed_ids_chunked = nullptr;
         if ((idx_num & kConstraintAllowedIds) != 0) {
             if (arg_index >= argc) {
                 set_vtab_error(vlite_vtab, "vlite missing allowed_ids value");
@@ -567,12 +576,17 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             }
 
             sqlite3_value* allowed_ids_value = argv[arg_index++];
+            // bitset_agg() now returns a typed pointer for the fast in-process
+            // path. Persisted/legacy allowlists still arrive as ordinary BLOBs
+            // and use the existing dense bitset decoder.
+            allowed_ids_chunked = sqlite3_value_pointer(allowed_ids_value, kChunkedBitsPointerType);
             const int allowed_ids_type = sqlite3_value_type(allowed_ids_value);
-            if (allowed_ids_type != SQLITE_NULL && allowed_ids_type != SQLITE_BLOB) {
+            if (allowed_ids_chunked == nullptr &&
+                    allowed_ids_type != SQLITE_NULL && allowed_ids_type != SQLITE_BLOB) {
                 set_vtab_error(vlite_vtab, "vlite allowed_ids must be a BLOB or NULL");
                 return SQLITE_ERROR;
             }
-            if (allowed_ids_type == SQLITE_BLOB) {
+            if (allowed_ids_chunked == nullptr && allowed_ids_type == SQLITE_BLOB) {
                 allowed_ids_blob = sqlite3_value_blob(allowed_ids_value);
                 allowed_ids_blob_size = sqlite3_value_bytes(allowed_ids_value);
             }
@@ -601,15 +615,24 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
         uint64_t* ids = nullptr;
         double* scores = nullptr;
         size_t count = 0;
-        const int rc = sk_knn_items(
-            vlite_vtab->handle,
-            vlite_cursor->query_text.c_str(),
-            static_cast<unsigned int>(effective_k),
-            allowed_ids_blob,
-            static_cast<size_t>(std::max(allowed_ids_blob_size, 0)),
-            &ids,
-            &scores,
-            &count);
+        const int rc = allowed_ids_chunked != nullptr
+            ? sk_knn_items_chunked(
+                vlite_vtab->handle,
+                vlite_cursor->query_text.c_str(),
+                static_cast<unsigned int>(effective_k),
+                allowed_ids_chunked,
+                &ids,
+                &scores,
+                &count)
+            : sk_knn_items(
+                vlite_vtab->handle,
+                vlite_cursor->query_text.c_str(),
+                static_cast<unsigned int>(effective_k),
+                allowed_ids_blob,
+                static_cast<size_t>(std::max(allowed_ids_blob_size, 0)),
+                &ids,
+                &scores,
+                &count);
         if (rc != 0) {
             set_vtab_error(vlite_vtab, sk_error_message(vlite_vtab->handle));
             sk_free(ids);

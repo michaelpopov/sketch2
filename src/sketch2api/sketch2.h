@@ -72,6 +72,13 @@ int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
     uint64_t** ids_out, double** scores_out, size_t* count_out);
 
 /*
+ * Run KNN with a process-local chunked allowlist object returned by
+ * bitset_agg(). This pointer is not a persistent blob.
+ */
+int sk_knn_items_chunked(sk_handle_t* handle, const char* vec, unsigned int k,
+    const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out);
+
+/*
  * Return true when smaller score means better match for the currently open dataset.
  */
 int sk_score_ascending_is_better(sk_handle_t* handle, bool* out);
@@ -218,6 +225,18 @@ void sk_set_log_level(const char* log_level);
  * Write Sketch2 version string into caller-provided buffer.
  */
 void sk_version(char* buf, size_t buf_size);
+
+
+/*
+ * Process-local ChunkedBits helpers used by SQLite bitset_agg(). The finished
+ * pointer is owned by the caller and must be released with
+ * sk_release_chunked_bits().
+ */
+void sk_release_chunked_bits(void* ptr);
+int sk_chunked_bits_add(
+    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
+int sk_chunked_bits_finish(
+    void** state, void** out, bool* out_of_memory, const char** error_message_out);
 
 #ifdef __cplusplus
 }

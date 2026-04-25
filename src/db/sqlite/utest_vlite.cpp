@@ -906,21 +906,30 @@ TEST_F(VliteTest, AtPrefixMalformedVectorFileReturnsError) {
         "invalid f32 token");
 }
 
-TEST_F(VliteTest, BitsetAggBuildsDenseBitsetBlob) {
+TEST_F(VliteTest, BitsetAggBuildsChunkedAllowlistFromUnsortedIds) {
+    write_input("f32,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+                "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n"
+                "18 : [ 18.0, 18.0, 18.0, 18.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
+
     SqliteDbPtr db = open_db_with_extension();
     ASSERT_NE(nullptr, db);
+    create_virtual_table(db.get());
 
-    const std::vector<uint8_t> blob = query_blob_result(db.get(),
-        "SELECT bitset_agg(id) "
-        "FROM (SELECT 10 AS id UNION ALL SELECT 11 UNION ALL SELECT NULL "
-        "UNION ALL SELECT 18 UNION ALL SELECT 18)");
+    const auto rows = query_results(db.get(),
+        "SELECT id, score FROM nn "
+        "WHERE query = '18.0, 18.0, 18.0, 18.0' AND k = 3 "
+        "AND allowed_ids = ("
+        "  SELECT bitset_agg(id) "
+        "  FROM (SELECT 18 AS id UNION ALL SELECT 10 UNION ALL SELECT NULL "
+        "        UNION ALL SELECT 18)"
+        ")");
 
-    ASSERT_EQ(10u, blob.size());
-    uint64_t first_id = 0;
-    std::memcpy(&first_id, blob.data(), sizeof(first_id));
-    EXPECT_EQ(10u, first_id);
-    EXPECT_EQ(0x03u, blob[8]);
-    EXPECT_EQ(0x01u, blob[9]);
+    ASSERT_EQ(2u, rows.size());
+    std::vector<uint64_t> ids{rows[0].first, rows[1].first};
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ((std::vector<uint64_t>{10, 18}), ids);
 }
 
 TEST_F(VliteTest, BitsetAggReturnsEmptyBlobForEmptyInput) {
@@ -941,20 +950,29 @@ TEST_F(VliteTest, BitsetAggRejectsInvalidInputValues) {
         "SELECT bitset_agg(id) FROM (SELECT -1 AS id)",
         "non-negative");
     expect_query_error(db.get(),
-        "SELECT bitset_agg(id) FROM (SELECT 100000001 AS id)",
-        "<= 100000000");
-    expect_query_error(db.get(),
         "SELECT bitset_agg(id) FROM (SELECT 'oops' AS id)",
         "must be an integer");
 }
 
-TEST_F(VliteTest, BitsetAggRejectsDescendingIds) {
+TEST_F(VliteTest, BitsetAggAcceptsDescendingIds) {
+    write_input("f32,4\n"
+                "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+                "2 : [ 2.0, 2.0, 2.0, 2.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
+
     SqliteDbPtr db = open_db_with_extension();
     ASSERT_NE(nullptr, db);
+    create_virtual_table(db.get());
 
-    expect_query_error(db.get(),
-        "SELECT bitset_agg(id) FROM (SELECT 2 AS id UNION ALL SELECT 1)",
-        "non-decreasing order");
+    const auto rows = query_results(db.get(),
+        "SELECT id, score FROM nn "
+        "WHERE query = '2.0, 2.0, 2.0, 2.0' AND k = 2 "
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 2 AS id UNION ALL SELECT 1))");
+
+    ASSERT_EQ(2u, rows.size());
+    std::vector<uint64_t> ids{rows[0].first, rows[1].first};
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ((std::vector<uint64_t>{1, 2}), ids);
 }
 
 TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
@@ -975,12 +993,14 @@ TEST_F(VliteTest, AllowedIdsBlobConstraintFiltersResults) {
     const auto filtered_rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1' AND k = 3 "
-        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 0 AS id)) "
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 2 AS id UNION ALL SELECT 0)) "
         "ORDER BY score");
 
     ASSERT_EQ(3u, baseline_rows.size());
-    ASSERT_EQ(1u, filtered_rows.size());
-    EXPECT_EQ(0, filtered_rows[0].first);
+    ASSERT_EQ(2u, filtered_rows.size());
+    std::vector<uint64_t> ids{filtered_rows[0].first, filtered_rows[1].first};
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ((std::vector<uint64_t>{0, 2}), ids);
 }
 
 TEST_F(VliteTest, AllowedIdsBlobConstraintSupportsNonZeroBaseId) {
@@ -995,11 +1015,12 @@ TEST_F(VliteTest, AllowedIdsBlobConstraintSupportsNonZeroBaseId) {
     const auto filtered_rows = query_results(db.get(),
         "SELECT id, score FROM nn "
         "WHERE query = '10.0, 10.0, 10.0, 10.0' AND k = 2 "
-        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 20 AS id)) "
-        "ORDER BY score");
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM (SELECT 20 AS id UNION ALL SELECT 10))");
 
-    ASSERT_EQ(1u, filtered_rows.size());
-    EXPECT_EQ(20u, filtered_rows[0].first);
+    ASSERT_EQ(2u, filtered_rows.size());
+    std::vector<uint64_t> ids{filtered_rows[0].first, filtered_rows[1].first};
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ((std::vector<uint64_t>{10, 20}), ids);
 }
 
 TEST_F(VliteTest, AllowedIdsNullIsTreatedAsNoFilter) {

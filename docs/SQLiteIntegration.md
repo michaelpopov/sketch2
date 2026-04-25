@@ -158,7 +158,7 @@ SQLite integration supports:
 - `LIMIT` and `OFFSET`
 - joins with regular SQLite tables
 - optional candidate filtering through `allowed_ids`
-- SQL-side bitset generation through `bitset_agg(id)`
+- SQL-side allowlist generation through `bitset_agg(id)`
 
 The score function is not selected in SQL. It comes from the Sketch2 dataset
 metadata.
@@ -285,26 +285,49 @@ Rules:
 
 - `NULL` means no filtering
 - a `BLOB` applies filtering
-- non-`BLOB` and non-`NULL` inputs are rejected
+- the process-local value returned by `bitset_agg(id)` applies filtering
+- other non-`BLOB` and non-`NULL` inputs are rejected
 
-The expected BLOB format is the bitset produced by `bitset_agg(id)`.
+Persisted BLOB filters use the Sketch2 dense bitset format. The SQL aggregate
+`bitset_agg(id)` uses an in-process chunked allowlist and can be used directly
+in the `allowed_ids` expression.
 
 ## `bitset_agg(id)`
 
 `bitset_agg(id)` is an aggregate helper function exported by the extension.
-It builds a dense bitset BLOB from integer ids so that SQL can prepare an
-`allowed_ids` filter without leaving SQLite.
+It accepts integer ids in any order and builds an `allowed_ids` filter without
+leaving SQLite.
 
 Example:
 
 ```sql
-SELECT hex(bitset_agg(id))
+SELECT id, score
+FROM nn AS n
+WHERE n.query = :query
+  AND n.k = :k
+  AND n.allowed_ids = (
+        SELECT bitset_agg(id)
+        FROM (
+            SELECT 8 AS id
+            UNION ALL
+            SELECT 0
+            UNION ALL
+            SELECT 1
+        )
+      )
+ORDER BY n.score;
+```
+
+The aggregate input does not need to be sorted:
+
+```sql
+SELECT bitset_agg(id)
 FROM (
-    SELECT 0 AS id
+    SELECT 8 AS id
+    UNION ALL
+    SELECT 0
     UNION ALL
     SELECT 1
-    UNION ALL
-    SELECT 8
 );
 ```
 
@@ -324,7 +347,7 @@ WHERE n.match_expr MATCH '2.1, 2.1, 2.1, 2.1'
 ORDER BY n.score;
 ```
 
-Build the bitset from a metadata table:
+Build the allowlist from a metadata table:
 
 ```sql
 SELECT n.id, n.score

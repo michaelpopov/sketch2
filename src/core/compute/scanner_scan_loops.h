@@ -8,6 +8,7 @@
 #include "core/compute/scanner_query_context.h"
 #include "core/storage/data_reader.h"
 #include "core/utils/bitset_filter.h"
+#include "core/utils/chunked_bits.h"
 
 #include <cassert>
 
@@ -30,6 +31,11 @@ inline void prefetch_vector_record(const uint8_t* data) {
 
 inline bool bitset_contains_id(const BitsetFilter* bitset, uint64_t id) {
     assert(bitset != nullptr);
+    // bitset_agg() can hand the scanner a process-local chunked Roaring
+    // allowlist. Older callers still use the dense byte bitset below.
+    if (bitset->chunked_bits != nullptr) {
+        return bitset->chunked_bits->contains(id);
+    }
     assert(bitset->data != nullptr || bitset->size == 0);
     if (id < bitset->base_id) {
         return false;

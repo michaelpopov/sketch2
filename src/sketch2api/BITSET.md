@@ -10,11 +10,10 @@ The format is currently used by:
 - `sk_bitset_load(...)`
 - `sk_bitset_builder_add(...)` + `sk_bitset_builder_finish(...)`
 
-SQLite's `bitset_agg(id)` is one producer of this format, but the format
-itself belongs to Sketch2 API rather than to the SQLite adapter.
-
-The concrete blob-building logic now lives in `src/sketch2api/internal.cpp`,
-and SQLite's aggregate callback delegates to that implementation.
+SQLite's `bitset_agg(id)` now uses a process-local chunked Roaring allowlist
+for direct query execution. Persisted allowlist files and callers that pass
+`allowed_ids_blob` to the C API still use the dense bitset format documented
+here.
 
 ## Purpose
 
@@ -73,8 +72,10 @@ Behavior notes:
 `src/db/sqlite/vlite.cpp` forwards the hidden `allowed_ids` column to
 `sk_knn_items(...)`.
 
-`src/db/sqlite/bitset_agg(id)` produces a blob in this format, so SQL callers
-can build allowlists directly inside a query.
+`src/db/sqlite/bitset_agg(id)` accepts ids in any order and produces a
+process-local value consumed by the same SQLite statement. It is not a
+persistable dense bitset BLOB. To persist an allowlist with
+`sk_bitset_create(...)`, build or load the dense format described above.
 
 Example:
 
@@ -85,12 +86,8 @@ WHERE n.query = :query
   AND n.k = :k
   AND n.allowed_ids = (
         SELECT bitset_agg(id)
-        FROM (
-            SELECT id
-            FROM labels
-            WHERE label = 3
-            ORDER BY id
-        )
+        FROM labels
+        WHERE label = 3
       )
 ORDER BY score;
 ```

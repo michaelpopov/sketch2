@@ -126,29 +126,24 @@ WHERE match_expr MATCH '2.1, 2.1, 2.1, 2.1'
   AND k = 3
   AND allowed_ids = (
         SELECT bitset_agg(id)
-        FROM (
-            SELECT 0 AS id
-            ORDER BY id
-        )
+        FROM (SELECT 0 AS id)
       )
 ORDER BY score;
 ```
 
 This returns only neighbors whose ids are present in the bitset.
 
-`bitset_agg(id)` expects ids in non-decreasing order. Build it from an ordered subquery:
+`bitset_agg(id)` accepts ids in any order, so callers can aggregate directly
+from SQL filters without adding an ordering step:
 
 ```sql
 SELECT bitset_agg(id)
-FROM (
-    SELECT id
-    FROM labels
-    WHERE label = 3
-    ORDER BY id
-);
+FROM labels
+WHERE label = 3;
 ```
 
-Use `bitset_agg(id)` to build the BLOB. For format details, see `src/sketch2api/BITSET.md`.
+Use `bitset_agg(id)` to build the `allowed_ids` value. For format details on
+persisted dense bitset BLOBs, see `src/sketch2api/BITSET.md`.
 
 ## Dataset Metadata (`dataset.ini`)
 
