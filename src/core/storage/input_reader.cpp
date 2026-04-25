@@ -657,4 +657,11 @@ bool InputReaderView::is_no_data(size_t index) const {
     return reader_.is_no_data(view_index_ + index);
 }
 
+const uint64_t* InputReaderView::ids_data() const {
+    if (count_ == 0) {
+        return nullptr;
+    }
+    return reader_.lines_.ids_data() + view_index_;
+}
+
 } // namespace sketch2

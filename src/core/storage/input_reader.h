@@ -28,6 +28,10 @@ public:
     uint64_t id(size_t index) const;
     uint64_t offset(size_t index) const;
 
+    // Pointer to the contiguous backing array of ids. Valid until the next
+    // mutating call (add/clear/sort/reserve). Returns nullptr if empty.
+    const uint64_t* ids_data() const { return ids_.data(); }
+
     void sort();
     size_t lower_bound_index(uint64_t value) const;
     size_t lower_bound_index(size_t first, uint64_t value) const;
@@ -113,6 +117,11 @@ public:
     // The slice becomes invalid once that InputReader is destroyed or unmapped.
     Ret text_data_range(size_t index, const char** begin, const char** end) const;
     bool is_no_data(size_t index) const;
+
+    // Pointer to the contiguous span of ids covered by this view. The first
+    // element is id(0), the (count()-1)-th element is id(count()-1). Valid as
+    // long as the underlying InputReader is alive and unmodified.
+    const uint64_t* ids_data() const;
 private:
     const InputReader& reader_;
     size_t view_index_;

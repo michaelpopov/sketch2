@@ -96,11 +96,11 @@ Ret write_vector_section(
     return Ret(0);
 }
 
-Ret increment_count(uint32_t* count, const char* error_message) {
-    if (*count == std::numeric_limits<uint32_t>::max()) {
+Ret add_to_count(uint32_t* count, size_t increment, const char* error_message) {
+    if (increment > std::numeric_limits<uint32_t>::max() - *count) {
         return Ret(error_message);
     }
-    ++(*count);
+    *count += static_cast<uint32_t>(increment);
     return Ret(0);
 }
 
@@ -116,41 +116,60 @@ Ret build_roaring_ids_and_stats(
     CHECK(active_ids->init_writable(min_range_id));
     CHECK(deleted_ids->init_writable(min_range_id));
 
-    uint64_t prev_id = 0;
+    const size_t count = reader.count();
+    if (count == 0) {
+        return Ret(0);
+    }
+    const uint64_t* ids = reader.ids_data();
 
-    for (size_t i = 0; i < reader.count(); ++i) {
-        const uint64_t id = reader.id(i);
-        if (i > 0 && prev_id >= id) {
+    // Verify the slice is strictly increasing. Sortedness is the load()
+    // precondition; rejecting duplicates here keeps the original error.
+    for (size_t i = 1; i < count; ++i) {
+        if (ids[i - 1] >= ids[i]) {
             return Ret("Invalid order of ids in input data.");
         }
-        prev_id = id;
+    }
 
-        if (reader.is_no_data(i)) {
-            if (id < min_range_id) {
+    // Walk runs of same-category rows and hand each run's contiguous slice
+    // straight to the matching bitmap. No copying.
+    size_t i = 0;
+    while (i < count) {
+        const bool deleted = reader.is_no_data(i);
+        size_t j = i + 1;
+        while (j < count && reader.is_no_data(j) == deleted) {
+            ++j;
+        }
+        const size_t len = j - i;
+
+        const uint64_t run_min = ids[i];
+        const uint64_t run_max = ids[j - 1];
+
+        if (deleted) {
+            if (run_min < min_range_id) {
                 return Ret("DataWriter: deleted ids: id is below min_range_id");
             }
-            if (id - min_range_id > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+            if (run_max - min_range_id > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
                 return Ret("DataWriter: deleted ids: id range exceeds uint32_t");
             }
-            CHECK(increment_count(
-                &stats->deleted_count,
+            CHECK(add_to_count(
+                &stats->deleted_count, len,
                 "DataWriter: deleted id count exceeds uint32_t"));
-            CHECK(deleted_ids->add(id));
-            continue;
+            CHECK(deleted_ids->load(ids + i, len));
+        } else {
+            if (run_min < min_range_id) {
+                return Ret("DataWriter: active ids: min id is below min_range_id");
+            }
+            if (run_max - min_range_id > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+                return Ret("DataWriter: data file range exceeds uint32_t");
+            }
+            CHECK(add_to_count(
+                &stats->active_count, len,
+                "DataWriter: active id count exceeds uint32_t"));
+            stats->min_id = std::min(stats->min_id, run_min);
+            stats->max_id = std::max(stats->max_id, run_max);
+            CHECK(active_ids->load(ids + i, len));
         }
-
-        if (id < min_range_id) {
-            return Ret("DataWriter: active ids: min id is below min_range_id");
-        }
-        if (id - min_range_id > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
-            return Ret("DataWriter: data file range exceeds uint32_t");
-        }
-        CHECK(increment_count(
-            &stats->active_count,
-            "DataWriter: active id count exceeds uint32_t"));
-        stats->min_id = std::min(stats->min_id, id);
-        stats->max_id = std::max(stats->max_id, id);
-        CHECK(active_ids->add(id));
+        i = j;
     }
 
     if (stats->active_count == 0) {

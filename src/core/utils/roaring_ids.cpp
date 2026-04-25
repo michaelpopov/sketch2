@@ -147,6 +147,54 @@ Ret RoaringIds::add(uint64_t id) {
     return Ret(0);
 }
 
+Ret RoaringIds::load(const uint64_t* values, size_t size) {
+    if (bitmap() == nullptr) {
+        return Ret("RoaringIds::load: bitmap is not initialized");
+    }
+    if (read_only_) {
+        return Ret("RoaringIds::load: bitmap is read-only");
+    }
+    if (size == 0) {
+        return Ret(0);
+    }
+    if (values == nullptr) {
+        return Ret("RoaringIds::load: values pointer is null");
+    }
+    if (values[0] < base_ || values[size - 1] < base_) {
+        return Ret("RoaringIds::load: id is below base");
+    }
+    if (values[size - 1] - base_ > std::numeric_limits<uint32_t>::max()) {
+        return Ret("RoaringIds::load: id offset exceeds uint32_t range");
+    }
+
+    roaring::api::roaring_bulk_context_t ctx = {};
+    size_t i = 0;
+    while (i < size) {
+        size_t j = i + 1;
+        while (j < size && values[j] == values[j - 1] + 1) {
+            ++j;
+        }
+        const size_t len = j - i;
+
+        if (len >= 4) {
+            roaring::api::roaring_bitmap_add_range_closed(
+                bitmap(),
+                static_cast<uint32_t>(values[i] - base_),
+                static_cast<uint32_t>(values[j - 1] - base_));
+            // Non-bulk modification invalidates the bulk context.
+            ctx = {};
+        } else {
+            for (size_t k = i; k < j; ++k) {
+                roaring::api::roaring_bitmap_add_bulk(
+                    bitmap(), &ctx,
+                    static_cast<uint32_t>(values[k] - base_));
+            }
+        }
+        i = j;
+    }
+    return Ret(0);
+}
+
 void RoaringIds::clear() {
     bitmap_.reset();
     read_only_ = false;

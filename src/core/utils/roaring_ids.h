@@ -59,6 +59,10 @@ public:
     // Add a value to underlying CRoaring structure.
     Ret add(uint64_t id);
 
+    // Add multiple values to underlying CRoaring structure.
+    // Sort the array before passing it to the function!!!
+    Ret load(const uint64_t* values, size_t size);
+
     // Reset to an uninitialized empty state.
     void clear();
 
