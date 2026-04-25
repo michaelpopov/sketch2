@@ -395,5 +395,293 @@ TEST(roaring_ids, frozen_round_trip_applies_new_base) {
     EXPECT_EQ(2u, mapped.lower_bound_index(5004));
 }
 
+// ---------- init_writable_copy ----------
+
+TEST(roaring_ids, init_writable_copy_clones_from_frozen_view) {
+    RoaringIds source;
+    EXPECT_EQ(0, source.init_writable(1000).code());
+    for (uint64_t v : {1000ull, 1003ull, 1010ull, 70000ull + 1000ull}) {
+        EXPECT_EQ(0, source.add(v).code());
+    }
+    source.compact();
+
+    const size_t size = source.serialized_size_bytes();
+    std::vector<uint8_t> storage(size + 31u);
+    char* data = aligned_32_data(storage);
+    ASSERT_EQ(0, source.serialize(data).code());
+
+    RoaringIds frozen;
+    ASSERT_EQ(0, frozen.init_frozen_view(
+        reinterpret_cast<const uint8_t*>(data), size, 1000).code());
+
+    RoaringIds clone;
+    ASSERT_EQ(0, clone.init_writable_copy(frozen, 1000).code());
+
+    // Clone has the same membership as the frozen source.
+    EXPECT_EQ(frozen.count(), clone.count());
+    EXPECT_TRUE(clone.contains(1000));
+    EXPECT_TRUE(clone.contains(1003));
+    EXPECT_TRUE(clone.contains(1010));
+    EXPECT_TRUE(clone.contains(70000u + 1000u));
+
+    // Clone is writable: a new id sticks; frozen is unchanged.
+    EXPECT_EQ(0, clone.add(1234).code());
+    EXPECT_TRUE(clone.contains(1234));
+    EXPECT_FALSE(frozen.contains(1234));
+}
+
+TEST(roaring_ids, init_writable_copy_from_uninitialized_yields_empty_writable) {
+    RoaringIds empty_source;  // never initialized -> bitmap() == nullptr
+
+    RoaringIds clone;
+    ASSERT_EQ(0, clone.init_writable_copy(empty_source, 500).code());
+    EXPECT_EQ(0u, clone.count());
+
+    // Confirm clone is writable, not read-only.
+    EXPECT_EQ(0, clone.add(500).code());
+    EXPECT_TRUE(clone.contains(500));
+}
+
+TEST(roaring_ids, init_writable_copy_rejects_base_mismatch) {
+    RoaringIds source;
+    ASSERT_EQ(0, source.init_writable(1000).code());
+    ASSERT_EQ(0, source.add(1005).code());
+
+    RoaringIds clone;
+    const Ret ret = clone.init_writable_copy(source, 2000);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::init_writable_copy: base mismatch", ret.message());
+    EXPECT_EQ(0u, clone.count());  // clone untouched on failure
+}
+
+// ---------- union_in_place ----------
+
+TEST(roaring_ids, union_in_place_merges_disjoint_and_overlapping_sets) {
+    RoaringIds a;
+    ASSERT_EQ(0, a.init_writable(0).code());
+    for (uint64_t v : {1ull, 5ull, 10ull}) {
+        ASSERT_EQ(0, a.add(v).code());
+    }
+
+    RoaringIds b;
+    ASSERT_EQ(0, b.init_writable(0).code());
+    for (uint64_t v : {5ull, 7ull, 20ull}) {
+        ASSERT_EQ(0, b.add(v).code());
+    }
+
+    ASSERT_EQ(0, a.union_in_place(b).code());
+
+    // {1,5,10} ∪ {5,7,20} = {1,5,7,10,20}
+    EXPECT_EQ(5u, a.count());
+    EXPECT_TRUE(a.contains(1));
+    EXPECT_TRUE(a.contains(5));
+    EXPECT_TRUE(a.contains(7));
+    EXPECT_TRUE(a.contains(10));
+    EXPECT_TRUE(a.contains(20));
+    // b is unchanged.
+    EXPECT_EQ(3u, b.count());
+}
+
+TEST(roaring_ids, union_in_place_with_empty_other_is_noop) {
+    RoaringIds a;
+    ASSERT_EQ(0, a.init_writable(0).code());
+    ASSERT_EQ(0, a.add(42).code());
+
+    // Other is uninitialized (bitmap() == nullptr).
+    RoaringIds empty_other;
+    ASSERT_EQ(0, a.union_in_place(empty_other).code());
+    EXPECT_EQ(1u, a.count());
+    EXPECT_TRUE(a.contains(42));
+
+    // Other is initialized but holds nothing.
+    RoaringIds initialized_empty;
+    ASSERT_EQ(0, initialized_empty.init_writable(0).code());
+    ASSERT_EQ(0, a.union_in_place(initialized_empty).code());
+    EXPECT_EQ(1u, a.count());
+}
+
+TEST(roaring_ids, union_in_place_with_self_is_noop) {
+    RoaringIds a;
+    ASSERT_EQ(0, a.init_writable(0).code());
+    ASSERT_EQ(0, a.add(1).code());
+    ASSERT_EQ(0, a.add(2).code());
+
+    ASSERT_EQ(0, a.union_in_place(a).code());
+
+    EXPECT_EQ(2u, a.count());
+    EXPECT_TRUE(a.contains(1));
+    EXPECT_TRUE(a.contains(2));
+}
+
+TEST(roaring_ids, union_in_place_rejects_uninitialized_target) {
+    RoaringIds uninit;
+    RoaringIds other;
+    ASSERT_EQ(0, other.init_writable(0).code());
+
+    const Ret ret = uninit.union_in_place(other);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::union_in_place: bitmap is not initialized", ret.message());
+}
+
+TEST(roaring_ids, union_in_place_rejects_read_only_target) {
+    RoaringIds writable;
+    ASSERT_EQ(0, writable.init_writable(0).code());
+    ASSERT_EQ(0, writable.add(1).code());
+    writable.compact();
+
+    const size_t size = writable.serialized_size_bytes();
+    std::vector<uint8_t> storage(size + 31u);
+    char* data = aligned_32_data(storage);
+    ASSERT_EQ(0, writable.serialize(data).code());
+
+    RoaringIds frozen;
+    ASSERT_EQ(0, frozen.init_frozen_view(
+        reinterpret_cast<const uint8_t*>(data), size, 0).code());
+
+    RoaringIds other;
+    ASSERT_EQ(0, other.init_writable(0).code());
+    ASSERT_EQ(0, other.add(2).code());
+
+    const Ret ret = frozen.union_in_place(other);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::union_in_place: bitmap is read-only", ret.message());
+    EXPECT_FALSE(frozen.contains(2));
+}
+
+TEST(roaring_ids, union_in_place_rejects_base_mismatch) {
+    RoaringIds a;
+    ASSERT_EQ(0, a.init_writable(1000).code());
+    ASSERT_EQ(0, a.add(1005).code());
+
+    RoaringIds b;
+    ASSERT_EQ(0, b.init_writable(2000).code());
+    ASSERT_EQ(0, b.add(2005).code());
+
+    const Ret ret = a.union_in_place(b);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::union_in_place: base mismatch", ret.message());
+    EXPECT_EQ(1u, a.count());  // a untouched
+}
+
+// ---------- andnot_in_place ----------
+
+TEST(roaring_ids, andnot_in_place_removes_overlapping_ids) {
+    RoaringIds a;
+    ASSERT_EQ(0, a.init_writable(0).code());
+    for (uint64_t v : {1ull, 5ull, 10ull, 15ull}) {
+        ASSERT_EQ(0, a.add(v).code());
+    }
+
+    RoaringIds b;
+    ASSERT_EQ(0, b.init_writable(0).code());
+    for (uint64_t v : {5ull, 10ull, 999ull}) {
+        ASSERT_EQ(0, b.add(v).code());
+    }
+
+    ASSERT_EQ(0, a.andnot_in_place(b).code());
+
+    // {1,5,10,15} - {5,10,999} = {1,15}
+    EXPECT_EQ(2u, a.count());
+    EXPECT_TRUE(a.contains(1));
+    EXPECT_FALSE(a.contains(5));
+    EXPECT_FALSE(a.contains(10));
+    EXPECT_TRUE(a.contains(15));
+    // b is unchanged.
+    EXPECT_EQ(3u, b.count());
+}
+
+TEST(roaring_ids, andnot_in_place_with_empty_other_is_noop) {
+    RoaringIds a;
+    ASSERT_EQ(0, a.init_writable(0).code());
+    ASSERT_EQ(0, a.add(42).code());
+
+    RoaringIds uninit;
+    ASSERT_EQ(0, a.andnot_in_place(uninit).code());
+    EXPECT_EQ(1u, a.count());
+    EXPECT_TRUE(a.contains(42));
+
+    RoaringIds initialized_empty;
+    ASSERT_EQ(0, initialized_empty.init_writable(0).code());
+    ASSERT_EQ(0, a.andnot_in_place(initialized_empty).code());
+    EXPECT_EQ(1u, a.count());
+    EXPECT_TRUE(a.contains(42));
+}
+
+TEST(roaring_ids, andnot_in_place_self_is_rejected) {
+    RoaringIds a;
+    ASSERT_EQ(0, a.init_writable(0).code());
+    ASSERT_EQ(0, a.add(1).code());
+    ASSERT_EQ(0, a.add(2).code());
+
+    const Ret ret = a.andnot_in_place(a);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::andnot_in_place: self-difference is not allowed",
+              ret.message());
+    // a is left intact.
+    EXPECT_EQ(2u, a.count());
+    EXPECT_TRUE(a.contains(1));
+    EXPECT_TRUE(a.contains(2));
+}
+
+TEST(roaring_ids, andnot_in_place_rejects_uninitialized_target) {
+    RoaringIds uninit;
+    RoaringIds other;
+    ASSERT_EQ(0, other.init_writable(0).code());
+
+    const Ret ret = uninit.andnot_in_place(other);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::andnot_in_place: bitmap is not initialized",
+              ret.message());
+}
+
+TEST(roaring_ids, andnot_in_place_rejects_read_only_target) {
+    RoaringIds writable;
+    ASSERT_EQ(0, writable.init_writable(0).code());
+    ASSERT_EQ(0, writable.add(1).code());
+    ASSERT_EQ(0, writable.add(2).code());
+    writable.compact();
+
+    const size_t size = writable.serialized_size_bytes();
+    std::vector<uint8_t> storage(size + 31u);
+    char* data = aligned_32_data(storage);
+    ASSERT_EQ(0, writable.serialize(data).code());
+
+    RoaringIds frozen;
+    ASSERT_EQ(0, frozen.init_frozen_view(
+        reinterpret_cast<const uint8_t*>(data), size, 0).code());
+
+    RoaringIds other;
+    ASSERT_EQ(0, other.init_writable(0).code());
+    ASSERT_EQ(0, other.add(1).code());
+
+    const Ret ret = frozen.andnot_in_place(other);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::andnot_in_place: bitmap is read-only", ret.message());
+    EXPECT_TRUE(frozen.contains(1));  // unchanged
+}
+
+TEST(roaring_ids, andnot_in_place_rejects_base_mismatch) {
+    RoaringIds a;
+    ASSERT_EQ(0, a.init_writable(1000).code());
+    ASSERT_EQ(0, a.add(1005).code());
+
+    RoaringIds b;
+    ASSERT_EQ(0, b.init_writable(2000).code());
+    ASSERT_EQ(0, b.add(2005).code());
+
+    const Ret ret = a.andnot_in_place(b);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("RoaringIds::andnot_in_place: base mismatch", ret.message());
+    EXPECT_EQ(1u, a.count());
+}
+
 } // namespace
 } // namespace sketch2

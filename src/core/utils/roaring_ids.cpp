@@ -100,6 +100,24 @@ Ret RoaringIds::init_writable(uint64_t base) {
     return Ret(0);
 }
 
+Ret RoaringIds::init_writable_copy(const RoaringIds& other, uint64_t base) {
+    // An uninitialized other has no data: treat as empty, base is irrelevant.
+    if (other.bitmap() == nullptr) {
+        return init_writable(base);
+    }
+    if (other.base_ != base) {
+        return Ret("RoaringIds::init_writable_copy: base mismatch");
+    }
+    BitmapPtr new_bitmap(roaring::api::roaring_bitmap_copy(other.bitmap()));
+    if (!new_bitmap) {
+        return Ret("RoaringIds::init_writable_copy: failed to clone bitmap");
+    }
+    bitmap_ = std::move(new_bitmap);
+    read_only_ = false;
+    base_ = base;
+    return Ret(0);
+}
+
 Ret RoaringIds::init_frozen_view(const uint8_t* data, size_t size, uint64_t base) {
     if (data == nullptr) {
         return Ret("RoaringIds::init_frozen_view: data pointer is null");
@@ -192,6 +210,44 @@ Ret RoaringIds::load(const uint64_t* values, size_t size) {
         }
         i = j;
     }
+    return Ret(0);
+}
+
+Ret RoaringIds::union_in_place(const RoaringIds& other) {
+    if (bitmap() == nullptr) {
+        return Ret("RoaringIds::union_in_place: bitmap is not initialized");
+    }
+    if (read_only_) {
+        return Ret("RoaringIds::union_in_place: bitmap is read-only");
+    }
+    // Uninitialized or self-merge: nothing to do, base is irrelevant.
+    if (other.bitmap() == nullptr || this == &other) {
+        return Ret(0);
+    }
+    if (other.base_ != base_) {
+        return Ret("RoaringIds::union_in_place: base mismatch");
+    }
+    roaring::api::roaring_bitmap_or_inplace(bitmap(), other.bitmap());
+    return Ret(0);
+}
+
+Ret RoaringIds::andnot_in_place(const RoaringIds& other) {
+    if (bitmap() == nullptr) {
+        return Ret("RoaringIds::andnot_in_place: bitmap is not initialized");
+    }
+    if (read_only_) {
+        return Ret("RoaringIds::andnot_in_place: bitmap is read-only");
+    }
+    if (this == &other) {
+        return Ret("RoaringIds::andnot_in_place: self-difference is not allowed");
+    }
+    if (other.bitmap() == nullptr) {
+        return Ret(0);
+    }
+    if (other.base_ != base_) {
+        return Ret("RoaringIds::andnot_in_place: base mismatch");
+    }
+    roaring::api::roaring_bitmap_andnot_inplace(bitmap(), other.bitmap());
     return Ret(0);
 }
 

@@ -52,6 +52,9 @@ public:
     // adding new values.
     Ret init_writable(uint64_t base);
 
+    // Initialize as a writable clone of `other`. Both must share `base`.
+    Ret init_writable_copy(const RoaringIds& other, uint64_t base);
+
     // Initialize the underlying CRoaring structure from
     // the "frozen view" buffer for the read-only access.
     Ret init_frozen_view(const uint8_t* data, size_t size, uint64_t base);
@@ -62,6 +65,13 @@ public:
     // Add multiple values to underlying CRoaring structure.
     // Sort the array before passing it to the function!!!
     Ret load(const uint64_t* values, size_t size);
+
+    // In-place set union: *this |= other. Both must share base.
+    Ret union_in_place(const RoaringIds& other);
+
+    // In-place set difference: *this -= other. Both must share base.
+    // Refuses self-difference (would empty the bitmap; pass an explicit clear()).
+    Ret andnot_in_place(const RoaringIds& other);
 
     // Reset to an uninitialized empty state.
     void clear();

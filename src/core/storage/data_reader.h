@@ -316,6 +316,12 @@ public:
     size_t deleted_count() const { return deleted_ids_.count(); }
     uint64_t deleted_id(size_t index) const;
 
+    // Direct access to the underlying RoaringIds for set-algebra fast paths.
+    // The returned references are read-only frozen views over mapped memory
+    // and remain valid as long as this reader stays initialized.
+    const RoaringIds& ids() const { return ids_; }
+    const RoaringIds& deleted_ids() const { return deleted_ids_; }
+
     bool check_consistency() const;
     bool has_delta() const { return delta_ != nullptr; }
 

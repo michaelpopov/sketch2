@@ -409,16 +409,6 @@ private:
     CurrentSource current_source_ = CurrentSource::SourceOnly;
 };
 
-auto make_data_reader_delta_delete_cursor(
-        const DataReader& source,
-        const DataReader& updater,
-        uint32_t target_norm_flags) {
-    return DeltaDeleteCursor(
-        DataReaderDeletedCursor(source),
-        DataReaderDeletedCursor(updater),
-        DataReaderLiveRowCursor(updater, target_norm_flags));
-}
-
 auto make_input_reader_delta_delete_cursor(
         const DataReader& source,
         const InputReaderView& updater,
@@ -445,6 +435,33 @@ public:
 private:
     RoaringIds::Iterator iter_;
 };
+
+// Bitmap-algebra fast path for the delta-to-delta delete merge when both
+// source and updater are DataReaders. The DeltaDeleteCursor logic
+//   out = (source.deleted - {ids live in updater}) ∪ updater.deleted
+// becomes one andnot + one or, both inplace and operating on whole bitmaps.
+//
+// Precondition: source.min_range_id() == updater.min_range_id() == base
+// (callers verify this; merge_delta_file_ rejects mismatched ranges before
+// reaching this code).
+Ret build_delta_delete_roaring_ids(
+        const DataReader& source,
+        const DataReader& updater,
+        uint64_t base,
+        const char* context,
+        RoaringIds* out) {
+    auto wrap = [context](const Ret& ret) -> Ret {
+        if (ret.code() == 0) {
+            return ret;
+        }
+        return Ret(std::string(context) + ": " + ret.message());
+    };
+    CHECK(wrap(out->init_writable_copy(source.deleted_ids(), base)));
+    CHECK(wrap(out->andnot_in_place(updater.ids())));
+    CHECK(wrap(out->union_in_place(updater.deleted_ids())));
+    out->compact();
+    return Ret(0);
+}
 
 template <typename Cursor>
 Ret build_roaring_ids(Cursor cursor, uint64_t base, const char* context, RoaringIds* out) {
@@ -680,10 +697,11 @@ Ret DataMerger::merge_delta_file_(const DataReader& source, const DataReader& up
 
     Timer timer("merge_delta_file");
     // Delta-to-delta merge keeps a tombstone section, but it must first remove
-    // any old deletes that the updater resurrected as live rows.
+    // any old deletes that the updater resurrected as live rows. With both
+    // sides backed by RoaringIds, this is pure set algebra on whole bitmaps.
     RoaringIds roaring_deleted_ids;
-    CHECK(build_roaring_ids(
-        make_data_reader_delta_delete_cursor(source, updater, source.norm_flags()),
+    CHECK(build_delta_delete_roaring_ids(
+        source, updater,
         source.min_range_id(),
         "DataMerger::merge_delta_file: deleted ids",
         &roaring_deleted_ids));
