@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace sketch2 {
@@ -352,13 +353,89 @@ Ret ChunkedBitsView::init_owned_blob(void* data, size_t size) {
     return Ret(0);
 }
 
-bool ChunkedBitsView::contains(uint64_t id) const {
-    const uint64_t chunk_id = get_chunk_id(id);
-    const auto it = std::lower_bound(chunks_.begin(), chunks_.end(), chunk_id,
-        [](const Chunk& chunk, uint64_t value) {
-            return chunk.chunk_id < value;
-        });
-    return it != chunks_.end() && it->chunk_id == chunk_id && it->ids.contains(id);
+ChunkedBitsView::Iterator::Iterator(const ChunkedBitsView* view)
+    : view_(view) {
+    load_current_chunk_();
+}
+
+bool ChunkedBitsView::Iterator::load_current_chunk_() {
+    ids_ = RoaringIds::SeekCursor();
+    while (view_ != nullptr && chunk_index_ < view_->chunks_.size()) {
+        ids_ = view_->chunks_[chunk_index_].ids.seek_begin();
+        if (!ids_.eof()) {
+            return true;
+        }
+        ++chunk_index_;
+    }
+    return false;
+}
+
+bool ChunkedBitsView::Iterator::eof() const {
+    return view_ == nullptr || chunk_index_ >= view_->chunks_.size() || ids_.eof();
+}
+
+uint64_t ChunkedBitsView::Iterator::id() const {
+    if (eof()) {
+        throw std::out_of_range("ChunkedBitsView::Iterator::id: iterator is at end");
+    }
+    return ids_.id();
+}
+
+void ChunkedBitsView::Iterator::next() {
+    if (eof()) {
+        return;
+    }
+    ids_.next();
+    if (!ids_.eof()) {
+        return;
+    }
+    ++chunk_index_;
+    load_current_chunk_();
+}
+
+bool ChunkedBitsView::Iterator::seek_at_least(uint64_t id) {
+    if (view_ == nullptr) {
+        return false;
+    }
+    if (!eof() && this->id() >= id) {
+        return true;
+    }
+
+    const uint64_t target_chunk_id = get_chunk_id(id);
+    const size_t previous_chunk_index = chunk_index_;
+    while (chunk_index_ < view_->chunks_.size() &&
+            view_->chunks_[chunk_index_].chunk_id < target_chunk_id) {
+        ++chunk_index_;
+    }
+    if ((chunk_index_ != previous_chunk_index || ids_.eof()) && !load_current_chunk_()) {
+        return false;
+    }
+    if (chunk_index_ >= view_->chunks_.size()) {
+        return false;
+    }
+
+    const Chunk& chunk = view_->chunks_[chunk_index_];
+    if (chunk.chunk_id != target_chunk_id) {
+        return true;
+    }
+    if (ids_.seek_at_least(id)) {
+        return true;
+    }
+
+    ++chunk_index_;
+    return load_current_chunk_();
+}
+
+bool ChunkedBitsView::Iterator::consume_if_equal(uint64_t id) {
+    if (!seek_at_least(id) || this->id() != id) {
+        return false;
+    }
+    next();
+    return true;
+}
+
+ChunkedBitsView::Iterator ChunkedBitsView::begin() const {
+    return Iterator(this);
 }
 
 } // namespace sketch2

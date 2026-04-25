@@ -44,6 +44,38 @@ void RoaringIds::Iterator::next() {
     ++index_;
 }
 
+bool RoaringIds::Iterator::seek_at_least(uint64_t id) {
+    if (eof()) {
+        return false;
+    }
+    if (id <= this->id()) {
+        return true;
+    }
+
+    const size_t target_index = roaring_ids_->lower_bound_index(id);
+    if (target_index >= roaring_ids_->count()) {
+        iterator_.has_value = false;
+        index_ = target_index;
+        return false;
+    }
+
+    uint32_t offset = 0;
+    if (id > roaring_ids_->base_) {
+        const uint64_t offset64 = id - roaring_ids_->base_;
+        if (offset64 > std::numeric_limits<uint32_t>::max()) {
+            iterator_.has_value = false;
+            index_ = target_index;
+            return false;
+        }
+        offset = static_cast<uint32_t>(offset64);
+    }
+
+    const bool has_value =
+        roaring::api::roaring_uint32_iterator_move_equalorlarger(&iterator_, offset);
+    index_ = target_index;
+    return has_value;
+}
+
 bool RoaringIds::Iterator::eof() const {
     return roaring_ids_ == nullptr || !iterator_.has_value;
 }
@@ -87,6 +119,57 @@ bool RoaringIds::Iterator::operator==(const Iterator& other) const {
 
 bool RoaringIds::Iterator::operator!=(const Iterator& other) const {
     return !(*this == other);
+}
+
+RoaringIds::SeekCursor::SeekCursor(const RoaringIds* roaring_ids)
+    : roaring_ids_(roaring_ids) {
+    if (roaring_ids_ != nullptr && roaring_ids_->bitmap() != nullptr) {
+        roaring::api::roaring_iterator_init(roaring_ids_->bitmap(), &iterator_);
+    }
+}
+
+void RoaringIds::SeekCursor::next() {
+    if (eof()) {
+        return;
+    }
+    roaring::api::roaring_uint32_iterator_advance(&iterator_);
+}
+
+bool RoaringIds::SeekCursor::seek_at_least(uint64_t id) {
+    if (eof()) {
+        return false;
+    }
+    if (id <= this->id()) {
+        return true;
+    }
+
+    uint32_t offset = 0;
+    if (id > roaring_ids_->base_) {
+        const uint64_t offset64 = id - roaring_ids_->base_;
+        if (offset64 > std::numeric_limits<uint32_t>::max()) {
+            iterator_.has_value = false;
+            return false;
+        }
+        offset = static_cast<uint32_t>(offset64);
+    }
+
+    return roaring::api::roaring_uint32_iterator_move_equalorlarger(&iterator_, offset);
+}
+
+bool RoaringIds::SeekCursor::eof() const {
+    return roaring_ids_ == nullptr || !iterator_.has_value;
+}
+
+uint64_t RoaringIds::SeekCursor::id() const {
+    if (eof()) {
+        throw std::out_of_range("RoaringIds::SeekCursor::id: index out of range");
+    }
+    if (roaring_ids_->base_ >
+        std::numeric_limits<uint64_t>::max() - iterator_.current_value) {
+        throw std::overflow_error(
+            "RoaringIds::SeekCursor::id: base plus id offset overflows uint64_t");
+    }
+    return roaring_ids_->base_ + iterator_.current_value;
 }
 
 Ret RoaringIds::init_frozen_view(const uint8_t* data, size_t size, uint64_t base) {
@@ -238,6 +321,10 @@ RoaringIds::Iterator RoaringIds::begin() const {
 
 RoaringIds::Iterator RoaringIds::end() const {
     return Iterator(nullptr);
+}
+
+RoaringIds::SeekCursor RoaringIds::seek_begin() const {
+    return SeekCursor(this);
 }
 
 roaring::api::roaring_bitmap_t* RoaringIdsBuilder::bitmap() {

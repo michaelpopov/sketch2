@@ -37,6 +37,7 @@ public:
         friend class RoaringIds;
     public:
         void next();
+        bool seek_at_least(uint64_t id);
         bool eof() const;
         uint64_t id() const;
         size_t index() const;
@@ -50,6 +51,25 @@ public:
 
         const RoaringIds* roaring_ids_ = nullptr;
         size_t index_ = 0;
+        roaring::api::roaring_uint32_iterator_t iterator_{};
+    };
+
+    // Forward-only cursor for merge-style scans that need values, but not
+    // positional indexes.
+    class SeekCursor {
+        friend class RoaringIds;
+    public:
+        SeekCursor() = default;
+
+        void next();
+        bool seek_at_least(uint64_t id);
+        bool eof() const;
+        uint64_t id() const;
+
+    private:
+        explicit SeekCursor(const RoaringIds* roaring_ids);
+
+        const RoaringIds* roaring_ids_ = nullptr;
         roaring::api::roaring_uint32_iterator_t iterator_{};
     };
 
@@ -96,6 +116,9 @@ public:
     // structure sequentially.
     Iterator begin() const;
     Iterator end() const;
+
+    // Get a forward-only cursor that can seek to the first id >= target.
+    SeekCursor seek_begin() const;
 
 private:
     struct BitmapDeleter {

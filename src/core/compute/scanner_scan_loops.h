@@ -29,15 +29,22 @@ inline void prefetch_vector_record(const uint8_t* data) {
     __builtin_prefetch(data, 0, 1);
 }
 
-inline bool bitset_contains_id(const BitsetFilter* bitset, uint64_t id) {
+inline ChunkedBitsView::Iterator bitset_scan_iterator(const BitsetFilter* bitset) {
     assert(bitset != nullptr);
     assert(bitset->view != nullptr);
-    return bitset->view->contains(id);
+    return bitset->view->begin();
 }
 
-template <bool HasBitset, typename PushFn>
-inline void scan_reader_records(const DataReader& reader, size_t start_index, size_t end_index,
-        const BitsetFilter* bitset, const PushFn& push_fn) {
+inline void assert_raw_record_scan_visibility_contract(const DataReader& reader) {
+    // Raw record scans are only for no-hidden base streams or standalone delta streams.
+    (void) reader;
+    assert(!reader.has_hidden_rows_unchecked());
+}
+
+template <typename PushFn>
+inline void scan_reader_records_unfiltered(const DataReader& reader, size_t start_index,
+        size_t end_index, const PushFn& push_fn) {
+    assert_raw_record_scan_visibility_contract(reader);
     auto cursor = reader.base_scan_cursor_unchecked(start_index);
     while (cursor.index() < end_index) {
         const uint64_t id = cursor.id();
@@ -45,14 +52,92 @@ inline void scan_reader_records(const DataReader& reader, size_t start_index, si
         if (next_index < end_index) {
             prefetch_vector_record(reader.record_unchecked(next_index));
         }
-        if constexpr (HasBitset) {
-            if (!bitset_contains_id(bitset, id)) {
-                cursor.advance_to(next_index);
+        push_fn(id, cursor.record());
+        cursor.advance_to(next_index);
+    }
+}
+
+template <typename PushFn>
+inline void scan_reader_records_with_bitset(const DataReader& reader, size_t start_index,
+        size_t end_index, const BitsetFilter* bitset, const PushFn& push_fn) {
+    assert_raw_record_scan_visibility_contract(reader);
+    auto allowed = bitset_scan_iterator(bitset);
+    auto cursor = reader.base_scan_cursor_unchecked(start_index);
+    while (cursor.index() < end_index && !allowed.eof()) {
+        uint64_t id = cursor.id();
+        if (!allowed.seek_at_least(id)) {
+            break;
+        }
+
+        const uint64_t allowed_id = allowed.id();
+        if (allowed_id > id) {
+            cursor.seek_id_at_least(allowed_id);
+            if (cursor.index() >= end_index) {
+                break;
+            }
+            id = cursor.id();
+            if (id != allowed_id) {
                 continue;
             }
         }
+
+        const size_t next_index = cursor.index() + 1;
         push_fn(id, cursor.record());
+        allowed.next();
         cursor.advance_to(next_index);
+        if (!allowed.eof() && cursor.index() < end_index && cursor.id() < allowed.id()) {
+            cursor.seek_id_at_least(allowed.id());
+        }
+    }
+}
+
+template <bool HasBitset, typename PushFn>
+inline void scan_reader_records(const DataReader& reader, size_t start_index, size_t end_index,
+        const BitsetFilter* bitset, const PushFn& push_fn) {
+    if constexpr (HasBitset) {
+        scan_reader_records_with_bitset(reader, start_index, end_index, bitset, push_fn);
+    } else {
+        scan_reader_records_unfiltered(reader, start_index, end_index, push_fn);
+    }
+}
+
+template <typename PushFn>
+inline void scan_visible_base_records_with_bitset(const DataReader& reader,
+        const BitsetFilter* bitset, const PushFn& push_fn) {
+    const size_t end_index = reader.count_unchecked();
+    auto allowed = bitset_scan_iterator(bitset);
+    auto cursor = reader.base_scan_cursor_unchecked(reader.first_visible_base_index_unchecked());
+    while (cursor.index() < end_index && !allowed.eof()) {
+        uint64_t id = cursor.id();
+        if (!allowed.seek_at_least(id)) {
+            break;
+        }
+
+        const uint64_t allowed_id = allowed.id();
+        if (allowed_id > id) {
+            cursor.seek_id_at_least(allowed_id);
+            if (cursor.index() < end_index) {
+                cursor.advance_to(reader.next_visible_base_index_unchecked(cursor.index()));
+            }
+            if (cursor.index() >= end_index) {
+                break;
+            }
+            id = cursor.id();
+            if (id != allowed_id) {
+                continue;
+            }
+        }
+
+        const size_t next_index = reader.next_visible_base_index_unchecked(cursor.index() + 1);
+        push_fn(id, cursor.record());
+        allowed.next();
+        cursor.advance_to(next_index);
+        if (!allowed.eof() && cursor.index() < end_index && cursor.id() < allowed.id()) {
+            cursor.seek_id_at_least(allowed.id());
+            if (cursor.index() < end_index) {
+                cursor.advance_to(reader.next_visible_base_index_unchecked(cursor.index()));
+            }
+        }
     }
 }
 
@@ -69,18 +154,17 @@ inline void scan_visible_base_records(const DataReader& reader,
         return;
     }
 
+    if constexpr (HasBitset) {
+        scan_visible_base_records_with_bitset(reader, bitset, push_fn);
+        return;
+    }
+
     auto cursor = reader.base_scan_cursor_unchecked(reader.first_visible_base_index_unchecked());
     while (cursor.index() < end_index) {
         const uint64_t id = cursor.id();
         const size_t next_index = reader.next_visible_base_index_unchecked(cursor.index() + 1);
         if (next_index < end_index) {
             prefetch_vector_record(reader.record_unchecked(next_index));
-        }
-        if constexpr (HasBitset) {
-            if (!bitset_contains_id(bitset, id)) {
-                cursor.advance_to(next_index);
-                continue;
-            }
         }
         push_fn(id, cursor.record());
         cursor.advance_to(next_index);

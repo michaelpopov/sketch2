@@ -110,8 +110,10 @@ TEST(chunked_bits, serialized_empty_filter_round_trips) {
     ASSERT_EQ(kChunkedBitsBlobHeaderBytes, blob.size);
     ChunkedBitsView view;
     ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
-    EXPECT_FALSE(view.contains(0));
-    EXPECT_FALSE(view.contains(100));
+    auto it = view.begin();
+    EXPECT_TRUE(it.eof());
+    EXPECT_FALSE(it.seek_at_least(0));
+    EXPECT_FALSE(it.consume_if_equal(100));
 }
 
 TEST(chunked_bits, serialized_unsorted_multi_chunk_input_round_trips) {
@@ -119,11 +121,23 @@ TEST(chunked_bits, serialized_unsorted_multi_chunk_input_round_trips) {
 
     ChunkedBitsView view;
     ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
-    EXPECT_TRUE(view.contains(1));
-    EXPECT_TRUE(view.contains(5));
-    EXPECT_TRUE(view.contains((1ull << kChunkBits) + 5u));
-    EXPECT_FALSE(view.contains(2));
-    EXPECT_FALSE(view.contains(1ull << kChunkBits));
+
+    auto it = view.begin();
+    ASSERT_FALSE(it.eof());
+    EXPECT_EQ(1u, it.id());
+    EXPECT_TRUE(it.consume_if_equal(1));
+    EXPECT_FALSE(it.consume_if_equal(2));
+    EXPECT_TRUE(it.consume_if_equal(5));
+    EXPECT_FALSE(it.consume_if_equal(1ull << kChunkBits));
+    EXPECT_TRUE(it.consume_if_equal((1ull << kChunkBits) + 5u));
+    EXPECT_TRUE(it.eof());
+
+    auto seek_it = view.begin();
+    EXPECT_TRUE(seek_it.seek_at_least(2));
+    EXPECT_EQ(5u, seek_it.id());
+    EXPECT_TRUE(seek_it.seek_at_least(1ull << kChunkBits));
+    EXPECT_EQ((1ull << kChunkBits) + 5u, seek_it.id());
+    EXPECT_FALSE(seek_it.seek_at_least((1ull << kChunkBits) + 6u));
 }
 
 TEST(chunked_bits, serialized_payload_offsets_are_aligned) {

@@ -75,6 +75,27 @@ private:
 // keeps it alive for the view.
 class ChunkedBitsView {
 public:
+    class Iterator {
+    public:
+        Iterator() = default;
+
+        bool eof() const;
+        uint64_t id() const;
+        void next();
+        bool seek_at_least(uint64_t id);
+        bool consume_if_equal(uint64_t id);
+
+    private:
+        friend class ChunkedBitsView;
+        explicit Iterator(const ChunkedBitsView* view);
+
+        bool load_current_chunk_();
+
+        const ChunkedBitsView* view_ = nullptr;
+        size_t chunk_index_ = 0;
+        RoaringIds::SeekCursor ids_;
+    };
+
     ChunkedBitsView() = default;
     ChunkedBitsView(const ChunkedBitsView&) = delete;
     ChunkedBitsView& operator=(const ChunkedBitsView&) = delete;
@@ -83,7 +104,7 @@ public:
 
     Ret init_blob(const void* data, size_t size);
     Ret init_owned_blob(void* data, size_t size);
-    bool contains(uint64_t id) const;
+    Iterator begin() const;
 
 private:
     struct FreeDeleter {

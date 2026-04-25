@@ -191,6 +191,18 @@ public:
             sync_id_iter_();
         }
 
+        inline void seek_id_at_least(uint64_t id) {
+            assert(reader_ != nullptr);
+            if (index_ >= reader_->count_unchecked()) {
+                return;
+            }
+            if (id_iter_.seek_at_least(id)) {
+                index_ = id_iter_.index();
+                return;
+            }
+            index_ = reader_->count_unchecked();
+        }
+
     private:
         friend class DataReader;
 
