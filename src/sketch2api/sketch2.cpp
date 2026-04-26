@@ -1,7 +1,7 @@
 // Implements the public C API for dataset lifecycle, mutation, and query operations.
 
 #include "sketch2.h"
-#include "allowlist_control.h"
+#include "bitset_filter_control.h"
 #include "sketch2api_testing.h"
 #include "internal.h"
 #include "sketch2api_utils.h"
@@ -156,10 +156,10 @@ int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
     }
 }
 
-int sk_knn_items_allowlist(sk_handle_t* handle, const char* vec, unsigned int k,
+int sk_knn_items_bitset_filter(sk_handle_t* handle, const char* vec, unsigned int k,
         const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out) {
     try {
-        return sk_knn_items_allowlist_(
+        return sk_knn_items_bitset_filter_(
             handle, vec, k, allowed_ids, ids_out, scores_out, count_out);
     } catch (const std::exception& ex) {
         ERR(ex.what())
@@ -290,12 +290,12 @@ void sk_free(void* ptr) {
     std::free(ptr);
 }
 
-int sk_allowlist_builder_add(
+int sk_bitset_filter_builder_add(
         void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     if (state == nullptr) {
         set_builder_error(out_of_memory, error_message_out, false,
-            "allowlist builder: invalid builder state");
+            "bitset filter builder: invalid builder state");
         return -1;
     }
 
@@ -309,7 +309,7 @@ int sk_allowlist_builder_add(
         const Ret ret = chunked_bits->add(id);
         if (ret.code() != 0) {
             set_builder_error(out_of_memory, error_message_out, false,
-                "allowlist builder: add failed");
+                "bitset filter builder: add failed");
             return -1;
         }
         return 0;
@@ -325,12 +325,12 @@ int sk_allowlist_builder_add(
     }
 }
 
-int sk_allowlist_builder_finish(
+int sk_bitset_filter_builder_finish(
         void** state, void** out, bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     if (state == nullptr || out == nullptr) {
         set_builder_error(out_of_memory, error_message_out, false,
-            "allowlist builder: invalid finish arguments");
+            "bitset filter builder: invalid finish arguments");
         return -1;
     }
     *out = nullptr;
@@ -348,22 +348,22 @@ int sk_allowlist_builder_finish(
         const Ret finish_ret = bits->finish();
         if (finish_ret.code() != 0) {
             set_builder_error(out_of_memory, error_message_out, false,
-                "allowlist builder: finish failed");
+                "bitset filter builder: finish failed");
             return -1;
         }
 
         const size_t blob_size = bits->serialized_size_bytes();
         if (blob_size == 0) {
             set_builder_error(out_of_memory, error_message_out, false,
-                "allowlist builder: serialized blob size is unavailable");
+                "bitset filter builder: serialized blob size is unavailable");
             return -1;
         }
 
-        auto control = std::make_unique<AllowlistControl>();
+        auto control = std::make_unique<BitsetFilterControl>();
         const Singleton& singleton = get_singleton();
-        const Ret control_ret = blob_size <= singleton.allowlist_spill_threshold_bytes()
-            ? init_heap_allowlist(*bits, blob_size, control.get())
-            : init_mapped_allowlist(*bits, blob_size, singleton.allowlist_spill_dir(), control.get());
+        const Ret control_ret = blob_size <= singleton.bitset_filter_spill_threshold_bytes()
+            ? init_heap_bitset_filter(*bits, blob_size, control.get())
+            : init_mapped_bitset_filter(*bits, blob_size, singleton.bitset_filter_spill_dir(), control.get());
         if (control_ret.code() != 0) {
             const bool nomem = control_ret.message() == "sketch2: out of memory";
             if (nomem) {
@@ -372,7 +372,7 @@ int sk_allowlist_builder_finish(
                 set_builder_error(out_of_memory, error_message_out, false, control_ret.message());
             } else {
                 set_builder_error(out_of_memory, error_message_out, false,
-                    "allowlist builder: init failed");
+                    "bitset filter builder: init failed");
             }
             return -1;
         }
@@ -390,8 +390,8 @@ int sk_allowlist_builder_finish(
     }
 }
 
-void sk_release_allowlist(void* ptr) {
-    delete static_cast<AllowlistControl*>(ptr);
+void sk_release_bitset_filter(void* ptr) {
+    delete static_cast<BitsetFilterControl*>(ptr);
 }
 
 void sk_set_log_level(const char* log_level) {
@@ -420,25 +420,25 @@ const char* sk_knn_engine_name_for_testing(void) {
     }
 }
 
-int sk_allowlist_storage_kind_for_testing(const void* ptr) {
+int sk_bitset_filter_storage_kind_for_testing(const void* ptr) {
     if (ptr == nullptr) {
         return -1;
     }
-    const auto* control = static_cast<const AllowlistControl*>(ptr);
-    switch (allowlist_storage_kind_for_testing(control)) {
-        case AllowlistStorageKind::Heap:
+    const auto* control = static_cast<const BitsetFilterControl*>(ptr);
+    switch (bitset_filter_storage_kind_for_testing(control)) {
+        case BitsetFilterStorageKind::Heap:
             return 0;
-        case AllowlistStorageKind::MappedFile:
+        case BitsetFilterStorageKind::MappedFile:
             return 1;
     }
     return -1;
 }
 
-size_t sk_allowlist_temp_path_for_testing(const void* ptr, char* buf, size_t buf_size) {
+size_t sk_bitset_filter_temp_path_for_testing(const void* ptr, char* buf, size_t buf_size) {
     std::string path;
     if (ptr != nullptr) {
-        const auto* control = static_cast<const AllowlistControl*>(ptr);
-        path = allowlist_temp_path_for_testing(control).string();
+        const auto* control = static_cast<const BitsetFilterControl*>(ptr);
+        path = bitset_filter_temp_path_for_testing(control).string();
     }
 
     if (buf != nullptr && buf_size > 0) {

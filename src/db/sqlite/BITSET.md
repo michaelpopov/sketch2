@@ -12,8 +12,8 @@ SELECT bitset_agg(id) FROM some_table;
 - accepts only SQLite `INTEGER`
 - rejects negative ids
 - accepts ids in any order
-- returns an API-owned typed pointer to a serialized chunked-Roaring allowlist
-- returns a valid empty-filter allowlist for empty input
+- returns an API-owned typed pointer to a serialized chunked-Roaring bitset_filter
+- returns a valid empty bitset filter for empty input
 
 The underlying serialized format is documented in
 [src/sketch2api/BITSET.md](/home/mpopov/projects/sketch2/src/sketch2api/BITSET.md).
@@ -26,11 +26,11 @@ The underlying serialized format is documented in
 
 SQLite never allocates or frees the `bitset_agg(id)` buffer directly. It stores
 the typed pointer temporarily and calls Sketch2's release function when the
-value is destroyed. The pointed-to opaque allowlist object may be heap-backed
-or mmap-backed, and `sk_release_allowlist()` releases either kind correctly.
+value is destroyed. The pointed-to opaque bitset filter object may be heap-backed
+or mmap-backed, and `sk_release_bitset_filter()` releases either kind correctly.
 
-Raw `BLOB` allowlists remain caller-owned 32-byte-aligned buffers. The mapped
-spill path is only for opaque allowlists produced by `bitset_agg(id)` /
-`sk_allowlist_builder_finish()`. It avoids allocating the final serialized
-allowlist buffer with `aligned_alloc`; the aggregate still accumulates builder
+Raw `BLOB` bitset filters remain caller-owned 32-byte-aligned buffers. The mapped
+spill path is only for opaque bitset filters produced by `bitset_agg(id)` /
+`sk_bitset_filter_builder_finish()`. It avoids allocating the final serialized
+bitset filter buffer with `aligned_alloc`; the aggregate still accumulates builder
 state in memory before that final buffer is created.

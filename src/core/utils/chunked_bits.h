@@ -11,7 +11,7 @@
 
 namespace sketch2 {
 
-// ChunkedBits builds the allowlist representation serialized by SQLite
+// ChunkedBits builds the bitset filter representation serialized by SQLite
 // bitset_agg(). A single RoaringIdsBuilder can only cover a uint32_t offset
 // span from its base, so ids are split into fixed 2^20-sized chunks. The chunk
 // size is independent of dataset ranges: bitset_agg() does not know which

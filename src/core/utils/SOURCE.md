@@ -3,7 +3,7 @@
 - `CMakeLists.txt`: Build rules for the shared utilities library and tests.
 - `README.md`: Overview of the core utilities and architecture detection.
 - `arch_detection.h`: Centralized architecture detection and SIMD feature flags.
-- `bitset_filter.h`: Shared bitset-based allowlist filter struct used by scanner APIs.
+- `bitset_filter.h`: Shared bitset filter struct used by scanner APIs.
 - `dynamic_bitset.cpp`: Growable bitset implementation used by storage readers.
 - `dynamic_bitset.h`: Growable bitset declarations.
 - `file_lock.h`: Filesystem lock helper declarations.

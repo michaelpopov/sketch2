@@ -1,6 +1,6 @@
 #include "internal.h"
 
-#include "allowlist_control.h"
+#include "bitset_filter_control.h"
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
 #include "core/utils/chunked_bits.h"
@@ -591,13 +591,13 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
     return 0;
 }
 
-int sk_knn_items_allowlist_(sk_handle_t* handle, const char* vec, unsigned int k,
+int sk_knn_items_bitset_filter_(sk_handle_t* handle, const char* vec, unsigned int k,
         const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out) {
     if (allowed_ids == nullptr) {
         return sk_knn_items_(handle, vec, k, nullptr, 0, ids_out, scores_out, count_out);
     }
 
-    const auto* control = static_cast<const AllowlistControl*>(allowed_ids);
+    const auto* control = static_cast<const BitsetFilterControl*>(allowed_ids);
     DECL
 
     if (handle->ds == nullptr) {

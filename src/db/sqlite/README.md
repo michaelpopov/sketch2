@@ -99,14 +99,14 @@ Configuration sources and precedence:
 3. `SKETCH2_LOG_LEVEL`, overriding `log.level`
 4. `SKETCH2_THREAD_POOL_SIZE`, overriding `thread_pool.size`
 5. `SKETCH2_LOG_FILE`, selecting the log sink
-6. `SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES`, overriding `allowlist.spill_threshold_bytes`
-7. `SKETCH2_ALLOWLIST_SPILL_DIR`, overriding `allowlist.spill_dir`
+6. `SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES`, overriding `bitset_filter.spill_threshold_bytes`
+7. `SKETCH2_BITSET_FILTER_SPILL_DIR`, overriding `bitset_filter.spill_dir`
 
 If `SKETCH2_CONFIG` is missing, initialization still succeeds using defaults
  and env overrides. If it is set but unreadable, startup logs a warning and
  continues with direct env overrides.
 
-The allowlist spill settings apply only to the finalized serialized buffer, not
+The bitset filter spill settings apply only to the finalized serialized buffer, not
 to the in-memory `bitset_agg(id)` builder state.
 
 After the first successful initialization, the shared runtime is sealed:
@@ -134,11 +134,11 @@ Before loading, set any desired runtime config in the environment of the SQLite
 export SKETCH2_LOG_LEVEL=DEBUG
 export SKETCH2_THREAD_POOL_SIZE=8
 export SKETCH2_LOG_FILE=/tmp/sketch2.log
-export SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES=1048576
-export SKETCH2_ALLOWLIST_SPILL_DIR=/tmp
+export SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES=1048576
+export SKETCH2_BITSET_FILTER_SPILL_DIR=/tmp
 ```
 
-These spill settings only move the finalized serialized allowlist buffer to a
+These spill settings only move the finalized serialized bitset filter buffer to a
 mapped temp file. The SQLite aggregate still keeps its builder state in memory.
 
 Then create a virtual table bound to a dataset INI:

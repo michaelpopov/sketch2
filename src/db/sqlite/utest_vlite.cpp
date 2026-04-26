@@ -876,7 +876,7 @@ TEST_F(VliteTest, AtPrefixMalformedVectorFileReturnsError) {
         "invalid f32 token");
 }
 
-TEST_F(VliteTest, BitsetAggBuildsAllowlistFromUnsortedIds) {
+TEST_F(VliteTest, BitsetAggBuildsBitsetFilterFromUnsortedIds) {
     write_input("f32,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n"

@@ -22,9 +22,9 @@
 // - if SKETCH2_LOG_LEVEL is set, it overrides log.level
 // - if SKETCH2_THREAD_POOL_SIZE is set, it overrides thread_pool.size
 // - if SKETCH2_LOG_FILE is set, it selects the log sink
-// - if SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES is set, it overrides
-//   allowlist.spill_threshold_bytes
-// - if SKETCH2_ALLOWLIST_SPILL_DIR is set, it overrides allowlist.spill_dir
+// - if SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES is set, it overrides
+//   bitset_filter.spill_threshold_bytes
+// - if SKETCH2_BITSET_FILTER_SPILL_DIR is set, it overrides bitset_filter.spill_dir
 //
 // SKETCH2_CONFIG is optional. If it is missing, initialization can still
 // succeed using defaults and env overrides. If it is set but unreadable, the
@@ -68,8 +68,8 @@ public:
     static void force_thread_pool_for_testing(std::shared_ptr<ThreadPool> pool);
 
     const std::shared_ptr<ThreadPool>& thread_pool() const;
-    size_t allowlist_spill_threshold_bytes() const;
-    const std::filesystem::path& allowlist_spill_dir() const;
+    size_t bitset_filter_spill_threshold_bytes() const;
+    const std::filesystem::path& bitset_filter_spill_dir() const;
     bool check_file_path(const std::string& file_path);
     bool release_file_path(const std::string& file_path);
 
@@ -84,8 +84,8 @@ private:
         std::string level;
         std::string thread_pool_size;
         std::string log_file;
-        std::string allowlist_spill_threshold_bytes;
-        std::string allowlist_spill_dir;
+        std::string bitset_filter_spill_threshold_bytes;
+        std::string bitset_filter_spill_dir;
     };
 
     bool runtime_init_();
@@ -97,13 +97,13 @@ private:
     bool apply_default_thread_pool_size_();
     bool apply_thread_pool_size_(const std::string& size);
     bool apply_log_file_(const std::string& path);
-    bool apply_allowlist_spill_threshold_bytes_(const std::string& size);
-    bool apply_allowlist_spill_dir_(const std::string& path);
+    bool apply_bitset_filter_spill_threshold_bytes_(const std::string& size);
+    bool apply_bitset_filter_spill_dir_(const std::string& path);
 
     std::mutex mutex_;
     std::shared_ptr<ThreadPool> thread_pool_;
-    size_t allowlist_spill_threshold_bytes_ = 1u << 20;
-    std::filesystem::path allowlist_spill_dir_;
+    size_t bitset_filter_spill_threshold_bytes_ = 1u << 20;
+    std::filesystem::path bitset_filter_spill_dir_;
     FilePathLock file_path_lock_;
     bool initialized_ = false;
 };

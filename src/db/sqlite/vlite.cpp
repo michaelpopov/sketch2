@@ -48,7 +48,7 @@ constexpr const char* kVliteSchemaWithAllowedIds =
     "id INTEGER, "
     "score REAL)";
 constexpr const char* kVliteModuleName = "vlite";
-constexpr const char* kAllowlistPointerType = "sketch2.AllowlistBlob";
+constexpr const char* kBitsetFilterPointerType = "sketch2.BitsetFilterBlob";
 
 // Removes the outer quoting syntax SQLite may preserve in module arguments so
 // the dataset path can be passed to Dataset::init verbatim.
@@ -177,14 +177,14 @@ sqlite3_int64 saturating_add(sqlite3_int64 lhs, sqlite3_int64 rhs) {
     return lhs + rhs;
 }
 
-void release_allowlist(void* ptr) {
-    sk_release_allowlist(ptr);
+void release_bitset_filter(void* ptr) {
+    sk_release_bitset_filter(ptr);
 }
 
 // SQLite owns this aggregate context per GROUP BY group. We keep only the
 // API-owned builder here. Finalization returns an API-owned typed pointer.
 struct BitsetAggState {
-    void* allowlist_builder = nullptr;
+    void* bitset_filter_builder = nullptr;
     bool has_error = false;
     bool has_nomem = false;
     const char* error_message = nullptr;
@@ -236,8 +236,8 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     }
 
     const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
-    if (sk_allowlist_builder_add(
-            &state->allowlist_builder, id_u64, &state->has_nomem, &state->error_message) != 0) {
+    if (sk_bitset_filter_builder_add(
+            &state->bitset_filter_builder, id_u64, &state->has_nomem, &state->error_message) != 0) {
         state->has_error = true;
         if (state->has_nomem) {
             sqlite3_result_error_nomem(context);
@@ -257,18 +257,18 @@ void bitset_agg_final(sqlite3_context* context) {
         return;
     }
 
-    void* allowlist = nullptr;
+    void* bitset_filter = nullptr;
     bool finish_nomem = false;
     const char* finish_error = nullptr;
-    if (sk_allowlist_builder_finish(
-            &state->allowlist_builder, &allowlist, &finish_nomem, &finish_error) != 0) {
+    if (sk_bitset_filter_builder_finish(
+            &state->bitset_filter_builder, &bitset_filter, &finish_nomem, &finish_error) != 0) {
         state->has_error = true;
         state->has_nomem = finish_nomem;
         state->error_message = finish_error;
     }
 
     if (state->has_error) {
-        sk_release_allowlist(allowlist);
+        sk_release_bitset_filter(bitset_filter);
         if (state->has_nomem) {
             sqlite3_result_error_nomem(context);
             return;
@@ -279,9 +279,9 @@ void bitset_agg_final(sqlite3_context* context) {
         return;
     }
 
-    assert(allowlist != nullptr);
+    assert(bitset_filter != nullptr);
 
-    sqlite3_result_pointer(context, allowlist, kAllowlistPointerType, release_allowlist);
+    sqlite3_result_pointer(context, bitset_filter, kBitsetFilterPointerType, release_bitset_filter);
 }
 
 // VliteVTab exists to bind SQLite's virtual-table object to the dataset state
@@ -576,7 +576,7 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             }
 
             sqlite3_value* allowed_ids_value = argv[arg_index++];
-            allowed_ids = sqlite3_value_pointer(allowed_ids_value, kAllowlistPointerType);
+            allowed_ids = sqlite3_value_pointer(allowed_ids_value, kBitsetFilterPointerType);
             const int allowed_ids_type = sqlite3_value_type(allowed_ids_value);
             if (allowed_ids == nullptr &&
                     allowed_ids_type != SQLITE_NULL && allowed_ids_type != SQLITE_BLOB) {
@@ -617,7 +617,7 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
         double* scores = nullptr;
         size_t count = 0;
         const int rc = allowed_ids != nullptr
-            ? sk_knn_items_allowlist(
+            ? sk_knn_items_bitset_filter(
                 vlite_vtab->handle,
                 vlite_cursor->query_text.c_str(),
                 static_cast<unsigned int>(effective_k),

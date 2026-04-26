@@ -37,8 +37,8 @@ protected:
         unsetenv("SKETCH2_LOG_LEVEL");
         unsetenv("SKETCH2_THREAD_POOL_SIZE");
         unsetenv("SKETCH2_LOG_FILE");
-        unsetenv("SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES");
-        unsetenv("SKETCH2_ALLOWLIST_SPILL_DIR");
+        unsetenv("SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES");
+        unsetenv("SKETCH2_BITSET_FILTER_SPILL_DIR");
         std::remove(path1_.c_str());
         std::remove(path2_.c_str());
     }
@@ -59,13 +59,13 @@ TEST_F(SingletonTest, EnvOverridesApplyWithOrWithoutConfigBeforeSingletonSeals) 
     ASSERT_EQ(0, setenv("SKETCH2_LOG_LEVEL", "debug", 1));
     ASSERT_EQ(0, setenv("SKETCH2_THREAD_POOL_SIZE", "3", 1));
     ASSERT_EQ(0, setenv("SKETCH2_LOG_FILE", path2_.c_str(), 1));
-    ASSERT_EQ(0, setenv("SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES", "4096", 1));
-    ASSERT_EQ(0, setenv("SKETCH2_ALLOWLIST_SPILL_DIR", tmp_dir().c_str(), 1));
+    ASSERT_EQ(0, setenv("SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES", "4096", 1));
+    ASSERT_EQ(0, setenv("SKETCH2_BITSET_FILTER_SPILL_DIR", tmp_dir().c_str(), 1));
     ASSERT_TRUE(Singleton::apply_config_from_env());
     EXPECT_EQ(log::LogLevel::Debug, log::get_log_level());
     ASSERT_NE(nullptr, get_singleton().thread_pool());
-    EXPECT_EQ(4096u, get_singleton().allowlist_spill_threshold_bytes());
-    EXPECT_EQ(std::filesystem::path(tmp_dir()), get_singleton().allowlist_spill_dir());
+    EXPECT_EQ(4096u, get_singleton().bitset_filter_spill_threshold_bytes());
+    EXPECT_EQ(std::filesystem::path(tmp_dir()), get_singleton().bitset_filter_spill_dir());
     LOG_INFO << "singleton log file test";
 
     std::ifstream log_input(path2_);

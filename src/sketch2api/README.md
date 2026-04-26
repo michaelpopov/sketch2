@@ -51,7 +51,7 @@ int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size
                         unsigned int k, const void* allowed_ids_blob,
                         size_t allowed_ids_blob_size, uint64_t** ids_out,
                         double** scores_out, size_t* count_out);
-int sk_knn_items_allowlist(sk_handle_t* handle, const char* vec, unsigned int k,
+int sk_knn_items_bitset_filter(sk_handle_t* handle, const char* vec, unsigned int k,
                            const void* allowed_ids, uint64_t** ids_out,
                            double** scores_out, size_t* count_out);
 int sk_score_ascending_is_better(sk_handle_t* handle, bool* out);
@@ -62,24 +62,24 @@ int sk_write_deleted(sk_handle_t* handle, uint64_t id);
 int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
 void sk_free(void* ptr);
-int sk_allowlist_builder_add(
+int sk_bitset_filter_builder_add(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
-int sk_allowlist_builder_finish(
+int sk_bitset_filter_builder_finish(
     void** state, void** out, bool* out_of_memory, const char** error_message_out);
-void sk_release_allowlist(void* ptr);
+void sk_release_bitset_filter(void* ptr);
 ```
 
 `sk_knn()` and `sk_get()` return allocated results through out-parameters. The
 caller owns those returned buffers and must release them with `sk_free()`.
 
 `sk_knn_items()` and `sk_knn_vector_items()` return scores and accept an
-optional caller-owned allowlist BLOB. Non-null allowlist BLOB pointers must use
+optional caller-owned bitset filter BLOB. Non-null bitset filter BLOB pointers must use
 the serialized chunked-Roaring format and be 32-byte aligned. The blob layout is
 documented in `src/sketch2api/BITSET.md`.
 
-`sk_allowlist_builder_*()` builds an opaque API-owned allowlist object for
+`sk_bitset_filter_builder_*()` builds an opaque API-owned bitset filter object for
 in-process adapters. The object may be heap-backed or mmap-backed. Pass it to
-`sk_knn_items_allowlist()` and release it with `sk_release_allowlist()`, which
+`sk_knn_items_bitset_filter()` and release it with `sk_release_bitset_filter()`, which
 releases either storage kind correctly. Mapped spill only avoids allocating the
 final serialized buffer with `aligned_alloc`; the builder still accumulates its
 working state in memory before serialization.
@@ -148,15 +148,15 @@ Configuration sources and precedence:
 3. `SKETCH2_LOG_LEVEL`, overriding `log.level`
 4. `SKETCH2_THREAD_POOL_SIZE`, overriding `thread_pool.size`
 5. `SKETCH2_LOG_FILE`, selecting the log sink
-6. `SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES`, overriding `allowlist.spill_threshold_bytes`
-7. `SKETCH2_ALLOWLIST_SPILL_DIR`, overriding `allowlist.spill_dir`
+6. `SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES`, overriding `bitset_filter.spill_threshold_bytes`
+7. `SKETCH2_BITSET_FILTER_SPILL_DIR`, overriding `bitset_filter.spill_dir`
 
 If `SKETCH2_CONFIG` is missing, that is fine. Defaults and env overrides still
  work. If it is set but unreadable, startup logs a warning and continues with
  direct env overrides.
 
-The allowlist spill settings apply only to the finalized serialized buffer, not
-to the in-memory allowlist builder state.
+The bitset filter spill settings apply only to the finalized serialized buffer, not
+to the in-memory bitset filter builder state.
 
 The native compute path is not part of runtime configuration. It is built into
 the library.
@@ -180,8 +180,8 @@ variables before `sk_new_handle()` is enough:
 ```c
 setenv("SKETCH2_LOG_LEVEL", "DEBUG", 1);
 setenv("SKETCH2_THREAD_POOL_SIZE", "8", 1);
-setenv("SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES", "1048576", 1);
-setenv("SKETCH2_ALLOWLIST_SPILL_DIR", "/tmp", 1);
+setenv("SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES", "1048576", 1);
+setenv("SKETCH2_BITSET_FILTER_SPILL_DIR", "/tmp", 1);
 
 sk_handle_t* handle = sk_new_handle("/tmp/my_db");
 ```

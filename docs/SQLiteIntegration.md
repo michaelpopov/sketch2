@@ -143,7 +143,7 @@ Meaning:
 - `query`: hidden input query vector
 - `match_expr`: alternate hidden input query vector
 - `k`: hidden input top-k count
-- `allowed_ids`: optional hidden input allowlist filter
+- `allowed_ids`: optional hidden input bitset filter
 - `id`: output vector id
 - `score`: output score
 
@@ -158,7 +158,7 @@ SQLite integration supports:
 - `LIMIT` and `OFFSET`
 - joins with regular SQLite tables
 - optional candidate filtering through `allowed_ids`
-- SQL-side allowlist generation through `bitset_agg(id)`
+- SQL-side bitset filter generation through `bitset_agg(id)`
 
 The score function is not selected in SQL. It comes from the Sketch2 dataset
 metadata.
@@ -340,7 +340,7 @@ WHERE n.match_expr MATCH '2.1, 2.1, 2.1, 2.1'
 ORDER BY n.score;
 ```
 
-Build the allowlist from a metadata table:
+Build the bitset filter from a metadata table:
 
 ```sql
 SELECT n.id, n.score

@@ -57,7 +57,7 @@ int sk_knn(sk_handle_t* handle, const char* vec, unsigned int k,
  * *scores_out and must release both with sk_free(). If allowed_ids_blob is
  * nullptr and allowed_ids_blob_size is 0, no filtering is applied. Otherwise
  * allowed_ids_blob must point to a 32-byte-aligned serialized chunked-Roaring
- * allowlist BLOB.
+ * bitset filter BLOB.
  */
 int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
     const void* allowed_ids_blob, size_t allowed_ids_blob_size,
@@ -68,19 +68,19 @@ int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size
  * The caller owns *ids_out and *scores_out and must release both with sk_free().
  * If allowed_ids_blob is nullptr and allowed_ids_blob_size is 0, no filtering
  * is applied. Otherwise allowed_ids_blob must point to a 32-byte-aligned
- * serialized chunked-Roaring allowlist BLOB.
+ * serialized chunked-Roaring bitset filter BLOB.
  */
 int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids_blob, size_t allowed_ids_blob_size,
     uint64_t** ids_out, double** scores_out, size_t* count_out);
 
 /*
- * Run KNN with an opaque API-owned allowlist object produced by
- * sk_allowlist_builder_finish(). This is intended for in-process adapters such
- * as SQLite that need to pass an allowlist without copying it through their own
+ * Run KNN with an opaque API-owned bitset filter object produced by
+ * sk_bitset_filter_builder_finish(). This is intended for in-process adapters such
+ * as SQLite that need to pass a bitset filter without copying it through their own
  * BLOB storage.
  */
-int sk_knn_items_allowlist(sk_handle_t* handle, const char* vec, unsigned int k,
+int sk_knn_items_bitset_filter(sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out);
 
 /*
@@ -173,15 +173,15 @@ const char* sk_error_message(sk_handle_t* handle);
 void sk_free(void* ptr);
 
 /*
- * Build an API-owned serialized chunked-Roaring allowlist object. The finished
- * object is opaque; pass it to sk_knn_items_allowlist() and release it with
- * sk_release_allowlist().
+ * Build an API-owned serialized chunked-Roaring bitset filter object. The finished
+ * object is opaque; pass it to sk_knn_items_bitset_filter() and release it with
+ * sk_release_bitset_filter().
  */
-int sk_allowlist_builder_add(
+int sk_bitset_filter_builder_add(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
-int sk_allowlist_builder_finish(
+int sk_bitset_filter_builder_finish(
     void** state, void** out, bool* out_of_memory, const char** error_message_out);
-void sk_release_allowlist(void* ptr);
+void sk_release_bitset_filter(void* ptr);
 
 /*
  * Set global log level in Sketch2

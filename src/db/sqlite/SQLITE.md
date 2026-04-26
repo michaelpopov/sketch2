@@ -54,7 +54,7 @@ Column notes:
 
 - `query` / `match_expr` (hidden input): query vector text
 - `k` (hidden input): top-k size, default `10`
-- `allowed_ids` (hidden input): optional allowlist filter
+- `allowed_ids` (hidden input): optional bitset filter
 - `id` (output): vector id
 - `score` (output): score according to dataset metric
 
@@ -132,11 +132,11 @@ object may be heap-backed or mmap-backed. SQLite calls Sketch2's release
 function when that pointer value is destroyed, and the release path handles
 either storage kind.
 
-Raw SQL `BLOB` allowlists are still accepted only when SQLite provides a
+Raw SQL `BLOB` bitset filters are still accepted only when SQLite provides a
 32-byte-aligned caller-owned buffer. Spillover applies to the opaque
 `bitset_agg(id)` result, not to arbitrary BLOB values.
 
-Mapped spill only avoids allocating the final serialized allowlist buffer with
+Mapped spill only avoids allocating the final serialized bitset filter buffer with
 `aligned_alloc`. The aggregate still accumulates its `ChunkedBits` /
 `RoaringIdsBuilder` working state in memory before serialization.
 
@@ -169,10 +169,10 @@ Set before loading extension:
 - `SKETCH2_LOG_LEVEL`
 - `SKETCH2_THREAD_POOL_SIZE`
 - `SKETCH2_LOG_FILE`
-- `SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES`
-- `SKETCH2_ALLOWLIST_SPILL_DIR`
+- `SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES`
+- `SKETCH2_BITSET_FILTER_SPILL_DIR`
 
-The allowlist spill settings apply only to the finalized serialized buffer, not
+The bitset filter spill settings apply only to the finalized serialized buffer, not
 to the in-memory `bitset_agg(id)` builder state.
 
 ## Score Functions

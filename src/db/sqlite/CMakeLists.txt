@@ -21,7 +21,7 @@ target_link_libraries(sk2sqlite
 add_executable(utest_vlite
   ${SHARED_UTEST_MAIN}
   utest_vlite.cpp
-  utest_allowlist.cpp
+  utest_bitset_filter.cpp
 )
 target_include_directories(utest_vlite
   PRIVATE

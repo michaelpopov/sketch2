@@ -1,4 +1,4 @@
-// Unit tests for chunked sparse allowlists.
+// Unit tests for chunked sparse bitset filters.
 
 #include "chunked_bits.h"
 

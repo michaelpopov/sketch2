@@ -19,7 +19,7 @@ SKETCH2API_HIDDEN int sk_knn_items_(
     sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids_blob, size_t allowed_ids_blob_size,
     uint64_t** ids_out, double** scores_out, size_t* count_out);
-SKETCH2API_HIDDEN int sk_knn_items_allowlist_(
+SKETCH2API_HIDDEN int sk_knn_items_bitset_filter_(
     sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out);
 SKETCH2API_HIDDEN int sk_score_ascending_is_better_(sk_handle_t* handle, bool* out);

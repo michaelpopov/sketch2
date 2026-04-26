@@ -1,4 +1,4 @@
-#include "allowlist_control.h"
+#include "bitset_filter_control.h"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -25,17 +25,17 @@ bool align_up_size(size_t value, size_t alignment, size_t* out) {
 
 sketch2::Ret allocate_file_size(int fd, size_t size) {
     if (size > static_cast<size_t>(std::numeric_limits<off_t>::max())) {
-        return sketch2::Ret("allowlist builder: serialized blob is too large");
+        return sketch2::Ret("bitset filter builder: serialized blob is too large");
     }
 #if defined(__linux__)
     const int rc = posix_fallocate(fd, 0, static_cast<off_t>(size));
     if (rc != 0) {
-        return sketch2::Ret("allowlist builder: failed to allocate spill file");
+        return sketch2::Ret("bitset filter builder: failed to allocate spill file");
     }
     return sketch2::Ret(0);
 #else
     if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
-        return sketch2::Ret("allowlist builder: failed to resize spill file");
+        return sketch2::Ret("bitset filter builder: failed to resize spill file");
     }
     return sketch2::Ret(0);
 #endif
@@ -75,41 +75,41 @@ private:
 
 } // namespace
 
-AllowlistStorage::~AllowlistStorage() {
+BitsetFilterStorage::~BitsetFilterStorage() {
     reset();
 }
 
-void AllowlistStorage::reset() {
-    if (data != nullptr && kind == AllowlistStorageKind::Heap) {
+void BitsetFilterStorage::reset() {
+    if (data != nullptr && kind == BitsetFilterStorageKind::Heap) {
         std::free(data);
     }
-    if (kind == AllowlistStorageKind::MappedFile) {
+    if (kind == BitsetFilterStorageKind::MappedFile) {
         region.reset();
         if (!path.empty()) {
             std::error_code ec;
             std::filesystem::remove(path, ec);
         }
     }
-    kind = AllowlistStorageKind::Heap;
+    kind = BitsetFilterStorageKind::Heap;
     data = nullptr;
     size = 0;
     path.clear();
 }
 
-void AllowlistControl::reset() {
+void BitsetFilterControl::reset() {
     view = sketch2::ChunkedBitsView();
     storage.reset();
 }
 
-sketch2::Ret init_heap_allowlist(
-        const sketch2::ChunkedBits& bits, size_t blob_size, AllowlistControl* control) {
+sketch2::Ret init_heap_bitset_filter(
+        const sketch2::ChunkedBits& bits, size_t blob_size, BitsetFilterControl* control) {
     if (control == nullptr) {
-        return sketch2::Ret("allowlist builder: invalid control");
+        return sketch2::Ret("bitset filter builder: invalid control");
     }
 
     size_t allocation_size = 0;
     if (!align_up_size(blob_size, sketch2::kChunkedBitsBlobAlignment, &allocation_size)) {
-        return sketch2::Ret("allowlist builder: serialized blob is too large");
+        return sketch2::Ret("bitset filter builder: serialized blob is too large");
     }
 
     void* blob = std::aligned_alloc(sketch2::kChunkedBitsBlobAlignment, allocation_size);
@@ -118,7 +118,7 @@ sketch2::Ret init_heap_allowlist(
     }
 
     control->reset();
-    control->storage.kind = AllowlistStorageKind::Heap;
+    control->storage.kind = BitsetFilterStorageKind::Heap;
     control->storage.data = blob;
     control->storage.size = blob_size;
 
@@ -136,20 +136,20 @@ sketch2::Ret init_heap_allowlist(
     return sketch2::Ret(0);
 }
 
-sketch2::Ret init_mapped_allowlist(
+sketch2::Ret init_mapped_bitset_filter(
         const sketch2::ChunkedBits& bits, size_t blob_size,
-        const std::filesystem::path& spill_dir, AllowlistControl* control) {
+        const std::filesystem::path& spill_dir, BitsetFilterControl* control) {
     if (control == nullptr) {
-        return sketch2::Ret("allowlist builder: invalid control");
+        return sketch2::Ret("bitset filter builder: invalid control");
     }
 
-    std::string pattern = (spill_dir / "sketch2_allowlist_XXXXXX").string();
+    std::string pattern = (spill_dir / "sketch2_bitset_filter_XXXXXX").string();
     std::vector<char> writable(pattern.begin(), pattern.end());
     writable.push_back('\0');
 
     const int fd = mkstemp(writable.data());
     if (fd < 0) {
-        return sketch2::Ret("allowlist builder: failed to create spill file");
+        return sketch2::Ret("bitset filter builder: failed to create spill file");
     }
     TempFileGuard temp_file(fd, writable.data());
 
@@ -161,14 +161,14 @@ sketch2::Ret init_mapped_allowlist(
     }
 
     control->reset();
-    control->storage.kind = AllowlistStorageKind::MappedFile;
+    control->storage.kind = BitsetFilterStorageKind::MappedFile;
     control->storage.size = blob_size;
     control->storage.path = path;
     temp_file.release_file();
 
     ret = control->storage.region.init(
         fd, 0, blob_size, false, sketch2::MappedRegionAccess::Writable,
-        "allowlist builder: mmap spill file");
+        "bitset filter builder: mmap spill file");
     if (ret.code() != 0) {
         control->reset();
         return ret;
@@ -178,7 +178,7 @@ sketch2::Ret init_mapped_allowlist(
     control->storage.data = control->storage.region.mutable_data();
     if (control->storage.data == nullptr) {
         control->reset();
-        return sketch2::Ret("allowlist builder: mapped spill file is not writable");
+        return sketch2::Ret("bitset filter builder: mapped spill file is not writable");
     }
 
     ret = bits.serialize(control->storage.data, blob_size);
@@ -195,14 +195,14 @@ sketch2::Ret init_mapped_allowlist(
     return sketch2::Ret(0);
 }
 
-AllowlistStorageKind allowlist_storage_kind_for_testing(const AllowlistControl* control) {
+BitsetFilterStorageKind bitset_filter_storage_kind_for_testing(const BitsetFilterControl* control) {
     if (control == nullptr) {
-        return AllowlistStorageKind::Heap;
+        return BitsetFilterStorageKind::Heap;
     }
     return control->storage.kind;
 }
 
-const std::filesystem::path& allowlist_temp_path_for_testing(const AllowlistControl* control) {
+const std::filesystem::path& bitset_filter_temp_path_for_testing(const BitsetFilterControl* control) {
     static const std::filesystem::path kEmpty;
     if (control == nullptr) {
         return kEmpty;

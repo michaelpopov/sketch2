@@ -1,13 +1,13 @@
-# Sketch2 API Allowlist Blob Format
+# Sketch2 API Bitset Filter Blob Format
 
-Sketch2 supports one allowlist format: a serialized chunked-Roaring BLOB.
+Sketch2 supports one bitset filter format: a serialized chunked-Roaring BLOB.
 
 `sk_knn_items(...)` and `sk_knn_vector_items(...)` accept:
 
 - `allowed_ids_blob == nullptr && allowed_ids_blob_size == 0`: no filter
 - otherwise: a caller-owned 32-byte-aligned chunked-Roaring BLOB
 
-Non-null allowlist buffers that are not 32-byte aligned are rejected. A header
+Non-null bitset filter buffers that are not 32-byte aligned are rejected. A header
 with `chunk_count = 0` is an empty filter and matches no ids.
 
 ## Binary Layout
@@ -43,20 +43,20 @@ one chunk, with base id `chunk_id << 20`.
 ## SQLite
 
 `bitset_agg(id)` builds this serialized format inside an API-owned opaque
-allowlist object and returns that object to SQLite as a typed pointer. The
+bitset filter object and returns that object to SQLite as a typed pointer. The
 object may keep the serialized bytes in heap memory or in a temporary mapped
 file. SQLite does not allocate the serialized buffer and releases the object by
 calling the Sketch2 API release function registered with the pointer value.
 
-`sk_allowlist_builder_finish()` uses the same opaque ownership model for
-in-process callers. Pass the returned object to `sk_knn_items_allowlist()` and
-release it with `sk_release_allowlist()`, which handles either heap-backed or
+`sk_bitset_filter_builder_finish()` uses the same opaque ownership model for
+in-process callers. Pass the returned object to `sk_knn_items_bitset_filter()` and
+release it with `sk_release_bitset_filter()`, which handles either heap-backed or
 mmap-backed storage.
 
-Mapped spill only avoids allocating the final serialized allowlist buffer with
+Mapped spill only avoids allocating the final serialized bitset filter buffer with
 `aligned_alloc`. The aggregation builder still accumulates `ChunkedBits` /
 `RoaringIdsBuilder` state in memory before serialization, so very large
-allowlists can still run out of memory before spill is reached.
+bitset filters can still run out of memory before spill is reached.
 
 Ordinary SQL `BLOB` values are still accepted by `allowed_ids` only when SQLite
 provides a 32-byte-aligned pointer.

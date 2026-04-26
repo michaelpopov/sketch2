@@ -167,12 +167,12 @@ void build_allowed_ids_blob(const std::vector<uint64_t>& ids, AlignedBlob* blob)
     EXPECT_EQ(0, bits.serialize(blob->data, blob->size).code());
 }
 
-void* build_opaque_allowlist(const std::vector<uint64_t>& ids) {
+void* build_opaque_bitset_filter(const std::vector<uint64_t>& ids) {
     void* state = nullptr;
     bool out_of_memory = false;
     const char* error_message = nullptr;
     for (uint64_t id : ids) {
-        EXPECT_EQ(0, sk_allowlist_builder_add(&state, id, &out_of_memory, &error_message))
+        EXPECT_EQ(0, sk_bitset_filter_builder_add(&state, id, &out_of_memory, &error_message))
             << (error_message != nullptr ? error_message : "");
         if (::testing::Test::HasFailure()) {
             delete static_cast<sketch2::ChunkedBits*>(state);
@@ -181,13 +181,13 @@ void* build_opaque_allowlist(const std::vector<uint64_t>& ids) {
     }
 
     void* out = nullptr;
-    EXPECT_EQ(0, sk_allowlist_builder_finish(&state, &out, &out_of_memory, &error_message))
+    EXPECT_EQ(0, sk_bitset_filter_builder_finish(&state, &out, &out_of_memory, &error_message))
         << (error_message != nullptr ? error_message : "");
     EXPECT_EQ(nullptr, state);
     return out;
 }
 
-std::vector<uint64_t> make_spill_allowlist_ids() {
+std::vector<uint64_t> make_spill_bitset_filter_ids() {
     std::vector<uint64_t> ids;
     ids.reserve(50002);
     ids.push_back(20);
@@ -198,17 +198,17 @@ std::vector<uint64_t> make_spill_allowlist_ids() {
     return ids;
 }
 
-std::string allowlist_temp_path_for_testing(void* allowlist) {
-    const size_t required = sk_allowlist_temp_path_for_testing(allowlist, nullptr, 0);
+std::string bitset_filter_temp_path_for_testing(void* bitset_filter) {
+    const size_t required = sk_bitset_filter_temp_path_for_testing(bitset_filter, nullptr, 0);
     std::string out(required, '\0');
     if (required == 0) {
         char terminator = 'x';
-        EXPECT_EQ(0u, sk_allowlist_temp_path_for_testing(allowlist, &terminator, 1));
+        EXPECT_EQ(0u, sk_bitset_filter_temp_path_for_testing(bitset_filter, &terminator, 1));
         EXPECT_EQ('\0', terminator);
         return out;
     }
     std::vector<char> buf(required + 1);
-    EXPECT_EQ(required, sk_allowlist_temp_path_for_testing(allowlist, buf.data(), buf.size()));
+    EXPECT_EQ(required, sk_bitset_filter_temp_path_for_testing(bitset_filter, buf.data(), buf.size()));
     return std::string(buf.data());
 }
 
@@ -560,28 +560,28 @@ TEST(sketch2api, knn_vector_items_matches_text_knn_items_with_bitset_filter) {
     std::filesystem::remove_all(root);
 }
 
-TEST(sketch2api, allowlist_builder_small_uses_heap_and_releases_cleanly) {
-    void* allowlist = build_opaque_allowlist({20, 40});
-    ASSERT_NE(nullptr, allowlist);
-    EXPECT_EQ(0, sk_allowlist_storage_kind_for_testing(allowlist));
-    EXPECT_EQ("", allowlist_temp_path_for_testing(allowlist));
-    sk_release_allowlist(allowlist);
+TEST(sketch2api, bitset_filter_builder_small_uses_heap_and_releases_cleanly) {
+    void* bitset_filter = build_opaque_bitset_filter({20, 40});
+    ASSERT_NE(nullptr, bitset_filter);
+    EXPECT_EQ(0, sk_bitset_filter_storage_kind_for_testing(bitset_filter));
+    EXPECT_EQ("", bitset_filter_temp_path_for_testing(bitset_filter));
+    sk_release_bitset_filter(bitset_filter);
 }
 
-TEST(sketch2api, allowlist_builder_spills_to_mapped_file_and_removes_temp_file) {
-    void* allowlist = build_opaque_allowlist(make_spill_allowlist_ids());
-    ASSERT_NE(nullptr, allowlist);
-    ASSERT_EQ(1, sk_allowlist_storage_kind_for_testing(allowlist));
+TEST(sketch2api, bitset_filter_builder_spills_to_mapped_file_and_removes_temp_file) {
+    void* bitset_filter = build_opaque_bitset_filter(make_spill_bitset_filter_ids());
+    ASSERT_NE(nullptr, bitset_filter);
+    ASSERT_EQ(1, sk_bitset_filter_storage_kind_for_testing(bitset_filter));
 
-    const std::filesystem::path temp_path(allowlist_temp_path_for_testing(allowlist));
+    const std::filesystem::path temp_path(bitset_filter_temp_path_for_testing(bitset_filter));
     ASSERT_FALSE(temp_path.empty());
     EXPECT_TRUE(std::filesystem::exists(temp_path));
 
-    sk_release_allowlist(allowlist);
+    sk_release_bitset_filter(bitset_filter);
     EXPECT_FALSE(std::filesystem::exists(temp_path));
 }
 
-TEST(sketch2api, knn_items_allowlist_filters_with_spilled_allowlist) {
+TEST(sketch2api, knn_items_bitset_filter_filters_with_spilled_bitset_filter) {
     const std::filesystem::path root = make_temp_dir();
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
@@ -595,15 +595,15 @@ TEST(sketch2api, knn_items_allowlist_filters_with_spilled_allowlist) {
     ASSERT_OK(handle, sk_write_vector(handle, 40, "40.0, 40.0, 40.0, 40.0"));
     ASSERT_OK(handle, sk_complete_writing(handle));
 
-    void* allowlist = build_opaque_allowlist(make_spill_allowlist_ids());
-    ASSERT_NE(nullptr, allowlist);
-    ASSERT_EQ(1, sk_allowlist_storage_kind_for_testing(allowlist));
+    void* bitset_filter = build_opaque_bitset_filter(make_spill_bitset_filter_ids());
+    ASSERT_NE(nullptr, bitset_filter);
+    ASSERT_EQ(1, sk_bitset_filter_storage_kind_for_testing(bitset_filter));
 
     uint64_t* ids = nullptr;
     double* scores = nullptr;
     size_t count = 0;
-    ASSERT_EQ(0, sk_knn_items_allowlist(
-        handle, "25.0, 25.0, 25.0, 25.0", 4, allowlist, &ids, &scores, &count))
+    ASSERT_EQ(0, sk_knn_items_bitset_filter(
+        handle, "25.0, 25.0, 25.0, 25.0", 4, bitset_filter, &ids, &scores, &count))
         << sk_error_message(handle);
 
     ASSERT_EQ(2u, count);
@@ -612,7 +612,7 @@ TEST(sketch2api, knn_items_allowlist_filters_with_spilled_allowlist) {
 
     sk_free(ids);
     sk_free(scores);
-    sk_release_allowlist(allowlist);
+    sk_release_bitset_filter(bitset_filter);
 
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
