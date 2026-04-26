@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include "allowlist_control.h"
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
 #include "core/utils/chunked_bits.h"
@@ -596,7 +597,7 @@ int sk_knn_items_allowlist_(sk_handle_t* handle, const char* vec, unsigned int k
         return sk_knn_items_(handle, vec, k, nullptr, 0, ids_out, scores_out, count_out);
     }
 
-    const auto* view = static_cast<const ChunkedBitsView*>(allowed_ids);
+    const auto* control = static_cast<const AllowlistControl*>(allowed_ids);
     DECL
 
     if (handle->ds == nullptr) {
@@ -609,7 +610,7 @@ int sk_knn_items_allowlist_(sk_handle_t* handle, const char* vec, unsigned int k
     *scores_out = nullptr;
     *count_out = 0;
 
-    const BitsetFilter bitset_filter{.view = view};
+    const BitsetFilter bitset_filter{.view = &control->view};
     std::vector<DistItem> items;
     Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), &bitset_filter, &items);
     if (ret.code() != 0) {

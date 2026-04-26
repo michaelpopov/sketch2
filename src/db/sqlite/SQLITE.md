@@ -127,8 +127,18 @@ WHERE label = 3;
 ```
 
 The aggregate returns an API-owned typed pointer that wraps the serialized
-chunked-Roaring format documented in `src/sketch2api/BITSET.md`. SQLite calls
-Sketch2's release function when that pointer value is destroyed.
+chunked-Roaring format documented in `src/sketch2api/BITSET.md`. The opaque
+object may be heap-backed or mmap-backed. SQLite calls Sketch2's release
+function when that pointer value is destroyed, and the release path handles
+either storage kind.
+
+Raw SQL `BLOB` allowlists are still accepted only when SQLite provides a
+32-byte-aligned caller-owned buffer. Spillover applies to the opaque
+`bitset_agg(id)` result, not to arbitrary BLOB values.
+
+Mapped spill only avoids allocating the final serialized allowlist buffer with
+`aligned_alloc`. The aggregate still accumulates its `ChunkedBits` /
+`RoaringIdsBuilder` working state in memory before serialization.
 
 ## Dataset Metadata (`dataset.ini`)
 
@@ -159,6 +169,11 @@ Set before loading extension:
 - `SKETCH2_LOG_LEVEL`
 - `SKETCH2_THREAD_POOL_SIZE`
 - `SKETCH2_LOG_FILE`
+- `SKETCH2_ALLOWLIST_SPILL_THRESHOLD_BYTES`
+- `SKETCH2_ALLOWLIST_SPILL_DIR`
+
+The allowlist spill settings apply only to the finalized serialized buffer, not
+to the in-memory `bitset_agg(id)` builder state.
 
 ## Score Functions
 

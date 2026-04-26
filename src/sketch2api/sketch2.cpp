@@ -1,6 +1,7 @@
 // Implements the public C API for dataset lifecycle, mutation, and query operations.
 
 #include "sketch2.h"
+#include "allowlist_control.h"
 #include "sketch2api_testing.h"
 #include "internal.h"
 #include "sketch2api_utils.h"
@@ -8,15 +9,15 @@
 #include "core/compute/highway.h"
 #include "core/utils/chunked_bits.h"
 #include "core/utils/log.h"
-#include "core/utils/shared_consts.h"
 #include "core/utils/singleton.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <limits>
 #include <memory>
 #include <new>
+#include <string>
 
 using namespace sketch2;
 using namespace sketch2::log;
@@ -48,15 +49,6 @@ namespace {
     handle->error = 0; \
     handle->message[0] = '\0';
 
-bool align_up_size(size_t value, size_t alignment, size_t* out) {
-    const size_t mask = alignment - 1u;
-    if (value > std::numeric_limits<size_t>::max() - mask) {
-        return false;
-    }
-    *out = (value + mask) & ~mask;
-    return true;
-}
-
 void set_builder_error(bool* out_of_memory, const char** error_message_out,
         bool is_nomem, const char* message) {
     if (out_of_memory != nullptr) {
@@ -65,6 +57,13 @@ void set_builder_error(bool* out_of_memory, const char** error_message_out,
     if (error_message_out != nullptr) {
         *error_message_out = message;
     }
+}
+
+void set_builder_error(bool* out_of_memory, const char** error_message_out,
+        bool is_nomem, const std::string& message) {
+    static thread_local std::string last_builder_error;
+    last_builder_error = message;
+    set_builder_error(out_of_memory, error_message_out, is_nomem, last_builder_error.c_str());
 }
 
 } // namespace
@@ -344,6 +343,7 @@ int sk_allowlist_builder_finish(
             chunked_bits = new ChunkedBits();
         }
         std::unique_ptr<ChunkedBits> bits(chunked_bits);
+        (void)sketch2_runtime_init();
 
         const Ret finish_ret = bits->finish();
         if (finish_ret.code() != 0) {
@@ -353,41 +353,30 @@ int sk_allowlist_builder_finish(
         }
 
         const size_t blob_size = bits->serialized_size_bytes();
-        size_t allocation_size = 0;
         if (blob_size == 0) {
             set_builder_error(out_of_memory, error_message_out, false,
                 "allowlist builder: serialized blob size is unavailable");
             return -1;
         }
-        if (!align_up_size(blob_size, kChunkedBitsBlobAlignment, &allocation_size)) {
-            set_builder_error(out_of_memory, error_message_out, false,
-                "allowlist builder: serialized blob is too large");
-            return -1;
-        }
 
-        void* blob = std::aligned_alloc(kChunkedBitsBlobAlignment, allocation_size);
-        if (blob == nullptr) {
-            set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        auto control = std::make_unique<AllowlistControl>();
+        const Singleton& singleton = get_singleton();
+        const Ret control_ret = blob_size <= singleton.allowlist_spill_threshold_bytes()
+            ? init_heap_allowlist(*bits, blob_size, control.get())
+            : init_mapped_allowlist(*bits, blob_size, singleton.allowlist_spill_dir(), control.get());
+        if (control_ret.code() != 0) {
+            const bool nomem = control_ret.message() == "sketch2: out of memory";
+            if (nomem) {
+                set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+            } else if (!control_ret.message().empty()) {
+                set_builder_error(out_of_memory, error_message_out, false, control_ret.message());
+            } else {
+                set_builder_error(out_of_memory, error_message_out, false,
+                    "allowlist builder: init failed");
+            }
             return -1;
         }
-        std::unique_ptr<void, decltype(&std::free)> blob_guard(blob, std::free);
-
-        const Ret serialize_ret = bits->serialize(blob, blob_size);
-        if (serialize_ret.code() != 0) {
-            set_builder_error(out_of_memory, error_message_out, false,
-                "allowlist builder: serialize failed");
-            return -1;
-        }
-
-        auto view = std::make_unique<ChunkedBitsView>();
-        const Ret view_ret = view->init_owned_blob(blob, blob_size);
-        if (view_ret.code() != 0) {
-            set_builder_error(out_of_memory, error_message_out, false,
-                "allowlist builder: view init failed");
-            return -1;
-        }
-        blob_guard.release();
-        *out = view.release();
+        *out = control.release();
         return 0;
     } catch (const std::bad_alloc&) {
         set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
@@ -402,7 +391,7 @@ int sk_allowlist_builder_finish(
 }
 
 void sk_release_allowlist(void* ptr) {
-    delete static_cast<ChunkedBitsView*>(ptr);
+    delete static_cast<AllowlistControl*>(ptr);
 }
 
 void sk_set_log_level(const char* log_level) {
@@ -429,4 +418,33 @@ const char* sk_knn_engine_name_for_testing(void) {
     } catch (...) {
         return "";
     }
+}
+
+int sk_allowlist_storage_kind_for_testing(const void* ptr) {
+    if (ptr == nullptr) {
+        return -1;
+    }
+    const auto* control = static_cast<const AllowlistControl*>(ptr);
+    switch (allowlist_storage_kind_for_testing(control)) {
+        case AllowlistStorageKind::Heap:
+            return 0;
+        case AllowlistStorageKind::MappedFile:
+            return 1;
+    }
+    return -1;
+}
+
+size_t sk_allowlist_temp_path_for_testing(const void* ptr, char* buf, size_t buf_size) {
+    std::string path;
+    if (ptr != nullptr) {
+        const auto* control = static_cast<const AllowlistControl*>(ptr);
+        path = allowlist_temp_path_for_testing(control).string();
+    }
+
+    if (buf != nullptr && buf_size > 0) {
+        const size_t copy_len = std::min(path.size(), buf_size - 1);
+        std::memcpy(buf, path.data(), copy_len);
+        buf[copy_len] = '\0';
+    }
+    return path.size();
 }

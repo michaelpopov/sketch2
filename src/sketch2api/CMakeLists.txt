@@ -1,4 +1,5 @@
 add_library(sketch2api STATIC
+  allowlist_control.cpp
   internal.cpp
   sketch2.cpp
   sketch2api_utils.cpp

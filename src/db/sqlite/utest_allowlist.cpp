@@ -8,6 +8,7 @@
 #include "sqlite3.h"
 
 #include "sketch2api/sketch2.h"
+#include "utils/chunked_bits.h"
 #include "utils/shared_types.h"
 
 #include <algorithm>
@@ -658,6 +659,37 @@ TEST_F(AllowlistSqlTest, BitsetAggLargeAggregateAcrossManyRows) {
         "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 10 "
         "AND allowed_ids = (SELECT bitset_agg(id) FROM many)");
     EXPECT_EQ((std::vector<uint64_t>{10, 20, 30, 40, 50}), ids);
+}
+
+TEST_F(AllowlistSqlTest, BitsetAggSpillSizedTypedPointerFiltersQuery) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    exec_sql(db.get(), "CREATE TABLE many(id INTEGER)");
+    sqlite3_exec(db.get(), "BEGIN", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    ASSERT_EQ(SQLITE_OK,
+        sqlite3_prepare_v2(db.get(), "INSERT INTO many(id) VALUES (?)", -1, &stmt, nullptr));
+    sqlite3_bind_int64(stmt, 1, 20);
+    ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+    sqlite3_reset(stmt);
+    sqlite3_bind_int64(stmt, 1, 40);
+    ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+    sqlite3_reset(stmt);
+    for (uint64_t i = 0; i < 50000; ++i) {
+        sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>((i + 1) << kChunkBits));
+        ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+        sqlite3_reset(stmt);
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_exec(db.get(), "COMMIT", nullptr, nullptr, nullptr);
+
+    const auto ids = sorted_query_ids(db.get(),
+        "SELECT id FROM nn "
+        "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM many)");
+    EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
 }
 
 TEST_F(AllowlistSqlTest, BitsetAggGroupByCollapsedToSingleAllowlist) {

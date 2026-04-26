@@ -2,6 +2,7 @@
 
 #include "sketch2.h"
 #include "internal.h"
+#include "sketch2api_testing.h"
 
 #include "core/utils/chunked_bits.h"
 #include "storage/input_generator.h"
@@ -164,6 +165,51 @@ void build_allowed_ids_blob(const std::vector<uint64_t>& ids, AlignedBlob* blob)
     blob->data = std::aligned_alloc(sketch2::kChunkedBitsBlobAlignment, blob->allocation_size);
     ASSERT_NE(nullptr, blob->data);
     EXPECT_EQ(0, bits.serialize(blob->data, blob->size).code());
+}
+
+void* build_opaque_allowlist(const std::vector<uint64_t>& ids) {
+    void* state = nullptr;
+    bool out_of_memory = false;
+    const char* error_message = nullptr;
+    for (uint64_t id : ids) {
+        EXPECT_EQ(0, sk_allowlist_builder_add(&state, id, &out_of_memory, &error_message))
+            << (error_message != nullptr ? error_message : "");
+        if (::testing::Test::HasFailure()) {
+            delete static_cast<sketch2::ChunkedBits*>(state);
+            return nullptr;
+        }
+    }
+
+    void* out = nullptr;
+    EXPECT_EQ(0, sk_allowlist_builder_finish(&state, &out, &out_of_memory, &error_message))
+        << (error_message != nullptr ? error_message : "");
+    EXPECT_EQ(nullptr, state);
+    return out;
+}
+
+std::vector<uint64_t> make_spill_allowlist_ids() {
+    std::vector<uint64_t> ids;
+    ids.reserve(50002);
+    ids.push_back(20);
+    ids.push_back(40);
+    for (uint64_t i = 0; i < 50000; ++i) {
+        ids.push_back((i + 1) << sketch2::kChunkBits);
+    }
+    return ids;
+}
+
+std::string allowlist_temp_path_for_testing(void* allowlist) {
+    const size_t required = sk_allowlist_temp_path_for_testing(allowlist, nullptr, 0);
+    std::string out(required, '\0');
+    if (required == 0) {
+        char terminator = 'x';
+        EXPECT_EQ(0u, sk_allowlist_temp_path_for_testing(allowlist, &terminator, 1));
+        EXPECT_EQ('\0', terminator);
+        return out;
+    }
+    std::vector<char> buf(required + 1);
+    EXPECT_EQ(required, sk_allowlist_temp_path_for_testing(allowlist, buf.data(), buf.size()));
+    return std::string(buf.data());
 }
 
 } // namespace
@@ -507,6 +553,66 @@ TEST(sketch2api, knn_vector_items_matches_text_knn_items_with_bitset_filter) {
     sk_free(text_scores);
     sk_free(vector_ids);
     sk_free(vector_scores);
+
+    EXPECT_OK(handle, sk_close(handle));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_release_handle(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, allowlist_builder_small_uses_heap_and_releases_cleanly) {
+    void* allowlist = build_opaque_allowlist({20, 40});
+    ASSERT_NE(nullptr, allowlist);
+    EXPECT_EQ(0, sk_allowlist_storage_kind_for_testing(allowlist));
+    EXPECT_EQ("", allowlist_temp_path_for_testing(allowlist));
+    sk_release_allowlist(allowlist);
+}
+
+TEST(sketch2api, allowlist_builder_spills_to_mapped_file_and_removes_temp_file) {
+    void* allowlist = build_opaque_allowlist(make_spill_allowlist_ids());
+    ASSERT_NE(nullptr, allowlist);
+    ASSERT_EQ(1, sk_allowlist_storage_kind_for_testing(allowlist));
+
+    const std::filesystem::path temp_path(allowlist_temp_path_for_testing(allowlist));
+    ASSERT_FALSE(temp_path.empty());
+    EXPECT_TRUE(std::filesystem::exists(temp_path));
+
+    sk_release_allowlist(allowlist);
+    EXPECT_FALSE(std::filesystem::exists(temp_path));
+}
+
+TEST(sketch2api, knn_items_allowlist_filters_with_spilled_allowlist) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_new_handle(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 10, "10.0, 10.0, 10.0, 10.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 20, "20.0, 20.0, 20.0, 20.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 30, "30.0, 30.0, 30.0, 30.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 40, "40.0, 40.0, 40.0, 40.0"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    void* allowlist = build_opaque_allowlist(make_spill_allowlist_ids());
+    ASSERT_NE(nullptr, allowlist);
+    ASSERT_EQ(1, sk_allowlist_storage_kind_for_testing(allowlist));
+
+    uint64_t* ids = nullptr;
+    double* scores = nullptr;
+    size_t count = 0;
+    ASSERT_EQ(0, sk_knn_items_allowlist(
+        handle, "25.0, 25.0, 25.0, 25.0", 4, allowlist, &ids, &scores, &count))
+        << sk_error_message(handle);
+
+    ASSERT_EQ(2u, count);
+    EXPECT_EQ(40u, ids[0]);
+    EXPECT_EQ(20u, ids[1]);
+
+    sk_free(ids);
+    sk_free(scores);
+    sk_release_allowlist(allowlist);
 
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));

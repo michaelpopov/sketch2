@@ -26,4 +26,11 @@ The underlying serialized format is documented in
 
 SQLite never allocates or frees the `bitset_agg(id)` buffer directly. It stores
 the typed pointer temporarily and calls Sketch2's release function when the
-value is destroyed.
+value is destroyed. The pointed-to opaque allowlist object may be heap-backed
+or mmap-backed, and `sk_release_allowlist()` releases either kind correctly.
+
+Raw `BLOB` allowlists remain caller-owned 32-byte-aligned buffers. The mapped
+spill path is only for opaque allowlists produced by `bitset_agg(id)` /
+`sk_allowlist_builder_finish()`. It avoids allocating the final serialized
+allowlist buffer with `aligned_alloc`; the aggregate still accumulates builder
+state in memory before that final buffer is created.
