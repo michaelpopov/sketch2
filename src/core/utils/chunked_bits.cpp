@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -87,6 +88,22 @@ uint64_t read_u64_le(const uint8_t* data) {
 
 } // namespace
 
+Ret ChunkedBits::set_name(const char* name) {
+    if (name == nullptr) {
+        return Ret(0);
+    }
+
+    for (const char* s = name; *s; s++) {
+        if (!std::isalnum(static_cast<unsigned char>(*s)) && *s != '_') {
+            return Ret(-1);
+        }
+    }
+
+    name_ = name;
+
+    return Ret(0);
+}
+
 Ret ChunkedBits::add(uint64_t id) {
     if (finished_) {
         return Ret("ChunkedBits::add: cannot add after finish");
@@ -140,27 +157,6 @@ Ret ChunkedBits::finish() {
         });
     finished_ = true;
     return Ret(0);
-}
-
-bool ChunkedBits::contains(uint64_t id) const {
-    const uint64_t chunk_id = get_chunk_id(id);
-    const auto it = std::lower_bound(chunks_.begin(), chunks_.end(), chunk_id,
-        [](const Chunk& chunk, uint64_t value) {
-            return chunk.chunk_id < value;
-        });
-    return it != chunks_.end() && it->chunk_id == chunk_id && it->ids.contains(id);
-}
-
-bool ChunkedBits::empty() const {
-    if (!finished_) {
-        return builders_.empty();
-    }
-    for (const Chunk& chunk : chunks_) {
-        if (!chunk.ids.empty()) {
-            return false;
-        }
-    }
-    return true;
 }
 
 Ret ChunkedBits::compute_serialized_size_bytes(size_t* out) const {

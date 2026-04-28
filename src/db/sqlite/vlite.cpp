@@ -203,7 +203,7 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     if (context == nullptr) {
         return;
     }
-    if (argc != 1 || argv == nullptr) {
+    if ((argc != 1 && argc != 2) || argv == nullptr) {
         sqlite3_result_error(context, "bitset_agg: invalid arguments", -1);
         return;
     }
@@ -215,6 +215,15 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     }
     if (state->has_error) {
         return;
+    }
+
+    if (argc == 2) {
+        const int parameter_type = sqlite3_value_type(argv[1]);
+        if (parameter_type != SQLITE_NULL && parameter_type != SQLITE_TEXT) {
+            set_bitset_agg_error(state, false, "bitset_agg: parameter must be a string");
+            sqlite3_result_error(context, state->error_message, -1);
+            return;
+        }
     }
 
     sqlite3_value* value = argv[0];
@@ -235,9 +244,12 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
         return;
     }
 
+    const char* name = argc == 2 && sqlite3_value_type(argv[1]) != SQLITE_NULL
+        ? reinterpret_cast<const char*>(sqlite3_value_text(argv[1]))
+        : nullptr;
     const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
     if (sk_bitset_filter_builder_add(
-            &state->bitset_filter_builder, id_u64, &state->has_nomem, &state->error_message) != 0) {
+            &state->bitset_filter_builder, id_u64, &state->has_nomem, &state->error_message, name) != 0) {
         state->has_error = true;
         if (state->has_nomem) {
             sqlite3_result_error_nomem(context);
@@ -875,7 +887,7 @@ extern "C" int sqlite3_sketch2_init(sqlite3* db, char** pz_err_msg, const sqlite
         rc = sqlite3_create_function_v2(
             db,
             "bitset_agg",
-            1,
+            -1,
             SQLITE_UTF8,
             nullptr,
             nullptr,

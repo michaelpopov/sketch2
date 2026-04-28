@@ -291,7 +291,8 @@ void sk_free(void* ptr) {
 }
 
 int sk_bitset_filter_builder_add(
-        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
+        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out,
+        const char* name) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     if (state == nullptr) {
         set_builder_error(out_of_memory, error_message_out, false,
@@ -303,6 +304,11 @@ int sk_bitset_filter_builder_add(
         auto* chunked_bits = static_cast<ChunkedBits*>(*state);
         if (chunked_bits == nullptr) {
             chunked_bits = new ChunkedBits();
+            if (chunked_bits->set_name(name).code() != 0) {
+                set_builder_error(out_of_memory, error_message_out, false, 
+                    "sketch2: invalid bitset filter name");
+                return -1;
+            }
             *state = chunked_bits;
         }
 

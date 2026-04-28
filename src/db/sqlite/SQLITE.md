@@ -114,14 +114,19 @@ LIMIT 5 OFFSET 10;
 `allowed_ids` is optional.
 
 - `NULL` means no filtering
-- the typed pointer returned by `bitset_agg(id)` applies filtering
+- the typed pointer returned by `bitset_agg(id[, parameter])` applies filtering
 - `BLOB` applies filtering when SQLite provides a 32-byte-aligned pointer
 - non-`BLOB` and non-`NULL` values are rejected
 
-`bitset_agg(id)` accepts ids in any order:
+`bitset_agg(id[, parameter])` accepts ids in any order. The optional parameter
+must be a string when present:
 
 ```sql
 SELECT bitset_agg(id)
+FROM labels
+WHERE label = 3;
+
+SELECT bitset_agg(id, 'parameter')
 FROM labels
 WHERE label = 3;
 ```
@@ -134,7 +139,7 @@ either storage kind.
 
 Raw SQL `BLOB` bitset filters are still accepted only when SQLite provides a
 32-byte-aligned caller-owned buffer. Spillover applies to the opaque
-`bitset_agg(id)` result, not to arbitrary BLOB values.
+`bitset_agg(id[, parameter])` result, not to arbitrary BLOB values.
 
 Mapped spill only avoids allocating the final serialized bitset filter buffer with
 `aligned_alloc`. The aggregate still accumulates its `ChunkedBits` /

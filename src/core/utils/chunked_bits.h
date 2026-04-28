@@ -40,10 +40,10 @@ public:
 
     Ret add(uint64_t id);
     Ret finish();
-    bool contains(uint64_t id) const;
-    bool empty() const;
     size_t serialized_size_bytes() const;
     Ret serialize(void* out, size_t size) const;
+
+    Ret set_name(const char* name);
 
 private:
     using BuildersMap = std::unordered_map<uint64_t, RoaringIdsBuilder>;
@@ -66,6 +66,7 @@ private:
     RoaringIdsBuilder* last_builder_ = nullptr;
     std::vector<Chunk> chunks_;
     bool finished_ = false;
+    std::string name_;
 };
 
 // ChunkedBitsView reads serialized ChunkedBits blobs without copying payloads:

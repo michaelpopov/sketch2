@@ -172,7 +172,7 @@ void* build_opaque_bitset_filter(const std::vector<uint64_t>& ids) {
     bool out_of_memory = false;
     const char* error_message = nullptr;
     for (uint64_t id : ids) {
-        EXPECT_EQ(0, sk_bitset_filter_builder_add(&state, id, &out_of_memory, &error_message))
+        EXPECT_EQ(0, sk_bitset_filter_builder_add(&state, id, &out_of_memory, &error_message, nullptr))
             << (error_message != nullptr ? error_message : "");
         if (::testing::Test::HasFailure()) {
             delete static_cast<sketch2::ChunkedBits*>(state);

@@ -912,6 +912,32 @@ TEST_F(VliteTest, BitsetAggRejectsInvalidInputValues) {
     expect_query_error(db.get(),
         "SELECT bitset_agg(id) FROM (SELECT 'oops' AS id)",
         "must be an integer");
+    expect_query_error(db.get(),
+        "SELECT bitset_agg(id, 123) FROM (SELECT 1 AS id)",
+        "parameter must be a string");
+}
+
+TEST_F(VliteTest, BitsetAggAcceptsOptionalStringParameter) {
+    write_input("f32,4\n"
+                "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+                "20 : [ 20.0, 20.0, 20.0, 20.0 ]\n"
+                "30 : [ 30.0, 30.0, 30.0, 30.0 ]\n");
+    create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
+
+    SqliteDbPtr db = open_db_with_extension();
+    ASSERT_NE(nullptr, db);
+    create_virtual_table(db.get());
+
+    const auto rows = query_results(db.get(),
+        "SELECT id, score FROM nn "
+        "WHERE query = '20.0, 20.0, 20.0, 20.0' AND k = 3 "
+        "AND allowed_ids = (SELECT bitset_agg(id, 'optional') "
+        "                   FROM (SELECT 20 AS id UNION ALL SELECT 10))");
+
+    ASSERT_EQ(2u, rows.size());
+    std::vector<uint64_t> ids{rows[0].first, rows[1].first};
+    std::sort(ids.begin(), ids.end());
+    EXPECT_EQ((std::vector<uint64_t>{10, 20}), ids);
 }
 
 TEST_F(VliteTest, BitsetAggAcceptsDescendingIds) {
