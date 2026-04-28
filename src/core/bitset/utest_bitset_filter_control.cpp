@@ -146,8 +146,8 @@ TEST(bitset_filter_control, load_named_filter_maps_persistent_file) {
     ASSERT_NE(nullptr, loaded);
     EXPECT_EQ(BitsetFilterStorageKind::MappedFile,
         bitset_filter_storage_kind_for_testing(loaded.get()));
-    EXPECT_NE(nullptr, loaded->storage.data);
-    EXPECT_EQ(nullptr, loaded->storage.writable_data);
+    EXPECT_NE(nullptr, loaded->storage.data());
+    EXPECT_EQ(nullptr, loaded->storage.writable_data());
     EXPECT_GE(loaded->storage.fd, 0);
 
     auto it = loaded->view.begin();
@@ -166,8 +166,8 @@ TEST(bitset_filter_control, large_filter_spills_to_temporary_mapped_file) {
 
     ASSERT_EQ(BitsetFilterStorageKind::MappedFileTemporary,
         bitset_filter_storage_kind_for_testing(control.get()));
-    EXPECT_NE(nullptr, control->storage.data);
-    EXPECT_NE(nullptr, control->storage.writable_data);
+    EXPECT_NE(nullptr, control->storage.data());
+    EXPECT_NE(nullptr, control->storage.writable_data());
     EXPECT_GE(control->storage.fd, 0);
     EXPECT_EQ(visible_spill_files_before, count_visible_temporary_spill_files());
 

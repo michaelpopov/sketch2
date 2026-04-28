@@ -30,10 +30,18 @@ struct BitsetFilterStorage {
 
     void reset();
 
+    const void* data() const;
+    void* writable_data();
+    size_t size() const;
+
     BitsetFilterStorageKind kind = BitsetFilterStorageKind::Heap;
-    const void* data = nullptr;
-    void* writable_data = nullptr;
-    size_t size = 0;
+
+    // Heap mode only. Aligned-allocated blob; nullptr in mapped modes.
+    void* heap_blob = nullptr;
+    size_t heap_size = 0;
+
+    // Mapped modes only. Region owns the mmap; fd is paired with it for
+    // close on reset. Empty in heap mode.
     int fd = -1;
     MappedRegion region;
 };

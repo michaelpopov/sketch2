@@ -137,21 +137,36 @@ BitsetFilterStorage::~BitsetFilterStorage() {
 }
 
 void BitsetFilterStorage::reset() {
-    if (writable_data != nullptr && kind == BitsetFilterStorageKind::Heap) {
-        std::free(writable_data);
-    }
-    if (kind == BitsetFilterStorageKind::MappedFile ||
-            kind == BitsetFilterStorageKind::MappedFileTemporary) {
+    if (kind == BitsetFilterStorageKind::Heap) {
+        if (heap_blob != nullptr) {
+            std::free(heap_blob);
+        }
+    } else {
         region.reset();
         if (fd >= 0) {
             close(fd);
         }
     }
     kind = BitsetFilterStorageKind::Heap;
-    data = nullptr;
-    writable_data = nullptr;
-    size = 0;
+    heap_blob = nullptr;
+    heap_size = 0;
     fd = -1;
+}
+
+const void* BitsetFilterStorage::data() const {
+    return kind == BitsetFilterStorageKind::Heap
+        ? heap_blob
+        : static_cast<const void*>(region.data());
+}
+
+void* BitsetFilterStorage::writable_data() {
+    return kind == BitsetFilterStorageKind::Heap
+        ? heap_blob
+        : static_cast<void*>(region.mutable_data());
+}
+
+size_t BitsetFilterStorage::size() const {
+    return kind == BitsetFilterStorageKind::Heap ? heap_size : region.size();
 }
 
 void BitsetFilterControl::reset() {
@@ -249,17 +264,16 @@ Ret BitsetFilterControl::init_heap_from_bits_(
 
     reset();
     storage.kind = BitsetFilterStorageKind::Heap;
-    storage.data = blob;
-    storage.writable_data = blob;
-    storage.size = blob_size;
+    storage.heap_blob = blob;
+    storage.heap_size = blob_size;
 
-    Ret ret = bits.serialize(storage.writable_data, blob_size);
+    Ret ret = bits.serialize(storage.heap_blob, blob_size);
     if (ret.code() != 0) {
         reset();
         return ret;
     }
 
-    ret = view.init_blob(storage.data, blob_size);
+    ret = view.init_blob(storage.data(), storage.size());
     if (ret.code() != 0) {
         reset();
         return ret;
@@ -281,7 +295,6 @@ Ret BitsetFilterControl::init_mapped_storage_from_fd_(
 
     reset();
     storage.kind = kind;
-    storage.size = blob_size;
     storage.fd = *fd;
     *fd = -1;
 
@@ -293,20 +306,18 @@ Ret BitsetFilterControl::init_mapped_storage_from_fd_(
         return ret;
     }
 
-    storage.writable_data = storage.region.mutable_data();
-    storage.data = storage.writable_data;
-    if (storage.writable_data == nullptr) {
+    if (storage.writable_data() == nullptr) {
         reset();
         return Ret("bitset filter builder: mapped spill file is not writable");
     }
 
-    ret = bits.serialize(storage.writable_data, blob_size);
+    ret = bits.serialize(storage.writable_data(), blob_size);
     if (ret.code() != 0) {
         reset();
         return ret;
     }
 
-    ret = view.init_blob(storage.data, blob_size);
+    ret = view.init_blob(storage.data(), storage.size());
     if (ret.code() != 0) {
         reset();
         return ret;
@@ -404,7 +415,6 @@ Ret BitsetFilterControl::init_named_mapped_from_file_(const char* name) {
     const size_t blob_size = static_cast<size_t>(statbuf.st_size);
     reset();
     storage.kind = BitsetFilterStorageKind::MappedFile;
-    storage.size = blob_size;
     storage.fd = file.release_fd();
 
     Ret ret = storage.region.init(
@@ -415,13 +425,12 @@ Ret BitsetFilterControl::init_named_mapped_from_file_(const char* name) {
         return ret;
     }
 
-    storage.data = storage.region.data();
-    if (storage.data == nullptr) {
+    if (storage.data() == nullptr) {
         reset();
         return Ret("bitset_load: mapped bitset filter is unavailable");
     }
 
-    ret = view.init_blob(storage.data, storage.size);
+    ret = view.init_blob(storage.data(), storage.size());
     if (ret.code() != 0) {
         const std::string message = ret.message();
         reset();
