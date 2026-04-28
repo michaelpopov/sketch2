@@ -18,7 +18,7 @@
 #include "core/compute/scanner_scan_loops.h"
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"
-#include "core/utils/chunked_bits.h"
+#include "core/bitset/chunked_bits.h"
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"

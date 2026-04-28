@@ -2,9 +2,9 @@
 
 #pragma once
 #include "utils/shared_types.h"
-#include "core/utils/dynamic_bitset.h"
+#include "core/bitset/dynamic_bitset.h"
 #include "core/utils/mapped_region.h"
-#include "core/utils/roaring_ids.h"
+#include "core/bitset/roaring_ids.h"
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_layout.h"
 #include <cassert>

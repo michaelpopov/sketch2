@@ -37,4 +37,3 @@
 - `utest_input_generator.cpp`: Unit tests for synthetic text and binary input generation.
 - `utest_input_reader.cpp`: Unit tests for text and binary input parsing and views.
 - `utest_input_writer.cpp`: Unit tests for indexed-binary input writing and reading.
-- `utest_roaring_ids_helpers.h`: Shared helpers for storage tests that build Roaring id trailers.

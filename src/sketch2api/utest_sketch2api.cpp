@@ -4,10 +4,10 @@
 #include "internal.h"
 #include "sketch2api_testing.h"
 
-#include "core/utils/bitset_filter_control.h"
-#include "core/utils/chunked_bits.h"
+#include "core/bitset/bitset_filter_control.h"
+#include "core/bitset/chunked_bits.h"
 #include "core/utils/singleton.h"
-#include "core/utils/utest_chunked_bits_helpers.h"
+#include "core/bitset/utest_chunked_bits_helpers.h"
 #include "storage/input_generator.h"
 
 #include <chrono>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "utils/chunked_bits.h"
+#include "chunked_bits.h"
 #include "utils/mapped_region.h"
 
 #include <atomic>

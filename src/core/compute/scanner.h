@@ -4,7 +4,7 @@
 #include "core/compute/dist_item.h"
 #include "core/compute/highway.h"
 #include "core/compute/scanner_log_utils.h"
-#include "core/utils/bitset_filter.h"
+#include "core/bitset/bitset_filter.h"
 #include "utils/shared_types.h"
 #include <cstdint>
 #include <exception>

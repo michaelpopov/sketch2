@@ -32,12 +32,9 @@ target_link_libraries(utest_vlite
   PRIVATE
     sketch2api
     compute
-    utils
     sqlite3_lib
     GTest::gtest
-    sketch_compile_options
     sketch_warnings
-    Threads::Threads
     dl
 )
 target_compile_definitions(utest_vlite PRIVATE VLITE_EXTENSION_PATH=\"$<TARGET_FILE:sketch2>\")

@@ -3,7 +3,7 @@
 #pragma once
 #include "core/storage/data_file.h"
 #include "core/storage/data_file_norms.h"
-#include "utils/roaring_ids.h"
+#include "core/bitset/roaring_ids.h"
 #include "utils/shared_types.h"
 #include <cassert>
 #include <cstdio>

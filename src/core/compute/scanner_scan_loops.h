@@ -7,8 +7,8 @@
 #include "core/compute/scanner_heap_utils.h"
 #include "core/compute/scanner_query_context.h"
 #include "core/storage/data_reader.h"
-#include "core/utils/bitset_filter.h"
-#include "core/utils/chunked_bits.h"
+#include "core/bitset/bitset_filter.h"
+#include "core/bitset/chunked_bits.h"
 
 #include <cassert>
 

@@ -6,10 +6,10 @@
 #include "sqlite3.h"
 
 #include "sketch2api/sketch2.h"
-#include "utils/bitset_filter_control.h"
+#include "core/bitset/bitset_filter_control.h"
 #include "utils/singleton.h"
 #include "utils/shared_types.h"
-#include "utils/utest_chunked_bits_helpers.h"
+#include "core/bitset/utest_chunked_bits_helpers.h"
 
 #include <cstdio>
 #include <cstdlib>

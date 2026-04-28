@@ -5,7 +5,7 @@
 #include "core/storage/input_reader.h"
 #include "core/storage/data_file_layout.h"
 #include "core/utils/log.h"
-#include "core/utils/roaring_ids.h"
+#include "core/bitset/roaring_ids.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/timer.h"
 #include <algorithm>

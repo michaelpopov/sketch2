@@ -3,7 +3,7 @@
 #pragma once
 
 #include "roaring.hh"
-#include "shared_types.h"
+#include "utils/shared_types.h"
 
 #include <cstddef>
 #include <cstdint>

@@ -1,8 +1,8 @@
 // Unit tests for BitsetFilterControl storage ownership.
 
 #include "bitset_filter_control.h"
-#include "singleton.h"
 #include "utest_chunked_bits_helpers.h"
+#include "utils/singleton.h"
 
 #include <filesystem>
 #include <fstream>

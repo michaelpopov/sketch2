@@ -6,8 +6,8 @@
 #include "sketch2api_utils.h"
 
 #include "core/compute/highway.h"
-#include "core/utils/bitset_filter_control.h"
-#include "core/utils/chunked_bits.h"
+#include "core/bitset/bitset_filter_control.h"
+#include "core/bitset/chunked_bits.h"
 #include "core/utils/log.h"
 #include "core/utils/singleton.h"
 
