@@ -226,6 +226,22 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
         }
     }
 
+    const char* name = argc == 2 && sqlite3_value_type(argv[1]) != SQLITE_NULL
+        ? reinterpret_cast<const char*>(sqlite3_value_text(argv[1]))
+        : nullptr;
+    if (name != nullptr && sk_bitset_filter_builder_set_name(
+            &state->bitset_filter_builder, &state->has_nomem, &state->error_message, name) != 0) {
+        state->has_error = true;
+        if (state->has_nomem) {
+            sqlite3_result_error_nomem(context);
+            return;
+        }
+        const char* message =
+            state->error_message != nullptr ? state->error_message : "bitset_agg: aggregation failed";
+        sqlite3_result_error(context, message, -1);
+        return;
+    }
+
     sqlite3_value* value = argv[0];
     const int value_type = sqlite3_value_type(value);
     if (value_type == SQLITE_NULL) {
@@ -244,9 +260,6 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
         return;
     }
 
-    const char* name = argc == 2 && sqlite3_value_type(argv[1]) != SQLITE_NULL
-        ? reinterpret_cast<const char*>(sqlite3_value_text(argv[1]))
-        : nullptr;
     const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
     if (sk_bitset_filter_builder_add(
             &state->bitset_filter_builder, id_u64, &state->has_nomem, &state->error_message, name) != 0) {

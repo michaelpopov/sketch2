@@ -42,11 +42,24 @@ one chunk, with base id `chunk_id << 20`.
 
 ## SQLite
 
-`bitset_agg(id)` builds this serialized format inside an API-owned opaque
+`bitset_agg(id[, name])` builds this serialized format inside an API-owned opaque
 bitset filter object and returns that object to SQLite as a typed pointer. The
-object may keep the serialized bytes in heap memory or in a temporary mapped
-file. SQLite does not allocate the serialized buffer and releases the object by
-calling the Sketch2 API release function registered with the pointer value.
+object may keep the serialized bytes in heap memory, in an unlinked temporary
+mapped file, or in a named mapped file when `name` is provided. SQLite does not
+allocate the serialized buffer and releases the object by calling the Sketch2 API
+release function registered with the pointer value.
+
+When `name` is provided on any row observed by the aggregate, Sketch2 publishes
+the serialized filter as `<spill_dir>/<name>.bitset` and leaves that file in
+place after the SQLite pointer is released. This includes groups where all
+observed ids are `NULL`, which publish an empty named filter. Names may contain
+only ASCII letters, digits, and underscores.
+
+Within one aggregate group, the first non-`NULL` `name` observed by the step
+function wins for naming; later non-`NULL` names must pass the same value or the
+aggregate is rejected. If a SQL aggregate has zero rows, SQLite never calls the
+step function, so Sketch2 cannot observe the name argument and no named file is
+published.
 
 `sk_bitset_filter_builder_finish()` uses the same opaque ownership model for
 in-process callers. Pass the returned object to `sk_knn_items_bitset_filter()` and

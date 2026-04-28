@@ -4,7 +4,10 @@
 #include "internal.h"
 #include "sketch2api_testing.h"
 
+#include "core/utils/bitset_filter_control.h"
 #include "core/utils/chunked_bits.h"
+#include "core/utils/singleton.h"
+#include "core/utils/utest_chunked_bits_helpers.h"
 #include "storage/input_generator.h"
 
 #include <chrono>
@@ -57,6 +60,8 @@ std::string read_file(const std::filesystem::path& path) {
     return std::string((std::istreambuf_iterator<char>(in)),
         std::istreambuf_iterator<char>());
 }
+
+using sketch2::test::unique_filter_name;
 
 std::vector<std::filesystem::path> find_staged_input_files(const std::filesystem::path& dataset_dir) {
     std::vector<std::filesystem::path> paths;
@@ -196,20 +201,6 @@ std::vector<uint64_t> make_spill_bitset_filter_ids() {
         ids.push_back((i + 1) << sketch2::kChunkBits);
     }
     return ids;
-}
-
-std::string bitset_filter_temp_path_for_testing(void* bitset_filter) {
-    const size_t required = sk_bitset_filter_temp_path_for_testing(bitset_filter, nullptr, 0);
-    std::string out(required, '\0');
-    if (required == 0) {
-        char terminator = 'x';
-        EXPECT_EQ(0u, sk_bitset_filter_temp_path_for_testing(bitset_filter, &terminator, 1));
-        EXPECT_EQ('\0', terminator);
-        return out;
-    }
-    std::vector<char> buf(required + 1);
-    EXPECT_EQ(required, sk_bitset_filter_temp_path_for_testing(bitset_filter, buf.data(), buf.size()));
-    return std::string(buf.data());
 }
 
 } // namespace
@@ -560,25 +551,38 @@ TEST(sketch2api, knn_vector_items_matches_text_knn_items_with_bitset_filter) {
     std::filesystem::remove_all(root);
 }
 
-TEST(sketch2api, bitset_filter_builder_small_uses_heap_and_releases_cleanly) {
-    void* bitset_filter = build_opaque_bitset_filter({20, 40});
+TEST(sketch2api, bitset_filter_builder_empty_releases_cleanly) {
+    void* bitset_filter = build_opaque_bitset_filter({});
     ASSERT_NE(nullptr, bitset_filter);
     EXPECT_EQ(0, sk_bitset_filter_storage_kind_for_testing(bitset_filter));
-    EXPECT_EQ("", bitset_filter_temp_path_for_testing(bitset_filter));
     sk_release_bitset_filter(bitset_filter);
 }
 
-TEST(sketch2api, bitset_filter_builder_spills_to_mapped_file_and_removes_temp_file) {
-    void* bitset_filter = build_opaque_bitset_filter(make_spill_bitset_filter_ids());
-    ASSERT_NE(nullptr, bitset_filter);
-    ASSERT_EQ(1, sk_bitset_filter_storage_kind_for_testing(bitset_filter));
+TEST(sketch2api, bitset_filter_builder_named_empty_publishes_file) {
+    const std::string name = unique_filter_name("api_empty_filter");
 
-    const std::filesystem::path temp_path(bitset_filter_temp_path_for_testing(bitset_filter));
-    ASSERT_FALSE(temp_path.empty());
-    EXPECT_TRUE(std::filesystem::exists(temp_path));
+    void* state = nullptr;
+    bool out_of_memory = false;
+    const char* error_message = nullptr;
+    ASSERT_EQ(0, sk_bitset_filter_builder_set_name(
+        &state, &out_of_memory, &error_message, name.c_str()))
+        << (error_message != nullptr ? error_message : "");
+
+    void* bitset_filter = nullptr;
+    ASSERT_EQ(0, sk_bitset_filter_builder_finish(
+        &state, &bitset_filter, &out_of_memory, &error_message))
+        << (error_message != nullptr ? error_message : "");
+    EXPECT_EQ(nullptr, state);
+    ASSERT_NE(nullptr, bitset_filter);
+
+    const std::filesystem::path expected_path =
+        sketch2::get_singleton().bitset_filter_spill_dir() /
+        (name + sketch2::kBitsetFilterNamedFileSuffix);
+    EXPECT_TRUE(std::filesystem::exists(expected_path));
+    EXPECT_GT(std::filesystem::file_size(expected_path), 0u);
 
     sk_release_bitset_filter(bitset_filter);
-    EXPECT_FALSE(std::filesystem::exists(temp_path));
+    std::filesystem::remove(expected_path);
 }
 
 TEST(sketch2api, knn_items_bitset_filter_filters_with_spilled_bitset_filter) {
@@ -597,7 +601,7 @@ TEST(sketch2api, knn_items_bitset_filter_filters_with_spilled_bitset_filter) {
 
     void* bitset_filter = build_opaque_bitset_filter(make_spill_bitset_filter_ids());
     ASSERT_NE(nullptr, bitset_filter);
-    ASSERT_EQ(1, sk_bitset_filter_storage_kind_for_testing(bitset_filter));
+    ASSERT_EQ(2, sk_bitset_filter_storage_kind_for_testing(bitset_filter));
 
     uint64_t* ids = nullptr;
     double* scores = nullptr;

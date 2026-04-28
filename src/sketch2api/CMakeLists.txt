@@ -1,5 +1,4 @@
 add_library(sketch2api STATIC
-  bitset_filter_control.cpp
   internal.cpp
   sketch2.cpp
   sketch2api_utils.cpp

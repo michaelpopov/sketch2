@@ -114,11 +114,11 @@ LIMIT 5 OFFSET 10;
 `allowed_ids` is optional.
 
 - `NULL` means no filtering
-- the typed pointer returned by `bitset_agg(id[, parameter])` applies filtering
+- the typed pointer returned by `bitset_agg(id[, name])` applies filtering
 - `BLOB` applies filtering when SQLite provides a 32-byte-aligned pointer
 - non-`BLOB` and non-`NULL` values are rejected
 
-`bitset_agg(id[, parameter])` accepts ids in any order. The optional parameter
+`bitset_agg(id[, name])` accepts ids in any order. The optional `name` parameter
 must be a string when present:
 
 ```sql
@@ -126,7 +126,7 @@ SELECT bitset_agg(id)
 FROM labels
 WHERE label = 3;
 
-SELECT bitset_agg(id, 'parameter')
+SELECT bitset_agg(id, 'label_3')
 FROM labels
 WHERE label = 3;
 ```
@@ -137,9 +137,24 @@ object may be heap-backed or mmap-backed. SQLite calls Sketch2's release
 function when that pointer value is destroyed, and the release path handles
 either storage kind.
 
+When `name` is provided on a row observed by the aggregate, Sketch2 also
+publishes the serialized filter as `<spill_dir>/<name>.bitset`, where
+`spill_dir` comes from `bitset_filter.spill_dir` or
+`SKETCH2_BITSET_FILTER_SPILL_DIR`. Names may contain only ASCII letters, digits,
+and underscores. The published file persists after the SQL pointer value is
+released and is replaced atomically when rebuilt with the same name. All-`NULL`
+id input can still publish an empty named file.
+
+The first non-`NULL` `name` observed by the step function wins for naming. Later
+non-`NULL` names in the same group must pass the same value; a different value is
+rejected instead of silently publishing under the first name. A zero-row SQL
+aggregate still returns a valid empty filter, but publishes no named file because
+SQLite never calls the step function and Sketch2 cannot observe the name
+argument.
+
 Raw SQL `BLOB` bitset filters are still accepted only when SQLite provides a
 32-byte-aligned caller-owned buffer. Spillover applies to the opaque
-`bitset_agg(id[, parameter])` result, not to arbitrary BLOB values.
+`bitset_agg(id[, name])` result, not to arbitrary BLOB values.
 
 Mapped spill only avoids allocating the final serialized bitset filter buffer with
 `aligned_alloc`. The aggregate still accumulates its `ChunkedBits` /

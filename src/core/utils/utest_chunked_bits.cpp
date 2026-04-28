@@ -1,10 +1,10 @@
 // Unit tests for chunked sparse bitset filters.
 
 #include "chunked_bits.h"
+#include "utest_chunked_bits_helpers.h"
 
-#include <cstdlib>
+#include <cstdint>
 #include <cstring>
-#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -12,43 +12,8 @@
 namespace sketch2 {
 namespace {
 
-struct AlignedBlob {
-    void* data = nullptr;
-    size_t size = 0;
-    size_t allocation_size = 0;
-
-    AlignedBlob() = default;
-    AlignedBlob(const AlignedBlob&) = delete;
-    AlignedBlob& operator=(const AlignedBlob&) = delete;
-    AlignedBlob(AlignedBlob&& other) noexcept
-        : data(std::exchange(other.data, nullptr)),
-          size(std::exchange(other.size, 0)),
-          allocation_size(std::exchange(other.allocation_size, 0)) {}
-    AlignedBlob& operator=(AlignedBlob&& other) noexcept {
-        if (this != &other) {
-            std::free(data);
-            data = std::exchange(other.data, nullptr);
-            size = std::exchange(other.size, 0);
-            allocation_size = std::exchange(other.allocation_size, 0);
-        }
-        return *this;
-    }
-    ~AlignedBlob() {
-        std::free(data);
-    }
-
-    uint8_t* bytes() {
-        return static_cast<uint8_t*>(data);
-    }
-    const uint8_t* bytes() const {
-        return static_cast<const uint8_t*>(data);
-    }
-};
-
-size_t align_up(size_t value, size_t alignment) {
-    const size_t mask = alignment - 1u;
-    return (value + mask) & ~mask;
-}
+using test::AlignedBlob;
+using test::align_up;
 
 void write_u64_le(uint8_t* out, uint64_t value) {
     for (size_t i = 0; i < sizeof(value); ++i) {
@@ -64,18 +29,14 @@ uint64_t read_u64_le(const uint8_t* data) {
     return value;
 }
 
-AlignedBlob serialize_ids(const std::vector<uint64_t>& ids) {
+test::AlignedBlob serialize_ids(const std::vector<uint64_t>& ids) {
     ChunkedBits bits;
     for (uint64_t id : ids) {
         EXPECT_EQ(0, bits.add(id).code());
     }
     EXPECT_EQ(0, bits.finish().code());
 
-    AlignedBlob blob;
-    blob.size = bits.serialized_size_bytes();
-    blob.allocation_size = align_up(blob.size, kChunkedBitsBlobAlignment);
-    blob.data = std::aligned_alloc(kChunkedBitsBlobAlignment, blob.allocation_size);
-    EXPECT_NE(nullptr, blob.data);
+    test::AlignedBlob blob = test::make_aligned_blob(bits.serialized_size_bytes());
     EXPECT_EQ(0, bits.serialize(blob.data, blob.size).code());
     return blob;
 }

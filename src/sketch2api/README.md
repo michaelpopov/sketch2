@@ -63,7 +63,10 @@ int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
 void sk_free(void* ptr);
 int sk_bitset_filter_builder_add(
-    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
+    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out,
+    const char* name);
+int sk_bitset_filter_builder_set_name(
+    void** state, bool* out_of_memory, const char** error_message_out, const char* name);
 int sk_bitset_filter_builder_finish(
     void** state, void** out, bool* out_of_memory, const char** error_message_out);
 void sk_release_bitset_filter(void* ptr);
@@ -80,9 +83,15 @@ documented in `src/sketch2api/BITSET.md`.
 `sk_bitset_filter_builder_*()` builds an opaque API-owned bitset filter object for
 in-process adapters. The object may be heap-backed or mmap-backed. Pass it to
 `sk_knn_items_bitset_filter()` and release it with `sk_release_bitset_filter()`, which
-releases either storage kind correctly. Mapped spill only avoids allocating the
-final serialized buffer with `aligned_alloc`; the builder still accumulates its
-working state in memory before serialization.
+releases either storage kind correctly. Passing `name` to
+`sk_bitset_filter_builder_add()` or `sk_bitset_filter_builder_set_name()`
+publishes the finished filter as `<spill_dir>/<name>.bitset`; names may contain
+only ASCII letters, digits, and underscores. `sk_bitset_filter_builder_set_name()`
+lets callers publish an empty named filter. The first successful name-setting
+call wins for naming; later calls on the same builder must pass the same `name`,
+or the builder rejects the call. Mapped spill only avoids allocating the final
+serialized buffer with `aligned_alloc`; the builder still accumulates its working
+state in memory before serialization.
 
 For incremental ingest, the staged-writing API accumulates vectors and delete
 markers into a temporary input file owned by the open dataset. Calling

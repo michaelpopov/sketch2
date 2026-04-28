@@ -44,6 +44,7 @@ public:
     Ret serialize(void* out, size_t size) const;
 
     Ret set_name(const char* name);
+    const std::string& name() const { return name_; }
 
 private:
     using BuildersMap = std::unordered_map<uint64_t, RoaringIdsBuilder>;

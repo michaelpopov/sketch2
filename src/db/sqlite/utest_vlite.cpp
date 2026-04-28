@@ -6,9 +6,13 @@
 #include "sqlite3.h"
 
 #include "sketch2api/sketch2.h"
+#include "utils/bitset_filter_control.h"
+#include "utils/singleton.h"
 #include "utils/shared_types.h"
+#include "utils/utest_chunked_bits_helpers.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -35,6 +39,9 @@ struct SqliteDbCloser {
 using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
 
 constexpr const char* kScenarioEnv = "SKETCH2API_VLITE_COMPUTE_SCENARIO";
+
+using test::ScopedPathCleanup;
+using test::unique_filter_name;
 
 class EnvVarGuard {
 public:
@@ -917,7 +924,7 @@ TEST_F(VliteTest, BitsetAggRejectsInvalidInputValues) {
         "parameter must be a string");
 }
 
-TEST_F(VliteTest, BitsetAggAcceptsOptionalStringParameter) {
+TEST_F(VliteTest, BitsetAggNamedParameterPersistsFile) {
     write_input("f32,4\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
                 "20 : [ 20.0, 20.0, 20.0, 20.0 ]\n"
@@ -928,16 +935,49 @@ TEST_F(VliteTest, BitsetAggAcceptsOptionalStringParameter) {
     ASSERT_NE(nullptr, db);
     create_virtual_table(db.get());
 
+    const std::string name = unique_filter_name("vlite_named_filter");
+    const fs::path expected_path =
+        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
+
     const auto rows = query_results(db.get(),
-        "SELECT id, score FROM nn "
-        "WHERE query = '20.0, 20.0, 20.0, 20.0' AND k = 3 "
-        "AND allowed_ids = (SELECT bitset_agg(id, 'optional') "
-        "                   FROM (SELECT 20 AS id UNION ALL SELECT 10))");
+        std::string("SELECT id, score FROM nn ")
+        + "WHERE query = '20.0, 20.0, 20.0, 20.0' AND k = 3 "
+        + "AND allowed_ids = (SELECT bitset_agg(id, '" + name + "') "
+        + "                   FROM (SELECT 20 AS id UNION ALL SELECT 10))");
 
     ASSERT_EQ(2u, rows.size());
     std::vector<uint64_t> ids{rows[0].first, rows[1].first};
     std::sort(ids.begin(), ids.end());
     EXPECT_EQ((std::vector<uint64_t>{10, 20}), ids);
+    EXPECT_TRUE(fs::exists(expected_path));
+}
+
+TEST_F(VliteTest, BitsetAggRejectsInconsistentNames) {
+    SqliteDbPtr db = open_db_with_extension();
+    ASSERT_NE(nullptr, db);
+
+    const std::string first_name = unique_filter_name("vlite_first_filter");
+    const std::string second_name = unique_filter_name("vlite_second_filter");
+    const fs::path first_path =
+        get_singleton().bitset_filter_spill_dir() / (first_name + kBitsetFilterNamedFileSuffix);
+    const fs::path second_path =
+        get_singleton().bitset_filter_spill_dir() / (second_name + kBitsetFilterNamedFileSuffix);
+    fs::remove(first_path);
+    fs::remove(second_path);
+    ScopedPathCleanup first_cleanup{first_path};
+    ScopedPathCleanup second_cleanup{second_path};
+
+    expect_query_error(db.get(),
+        std::string("SELECT bitset_agg(id, name) FROM (")
+        + "SELECT 1 AS id, '" + first_name + "' AS name "
+        + "UNION ALL "
+        + "SELECT 2 AS id, '" + second_name + "' AS name)",
+        "inconsistent bitset filter name");
+
+    EXPECT_FALSE(fs::exists(first_path));
+    EXPECT_FALSE(fs::exists(second_path));
 }
 
 TEST_F(VliteTest, BitsetAggAcceptsDescendingIds) {

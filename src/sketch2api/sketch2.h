@@ -180,6 +180,8 @@ void sk_free(void* ptr);
 int sk_bitset_filter_builder_add(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out,
     const char* name);
+int sk_bitset_filter_builder_set_name(
+    void** state, bool* out_of_memory, const char** error_message_out, const char* name);
 int sk_bitset_filter_builder_finish(
     void** state, void** out, bool* out_of_memory, const char** error_message_out);
 void sk_release_bitset_filter(void* ptr);

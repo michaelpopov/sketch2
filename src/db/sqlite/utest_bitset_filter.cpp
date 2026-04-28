@@ -8,24 +8,27 @@
 #include "sqlite3.h"
 
 #include "sketch2api/sketch2.h"
+#include "utils/bitset_filter_control.h"
 #include "utils/chunked_bits.h"
+#include "utils/singleton.h"
 #include "utils/shared_types.h"
+#include "utils/utest_chunked_bits_helpers.h"
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
-#include <unistd.h>
-#include <utility>
 #include <vector>
 
 using namespace sketch2;
 namespace fs = std::filesystem;
 
 namespace {
+
+using test::expect_persisted_filter_contains;
+using test::unique_filter_name;
 
 struct SqliteDbCloser {
     void operator()(sqlite3* db) const {
@@ -180,6 +183,27 @@ protected:
                     "40 : [ 40.0, 40.0, 40.0, 40.0 ]\n"
                     "50 : [ 50.0, 50.0, 50.0, 50.0 ]\n");
         create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
+    }
+
+    void populate_spill_sized_allowed_table(sqlite3* db) {
+        exec_sql(db, "CREATE TABLE many(id INTEGER)");
+        exec_sql(db, "BEGIN");
+        sqlite3_stmt* stmt = nullptr;
+        ASSERT_EQ(SQLITE_OK,
+            sqlite3_prepare_v2(db, "INSERT INTO many(id) VALUES (?)", -1, &stmt, nullptr));
+        sqlite3_bind_int64(stmt, 1, 20);
+        ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+        sqlite3_reset(stmt);
+        sqlite3_bind_int64(stmt, 1, 40);
+        ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+        sqlite3_reset(stmt);
+        for (uint64_t i = 0; i < 50000; ++i) {
+            sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>((i + 1) << kChunkBits));
+            ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+            sqlite3_reset(stmt);
+        }
+        sqlite3_finalize(stmt);
+        exec_sql(db, "COMMIT");
     }
 };
 
@@ -586,6 +610,30 @@ TEST_F(BitsetFilterSqlTest, BitsetAggOnAllNullInputMatchesNothing) {
     EXPECT_TRUE(ids.empty());
 }
 
+TEST_F(BitsetFilterSqlTest, NamedBitsetAggOnAllNullInputPersistsEmptyFile) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string name = unique_filter_name("sql_named_empty_all_null");
+    const fs::path expected_path =
+        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    fs::remove(expected_path);
+
+    const auto ids = query_ids(db.get(),
+        std::string("SELECT id FROM nn ")
+        + "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        + "AND allowed_ids = ("
+        + "  SELECT bitset_agg(column1, '" + name + "') FROM (VALUES (NULL), (NULL), (NULL))"
+        + ")");
+    EXPECT_TRUE(ids.empty());
+    ASSERT_TRUE(fs::exists(expected_path));
+    EXPECT_GT(fs::file_size(expected_path), 0u);
+    expect_persisted_filter_contains(expected_path, {});
+
+    fs::remove(expected_path);
+}
+
 TEST_F(BitsetFilterSqlTest, BitsetAggOnFilteredOutInputMatchesNothing) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
@@ -598,6 +646,26 @@ TEST_F(BitsetFilterSqlTest, BitsetAggOnFilteredOutInputMatchesNothing) {
         "  SELECT bitset_agg(column1) FROM (VALUES (10),(20)) WHERE 1 = 0"
         ")");
     EXPECT_TRUE(ids.empty());
+}
+
+TEST_F(BitsetFilterSqlTest, NamedBitsetAggOnZeroRowsMatchesNothingWithoutFile) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string name = unique_filter_name("sql_named_empty_zero_rows");
+    const fs::path expected_path =
+        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    fs::remove(expected_path);
+
+    const auto ids = query_ids(db.get(),
+        std::string("SELECT id FROM nn ")
+        + "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        + "AND allowed_ids = ("
+        + "  SELECT bitset_agg(column1, '" + name + "') FROM (VALUES (10),(20)) WHERE 1 = 0"
+        + ")");
+    EXPECT_TRUE(ids.empty());
+    EXPECT_FALSE(fs::exists(expected_path));
 }
 
 TEST_F(BitsetFilterSqlTest, BitsetAggOnIdsNotInDatasetReturnsNoRows) {
@@ -666,30 +734,37 @@ TEST_F(BitsetFilterSqlTest, BitsetAggSpillSizedTypedPointerFiltersQuery) {
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
 
-    exec_sql(db.get(), "CREATE TABLE many(id INTEGER)");
-    sqlite3_exec(db.get(), "BEGIN", nullptr, nullptr, nullptr);
-    sqlite3_stmt* stmt = nullptr;
-    ASSERT_EQ(SQLITE_OK,
-        sqlite3_prepare_v2(db.get(), "INSERT INTO many(id) VALUES (?)", -1, &stmt, nullptr));
-    sqlite3_bind_int64(stmt, 1, 20);
-    ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
-    sqlite3_reset(stmt);
-    sqlite3_bind_int64(stmt, 1, 40);
-    ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
-    sqlite3_reset(stmt);
-    for (uint64_t i = 0; i < 50000; ++i) {
-        sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>((i + 1) << kChunkBits));
-        ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
-        sqlite3_reset(stmt);
-    }
-    sqlite3_finalize(stmt);
-    sqlite3_exec(db.get(), "COMMIT", nullptr, nullptr, nullptr);
+    populate_spill_sized_allowed_table(db.get());
 
     const auto ids = sorted_query_ids(db.get(),
         "SELECT id FROM nn "
         "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
         "AND allowed_ids = (SELECT bitset_agg(id) FROM many)");
     EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
+}
+
+TEST_F(BitsetFilterSqlTest, NamedSpillSizedBitsetAggPersistsFile) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+    populate_spill_sized_allowed_table(db.get());
+
+    const std::string name = unique_filter_name("sql_named_spill");
+    const fs::path expected_path =
+        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    fs::remove(expected_path);
+
+    const auto ids = sorted_query_ids(db.get(),
+        std::string("SELECT id FROM nn ")
+        + "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        + "AND allowed_ids = (SELECT bitset_agg(id, '" + name + "') FROM many)");
+    EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
+
+    ASSERT_TRUE(fs::exists(expected_path));
+    EXPECT_GT(fs::file_size(expected_path), 0u);
+    expect_persisted_filter_contains(expected_path, {20, 40});
+
+    fs::remove(expected_path);
 }
 
 TEST_F(BitsetFilterSqlTest, BitsetAggGroupByCollapsedToSingleBitsetFilter) {
