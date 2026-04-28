@@ -180,10 +180,19 @@ void sk_free(void* ptr);
 int sk_bitset_filter_builder_add(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out,
     const char* name);
+int sk_bitset_filter_builder_add_current_name(
+    void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
 int sk_bitset_filter_builder_set_name(
     void** state, bool* out_of_memory, const char** error_message_out, const char* name);
 int sk_bitset_filter_builder_finish(
     void** state, void** out, bool* out_of_memory, const char** error_message_out);
+int sk_bitset_filter_load(
+    const char* name, void** out, bool* out_of_memory, const char** error_message_out);
+/*
+ * Retain/release an opaque bitset filter object returned by builder_finish() or
+ * load(). Callers that do not share the object should only call release().
+ */
+void sk_retain_bitset_filter(void* ptr);
 void sk_release_bitset_filter(void* ptr);
 int sk_bitset_filter_drop(
     const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out);

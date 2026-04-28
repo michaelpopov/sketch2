@@ -54,6 +54,10 @@ int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size
 int sk_knn_items_bitset_filter(sk_handle_t* handle, const char* vec, unsigned int k,
                            const void* allowed_ids, uint64_t** ids_out,
                            double** scores_out, size_t* count_out);
+int sk_bitset_filter_load(const char* name, void** out, bool* out_of_memory,
+                          const char** error_message_out);
+void sk_retain_bitset_filter(void* ptr);
+void sk_release_bitset_filter(void* ptr);
 int sk_score_ascending_is_better(sk_handle_t* handle, bool* out);
 int sk_get(sk_handle_t* handle, uint64_t id, char** value_out);
 int sk_start_writing(sk_handle_t* handle);

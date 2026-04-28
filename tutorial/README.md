@@ -9,6 +9,7 @@ This guide walks through the starter scripts:
 - `tutorial_05.py`: demonstrates querying SQLite with SQL to retrieve KNN nearest-neighbor ids.
 - `tutorial_06.py`: demonstrates SQL joins between KNN results and metadata conditions.
 - `tutorial_07.py`: demonstrates pushing metadata filters into KNN search with SQL.
+- `tutorial_08.py`: demonstrates reusing persisted bitset filters with SQL.
 
 File `output.txt` contains output of the session running all the tutorials in the terminal.
 
@@ -276,4 +277,35 @@ SELECT m.id, m.title, m.category, m.author, n.score
                     WHERE category = ?
                   )
             ORDER BY n.score;
+```
+
+## 8. Reusing persisted filters with bitset_load  (`tutorial_08.py`)
+
+Run:
+`python3 tutorial_08.py demods`
+
+This tutorial demonstrates how to persist a named bitset filter with
+`bitset_agg(id, name)` and reuse it later with `bitset_load(name)`.
+
+The tutorial script demonstrates how to:
+- Create a new dataset.
+- Insert test data into the dataset.
+- Insert metadata into SQLite table.
+- Build a named bitset filter from metadata ids.
+- Run KNN search while loading that persisted filter through `allowed_ids`.
+
+```
+SELECT bitset_agg(id, ?)
+FROM metadata
+WHERE category = ?;
+
+SELECT m.id, m.title, m.category, m.author, n.score
+            FROM nn AS n
+            JOIN metadata AS m ON m.id = n.id
+            WHERE n.query = ?
+              AND n.k = ?
+              AND n.allowed_ids = bitset_load(?)
+            ORDER BY n.score;
+
+SELECT bitset_drop(?);
 ```

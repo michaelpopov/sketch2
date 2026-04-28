@@ -366,6 +366,36 @@ int sk_bitset_filter_builder_add(
     }
 }
 
+int sk_bitset_filter_builder_add_current_name(
+        void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
+    set_builder_error(out_of_memory, error_message_out, false, nullptr);
+    if (state == nullptr || *state == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "bitset filter builder: invalid builder state");
+        return -1;
+    }
+
+    try {
+        auto* chunked_bits = static_cast<ChunkedBits*>(*state);
+        const Ret ret = chunked_bits->add(id);
+        if (ret.code() != 0) {
+            set_builder_error(out_of_memory, error_message_out, false,
+                "bitset filter builder: add failed");
+            return -1;
+        }
+        return 0;
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
 int sk_bitset_filter_builder_set_name(
         void** state, bool* out_of_memory, const char** error_message_out, const char* name) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
@@ -401,7 +431,7 @@ int sk_bitset_filter_builder_finish(
         std::unique_ptr<ChunkedBits> bits(static_cast<ChunkedBits*>(*state));
         *state = nullptr;
 
-        std::unique_ptr<BitsetFilterControl> control;
+        BitsetFilterControlPtr control;
         const Ret control_ret = bits != nullptr
             ? BitsetFilterControl::create(*bits, &control)
             : BitsetFilterControl::create_empty(&control);
@@ -424,8 +454,57 @@ int sk_bitset_filter_builder_finish(
     }
 }
 
+int sk_bitset_filter_load(
+        const char* name, void** out, bool* out_of_memory, const char** error_message_out) {
+    set_builder_error(out_of_memory, error_message_out, false, nullptr);
+    if (out == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "bitset_load: invalid control output");
+        return -1;
+    }
+    *out = nullptr;
+    if (name == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "bitset_load: name must not be null");
+        return -1;
+    }
+
+    try {
+        (void)sketch2_runtime_init();
+
+        BitsetFilterControlPtr control;
+        const Ret ret = load_named_bitset_filter(name, &control);
+        if (ret.code() != 0) {
+            set_builder_ret_error(out_of_memory, error_message_out, ret,
+                "bitset_load: failed");
+            return -1;
+        }
+        *out = control.release();
+        return 0;
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
+void sk_retain_bitset_filter(void* ptr) {
+    if (ptr == nullptr) {
+        return;
+    }
+    static_cast<BitsetFilterControl*>(ptr)->retain();
+}
+
 void sk_release_bitset_filter(void* ptr) {
-    delete static_cast<BitsetFilterControl*>(ptr);
+    if (ptr == nullptr) {
+        return;
+    }
+    static_cast<BitsetFilterControl*>(ptr)->release();
 }
 
 int sk_bitset_filter_drop(
@@ -437,6 +516,11 @@ int sk_bitset_filter_drop(
         return -1;
     }
     *removed_out = 0;
+    if (name == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "bitset_drop: name must not be null");
+        return -1;
+    }
 
     try {
         (void)sketch2_runtime_init();

@@ -615,6 +615,65 @@ TEST(sketch2api, bitset_filter_drop_removes_named_file_and_is_idempotent) {
     EXPECT_EQ(0, removed);
 }
 
+TEST(sketch2api, bitset_filter_load_maps_named_file) {
+    const std::string name = unique_filter_name("api_load_filter");
+    const std::filesystem::path expected_path = sketch2::named_bitset_filter_path(name);
+    std::experimental::scope_exit cleanup([&]() { std::filesystem::remove(expected_path); });
+
+    void* state = nullptr;
+    bool out_of_memory = false;
+    const char* error_message = nullptr;
+    ASSERT_EQ(0, sk_bitset_filter_builder_add(
+        &state, 20, &out_of_memory, &error_message, name.c_str()))
+        << (error_message != nullptr ? error_message : "");
+    ASSERT_EQ(0, sk_bitset_filter_builder_add(
+        &state, 40, &out_of_memory, &error_message, name.c_str()))
+        << (error_message != nullptr ? error_message : "");
+
+    void* built_filter = nullptr;
+    ASSERT_EQ(0, sk_bitset_filter_builder_finish(
+        &state, &built_filter, &out_of_memory, &error_message))
+        << (error_message != nullptr ? error_message : "");
+    ASSERT_NE(nullptr, built_filter);
+    sk_release_bitset_filter(built_filter);
+
+    void* loaded_filter = nullptr;
+    ASSERT_EQ(0, sk_bitset_filter_load(
+        name.c_str(), &loaded_filter, &out_of_memory, &error_message))
+        << (error_message != nullptr ? error_message : "");
+    ASSERT_NE(nullptr, loaded_filter);
+    EXPECT_EQ(1, sk_bitset_filter_storage_kind_for_testing(loaded_filter));
+    sk_release_bitset_filter(loaded_filter);
+}
+
+TEST(sketch2api, bitset_filter_load_rejects_null_name) {
+    void* bitset_filter = reinterpret_cast<void*>(0x1);
+    bool out_of_memory = true;
+    const char* error_message = nullptr;
+
+    EXPECT_NE(0, sk_bitset_filter_load(
+        nullptr, &bitset_filter, &out_of_memory, &error_message));
+    EXPECT_FALSE(out_of_memory);
+    EXPECT_EQ(nullptr, bitset_filter);
+    ASSERT_NE(nullptr, error_message);
+    EXPECT_NE(
+        std::string(error_message).find("bitset_load: name must not be null"),
+        std::string::npos);
+}
+
+TEST(sketch2api, bitset_filter_load_rejects_null_output) {
+    bool out_of_memory = true;
+    const char* error_message = nullptr;
+
+    EXPECT_NE(0, sk_bitset_filter_load(
+        "some_filter", nullptr, &out_of_memory, &error_message));
+    EXPECT_FALSE(out_of_memory);
+    ASSERT_NE(nullptr, error_message);
+    EXPECT_NE(
+        std::string(error_message).find("bitset_load: invalid control output"),
+        std::string::npos);
+}
+
 TEST(sketch2api, bitset_filter_builder_rejects_empty_name) {
     void* state = nullptr;
     bool out_of_memory = false;
@@ -631,6 +690,16 @@ TEST(sketch2api, bitset_filter_drop_rejects_invalid_names) {
     bool out_of_memory = false;
     const char* error_message = nullptr;
 
+    EXPECT_NE(0, sk_bitset_filter_drop(nullptr, &removed, &out_of_memory, &error_message));
+    EXPECT_FALSE(out_of_memory);
+    EXPECT_EQ(0, removed);
+    ASSERT_NE(nullptr, error_message);
+    EXPECT_NE(
+        std::string(error_message).find("bitset_drop: name must not be null"),
+        std::string::npos);
+
+    removed = -1;
+    error_message = nullptr;
     EXPECT_NE(0, sk_bitset_filter_drop("", &removed, &out_of_memory, &error_message));
     EXPECT_FALSE(out_of_memory);
     EXPECT_EQ(0, removed);

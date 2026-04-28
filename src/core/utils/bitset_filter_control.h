@@ -3,6 +3,7 @@
 #include "utils/chunked_bits.h"
 #include "utils/mapped_region.h"
 
+#include <atomic>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -30,19 +31,29 @@ struct BitsetFilterStorage {
     void reset();
 
     BitsetFilterStorageKind kind = BitsetFilterStorageKind::Heap;
-    void* data = nullptr;
+    const void* data = nullptr;
+    void* writable_data = nullptr;
     size_t size = 0;
     int fd = -1;
     MappedRegion region;
 };
 
+struct BitsetFilterControl;
+
+struct BitsetFilterControlDeleter {
+    void operator()(BitsetFilterControl* ptr) const;
+};
+
+using BitsetFilterControlPtr =
+    std::unique_ptr<BitsetFilterControl, BitsetFilterControlDeleter>;
+
 struct BitsetFilterControl {
-    static Ret create(ChunkedBits& bits, std::unique_ptr<BitsetFilterControl>* out);
-    static Ret create_empty(std::unique_ptr<BitsetFilterControl>* out);
+    static Ret create(ChunkedBits& bits, BitsetFilterControlPtr* out);
+    static Ret create_empty(BitsetFilterControlPtr* out);
+    static Ret load_named(const char* name, BitsetFilterControlPtr* out);
 
-    ~BitsetFilterControl() = default;
-
-    void reset();
+    void retain();
+    void release();
 
     // storage must be declared before view so the borrowed view is destroyed
     // before the backing bytes are released.
@@ -51,18 +62,28 @@ struct BitsetFilterControl {
 
 private:
     BitsetFilterControl() = default;
+    ~BitsetFilterControl() = default;
+
+    std::atomic<size_t> ref_count_{1};
+
+    void reset();
 
     Ret init_from_builder_(ChunkedBits& bits);
     Ret init_heap_from_bits_(const ChunkedBits& bits, size_t blob_size);
+    Ret init_mapped_storage_from_fd_(
+        const ChunkedBits& bits, size_t blob_size, int* fd,
+        BitsetFilterStorageKind kind);
     Ret init_named_mapped_from_bits_(
         const ChunkedBits& bits, size_t blob_size,
         const std::filesystem::path& spill_dir);
     Ret init_temp_mapped_from_bits_(const ChunkedBits& bits, size_t blob_size,
         const std::filesystem::path& spill_dir);
+    Ret init_named_mapped_from_file_(const char* name);
 };
 
 BitsetFilterStorageKind bitset_filter_storage_kind_for_testing(const BitsetFilterControl* control);
 std::filesystem::path named_bitset_filter_path(const std::string& name);
+Ret load_named_bitset_filter(const char* name, BitsetFilterControlPtr* out);
 Ret drop_named_bitset_filter(const char* name, bool* removed_out);
 
 } // namespace sketch2

@@ -3,6 +3,7 @@
 #include "utils/singleton.h"
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <cstdlib>
@@ -129,47 +130,6 @@ Ret create_spill_temp_file(const std::filesystem::path& template_path,
     return Ret(0);
 }
 
-Ret init_mapped_storage_from_fd(BitsetFilterControl* control, const ChunkedBits& bits,
-        size_t blob_size, FileDescriptorGuard* file, BitsetFilterStorageKind kind) {
-    Ret ret = allocate_file_size(file->fd(), blob_size);
-    if (ret.code() != 0) {
-        return ret;
-    }
-
-    control->reset();
-    control->storage.kind = kind;
-    control->storage.size = blob_size;
-    control->storage.fd = file->release_fd();
-
-    ret = control->storage.region.init(
-        control->storage.fd, 0, blob_size, false, MappedRegionAccess::Writable,
-        "bitset filter builder: mmap spill file");
-    if (ret.code() != 0) {
-        control->reset();
-        return ret;
-    }
-
-    control->storage.data = control->storage.region.mutable_data();
-    if (control->storage.data == nullptr) {
-        control->reset();
-        return Ret("bitset filter builder: mapped spill file is not writable");
-    }
-
-    ret = bits.serialize(control->storage.data, blob_size);
-    if (ret.code() != 0) {
-        control->reset();
-        return ret;
-    }
-
-    ret = control->view.init_blob(control->storage.data, blob_size);
-    if (ret.code() != 0) {
-        control->reset();
-        return ret;
-    }
-
-    return Ret(0);
-}
-
 } // namespace
 
 BitsetFilterStorage::~BitsetFilterStorage() {
@@ -177,8 +137,8 @@ BitsetFilterStorage::~BitsetFilterStorage() {
 }
 
 void BitsetFilterStorage::reset() {
-    if (data != nullptr && kind == BitsetFilterStorageKind::Heap) {
-        std::free(data);
+    if (writable_data != nullptr && kind == BitsetFilterStorageKind::Heap) {
+        std::free(writable_data);
     }
     if (kind == BitsetFilterStorageKind::MappedFile ||
             kind == BitsetFilterStorageKind::MappedFileTemporary) {
@@ -189,6 +149,7 @@ void BitsetFilterStorage::reset() {
     }
     kind = BitsetFilterStorageKind::Heap;
     data = nullptr;
+    writable_data = nullptr;
     size = 0;
     fd = -1;
 }
@@ -198,13 +159,19 @@ void BitsetFilterControl::reset() {
     storage.reset();
 }
 
-Ret BitsetFilterControl::create(ChunkedBits& bits, std::unique_ptr<BitsetFilterControl>* out) {
+void BitsetFilterControlDeleter::operator()(BitsetFilterControl* ptr) const {
+    if (ptr != nullptr) {
+        ptr->release();
+    }
+}
+
+Ret BitsetFilterControl::create(ChunkedBits& bits, BitsetFilterControlPtr* out) {
     if (out == nullptr) {
         return Ret("bitset filter builder: invalid control output");
     }
     out->reset();
 
-    std::unique_ptr<BitsetFilterControl> control(new BitsetFilterControl());
+    BitsetFilterControlPtr control(new BitsetFilterControl());
     Ret ret = control->init_from_builder_(bits);
     if (ret.code() != 0) {
         return ret;
@@ -213,11 +180,37 @@ Ret BitsetFilterControl::create(ChunkedBits& bits, std::unique_ptr<BitsetFilterC
     return Ret(0);
 }
 
-Ret BitsetFilterControl::create_empty(std::unique_ptr<BitsetFilterControl>* out) {
+Ret BitsetFilterControl::create_empty(BitsetFilterControlPtr* out) {
     if (out == nullptr) {
         return Ret("bitset filter builder: invalid control output");
     }
     out->reset(new BitsetFilterControl());
+    return Ret(0);
+}
+
+void BitsetFilterControl::retain() {
+    ref_count_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void BitsetFilterControl::release() {
+    if (ref_count_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        delete this;
+    }
+}
+
+Ret BitsetFilterControl::load_named(
+        const char* name, BitsetFilterControlPtr* out) {
+    if (out == nullptr) {
+        return Ret("bitset_load: invalid control output");
+    }
+    out->reset();
+
+    BitsetFilterControlPtr control(new BitsetFilterControl());
+    Ret ret = control->init_named_mapped_from_file_(name);
+    if (ret.code() != 0) {
+        return ret;
+    }
+    *out = std::move(control);
     return Ret(0);
 }
 
@@ -257,9 +250,10 @@ Ret BitsetFilterControl::init_heap_from_bits_(
     reset();
     storage.kind = BitsetFilterStorageKind::Heap;
     storage.data = blob;
+    storage.writable_data = blob;
     storage.size = blob_size;
 
-    Ret ret = bits.serialize(storage.data, blob_size);
+    Ret ret = bits.serialize(storage.writable_data, blob_size);
     if (ret.code() != 0) {
         reset();
         return ret;
@@ -270,6 +264,54 @@ Ret BitsetFilterControl::init_heap_from_bits_(
         reset();
         return ret;
     }
+    return Ret(0);
+}
+
+Ret BitsetFilterControl::init_mapped_storage_from_fd_(
+        const ChunkedBits& bits, size_t blob_size, int* fd,
+        BitsetFilterStorageKind kind) {
+    if (fd == nullptr || *fd < 0) {
+        return Ret("bitset filter builder: invalid spill file");
+    }
+
+    Ret ret = allocate_file_size(*fd, blob_size);
+    if (ret.code() != 0) {
+        return ret;
+    }
+
+    reset();
+    storage.kind = kind;
+    storage.size = blob_size;
+    storage.fd = *fd;
+    *fd = -1;
+
+    ret = storage.region.init(
+        storage.fd, 0, blob_size, false, MappedRegionAccess::Writable,
+        "bitset filter builder: mmap spill file");
+    if (ret.code() != 0) {
+        reset();
+        return ret;
+    }
+
+    storage.writable_data = storage.region.mutable_data();
+    storage.data = storage.writable_data;
+    if (storage.writable_data == nullptr) {
+        reset();
+        return Ret("bitset filter builder: mapped spill file is not writable");
+    }
+
+    ret = bits.serialize(storage.writable_data, blob_size);
+    if (ret.code() != 0) {
+        reset();
+        return ret;
+    }
+
+    ret = view.init_blob(storage.data, blob_size);
+    if (ret.code() != 0) {
+        reset();
+        return ret;
+    }
+
     return Ret(0);
 }
 
@@ -286,8 +328,9 @@ Ret BitsetFilterControl::init_named_mapped_from_bits_(
     }
     FilePathGuard path_guard(path);
 
-    ret = init_mapped_storage_from_fd(
-        this, bits, blob_size, &file, BitsetFilterStorageKind::MappedFile);
+    int fd = file.release_fd();
+    ret = init_mapped_storage_from_fd_(bits, blob_size, &fd, BitsetFilterStorageKind::MappedFile);
+    file.reset(fd);
     if (ret.code() != 0) {
         return ret;
     }
@@ -325,8 +368,66 @@ Ret BitsetFilterControl::init_temp_mapped_from_bits_(
     }
     path_guard.release();
 
-    return init_mapped_storage_from_fd(
-        this, bits, blob_size, &file, BitsetFilterStorageKind::MappedFileTemporary);
+    int fd = file.release_fd();
+    ret = init_mapped_storage_from_fd_(
+        bits, blob_size, &fd, BitsetFilterStorageKind::MappedFileTemporary);
+    file.reset(fd);
+    return ret;
+}
+
+Ret BitsetFilterControl::init_named_mapped_from_file_(const char* name) {
+    if (validate_chunked_bits_name(name).code() != 0) {
+        return Ret("bitset_load: invalid bitset filter name");
+    }
+
+    const std::filesystem::path path = named_bitset_filter_path(name);
+    FileDescriptorGuard file(open(path.c_str(), O_RDONLY));
+    if (file.fd() < 0) {
+        return Ret("bitset_load: failed to open named bitset filter");
+    }
+
+    struct stat statbuf {};
+    if (fstat(file.fd(), &statbuf) != 0) {
+        return Ret("bitset_load: failed to stat named bitset filter");
+    }
+    if (!S_ISREG(statbuf.st_mode)) {
+        return Ret("bitset_load: named bitset filter is not a regular file");
+    }
+    if (statbuf.st_size <= 0) {
+        return Ret("bitset_load: named bitset filter is empty");
+    }
+    if (static_cast<uintmax_t>(statbuf.st_size) >
+            static_cast<uintmax_t>(std::numeric_limits<size_t>::max())) {
+        return Ret("bitset_load: named bitset filter is too large");
+    }
+
+    const size_t blob_size = static_cast<size_t>(statbuf.st_size);
+    reset();
+    storage.kind = BitsetFilterStorageKind::MappedFile;
+    storage.size = blob_size;
+    storage.fd = file.release_fd();
+
+    Ret ret = storage.region.init(
+        storage.fd, 0, blob_size, false, MappedRegionAccess::ReadOnly,
+        "bitset_load: mmap named bitset filter");
+    if (ret.code() != 0) {
+        reset();
+        return ret;
+    }
+
+    storage.data = storage.region.data();
+    if (storage.data == nullptr) {
+        reset();
+        return Ret("bitset_load: mapped bitset filter is unavailable");
+    }
+
+    ret = view.init_blob(storage.data, storage.size);
+    if (ret.code() != 0) {
+        const std::string message = ret.message();
+        reset();
+        return Ret("bitset_load: malformed bitset filter: " + message);
+    }
+    return Ret(0);
 }
 
 BitsetFilterStorageKind bitset_filter_storage_kind_for_testing(const BitsetFilterControl* control) {
@@ -338,6 +439,10 @@ BitsetFilterStorageKind bitset_filter_storage_kind_for_testing(const BitsetFilte
 
 std::filesystem::path named_bitset_filter_path(const std::string& name) {
     return get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+}
+
+Ret load_named_bitset_filter(const char* name, BitsetFilterControlPtr* out) {
+    return BitsetFilterControl::load_named(name, out);
 }
 
 Ret drop_named_bitset_filter(const char* name, bool* removed_out) {

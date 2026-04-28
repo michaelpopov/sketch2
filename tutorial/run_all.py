@@ -68,8 +68,8 @@ def main() -> None:
     print(f"  SKETCH2_CONFIG={env['SKETCH2_CONFIG']}")
     print("")
 
-    # Step 3: Run tutorial_01.py ... tutorial_07.py sequentially.
-    for index in range(1, 8):
+    # Step 3: Run tutorial_01.py ... tutorial_08.py sequentially.
+    for index in range(1, 9):
         script_name = f"tutorial_{index:02d}.py"
         dataset_name = f"tutorial_{index:02d}_dataset"
         run_cmd([py, str(script_dir / script_name), dataset_name], env=env)

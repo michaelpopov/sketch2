@@ -114,7 +114,8 @@ LIMIT 5 OFFSET 10;
 `allowed_ids` is optional.
 
 - `NULL` means no filtering
-- the typed pointer returned by `bitset_agg(id[, name])` applies filtering
+- the typed pointer returned by `bitset_agg(id[, name])` or `bitset_load(name)`
+  applies filtering
 - `BLOB` applies filtering when SQLite provides a 32-byte-aligned pointer
 - non-`BLOB` and non-`NULL` values are rejected
 
@@ -164,6 +165,25 @@ SELECT bitset_drop('label_3');
 
 It returns `1` when a file was removed and `0` when the named file was already
 absent. `NULL`, empty, and otherwise invalid names are rejected.
+
+`bitset_load(name)` maps a previously published named filter and returns the same
+typed pointer shape accepted by `allowed_ids`:
+
+```sql
+SELECT id, score
+FROM nn
+WHERE query = '0.0, 0.0, 0.0, 0.0'
+  AND allowed_ids = bitset_load('label_3')
+ORDER BY score
+LIMIT 5;
+```
+
+It reads `<spill_dir>/<name>.bitset`, validates the serialized chunked-Roaring
+format, and keeps the mapping alive until SQLite destroys the pointer value.
+`NULL`, empty, invalid, missing, and malformed named filters are rejected.
+Within one prepared statement, SQLite auxdata is used to reuse the loaded filter
+for repeated calls at the same expression site and argument value. The function is
+not registered as deterministic; later statements can observe file changes.
 
 Mapped spill only avoids allocating the final serialized bitset filter buffer with
 `aligned_alloc`. The aggregate still accumulates its `ChunkedBits` /

@@ -5,6 +5,7 @@ SQLite exposes:
 ```sql
 SELECT bitset_agg(id) FROM some_table;
 SELECT bitset_agg(id, 'name') FROM some_table;
+SELECT bitset_load('name');
 SELECT bitset_drop('name');
 ```
 
@@ -34,13 +35,23 @@ SELECT bitset_drop('name');
 - returns `0` when the named file was already absent
 - rejects `NULL`, empty, or invalid names
 
+`bitset_load(name)`:
+
+- accepts a non-empty string `name`
+- maps `<spill_dir>/<name>.bitset`
+- returns an API-owned typed pointer that can be passed to `allowed_ids`
+- reuses the loaded filter for repeated calls at the same prepared-statement
+  expression site and argument value
+- rejects `NULL`, empty, invalid, missing, or malformed named filters
+
 The underlying serialized format is documented in
 [src/sketch2api/BITSET.md](/home/mpopov/projects/sketch2/src/sketch2api/BITSET.md).
 
 `allowed_ids` accepts:
 
 - `NULL`: no filter
-- the typed pointer returned by `bitset_agg(id[, name])`: apply filtering
+- the typed pointer returned by `bitset_agg(id[, name])` or `bitset_load(name)`:
+  apply filtering
 - `BLOB`: apply filtering only when SQLite provides a 32-byte-aligned pointer
 
 SQLite never allocates or frees the `bitset_agg(id[, name])` buffer directly. It stores

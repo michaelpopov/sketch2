@@ -28,6 +28,7 @@ namespace fs = std::filesystem;
 namespace {
 
 using test::expect_persisted_filter_contains;
+using test::ScopedPathCleanup;
 using test::unique_filter_name;
 
 struct SqliteDbCloser {
@@ -785,6 +786,112 @@ TEST_F(BitsetFilterSqlTest, NamedSpillSizedBitsetAggPersistsFile) {
     expect_persisted_filter_contains(expected_path, {20, 40});
 
     fs::remove(expected_path);
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetLoadUsesPersistedNamedFilter) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string name = unique_filter_name("sql_load_filter");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name
+        + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    const auto ids = sorted_query_ids(db.get(),
+        std::string("SELECT id FROM nn ")
+        + "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        + "AND allowed_ids = bitset_load('" + name + "')");
+    EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetLoadRejectsInvalidAndMissingNames) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    expect_query_error(db.get(), "SELECT bitset_load(NULL)", "name must be a string");
+    expect_query_error(db.get(), "SELECT bitset_load('')", "bitset_load: invalid bitset filter name");
+    expect_query_error(
+        db.get(), "SELECT bitset_load('bad-name')", "bitset_load: invalid bitset filter name");
+
+    const std::string name = unique_filter_name("sql_missing_filter");
+    expect_query_error(db.get(), "SELECT bitset_load('" + name + "')", "failed to open");
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetLoadCachesWithinPreparedStatement) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    const std::string name = unique_filter_name("sql_load_cache_filter");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name
+        + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT bitset_load(?) FROM (VALUES (1), (2), (3))";
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db.get(), sql, -1, &stmt, nullptr))
+        << sqlite3_errmsg(db.get());
+    ASSERT_EQ(SQLITE_OK, sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT))
+        << sqlite3_errmsg(db.get());
+
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    ASSERT_TRUE(fs::remove(expected_path));
+
+    EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_DONE, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_OK, sqlite3_finalize(stmt)) << sqlite3_errmsg(db.get());
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetLoadCacheReplacesWhenArgumentChanges) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    const std::string first_name = unique_filter_name("sql_load_cache_first");
+    const std::string second_name = unique_filter_name("sql_load_cache_second");
+    const fs::path first_path = named_bitset_filter_path(first_name);
+    const fs::path second_path = named_bitset_filter_path(second_name);
+    fs::remove(first_path);
+    fs::remove(second_path);
+    ScopedPathCleanup first_cleanup{first_path};
+    ScopedPathCleanup second_cleanup{second_path};
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + first_name
+        + "') FROM (VALUES (20), (40))");
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + second_name
+        + "') FROM (VALUES (10), (50))");
+    ASSERT_TRUE(fs::exists(first_path));
+    ASSERT_TRUE(fs::exists(second_path));
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT bitset_load(?) FROM (VALUES (1), (2))";
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db.get(), sql, -1, &stmt, nullptr))
+        << sqlite3_errmsg(db.get());
+
+    ASSERT_EQ(SQLITE_OK, sqlite3_bind_text(stmt, 1, first_name.c_str(), -1, SQLITE_TRANSIENT))
+        << sqlite3_errmsg(db.get());
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    ASSERT_TRUE(fs::remove(first_path));
+    EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_DONE, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+
+    ASSERT_EQ(SQLITE_OK, sqlite3_reset(stmt)) << sqlite3_errmsg(db.get());
+    ASSERT_EQ(SQLITE_OK, sqlite3_bind_text(stmt, 1, second_name.c_str(), -1, SQLITE_TRANSIENT))
+        << sqlite3_errmsg(db.get());
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    ASSERT_TRUE(fs::remove(second_path));
+    EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_DONE, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_OK, sqlite3_finalize(stmt)) << sqlite3_errmsg(db.get());
 }
 
 TEST_F(BitsetFilterSqlTest, BitsetDropRemovesNamedFileAndReturnsStatus) {

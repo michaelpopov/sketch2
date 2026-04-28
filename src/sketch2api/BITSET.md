@@ -66,6 +66,13 @@ in-process callers. Pass the returned object to `sk_knn_items_bitset_filter()` a
 release it with `sk_release_bitset_filter()`, which handles either heap-backed or
 mmap-backed storage.
 
+`sk_bitset_filter_load(name)` maps `<spill_dir>/<name>.bitset`, validates the
+serialized filter, and returns the same opaque object shape. Pass it to
+`sk_knn_items_bitset_filter()` and release it with `sk_release_bitset_filter()`.
+Code that shares one opaque object across multiple owners may call
+`sk_retain_bitset_filter()` for each additional owner and balance each retain
+with `sk_release_bitset_filter()`.
+
 `sk_bitset_filter_drop(name)` deletes `<spill_dir>/<name>.bitset` for a named
 filter and reports whether a file was removed. Missing files are not errors.
 
