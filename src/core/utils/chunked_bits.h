@@ -43,6 +43,7 @@ public:
     size_t serialized_size_bytes() const;
     Ret serialize(void* out, size_t size) const;
 
+    // nullptr means "no persistent name"; empty and invalid non-null names fail.
     Ret set_name(const char* name);
     const std::string& name() const { return name_; }
 
@@ -69,6 +70,10 @@ private:
     bool finished_ = false;
     std::string name_;
 };
+
+// Validates a required persistent name. Unlike ChunkedBits::set_name(), nullptr
+// is invalid here because callers use this when a name must be present.
+Ret validate_chunked_bits_name(const char* name);
 
 // ChunkedBitsView reads serialized ChunkedBits blobs without copying payloads:
 // each RoaringIds chunk keeps frozen-view pointers into the blob bytes.

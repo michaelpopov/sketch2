@@ -185,6 +185,8 @@ int sk_bitset_filter_builder_set_name(
 int sk_bitset_filter_builder_finish(
     void** state, void** out, bool* out_of_memory, const char** error_message_out);
 void sk_release_bitset_filter(void* ptr);
+int sk_bitset_filter_drop(
+    const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out);
 
 /*
  * Set global log level in Sketch2

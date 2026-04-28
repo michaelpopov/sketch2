@@ -129,6 +129,29 @@ protected:
         ASSERT_EQ(SQLITE_OK, rc) << error_text << " : " << sql;
     }
 
+    int query_single_int(sqlite3* db, const std::string& sql) {
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+            ADD_FAILURE() << sqlite3_errmsg(db) << " : " << sql;
+            return -1;
+        }
+        int value = -1;
+        int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_ROW) {
+            ADD_FAILURE() << sqlite3_errmsg(db) << " : " << sql;
+            sqlite3_finalize(stmt);
+            return -1;
+        }
+        value = sqlite3_column_int(stmt, 0);
+        rc = sqlite3_step(stmt);
+        EXPECT_EQ(SQLITE_DONE, rc) << sqlite3_errmsg(db) << " : " << sql;
+        if (sqlite3_finalize(stmt) != SQLITE_OK) {
+            ADD_FAILURE() << sqlite3_errmsg(db);
+            return -1;
+        }
+        return value;
+    }
+
     std::vector<uint64_t> query_ids(sqlite3* db, const std::string& sql) {
         sqlite3_stmt* stmt = nullptr;
         if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
@@ -616,8 +639,7 @@ TEST_F(BitsetFilterSqlTest, NamedBitsetAggOnAllNullInputPersistsEmptyFile) {
     create_virtual_table(db.get());
 
     const std::string name = unique_filter_name("sql_named_empty_all_null");
-    const fs::path expected_path =
-        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    const fs::path expected_path = named_bitset_filter_path(name);
     fs::remove(expected_path);
 
     const auto ids = query_ids(db.get(),
@@ -654,8 +676,7 @@ TEST_F(BitsetFilterSqlTest, NamedBitsetAggOnZeroRowsMatchesNothingWithoutFile) {
     create_virtual_table(db.get());
 
     const std::string name = unique_filter_name("sql_named_empty_zero_rows");
-    const fs::path expected_path =
-        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    const fs::path expected_path = named_bitset_filter_path(name);
     fs::remove(expected_path);
 
     const auto ids = query_ids(db.get(),
@@ -750,8 +771,7 @@ TEST_F(BitsetFilterSqlTest, NamedSpillSizedBitsetAggPersistsFile) {
     populate_spill_sized_allowed_table(db.get());
 
     const std::string name = unique_filter_name("sql_named_spill");
-    const fs::path expected_path =
-        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    const fs::path expected_path = named_bitset_filter_path(name);
     fs::remove(expected_path);
 
     const auto ids = sorted_query_ids(db.get(),
@@ -765,6 +785,39 @@ TEST_F(BitsetFilterSqlTest, NamedSpillSizedBitsetAggPersistsFile) {
     expect_persisted_filter_contains(expected_path, {20, 40});
 
     fs::remove(expected_path);
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetDropRemovesNamedFileAndReturnsStatus) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    const std::string name = unique_filter_name("sql_drop_filter");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    EXPECT_EQ(1, query_single_int(db.get(), "SELECT bitset_drop('" + name + "')"));
+    EXPECT_FALSE(fs::exists(expected_path));
+    EXPECT_EQ(0, query_single_int(db.get(), "SELECT bitset_drop('" + name + "')"));
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetDropRejectsInvalidNameArguments) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    expect_query_error(db.get(), "SELECT bitset_drop(NULL)", "name must be a string");
+    expect_query_error(db.get(), "SELECT bitset_drop('')", "bitset_drop: invalid bitset filter name");
+    expect_query_error(
+        db.get(), "SELECT bitset_drop('bad-name')", "bitset_drop: invalid bitset filter name");
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetAggRejectsEmptyName) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    expect_query_error(db.get(),
+        "SELECT bitset_agg(column1, '') FROM (VALUES (1))",
+        "invalid bitset filter name");
 }
 
 TEST_F(BitsetFilterSqlTest, BitsetAggGroupByCollapsedToSingleBitsetFilter) {

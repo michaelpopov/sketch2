@@ -119,7 +119,7 @@ LIMIT 5 OFFSET 10;
 - non-`BLOB` and non-`NULL` values are rejected
 
 `bitset_agg(id[, name])` accepts ids in any order. The optional `name` parameter
-must be a string when present:
+must be a non-empty string when present:
 
 ```sql
 SELECT bitset_agg(id)
@@ -141,9 +141,9 @@ When `name` is provided on a row observed by the aggregate, Sketch2 also
 publishes the serialized filter as `<spill_dir>/<name>.bitset`, where
 `spill_dir` comes from `bitset_filter.spill_dir` or
 `SKETCH2_BITSET_FILTER_SPILL_DIR`. Names may contain only ASCII letters, digits,
-and underscores. The published file persists after the SQL pointer value is
-released and is replaced atomically when rebuilt with the same name. All-`NULL`
-id input can still publish an empty named file.
+and underscores, and empty names are rejected. The published file persists after
+the SQL pointer value is released and is replaced atomically when rebuilt with
+the same name. All-`NULL` id input can still publish an empty named file.
 
 The first non-`NULL` `name` observed by the step function wins for naming. Later
 non-`NULL` names in the same group must pass the same value; a different value is
@@ -155,6 +155,15 @@ argument.
 Raw SQL `BLOB` bitset filters are still accepted only when SQLite provides a
 32-byte-aligned caller-owned buffer. Spillover applies to the opaque
 `bitset_agg(id[, name])` result, not to arbitrary BLOB values.
+
+`bitset_drop(name)` deletes the persistent file for a named filter:
+
+```sql
+SELECT bitset_drop('label_3');
+```
+
+It returns `1` when a file was removed and `0` when the named file was already
+absent. `NULL`, empty, and otherwise invalid names are rejected.
 
 Mapped spill only avoids allocating the final serialized bitset filter buffer with
 `aligned_alloc`. The aggregate still accumulates its `ChunkedBits` /

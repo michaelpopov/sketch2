@@ -291,12 +291,13 @@ Rules:
 SQLite does not allocate the `bitset_agg(id)` buffer. It receives an API-owned
 typed pointer and calls Sketch2's release function when the value is destroyed.
 
-## `bitset_agg(id)`
+## `bitset_agg(id[, name])`
 
-`bitset_agg(id)` is an aggregate helper function exported by the extension.
-It accepts integer ids in any order and returns an API-owned typed pointer that
-wraps the serialized chunked-Roaring format documented in
-`src/sketch2api/BITSET.md`.
+`bitset_agg(id[, name])` is an aggregate helper function exported by the
+extension. It accepts integer ids in any order and returns an API-owned typed
+pointer that wraps the serialized chunked-Roaring format documented in
+`src/sketch2api/BITSET.md`. When present, `name` must be non-empty and contain
+only ASCII letters, digits, and underscores.
 
 Example:
 
@@ -323,6 +324,10 @@ FROM (
     SELECT 1
 );
 ```
+
+`bitset_drop(name)` deletes the persistent file created by a named
+`bitset_agg(id, name)` call. It returns `1` when a file was removed and `0` when
+the named file was already absent.
 
 ## `allowed_ids` Query Examples
 

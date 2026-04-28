@@ -276,8 +276,7 @@ Ret BitsetFilterControl::init_heap_from_bits_(
 Ret BitsetFilterControl::init_named_mapped_from_bits_(
         const ChunkedBits& bits, size_t blob_size,
         const std::filesystem::path& spill_dir) {
-    const std::filesystem::path final_path =
-        spill_dir / (bits.name() + kBitsetFilterNamedFileSuffix);
+    const std::filesystem::path final_path = named_bitset_filter_path(bits.name());
     FileDescriptorGuard file;
     std::filesystem::path path;
     Ret ret = create_spill_temp_file(
@@ -335,6 +334,27 @@ BitsetFilterStorageKind bitset_filter_storage_kind_for_testing(const BitsetFilte
         return BitsetFilterStorageKind::Heap;
     }
     return control->storage.kind;
+}
+
+std::filesystem::path named_bitset_filter_path(const std::string& name) {
+    return get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+}
+
+Ret drop_named_bitset_filter(const char* name, bool* removed_out) {
+    *removed_out = false;
+
+    if (validate_chunked_bits_name(name).code() != 0) {
+        return Ret("bitset_drop: invalid bitset filter name");
+    }
+
+    std::error_code ec;
+    const bool removed = std::filesystem::remove(named_bitset_filter_path(name), ec);
+    if (ec) {
+        return Ret("bitset_drop: failed to remove named bitset filter");
+    }
+
+    *removed_out = removed;
+    return Ret(0);
 }
 
 } // namespace sketch2

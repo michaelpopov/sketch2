@@ -936,8 +936,7 @@ TEST_F(VliteTest, BitsetAggNamedParameterPersistsFile) {
     create_virtual_table(db.get());
 
     const std::string name = unique_filter_name("vlite_named_filter");
-    const fs::path expected_path =
-        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    const fs::path expected_path = named_bitset_filter_path(name);
     fs::remove(expected_path);
     ScopedPathCleanup cleanup{expected_path};
 
@@ -960,10 +959,8 @@ TEST_F(VliteTest, BitsetAggRejectsInconsistentNames) {
 
     const std::string first_name = unique_filter_name("vlite_first_filter");
     const std::string second_name = unique_filter_name("vlite_second_filter");
-    const fs::path first_path =
-        get_singleton().bitset_filter_spill_dir() / (first_name + kBitsetFilterNamedFileSuffix);
-    const fs::path second_path =
-        get_singleton().bitset_filter_spill_dir() / (second_name + kBitsetFilterNamedFileSuffix);
+    const fs::path first_path = named_bitset_filter_path(first_name);
+    const fs::path second_path = named_bitset_filter_path(second_name);
     fs::remove(first_path);
     fs::remove(second_path);
     ScopedPathCleanup first_cleanup{first_path};

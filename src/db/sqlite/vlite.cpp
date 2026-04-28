@@ -309,6 +309,37 @@ void bitset_agg_final(sqlite3_context* context) {
     sqlite3_result_pointer(context, bitset_filter, kBitsetFilterPointerType, release_bitset_filter);
 }
 
+void bitset_drop_func(sqlite3_context* context, int argc, sqlite3_value** argv) {
+    if (context == nullptr) {
+        return;
+    }
+    if (argc != 1 || argv == nullptr) {
+        sqlite3_result_error(context, "bitset_drop: invalid arguments", -1);
+        return;
+    }
+
+    if (sqlite3_value_type(argv[0]) != SQLITE_TEXT) {
+        sqlite3_result_error(context, "bitset_drop: name must be a string", -1);
+        return;
+    }
+
+    const char* name = reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+    int removed = 0;
+    bool out_of_memory = false;
+    const char* error_message = nullptr;
+    if (sk_bitset_filter_drop(name, &removed, &out_of_memory, &error_message) != 0) {
+        if (out_of_memory) {
+            sqlite3_result_error_nomem(context);
+            return;
+        }
+        sqlite3_result_error(
+            context, error_message != nullptr ? error_message : "bitset_drop: failed", -1);
+        return;
+    }
+
+    sqlite3_result_int(context, removed);
+}
+
 // VliteVTab exists to bind SQLite's virtual-table object to the dataset state
 // needed by the extension. It stores the dataset path and the opened Dataset instance.
 struct VliteVTab : sqlite3_vtab {
@@ -906,6 +937,20 @@ extern "C" int sqlite3_sketch2_init(sqlite3* db, char** pz_err_msg, const sqlite
             nullptr,
             bitset_agg_step,
             bitset_agg_final,
+            nullptr);
+        if (rc != SQLITE_OK) {
+            return rc;
+        }
+
+        rc = sqlite3_create_function_v2(
+            db,
+            "bitset_drop",
+            1,
+            SQLITE_UTF8,
+            nullptr,
+            bitset_drop_func,
+            nullptr,
+            nullptr,
             nullptr);
         if (rc != SQLITE_OK) {
             return rc;

@@ -86,12 +86,15 @@ in-process adapters. The object may be heap-backed or mmap-backed. Pass it to
 releases either storage kind correctly. Passing `name` to
 `sk_bitset_filter_builder_add()` or `sk_bitset_filter_builder_set_name()`
 publishes the finished filter as `<spill_dir>/<name>.bitset`; names may contain
-only ASCII letters, digits, and underscores. `sk_bitset_filter_builder_set_name()`
+only ASCII letters, digits, and underscores, and empty names are rejected.
+`sk_bitset_filter_builder_set_name()`
 lets callers publish an empty named filter. The first successful name-setting
 call wins for naming; later calls on the same builder must pass the same `name`,
 or the builder rejects the call. Mapped spill only avoids allocating the final
 serialized buffer with `aligned_alloc`; the builder still accumulates its working
 state in memory before serialization.
+`sk_bitset_filter_drop(name)` deletes the persistent named filter file and
+reports whether a file was removed.
 
 For incremental ingest, the staged-writing API accumulates vectors and delete
 markers into a temporary input file owned by the open dataset. Calling

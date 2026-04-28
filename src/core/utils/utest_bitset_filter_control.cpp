@@ -111,8 +111,7 @@ TEST(bitset_filter_control, small_filter_uses_heap_and_resets_cleanly) {
 
 TEST(bitset_filter_control, named_small_filter_spills_to_persistent_named_file) {
     const std::string name = unique_filter_name("small_named_filter");
-    const std::filesystem::path expected_path =
-        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    const std::filesystem::path expected_path = named_bitset_filter_path(name);
     std::filesystem::remove(expected_path);
 
     std::unique_ptr<BitsetFilterControl> control = create_control({20, 40}, name.c_str());
@@ -152,8 +151,7 @@ TEST(bitset_filter_control, large_filter_spills_to_temporary_mapped_file) {
 
 TEST(bitset_filter_control, named_large_filter_spills_to_persistent_named_file) {
     const std::string name = unique_filter_name("named_filter");
-    const std::filesystem::path expected_path =
-        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    const std::filesystem::path expected_path = named_bitset_filter_path(name);
     std::filesystem::remove(expected_path);
 
     std::unique_ptr<BitsetFilterControl> control =
@@ -178,8 +176,7 @@ TEST(bitset_filter_control, named_large_filter_spills_to_persistent_named_file) 
 
 TEST(bitset_filter_control, named_rebuild_does_not_truncate_existing_mapping) {
     const std::string name = unique_filter_name("rebuild_filter");
-    const std::filesystem::path expected_path =
-        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    const std::filesystem::path expected_path = named_bitset_filter_path(name);
     std::filesystem::remove(expected_path);
 
     std::unique_ptr<BitsetFilterControl> first =
@@ -211,10 +208,40 @@ TEST(bitset_filter_control, named_rebuild_does_not_truncate_existing_mapping) {
     std::filesystem::remove(expected_path);
 }
 
+TEST(bitset_filter_control, drop_named_filter_removes_file_and_reports_status) {
+    const std::string name = unique_filter_name("drop_filter");
+    const std::filesystem::path expected_path = named_bitset_filter_path(name);
+    std::filesystem::remove(expected_path);
+
+    std::unique_ptr<BitsetFilterControl> control = create_control({20, 40}, name.c_str());
+    ASSERT_NE(nullptr, control);
+    ASSERT_TRUE(std::filesystem::exists(expected_path));
+    control->reset();
+
+    bool removed = false;
+    EXPECT_EQ(0, drop_named_bitset_filter(name.c_str(), &removed).code());
+    EXPECT_TRUE(removed);
+    EXPECT_FALSE(std::filesystem::exists(expected_path));
+
+    removed = true;
+    EXPECT_EQ(0, drop_named_bitset_filter(name.c_str(), &removed).code());
+    EXPECT_FALSE(removed);
+}
+
+TEST(bitset_filter_control, rejects_empty_named_filter_name) {
+    ChunkedBits bits;
+    EXPECT_NE(0, bits.set_name("").code());
+
+    bool removed = true;
+    const Ret ret = drop_named_bitset_filter("", &removed);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(ret.message().find("bitset_drop: invalid bitset filter name"), std::string::npos);
+    EXPECT_FALSE(removed);
+}
+
 TEST(bitset_filter_control, named_publish_failure_removes_temporary_file) {
     const std::string name = unique_filter_name("publish_failure_filter");
-    const std::filesystem::path expected_path =
-        get_singleton().bitset_filter_spill_dir() / (name + kBitsetFilterNamedFileSuffix);
+    const std::filesystem::path expected_path = named_bitset_filter_path(name);
     std::filesystem::remove_all(expected_path);
     std::filesystem::create_directory(expected_path);
 

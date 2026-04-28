@@ -88,17 +88,29 @@ uint64_t read_u64_le(const uint8_t* data) {
 
 } // namespace
 
+Ret validate_chunked_bits_name(const char* name) {
+    if (name == nullptr) {
+        return Ret("sketch2: invalid bitset filter name");
+    }
+    if (name[0] == '\0') {
+        return Ret("sketch2: invalid bitset filter name");
+    }
+
+    for (const char* s = name; *s; s++) {
+        if (!std::isalnum(static_cast<unsigned char>(*s)) && *s != '_') {
+            return Ret("sketch2: invalid bitset filter name");
+        }
+    }
+
+    return Ret(0);
+}
+
 Ret ChunkedBits::set_name(const char* name) {
     if (name == nullptr) {
         return Ret(0);
     }
 
-    for (const char* s = name; *s; s++) {
-        if (!std::isalnum(static_cast<unsigned char>(*s)) && *s != '_') {
-            return Ret(-1);
-        }
-    }
-
+    CHECK(validate_chunked_bits_name(name));
     name_ = name;
 
     return Ret(0);

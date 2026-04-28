@@ -428,6 +428,39 @@ void sk_release_bitset_filter(void* ptr) {
     delete static_cast<BitsetFilterControl*>(ptr);
 }
 
+int sk_bitset_filter_drop(
+        const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out) {
+    set_builder_error(out_of_memory, error_message_out, false, nullptr);
+    if (removed_out == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "bitset_drop: invalid result output");
+        return -1;
+    }
+    *removed_out = 0;
+
+    try {
+        (void)sketch2_runtime_init();
+
+        bool removed = false;
+        const Ret ret = drop_named_bitset_filter(name, &removed);
+        if (ret.code() != 0) {
+            set_builder_error(out_of_memory, error_message_out, false, ret.message());
+            return -1;
+        }
+        *removed_out = removed ? 1 : 0;
+        return 0;
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
 void sk_set_log_level(const char* log_level) {
     if (!log_level) {
         return;

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <string>
 
 namespace sketch2 {
 
@@ -61,5 +62,7 @@ private:
 };
 
 BitsetFilterStorageKind bitset_filter_storage_kind_for_testing(const BitsetFilterControl* control);
+std::filesystem::path named_bitset_filter_path(const std::string& name);
+Ret drop_named_bitset_filter(const char* name, bool* removed_out);
 
 } // namespace sketch2

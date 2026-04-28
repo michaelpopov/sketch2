@@ -53,7 +53,7 @@ When `name` is provided on any row observed by the aggregate, Sketch2 publishes
 the serialized filter as `<spill_dir>/<name>.bitset` and leaves that file in
 place after the SQLite pointer is released. This includes groups where all
 observed ids are `NULL`, which publish an empty named filter. Names may contain
-only ASCII letters, digits, and underscores.
+only ASCII letters, digits, and underscores, and empty names are rejected.
 
 Within one aggregate group, the first non-`NULL` `name` observed by the step
 function wins for naming; later non-`NULL` names must pass the same value or the
@@ -65,6 +65,9 @@ published.
 in-process callers. Pass the returned object to `sk_knn_items_bitset_filter()` and
 release it with `sk_release_bitset_filter()`, which handles either heap-backed or
 mmap-backed storage.
+
+`sk_bitset_filter_drop(name)` deletes `<spill_dir>/<name>.bitset` for a named
+filter and reports whether a file was removed. Missing files are not errors.
 
 Mapped spill only avoids allocating the final serialized bitset filter buffer with
 `aligned_alloc`. The aggregation builder still accumulates `ChunkedBits` /

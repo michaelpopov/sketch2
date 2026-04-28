@@ -5,13 +5,14 @@ SQLite exposes:
 ```sql
 SELECT bitset_agg(id) FROM some_table;
 SELECT bitset_agg(id, 'name') FROM some_table;
+SELECT bitset_drop('name');
 ```
 
 `bitset_agg(id[, name])`:
 
 - ignores `NULL`
 - accepts only SQLite `INTEGER`
-- accepts an optional string `name`
+- accepts an optional non-empty string `name`
 - rejects negative ids
 - accepts ids in any order
 - returns an API-owned typed pointer to a serialized chunked-Roaring bitset_filter
@@ -23,6 +24,15 @@ SELECT bitset_agg(id, 'name') FROM some_table;
   named file because SQLite never calls the aggregate step function
 - the first non-`NULL` `name` observed by the step function wins for naming;
   later non-`NULL` names must pass the same `name`, or the aggregate is rejected
+- rejects an empty `name`
+
+`bitset_drop(name)`:
+
+- accepts a non-empty string `name`
+- deletes `<spill_dir>/<name>.bitset`
+- returns `1` when a file was removed
+- returns `0` when the named file was already absent
+- rejects `NULL`, empty, or invalid names
 
 The underlying serialized format is documented in
 [src/sketch2api/BITSET.md](/home/mpopov/projects/sketch2/src/sketch2api/BITSET.md).
