@@ -74,7 +74,14 @@ Code that shares one opaque object across multiple owners may call
 with `sk_release_bitset_filter()`.
 
 `sk_bitset_filter_drop(name)` deletes `<spill_dir>/<name>.bitset` for a named
-filter and reports whether a file was removed. Missing files are not errors.
+filter, evicts the process-wide mapped-file cache entry for `name`, and reports
+whether a file was removed. Missing files are not errors.
+
+Named filters created by `sk_bitset_filter_builder_finish()` or loaded by
+`sk_bitset_filter_load(name)` are cached by name after validation. The cache is
+process-wide and can serve later loads across callers. Evicting a cache entry
+does not invalidate opaque filter objects that were already returned; those
+objects keep their mapped storage alive until released.
 
 Mapped spill only avoids allocating the final serialized bitset filter buffer with
 `aligned_alloc`. The aggregation builder still accumulates `ChunkedBits` /

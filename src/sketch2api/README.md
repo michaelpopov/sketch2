@@ -98,7 +98,10 @@ or the builder rejects the call. Mapped spill only avoids allocating the final
 serialized buffer with `aligned_alloc`; the builder still accumulates its working
 state in memory before serialization.
 `sk_bitset_filter_drop(name)` deletes the persistent named filter file and
-reports whether a file was removed.
+evicts the process-wide mapped-file cache entry for that name. Missing files are
+not errors. Named filters created or loaded by the API are cached by name after
+validation; evicting the cache does not invalidate already-returned filter
+objects.
 
 For incremental ingest, the staged-writing API accumulates vectors and delete
 markers into a temporary input file owned by the open dataset. Calling

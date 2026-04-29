@@ -85,6 +85,12 @@ inline constexpr char kVliteSchema[] =
 // Number of items in the input block.
 inline constexpr size_t kIndexedBinaryBlockItems = sizeof(uint64_t) * 8;
 
+// Hard upper bound on the number of named bitset filter files kept open and
+// mapped by BitsetFileCache. Inserts beyond this limit are rejected; callers
+// fall back to opening the file from disk on each access. Adjusted by
+// sk_bitset_filter_cache_remove / sk_bitset_filter_cache_clear.
+inline constexpr size_t kMaxLoadedBitsetCount = 128;
+
 // Input format markers.
 constexpr const char* BinFileMarker = "bin";
 constexpr const char* BinIndexedFileMarker = "binind";

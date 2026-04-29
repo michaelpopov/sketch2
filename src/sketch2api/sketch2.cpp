@@ -6,6 +6,7 @@
 #include "sketch2api_utils.h"
 
 #include "core/compute/highway.h"
+#include "core/bitset/bitset_file_cache.h"
 #include "core/bitset/bitset_filter_control.h"
 #include "core/bitset/chunked_bits.h"
 #include "core/utils/log.h"
@@ -532,6 +533,61 @@ int sk_bitset_filter_drop(
             return -1;
         }
         *removed_out = removed ? 1 : 0;
+        return 0;
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
+int sk_bitset_filter_cache_remove(
+        const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out) {
+    set_builder_error(out_of_memory, error_message_out, false, nullptr);
+    if (removed_out == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "bitset_cache_remove: invalid result output");
+        return -1;
+    }
+    *removed_out = 0;
+    if (name == nullptr) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "bitset_cache_remove: name must not be null");
+        return -1;
+    }
+    if (validate_chunked_bits_name(name).code() != 0) {
+        set_builder_error(out_of_memory, error_message_out, false,
+            "bitset_cache_remove: invalid bitset filter name");
+        return -1;
+    }
+
+    try {
+        (void)sketch2_runtime_init();
+        *removed_out = bitset_file_cache().remove(name) ? 1 : 0;
+        return 0;
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
+int sk_bitset_filter_cache_clear(
+        bool* out_of_memory, const char** error_message_out) {
+    set_builder_error(out_of_memory, error_message_out, false, nullptr);
+    try {
+        (void)sketch2_runtime_init();
+        bitset_file_cache().clear();
         return 0;
     } catch (const std::bad_alloc&) {
         set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");

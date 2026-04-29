@@ -31,6 +31,7 @@ SELECT bitset_drop('name');
 
 - accepts a non-empty string `name`
 - deletes `<spill_dir>/<name>.bitset`
+- evicts the named filter from the process-wide mapped-file cache
 - returns `1` when a file was removed
 - returns `0` when the named file was already absent
 - rejects `NULL`, empty, or invalid names
@@ -40,9 +41,16 @@ SELECT bitset_drop('name');
 - accepts a non-empty string `name`
 - maps `<spill_dir>/<name>.bitset`
 - returns an API-owned typed pointer that can be passed to `allowed_ids`
-- reuses the loaded filter for repeated calls at the same prepared-statement
-  expression site and argument value
+- reuses a process-wide cache of loaded named filters across prepared
+  statements and SQLite connections in the same process
 - rejects `NULL`, empty, invalid, missing, or malformed named filters
+
+Named filters created by `bitset_agg(id, name)` and loaded by
+`bitset_load(name)` are cached by name after validation. Cache eviction does not
+invalidate typed pointers that SQLite has already returned; those pointers keep
+their mapped storage alive until SQLite destroys the value. Use
+`bitset_drop(name)` to remove both the on-disk file and the process-wide cache
+entry.
 
 The underlying serialized format is documented in
 [src/sketch2api/BITSET.md](/home/mpopov/projects/sketch2/src/sketch2api/BITSET.md).

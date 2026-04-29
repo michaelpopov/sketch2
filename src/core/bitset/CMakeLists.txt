@@ -3,6 +3,7 @@ add_library(bitset STATIC
   roaring_ids.cpp
   chunked_bits.cpp
   bitset_filter_control.cpp
+  bitset_file_cache.cpp
 )
 
 target_include_directories(bitset PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -25,6 +26,7 @@ add_executable(utest_bitset
   utest_roaring_ids.cpp
   utest_chunked_bits.cpp
   utest_bitset_filter_control.cpp
+  utest_bitset_file_cache.cpp
 )
 
 target_link_libraries(utest_bitset

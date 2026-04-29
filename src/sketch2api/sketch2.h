@@ -198,6 +198,17 @@ int sk_bitset_filter_drop(
     const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out);
 
 /*
+ * Cache management. The cache keeps named bitset filter files open and mapped
+ * after creation or load. These entry points evict cached entries; the
+ * underlying on-disk files are untouched. Use sk_bitset_filter_drop() to remove
+ * a file from disk.
+ */
+int sk_bitset_filter_cache_remove(
+    const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out);
+int sk_bitset_filter_cache_clear(
+    bool* out_of_memory, const char** error_message_out);
+
+/*
  * Set global log level in Sketch2
  */
 void sk_set_log_level(const char* log_level);

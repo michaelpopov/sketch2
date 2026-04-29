@@ -184,23 +184,6 @@ void release_bitset_filter(void* ptr) {
     sk_release_bitset_filter(ptr);
 }
 
-struct BitsetLoadCache {
-    BitsetLoadCache() = default;
-    BitsetLoadCache(const BitsetLoadCache&) = delete;
-    BitsetLoadCache& operator=(const BitsetLoadCache&) = delete;
-
-    ~BitsetLoadCache() {
-        sk_release_bitset_filter(bitset_filter);
-    }
-
-    std::string name;
-    void* bitset_filter = nullptr;
-};
-
-void release_bitset_load_cache(void* ptr) {
-    delete static_cast<BitsetLoadCache*>(ptr);
-}
-
 // SQLite owns this aggregate context per GROUP BY group. We keep only the
 // API-owned builder here. Finalization returns an API-owned typed pointer.
 struct BitsetAggState {
@@ -428,14 +411,6 @@ void bitset_load_func(sqlite3_context* context, int argc, sqlite3_value** argv) 
         if (name == nullptr) {
             return;
         }
-        const std::string name_string(name);
-        auto* cache = static_cast<BitsetLoadCache*>(sqlite3_get_auxdata(context, 0));
-        if (cache != nullptr && cache->name == name_string && cache->bitset_filter != nullptr) {
-            sk_retain_bitset_filter(cache->bitset_filter);
-            sqlite3_result_pointer(
-                context, cache->bitset_filter, kBitsetFilterPointerType, release_bitset_filter);
-            return;
-        }
 
         void* bitset_filter = nullptr;
         bool out_of_memory = false;
@@ -451,15 +426,6 @@ void bitset_load_func(sqlite3_context* context, int argc, sqlite3_value** argv) 
         }
 
         assert(bitset_filter != nullptr);
-        std::unique_ptr<void, decltype(&sk_release_bitset_filter)> loaded_guard(
-            bitset_filter, sk_release_bitset_filter);
-        std::unique_ptr<BitsetLoadCache> new_cache(new BitsetLoadCache());
-        new_cache->name = name_string;
-        new_cache->bitset_filter = loaded_guard.release();
-
-        sk_retain_bitset_filter(bitset_filter);
-        sqlite3_set_auxdata(context, 0, new_cache.release(), release_bitset_load_cache);
-
         sqlite3_result_pointer(context, bitset_filter, kBitsetFilterPointerType, release_bitset_filter);
     } catch (const std::bad_alloc&) {
         sqlite3_result_error_nomem(context);

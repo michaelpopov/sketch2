@@ -64,8 +64,8 @@ struct BitsetFilterControl {
     void release();
 
     // storage must be declared before view so the borrowed view is destroyed
-    // before the backing bytes are released.
-    BitsetFilterStorage storage;
+    // before the unique_ptr drops the backing bytes.
+    std::unique_ptr<BitsetFilterStorage> storage;
     ChunkedBitsView view;
 
 private:
@@ -87,6 +87,9 @@ private:
     Ret init_temp_mapped_from_bits_(const ChunkedBits& bits, size_t blob_size,
         const std::filesystem::path& spill_dir);
     Ret init_named_mapped_from_file_(const char* name);
+    Ret swap_to_readonly_storage_for_cache_(
+        const std::string& name,
+        const std::filesystem::path& final_path);
 };
 
 BitsetFilterStorageKind bitset_filter_storage_kind_for_testing(const BitsetFilterControl* control);

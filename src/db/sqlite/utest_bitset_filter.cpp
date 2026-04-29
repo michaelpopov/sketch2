@@ -822,10 +822,13 @@ TEST_F(BitsetFilterSqlTest, BitsetLoadRejectsInvalidAndMissingNames) {
     expect_query_error(db.get(), "SELECT bitset_load('" + name + "')", "failed to open");
 }
 
-TEST_F(BitsetFilterSqlTest, BitsetLoadCachesWithinPreparedStatement) {
+// Within a single prepared statement, repeated bitset_load(?) invocations
+// benefit from the process-wide cache: removing the on-disk file after the
+// first row must not affect subsequent rows.
+TEST_F(BitsetFilterSqlTest, BitsetLoadServesRepeatedRowsFromCacheWithinPreparedStatement) {
     SqliteDbPtr db = open_db_with_extension();
 
-    const std::string name = unique_filter_name("sql_load_cache_filter");
+    const std::string name = unique_filter_name("sql_load_cache_in_stmt");
     const fs::path expected_path = named_bitset_filter_path(name);
     fs::remove(expected_path);
     ScopedPathCleanup cleanup{expected_path};
@@ -843,6 +846,8 @@ TEST_F(BitsetFilterSqlTest, BitsetLoadCachesWithinPreparedStatement) {
         << sqlite3_errmsg(db.get());
 
     ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    // Once the cache has the entry, removing the on-disk file must not
+    // affect subsequent steps: each step should serve from the cache.
     ASSERT_TRUE(fs::remove(expected_path));
 
     EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
@@ -851,47 +856,65 @@ TEST_F(BitsetFilterSqlTest, BitsetLoadCachesWithinPreparedStatement) {
     EXPECT_EQ(SQLITE_OK, sqlite3_finalize(stmt)) << sqlite3_errmsg(db.get());
 }
 
-TEST_F(BitsetFilterSqlTest, BitsetLoadCacheReplacesWhenArgumentChanges) {
+// The cache is process-wide, so an entry populated by one prepared statement
+// remains available to a separate prepared statement issued later — even
+// after the on-disk file has been removed.
+TEST_F(BitsetFilterSqlTest, BitsetLoadCachePersistsAcrossPreparedStatements) {
     SqliteDbPtr db = open_db_with_extension();
 
-    const std::string first_name = unique_filter_name("sql_load_cache_first");
-    const std::string second_name = unique_filter_name("sql_load_cache_second");
-    const fs::path first_path = named_bitset_filter_path(first_name);
-    const fs::path second_path = named_bitset_filter_path(second_name);
-    fs::remove(first_path);
-    fs::remove(second_path);
-    ScopedPathCleanup first_cleanup{first_path};
-    ScopedPathCleanup second_cleanup{second_path};
+    const std::string name = unique_filter_name("sql_load_cache_across");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
 
+    // bitset_agg() persists the file and inserts the entry into the cache.
     exec_sql(db.get(),
-        std::string("SELECT bitset_agg(column1, '") + first_name
+        std::string("SELECT bitset_agg(column1, '") + name
         + "') FROM (VALUES (20), (40))");
-    exec_sql(db.get(),
-        std::string("SELECT bitset_agg(column1, '") + second_name
-        + "') FROM (VALUES (10), (50))");
-    ASSERT_TRUE(fs::exists(first_path));
-    ASSERT_TRUE(fs::exists(second_path));
+    ASSERT_TRUE(fs::exists(expected_path));
 
+    // First prepared statement uses the cached entry, then completes.
+    exec_sql(db.get(), "SELECT bitset_load('" + name + "')");
+
+    // Remove the file: only the cached mapping remains in memory.
+    ASSERT_TRUE(fs::remove(expected_path));
+
+    // A separate, freshly prepared statement must still succeed via the cache.
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "SELECT bitset_load(?) FROM (VALUES (1), (2))";
-    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db.get(), sql, -1, &stmt, nullptr))
+    const std::string sql = "SELECT bitset_load('" + name + "')";
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db.get(), sql.c_str(), -1, &stmt, nullptr))
         << sqlite3_errmsg(db.get());
-
-    ASSERT_EQ(SQLITE_OK, sqlite3_bind_text(stmt, 1, first_name.c_str(), -1, SQLITE_TRANSIENT))
-        << sqlite3_errmsg(db.get());
-    ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
-    ASSERT_TRUE(fs::remove(first_path));
-    EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
-    EXPECT_EQ(SQLITE_DONE, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
-
-    ASSERT_EQ(SQLITE_OK, sqlite3_reset(stmt)) << sqlite3_errmsg(db.get());
-    ASSERT_EQ(SQLITE_OK, sqlite3_bind_text(stmt, 1, second_name.c_str(), -1, SQLITE_TRANSIENT))
-        << sqlite3_errmsg(db.get());
-    ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
-    ASSERT_TRUE(fs::remove(second_path));
     EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
     EXPECT_EQ(SQLITE_DONE, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
     EXPECT_EQ(SQLITE_OK, sqlite3_finalize(stmt)) << sqlite3_errmsg(db.get());
+}
+
+// bitset_drop() must evict the cache entry alongside removing the file:
+// otherwise a follow-up bitset_load() would still succeed via the cache.
+// This complements the cache-hit tests above by confirming the eviction
+// path is honored end-to-end.
+TEST_F(BitsetFilterSqlTest, BitsetDropEvictsCacheSoSubsequentLoadFails) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    const std::string name = unique_filter_name("sql_drop_then_load");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name
+        + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    // Warm path: the cache holds the entry from bitset_agg and load succeeds.
+    exec_sql(db.get(), "SELECT bitset_load('" + name + "')");
+
+    // bitset_drop evicts the cache entry and removes the file.
+    EXPECT_EQ(1, query_single_int(db.get(), "SELECT bitset_drop('" + name + "')"));
+    EXPECT_FALSE(fs::exists(expected_path));
+
+    expect_query_error(
+        db.get(), "SELECT bitset_load('" + name + "')", "failed to open");
 }
 
 TEST_F(BitsetFilterSqlTest, BitsetDropRemovesNamedFileAndReturnsStatus) {
