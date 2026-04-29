@@ -15,7 +15,7 @@ extern "C" {
  * become part of the main public API surface.
  */
 const char* sk_knn_engine_name_for_testing(void);
-int sk_bitset_filter_storage_kind_for_testing(const void* ptr);
+int sk_bitset_storage_kind_for_testing(const void* ptr);
 
 #ifdef __cplusplus
 }

@@ -239,12 +239,6 @@ void BitsetFilterControl::reset() {
     storage.reset();   // drops control's reference; storage survives if cache holds it.
 }
 
-void BitsetFilterControlDeleter::operator()(BitsetFilterControl* ptr) const {
-    if (ptr != nullptr) {
-        ptr->release();
-    }
-}
-
 Ret BitsetFilterControl::create(ChunkedBits& bits, BitsetFilterControlPtr* out) {
     if (out == nullptr) {
         return Ret("bitset filter builder: invalid control output");
@@ -266,16 +260,6 @@ Ret BitsetFilterControl::create_empty(BitsetFilterControlPtr* out) {
     }
     out->reset(new BitsetFilterControl());
     return Ret(0);
-}
-
-void BitsetFilterControl::retain() {
-    ref_count_.fetch_add(1, std::memory_order_relaxed);
-}
-
-void BitsetFilterControl::release() {
-    if (ref_count_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        delete this;
-    }
 }
 
 Ret BitsetFilterControl::load_named(

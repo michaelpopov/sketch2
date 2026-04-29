@@ -54,9 +54,8 @@ int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size
 int sk_knn_items_bitset_filter(sk_handle_t* handle, const char* vec, unsigned int k,
                            const void* allowed_ids, uint64_t** ids_out,
                            double** scores_out, size_t* count_out);
-int sk_bitset_filter_load(const char* name, void** out, bool* out_of_memory,
+int sk_bitset_load(const char* name, void** out, bool* out_of_memory,
                           const char** error_message_out);
-void sk_retain_bitset_filter(void* ptr);
 void sk_release_bitset_filter(void* ptr);
 int sk_score_ascending_is_better(sk_handle_t* handle, bool* out);
 int sk_get(sk_handle_t* handle, uint64_t id, char** value_out);
@@ -66,12 +65,12 @@ int sk_write_deleted(sk_handle_t* handle, uint64_t id);
 int sk_abort_writing(sk_handle_t* handle);
 int sk_complete_writing(sk_handle_t* handle);
 void sk_free(void* ptr);
-int sk_bitset_filter_builder_add(
+int sk_bitset_add_id(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out,
     const char* name);
-int sk_bitset_filter_builder_set_name(
+int sk_bitset_create_builder(
     void** state, bool* out_of_memory, const char** error_message_out, const char* name);
-int sk_bitset_filter_builder_finish(
+int sk_bitset_finish(
     void** state, void** out, bool* out_of_memory, const char** error_message_out);
 void sk_release_bitset_filter(void* ptr);
 ```
@@ -84,20 +83,20 @@ optional caller-owned bitset filter BLOB. Non-null bitset filter BLOB pointers m
 the serialized chunked-Roaring format and be 32-byte aligned. The blob layout is
 documented in `src/sketch2api/BITSET.md`.
 
-`sk_bitset_filter_builder_*()` builds an opaque API-owned bitset filter object for
+`sk_bitset_*()` builds an opaque API-owned bitset filter object for
 in-process adapters. The object may be heap-backed or mmap-backed. Pass it to
 `sk_knn_items_bitset_filter()` and release it with `sk_release_bitset_filter()`, which
 releases either storage kind correctly. Passing `name` to
-`sk_bitset_filter_builder_add()` or `sk_bitset_filter_builder_set_name()`
+`sk_bitset_add_id()` or `sk_bitset_create_builder()`
 publishes the finished filter as `<spill_dir>/<name>.bitset`; names may contain
 only ASCII letters, digits, and underscores, and empty names are rejected.
-`sk_bitset_filter_builder_set_name()`
+`sk_bitset_create_builder()`
 lets callers publish an empty named filter. The first successful name-setting
 call wins for naming; later calls on the same builder must pass the same `name`,
 or the builder rejects the call. Mapped spill only avoids allocating the final
 serialized buffer with `aligned_alloc`; the builder still accumulates its working
 state in memory before serialization.
-`sk_bitset_filter_drop(name)` deletes the persistent named filter file and
+`sk_bitset_drop(name)` deletes the persistent named filter file and
 evicts the process-wide mapped-file cache entry for that name. Missing files are
 not errors. Named filters created or loaded by the API are cached by name after
 validation; evicting the cache does not invalidate already-returned filter

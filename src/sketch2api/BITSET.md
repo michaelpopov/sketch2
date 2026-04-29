@@ -61,24 +61,21 @@ aggregate is rejected. If a SQL aggregate has zero rows, SQLite never calls the
 step function, so Sketch2 cannot observe the name argument and no named file is
 published.
 
-`sk_bitset_filter_builder_finish()` uses the same opaque ownership model for
+`sk_bitset_finish()` uses the same opaque ownership model for
 in-process callers. Pass the returned object to `sk_knn_items_bitset_filter()` and
 release it with `sk_release_bitset_filter()`, which handles either heap-backed or
 mmap-backed storage.
 
-`sk_bitset_filter_load(name)` maps `<spill_dir>/<name>.bitset`, validates the
+`sk_bitset_load(name)` maps `<spill_dir>/<name>.bitset`, validates the
 serialized filter, and returns the same opaque object shape. Pass it to
 `sk_knn_items_bitset_filter()` and release it with `sk_release_bitset_filter()`.
-Code that shares one opaque object across multiple owners may call
-`sk_retain_bitset_filter()` for each additional owner and balance each retain
-with `sk_release_bitset_filter()`.
 
-`sk_bitset_filter_drop(name)` deletes `<spill_dir>/<name>.bitset` for a named
+`sk_bitset_drop(name)` deletes `<spill_dir>/<name>.bitset` for a named
 filter, evicts the process-wide mapped-file cache entry for `name`, and reports
 whether a file was removed. Missing files are not errors.
 
-Named filters created by `sk_bitset_filter_builder_finish()` or loaded by
-`sk_bitset_filter_load(name)` are cached by name after validation. The cache is
+Named filters created by `sk_bitset_finish()` or loaded by
+`sk_bitset_load(name)` are cached by name after validation. The cache is
 process-wide and can serve later loads across callers. Evicting a cache entry
 does not invalidate opaque filter objects that were already returned; those
 objects keep their mapped storage alive until released.

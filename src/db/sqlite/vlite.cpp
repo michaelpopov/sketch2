@@ -181,7 +181,7 @@ void release_bitset_filter(void* ptr) {
     if (ptr == nullptr) {
         return;
     }
-    sk_release_bitset_filter(ptr);
+    sk_bitset_delete(ptr);
 }
 
 // SQLite owns this aggregate context per GROUP BY group. We keep only the
@@ -266,7 +266,7 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
             state->name_size == name_size &&
             state->name_hash == name_hash;
         if (!name_checked) {
-            if (sk_bitset_filter_builder_set_name(
+            if (sk_bitset_create_builder(
                     &state->bitset_filter_builder, &state->has_nomem,
                     &state->error_message, name) != 0) {
                 state->has_error = true;
@@ -307,9 +307,9 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
 
     const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
     const int add_rc = name != nullptr
-        ? sk_bitset_filter_builder_add_current_name(
+        ? sk_bitset_add_id_name(
             &state->bitset_filter_builder, id_u64, &state->has_nomem, &state->error_message)
-        : sk_bitset_filter_builder_add(
+        : sk_bitset_add_id(
             &state->bitset_filter_builder, id_u64, &state->has_nomem, &state->error_message, nullptr);
     if (add_rc != 0) {
         state->has_error = true;
@@ -334,7 +334,7 @@ void bitset_agg_final(sqlite3_context* context) {
     void* bitset_filter = nullptr;
     bool finish_nomem = false;
     const char* finish_error = nullptr;
-    if (sk_bitset_filter_builder_finish(
+    if (sk_bitset_finish(
             &state->bitset_filter_builder, &bitset_filter, &finish_nomem, &finish_error) != 0) {
         state->has_error = true;
         state->has_nomem = finish_nomem;
@@ -342,7 +342,7 @@ void bitset_agg_final(sqlite3_context* context) {
     }
 
     if (state->has_error) {
-        sk_release_bitset_filter(bitset_filter);
+        sk_bitset_delete(bitset_filter);
         if (state->has_nomem) {
             sqlite3_result_error_nomem(context);
             return;
@@ -379,7 +379,7 @@ void bitset_drop_func(sqlite3_context* context, int argc, sqlite3_value** argv) 
     int removed = 0;
     bool out_of_memory = false;
     const char* error_message = nullptr;
-    if (sk_bitset_filter_drop(name, &removed, &out_of_memory, &error_message) != 0) {
+    if (sk_bitset_drop(name, &removed, &out_of_memory, &error_message) != 0) {
         if (out_of_memory) {
             sqlite3_result_error_nomem(context);
             return;
@@ -415,7 +415,7 @@ void bitset_load_func(sqlite3_context* context, int argc, sqlite3_value** argv) 
         void* bitset_filter = nullptr;
         bool out_of_memory = false;
         const char* error_message = nullptr;
-        if (sk_bitset_filter_load(name, &bitset_filter, &out_of_memory, &error_message) != 0) {
+        if (sk_bitset_load(name, &bitset_filter, &out_of_memory, &error_message) != 0) {
             if (out_of_memory) {
                 sqlite3_result_error_nomem(context);
                 return;

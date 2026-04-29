@@ -79,7 +79,7 @@ void set_builder_ret_error(bool* out_of_memory, const char** error_message_out,
     }
 }
 
-int ensure_bitset_filter_builder_name(
+int create_bitset_filter_builder(
         void** state, bool* out_of_memory, const char** error_message_out, const char* name) {
     if (state == nullptr) {
         set_builder_error(out_of_memory, error_message_out, false,
@@ -340,13 +340,13 @@ void sk_free(void* ptr) {
     std::free(ptr);
 }
 
-int sk_bitset_filter_builder_add(
+int sk_bitset_add_id(
         void** state, uint64_t id, bool* out_of_memory, const char** error_message_out,
         const char* name) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
 
     try {
-        if (ensure_bitset_filter_builder_name(
+        if (create_bitset_filter_builder(
                 state, out_of_memory, error_message_out, name) != 0) {
             return -1;
         }
@@ -371,7 +371,7 @@ int sk_bitset_filter_builder_add(
     }
 }
 
-int sk_bitset_filter_builder_add_current_name(
+int sk_bitset_add_id_name(
         void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     if (state == nullptr || *state == nullptr) {
@@ -401,11 +401,11 @@ int sk_bitset_filter_builder_add_current_name(
     }
 }
 
-int sk_bitset_filter_builder_set_name(
+int sk_bitset_create_builder(
         void** state, bool* out_of_memory, const char** error_message_out, const char* name) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     try {
-        return ensure_bitset_filter_builder_name(state, out_of_memory, error_message_out, name);
+        return create_bitset_filter_builder(state, out_of_memory, error_message_out, name);
     } catch (const std::bad_alloc&) {
         set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
         return -1;
@@ -418,7 +418,7 @@ int sk_bitset_filter_builder_set_name(
     }
 }
 
-int sk_bitset_filter_builder_finish(
+int sk_bitset_finish(
         void** state, void** out, bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     if (state == nullptr || out == nullptr) {
@@ -459,7 +459,7 @@ int sk_bitset_filter_builder_finish(
     }
 }
 
-int sk_bitset_filter_load(
+int sk_bitset_load(
         const char* name, void** out, bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     if (out == nullptr) {
@@ -498,21 +498,11 @@ int sk_bitset_filter_load(
     }
 }
 
-void sk_retain_bitset_filter(void* ptr) {
-    if (ptr == nullptr) {
-        return;
-    }
-    static_cast<BitsetFilterControl*>(ptr)->retain();
+void sk_bitset_delete(void* ptr) {
+    delete static_cast<BitsetFilterControl*>(ptr);
 }
 
-void sk_release_bitset_filter(void* ptr) {
-    if (ptr == nullptr) {
-        return;
-    }
-    static_cast<BitsetFilterControl*>(ptr)->release();
-}
-
-int sk_bitset_filter_drop(
+int sk_bitset_drop(
         const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     if (removed_out == nullptr) {
@@ -550,7 +540,7 @@ int sk_bitset_filter_drop(
     }
 }
 
-int sk_bitset_filter_cache_remove(
+int sk_bitset_cache_remove(
         const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     if (removed_out == nullptr) {
@@ -586,7 +576,7 @@ int sk_bitset_filter_cache_remove(
     }
 }
 
-int sk_bitset_filter_cache_clear(
+int sk_bitset_cache_clear(
         bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     try {
@@ -631,7 +621,7 @@ const char* sk_knn_engine_name_for_testing(void) {
     }
 }
 
-int sk_bitset_filter_storage_kind_for_testing(const void* ptr) {
+int sk_bitset_storage_kind_for_testing(const void* ptr) {
     if (ptr == nullptr) {
         return -1;
     }

@@ -3,7 +3,6 @@
 #include "chunked_bits.h"
 #include "utils/mapped_region.h"
 
-#include <atomic>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -48,20 +47,14 @@ struct BitsetFilterStorage {
 
 struct BitsetFilterControl;
 
-struct BitsetFilterControlDeleter {
-    void operator()(BitsetFilterControl* ptr) const;
-};
-
-using BitsetFilterControlPtr =
-    std::unique_ptr<BitsetFilterControl, BitsetFilterControlDeleter>;
+using BitsetFilterControlPtr = std::unique_ptr<BitsetFilterControl>;
 
 struct BitsetFilterControl {
     static Ret create(ChunkedBits& bits, BitsetFilterControlPtr* out);
     static Ret create_empty(BitsetFilterControlPtr* out);
     static Ret load_named(const char* name, BitsetFilterControlPtr* out);
 
-    void retain();
-    void release();
+    ~BitsetFilterControl() = default;
 
     // storage must be declared before view so the borrowed view is destroyed
     // before the unique_ptr drops the backing bytes.
@@ -70,9 +63,6 @@ struct BitsetFilterControl {
 
 private:
     BitsetFilterControl() = default;
-    ~BitsetFilterControl() = default;
-
-    std::atomic<size_t> ref_count_{1};
 
     void reset();
 

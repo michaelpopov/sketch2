@@ -69,6 +69,6 @@ or mmap-backed, and `sk_release_bitset_filter()` releases either kind correctly.
 
 Raw `BLOB` bitset filters remain caller-owned 32-byte-aligned buffers. The mapped
 spill path is only for opaque bitset filters produced by `bitset_agg(id[, name])` /
-`sk_bitset_filter_builder_finish()`. It avoids allocating the final serialized
+`sk_bitset_finish()`. It avoids allocating the final serialized
 bitset filter buffer with `aligned_alloc`; the aggregate still accumulates builder
 state in memory before that final buffer is created.

@@ -76,7 +76,7 @@ int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
 
 /*
  * Run KNN with an opaque API-owned bitset filter object produced by
- * sk_bitset_filter_builder_finish(). This is intended for in-process adapters such
+ * sk_bitset_finish(). This is intended for in-process adapters such
  * as SQLite that need to pass a bitset filter without copying it through their own
  * BLOB storage.
  */
@@ -174,38 +174,37 @@ void sk_free(void* ptr);
 
 /*
  * Build an API-owned serialized chunked-Roaring bitset filter object. The finished
- * object is opaque; pass it to sk_knn_items_bitset_filter() and release it with
- * sk_release_bitset_filter().
+ * object is opaque; pass it to sk_knn_items_bitset_filter() and delete it with
+ * sk_bitset_delete().
  */
-int sk_bitset_filter_builder_add(
+int sk_bitset_add_id(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out,
     const char* name);
-int sk_bitset_filter_builder_add_current_name(
+int sk_bitset_add_id_name(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
-int sk_bitset_filter_builder_set_name(
+int sk_bitset_create_builder(
     void** state, bool* out_of_memory, const char** error_message_out, const char* name);
-int sk_bitset_filter_builder_finish(
+int sk_bitset_finish(
     void** state, void** out, bool* out_of_memory, const char** error_message_out);
-int sk_bitset_filter_load(
+int sk_bitset_load(
     const char* name, void** out, bool* out_of_memory, const char** error_message_out);
 /*
- * Retain/release an opaque bitset filter object returned by builder_finish() or
- * load(). Callers that do not share the object should only call release().
+ * Delete an opaque bitset filter object returned by sk_bitset_finish() or
+ * sk_bitset_load().
  */
-void sk_retain_bitset_filter(void* ptr);
-void sk_release_bitset_filter(void* ptr);
-int sk_bitset_filter_drop(
+void sk_bitset_delete(void* ptr);
+int sk_bitset_drop(
     const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out);
 
 /*
  * Cache management. The cache keeps named bitset filter files open and mapped
  * after creation or load. These entry points evict cached entries; the
- * underlying on-disk files are untouched. Use sk_bitset_filter_drop() to remove
+ * underlying on-disk files are untouched. Use sk_bitset_drop() to remove
  * a file from disk.
  */
-int sk_bitset_filter_cache_remove(
+int sk_bitset_cache_remove(
     const char* name, int* removed_out, bool* out_of_memory, const char** error_message_out);
-int sk_bitset_filter_cache_clear(
+int sk_bitset_cache_clear(
     bool* out_of_memory, const char** error_message_out);
 
 /*
