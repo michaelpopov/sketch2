@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include "core/compute/highway.h"
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
 #include "core/bitset/bitset_filter_control.h"
@@ -22,9 +23,15 @@
 #include <vector>
 #include <system_error>
 
-using namespace sketch2;
+namespace sketch2 {
 
-namespace sketch2api::detail {
+bool sketch2_runtime_init() {
+    const bool initialized = Singleton::runtime_init();
+    if (initialized) {
+        initialize_hwy_runtime();
+    }
+    return initialized;
+}
 
 namespace {
 
@@ -889,7 +896,7 @@ SKETCH2API_HIDDEN int sk_generate_test_metadata_(sk_handle_t* handle,
     return ret.code();
 }
 
-int sk_load_file_(sk_handle_t* handle, const char* path) {
+int sk_import_data_(sk_handle_t* handle, const char* path) {
     DECL
 
     if (handle->ds == nullptr) {
@@ -979,4 +986,4 @@ int sk_stats_(sk_handle_t* handle, const char* path) {
     return 0;
 }
 
-} // namespace sketch2api::detail
+} // namespace sketch2

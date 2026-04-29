@@ -1,7 +1,9 @@
 #pragma once
 #include "sketch2api_utils.h"
 
-namespace sketch2api::detail {
+namespace sketch2 {
+
+bool sketch2_runtime_init();
 
 SKETCH2API_HIDDEN int sk_create_(
     sk_handle_t* handle, const char* name, const char* dirs, unsigned int dim, const char* type,
@@ -40,7 +42,7 @@ SKETCH2API_HIDDEN int sk_generate_test_data_(
     const char* pattern = nullptr, bool binary = false);
 SKETCH2API_HIDDEN int sk_generate_test_metadata_(sk_handle_t* handle, 
     const char* path, uint64_t count, uint64_t start_id);
-SKETCH2API_HIDDEN int sk_load_file_(sk_handle_t* handle, const char* path);
+SKETCH2API_HIDDEN int sk_import_data_(sk_handle_t* handle, const char* path);
 SKETCH2API_HIDDEN int sk_stats_(sk_handle_t* handle, const char* path = nullptr);
 
-} // namespace sketch2api::detail
+} // namespace sketch2

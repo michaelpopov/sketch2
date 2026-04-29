@@ -9,3 +9,4 @@
 - `sketch2api_testing.h`: Testing-only API declarations intentionally kept out of the main public header.
 - `utest_main.cpp`: Shared GoogleTest entry point (`src/core/utils/utest_main.cpp`) for the sketch2api test binary.
 - `utest_sketch2api.cpp`: Unit tests for the sketch2api API.
+- `utest_bitset.cpp`: Unit tests for sketch2api bitset builder, load/drop/cache, and bitset-filtered KNN behavior.

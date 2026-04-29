@@ -77,7 +77,7 @@ protected:
         ASSERT_EQ(0, sk_create(handle, dataset_name_.c_str(), nullptr, static_cast<unsigned int>(dim),
             data_type_to_string(type), static_cast<unsigned int>(range_size), dist_func_to_string(dist_func)))
             << sk_error_message(handle);
-        ASSERT_EQ(0, sk_load_file(handle, input_path_.string().c_str())) << sk_error_message(handle);
+        ASSERT_EQ(0, sk_import_data(handle, input_path_.string().c_str())) << sk_error_message(handle);
         ASSERT_EQ(0, sk_close(handle)) << sk_error_message(handle);
         sk_release_handle(handle);
     }

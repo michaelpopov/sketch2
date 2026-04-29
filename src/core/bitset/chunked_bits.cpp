@@ -93,6 +93,55 @@ Ret ChunkedBits::add(uint64_t id) {
     return last_builder_->add(id);
 }
 
+Ret ChunkedBits::add(const uint64_t* ids, size_t size) {
+    if (finished_) {
+        return Ret("ChunkedBits::add: cannot add after finish");
+    }
+    if (size == 0) {
+        return Ret(0);
+    }
+    if (ids == nullptr) {
+        return Ret("ChunkedBits::add: ids pointer is null");
+    }
+
+    size_t i = 0;
+    while (i < size) {
+        const uint64_t chunk_id = get_chunk_id(ids[i]);
+        size_t j = i + 1;
+        while (j < size) {
+            if (ids[j] < ids[j - 1]) {
+                return Ret("ChunkedBits::add: ids must be sorted in non-decreasing order");
+            }
+            if (get_chunk_id(ids[j]) != chunk_id) {
+                break;
+            }
+            ++j;
+        }
+
+        RoaringIdsBuilder* builder = nullptr;
+        if (last_builder_ != nullptr && last_chunk_id_ == chunk_id) {
+            builder = last_builder_;
+        } else {
+            auto it = builders_.find(chunk_id);
+            if (it == builders_.end()) {
+                if (builders_.size() >= kChunkedBitsMaxChunks) {
+                    return Ret("ChunkedBits::add: too many chunks");
+                }
+                it = builders_.try_emplace(chunk_id).first;
+                CHECK(it->second.init_buffered(
+                    chunk_id << kChunkBits, kChunkedBitsBuilderBufferSize, true));
+            }
+            builder = &it->second;
+            last_chunk_id_ = chunk_id;
+            last_builder_ = builder;
+        }
+
+        CHECK(builder->load(ids + i, j - i));
+        i = j;
+    }
+    return Ret(0);
+}
+
 Ret ChunkedBits::finish() {
     if (finished_) {
         return finish_ret_;

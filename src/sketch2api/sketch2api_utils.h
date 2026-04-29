@@ -35,7 +35,7 @@ struct sk_handle {
     char message[256];
 };
 
-namespace sketch2api::detail {
+namespace sketch2 {
 
 SKETCH2API_HIDDEN void set_error(sk_handle_t* handle, const std::string& message);
 SKETCH2API_HIDDEN bool is_valid_dataset_name(const char* name);
@@ -44,16 +44,16 @@ SKETCH2API_HIDDEN std::filesystem::path dataset_ini_path(const sk_handle_t* hand
 SKETCH2API_HIDDEN std::filesystem::path dataset_lock_path(const sk_handle_t* handle, const char* name);
 SKETCH2API_HIDDEN void clear_cached_results(sk_handle_t* handle);
 SKETCH2API_HIDDEN void close_dataset(sk_handle_t* handle);
-SKETCH2API_HIDDEN sketch2::Ret validate_dataset_type(const char* type);
-SKETCH2API_HIDDEN sketch2::Ret validate_dataset_dist_func(const char* dist_func);
-SKETCH2API_HIDDEN sketch2::Ret lock_dataset_owner(
-    const std::filesystem::path& ini_path, std::unique_ptr<sketch2::FileLockGuard>* owner_lock);
+SKETCH2API_HIDDEN Ret validate_dataset_type(const char* type);
+SKETCH2API_HIDDEN Ret validate_dataset_dist_func(const char* dist_func);
+SKETCH2API_HIDDEN Ret lock_dataset_owner(
+    const std::filesystem::path& ini_path, std::unique_ptr<FileLockGuard>* owner_lock);
 SKETCH2API_HIDDEN std::string vector_to_string(
-    const uint8_t* data, sketch2::DataType type, uint16_t dim);
-SKETCH2API_HIDDEN int print_reader_vectors(const sketch2::DataReader& reader);
+    const uint8_t* data, DataType type, uint16_t dim);
+SKETCH2API_HIDDEN int print_reader_vectors(const DataReader& reader);
 SKETCH2API_HIDDEN std::vector<std::filesystem::path> collect_paths_with_extension(
     const std::filesystem::path& dir_path, const char* ext);
 SKETCH2API_HIDDEN int print_stats_block(FILE* output,
     const std::string& label, size_t vectors_count, size_t deleted_count);
 
-} // namespace sketch2api::detail
+} // namespace sketch2

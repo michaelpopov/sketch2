@@ -159,7 +159,7 @@ int sk_generate_test_metadata(sk_handle_t* handle,
 /*
  * Load vectors from a text or binary input file into the current dataset.
  */
-int sk_load_file(sk_handle_t* handle, const char* path);
+int sk_import_data(sk_handle_t* handle, const char* path);
 
 /*
  * Print dataset file statistics to stdout or a text file.
@@ -191,6 +191,26 @@ int sk_bitset_add_id(
     const char* name);
 int sk_bitset_add_id_name(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out);
+/*
+ * Append `size` ids to an API-owned bitset filter builder. *state must point
+ * to a builder previously created by sk_bitset_create_builder() or another
+ * sk_bitset_* call that initializes it; this function does not auto-create a
+ * builder. size must be greater than zero and ids must be non-NULL.
+ *
+ * `ids` must be sorted in non-decreasing order. The builder validates this
+ * and rejects unsorted input. The sorted contract lets the implementation
+ * group ids by chunk in a single forward scan and feed CRoaring's range-
+ * coalescing bulk-add path directly, which is significantly faster than
+ * repeated single-id sk_bitset_add_id_name() calls -- especially for dense
+ * runs of consecutive ids. Duplicates are tolerated (set semantics).
+ *
+ * On failure -1 is returned; any ids inserted before a failing one remain in
+ * the builder, so the caller should treat the builder as poisoned and either
+ * delete *state or call sk_bitset_finish() without trusting the contents.
+ */
+int sk_bitset_add_multiple_ids_name(
+    void** state, const uint64_t* ids, uint64_t size,
+    bool* out_of_memory, const char** error_message_out);
 int sk_bitset_create_builder(
     void** state, bool* out_of_memory, const char** error_message_out, const char* name);
 int sk_bitset_finish(

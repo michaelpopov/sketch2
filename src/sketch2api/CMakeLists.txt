@@ -1,5 +1,6 @@
 add_library(sketch2api STATIC
   internal.cpp
+  internal_bitset.cpp
   sketch2.cpp
   sketch2api_utils.cpp
 )
@@ -25,6 +26,7 @@ target_link_libraries(sketch2api
 add_executable(utest_sketch2
   ${SHARED_UTEST_MAIN}
   utest_sketch2api.cpp
+  utest_bitset.cpp
 )
 target_include_directories(utest_sketch2 PRIVATE ${CMAKE_SOURCE_DIR}/src/core)
 target_link_libraries(utest_sketch2 PRIVATE sketch2api compute bitset GTest::gtest Threads::Threads sketch_warnings)

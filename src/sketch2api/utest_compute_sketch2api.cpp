@@ -142,7 +142,7 @@ void run_compute_chain_assertions() {
 
     sk_handle_t* handle = sk_new_handle(root.string().c_str());
     ASSERT_NE(nullptr, handle);
-    ASSERT_STREQ("highway", sketch2api::detail::sk_knn_engine_name_for_testing_());
+    ASSERT_STREQ("highway", sketch2::sk_knn_engine_name_for_testing_());
 
     populate_dataset(handle, "l2_ds", "l2", {
         {10, "0.0, 0.0, 0.0, 0.0"},

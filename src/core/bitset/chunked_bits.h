@@ -39,6 +39,13 @@ public:
     ChunkedBits& operator=(ChunkedBits&&) noexcept = default;
 
     Ret add(uint64_t id);
+
+    // Batched add for ids that the caller has already sorted in non-decreasing
+    // order. Groups the input by chunk in a single pass and hands each per-chunk
+    // slice to RoaringIdsBuilder::load, which bypasses the per-id buffer + sort
+    // and feeds CRoaring's range-coalescing path directly.
+    Ret add(const uint64_t* ids, size_t size);
+
     Ret finish();
     size_t serialized_size_bytes() const;
     Ret serialize(void* out, size_t size) const;

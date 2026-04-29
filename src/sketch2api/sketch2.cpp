@@ -3,38 +3,19 @@
 #include "sketch2.h"
 #include "sketch2api_testing.h"
 #include "internal.h"
+#include "internal_bitset.h"
 #include "sketch2api_utils.h"
 
-#include "core/compute/highway.h"
-#include "core/bitset/bitset_file_cache.h"
-#include "core/bitset/bitset_filter_control.h"
-#include "core/bitset/chunked_bits.h"
 #include "core/utils/log.h"
-#include "core/utils/singleton.h"
 
-#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <memory>
 #include <new>
 #include <string>
 
 using namespace sketch2;
 using namespace sketch2::log;
-using namespace sketch2api::detail;
-
-namespace sketch2 {
-
-bool sketch2_runtime_init() {
-    const bool initialized = Singleton::runtime_init();
-    if (initialized) {
-        initialize_hwy_runtime();
-    }
-    return initialized;
-}
-
-} // namespace sketch2
 
 namespace {
 
@@ -77,43 +58,6 @@ void set_builder_ret_error(bool* out_of_memory, const char** error_message_out,
     } else {
         set_builder_error(out_of_memory, error_message_out, false, fallback_message);
     }
-}
-
-int create_bitset_filter_builder(
-        void** state, bool* out_of_memory, const char** error_message_out, const char* name) {
-    if (state == nullptr) {
-        set_builder_error(out_of_memory, error_message_out, false,
-            "bitset filter builder: invalid builder state");
-        return -1;
-    }
-
-    auto* chunked_bits = static_cast<ChunkedBits*>(*state);
-    if (chunked_bits == nullptr) {
-        auto new_bits = std::make_unique<ChunkedBits>();
-        chunked_bits = new_bits.get();
-        if (chunked_bits->set_name(name).code() != 0) {
-            set_builder_error(out_of_memory, error_message_out, false,
-                "sketch2: invalid bitset filter name");
-            return -1;
-        }
-        new_bits.release();
-        *state = chunked_bits;
-        return 0;
-    }
-
-    const char* requested_name = name != nullptr ? name : "";
-    if (chunked_bits->name() != requested_name) {
-        // SQLite-style aggregator bindings call xFinal (i.e. finish) even after
-        // xStep returns an error. Destroying the builder here ensures finish()
-        // sees a null state and produces an empty control with no name, so a
-        // mid-stream error never publishes a partially-built named filter file.
-        delete chunked_bits;
-        *state = nullptr;
-        set_builder_error(out_of_memory, error_message_out, false,
-            "sketch2: inconsistent bitset filter name");
-        return -1;
-    }
-    return 0;
 }
 
 } // namespace
@@ -317,9 +261,9 @@ int sk_generate_test_metadata(sk_handle_t* handle,
     }
 }
 
-int sk_load_file(sk_handle_t* handle, const char* path) {
+int sk_import_data(sk_handle_t* handle, const char* path) {
     try {
-        return sk_load_file_(handle, path);
+        return sk_import_data_(handle, path);
     } catch (const std::exception& ex) {
         ERR(ex.what())
     }
@@ -357,15 +301,9 @@ int sk_bitset_add_id(
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
 
     try {
-        if (create_bitset_filter_builder(
-                state, out_of_memory, error_message_out, name) != 0) {
-            return -1;
-        }
-
-        auto* chunked_bits = static_cast<ChunkedBits*>(*state);
-        const Ret ret = chunked_bits->add(id);
+        const Ret ret = sk_bitset_add_id_(state, id, name);
         if (ret.code() != 0) {
-            set_builder_error(out_of_memory, error_message_out, false,
+            set_builder_ret_error(out_of_memory, error_message_out, ret,
                 "bitset filter builder: add failed");
             return -1;
         }
@@ -385,17 +323,35 @@ int sk_bitset_add_id(
 int sk_bitset_add_id_name(
         void** state, uint64_t id, bool* out_of_memory, const char** error_message_out) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
-    if (state == nullptr || *state == nullptr) {
-        set_builder_error(out_of_memory, error_message_out, false,
-            "bitset filter builder: invalid builder state");
-        return -1;
-    }
 
     try {
-        auto* chunked_bits = static_cast<ChunkedBits*>(*state);
-        const Ret ret = chunked_bits->add(id);
+        const Ret ret = sk_bitset_add_id_name_(state, id);
         if (ret.code() != 0) {
-            set_builder_error(out_of_memory, error_message_out, false,
+            set_builder_ret_error(out_of_memory, error_message_out, ret,
+                "bitset filter builder: add failed");
+            return -1;
+        }
+        return 0;
+    } catch (const std::bad_alloc&) {
+        set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
+        return -1;
+    } catch (const std::exception&) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: internal error");
+        return -1;
+    } catch (...) {
+        set_builder_error(out_of_memory, error_message_out, false, "sketch2: unexpected error");
+        return -1;
+    }
+}
+
+int sk_bitset_add_multiple_ids_name(
+        void** state, const uint64_t* ids, uint64_t size,
+        bool* out_of_memory, const char** error_message_out) {
+    set_builder_error(out_of_memory, error_message_out, false, nullptr);
+    try {
+        const Ret ret = sk_bitset_add_multiple_ids_name_(state, ids, size);
+        if (ret.code() != 0) {
+            set_builder_ret_error(out_of_memory, error_message_out, ret,
                 "bitset filter builder: add failed");
             return -1;
         }
@@ -416,7 +372,13 @@ int sk_bitset_create_builder(
         void** state, bool* out_of_memory, const char** error_message_out, const char* name) {
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     try {
-        return create_bitset_filter_builder(state, out_of_memory, error_message_out, name);
+        const Ret ret = sk_bitset_create_builder_(state, name);
+        if (ret.code() != 0) {
+            set_builder_ret_error(out_of_memory, error_message_out, ret,
+                "bitset filter builder: create failed");
+            return -1;
+        }
+        return 0;
     } catch (const std::bad_alloc&) {
         set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
         return -1;
@@ -437,26 +399,18 @@ int sk_bitset_finish(
             "bitset filter builder: invalid finish arguments");
         return -1;
     }
-    *out = nullptr;
 
     try {
         // This call is required to ensure that Singleton is initialized properly
         // because it is used in the following calls.
         (void)sketch2_runtime_init();
 
-        std::unique_ptr<ChunkedBits> bits(static_cast<ChunkedBits*>(*state));
-        *state = nullptr;
-
-        BitsetFilterControlPtr control;
-        const Ret control_ret = bits != nullptr
-            ? BitsetFilterControl::create(*bits, &control)
-            : BitsetFilterControl::create_empty(&control);
-        if (control_ret.code() != 0) {
-            set_builder_ret_error(out_of_memory, error_message_out, control_ret,
+        const Ret ret = sk_bitset_finish_(state, out);
+        if (ret.code() != 0) {
+            set_builder_ret_error(out_of_memory, error_message_out, ret,
                 "bitset filter builder: init failed");
             return -1;
         }
-        *out = control.release();
         return 0;
     } catch (const std::bad_alloc&) {
         set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
@@ -488,14 +442,12 @@ int sk_bitset_load(
     try {
         (void)sketch2_runtime_init();
 
-        BitsetFilterControlPtr control;
-        const Ret ret = load_named_bitset_filter(name, &control);
+        const Ret ret = sk_bitset_load_(name, out);
         if (ret.code() != 0) {
             set_builder_ret_error(out_of_memory, error_message_out, ret,
                 "bitset_load: failed");
             return -1;
         }
-        *out = control.release();
         return 0;
     } catch (const std::bad_alloc&) {
         set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
@@ -510,7 +462,7 @@ int sk_bitset_load(
 }
 
 void sk_bitset_delete(void* ptr) {
-    delete static_cast<BitsetFilterControl*>(ptr);
+    sk_bitset_delete_(ptr);
 }
 
 int sk_bitset_drop(
@@ -532,7 +484,7 @@ int sk_bitset_drop(
         (void)sketch2_runtime_init();
 
         bool removed = false;
-        const Ret ret = drop_named_bitset_filter(name, &removed);
+        const Ret ret = sk_bitset_drop_(name, &removed);
         if (ret.code() != 0) {
             set_builder_error(out_of_memory, error_message_out, false, ret.message());
             return -1;
@@ -565,15 +517,16 @@ int sk_bitset_cache_remove(
             "bitset_cache_remove: name must not be null");
         return -1;
     }
-    if (validate_chunked_bits_name(name).code() != 0) {
-        set_builder_error(out_of_memory, error_message_out, false,
-            "bitset_cache_remove: invalid bitset filter name");
-        return -1;
-    }
 
     try {
         (void)sketch2_runtime_init();
-        *removed_out = bitset_file_cache().remove(name) ? 1 : 0;
+        bool removed = false;
+        const Ret ret = sk_bitset_cache_remove_(name, &removed);
+        if (ret.code() != 0) {
+            set_builder_error(out_of_memory, error_message_out, false, ret.message());
+            return -1;
+        }
+        *removed_out = removed ? 1 : 0;
         return 0;
     } catch (const std::bad_alloc&) {
         set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
@@ -592,7 +545,11 @@ int sk_bitset_cache_clear(
     set_builder_error(out_of_memory, error_message_out, false, nullptr);
     try {
         (void)sketch2_runtime_init();
-        bitset_file_cache().clear();
+        const Ret ret = sk_bitset_cache_clear_();
+        if (ret.code() != 0) {
+            set_builder_error(out_of_memory, error_message_out, false, ret.message());
+            return -1;
+        }
         return 0;
     } catch (const std::bad_alloc&) {
         set_builder_error(out_of_memory, error_message_out, true, "sketch2: out of memory");
@@ -636,14 +593,5 @@ int sk_bitset_storage_kind_for_testing(const void* ptr) {
     if (ptr == nullptr) {
         return -1;
     }
-    const auto* control = static_cast<const BitsetFilterControl*>(ptr);
-    switch (bitset_filter_storage_kind_for_testing(control)) {
-        case BitsetFilterStorageKind::Heap:
-            return 0;
-        case BitsetFilterStorageKind::MappedFile:
-            return 1;
-        case BitsetFilterStorageKind::MappedFileTemporary:
-            return 2;
-    }
-    return -1;
+    return sk_bitset_storage_kind_for_testing_(ptr);
 }

@@ -9,9 +9,7 @@
 #include <filesystem>
 #include <stdexcept>
 
-namespace sketch2api::detail {
-
-using namespace sketch2;
+namespace sketch2 {
 
 void set_error(sk_handle_t* handle, const std::string& message) {
     if (handle == nullptr) {
@@ -166,4 +164,4 @@ int print_stats_block(FILE* output, const std::string& label, size_t vectors_cou
     return 0;
 }
 
-} // namespace sketch2api::detail
+} // namespace sketch2

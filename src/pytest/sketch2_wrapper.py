@@ -126,8 +126,8 @@ class Sketch2:
         self.lib.sk_generate_test_metadata.argtypes = [c_void_p, c_char_p, c_uint64, c_uint64]
         self.lib.sk_generate_test_metadata.restype = c_int
 
-        self.lib.sk_load_file.argtypes = [c_void_p, c_char_p]
-        self.lib.sk_load_file.restype = c_int
+        self.lib.sk_import_data.argtypes = [c_void_p, c_char_p]
+        self.lib.sk_import_data.restype = c_int
 
         self.lib.sk_stats.argtypes = [c_void_p, c_char_p]
         self.lib.sk_stats.restype = c_int
@@ -312,7 +312,7 @@ class Sketch2:
         )
 
     def load_file(self, path: str | Path) -> None:
-        self._check("sk_load_file", self.lib.sk_load_file(self.handle, str(path).encode("utf-8")))
+        self._check("sk_import_data", self.lib.sk_import_data(self.handle, str(path).encode("utf-8")))
 
     def stats(self, path: str | Path | None = None) -> None:
         encoded = b"" if path is None else str(path).encode("utf-8")

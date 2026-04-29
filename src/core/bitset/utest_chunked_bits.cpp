@@ -45,6 +45,24 @@ test::AlignedBlob serialize_ids(const std::vector<uint64_t>& ids) {
     return blob;
 }
 
+test::AlignedBlob serialize_finished(ChunkedBits&& bits) {
+    EXPECT_EQ(0, bits.finish().code());
+    test::AlignedBlob blob = test::make_aligned_blob(bits.serialized_size_bytes());
+    EXPECT_EQ(0, bits.serialize(blob.data, blob.size).code());
+    return blob;
+}
+
+void expect_view_contains_in_order(
+        const ChunkedBitsView& view, const std::vector<uint64_t>& ids) {
+    auto it = view.begin();
+    for (uint64_t id : ids) {
+        ASSERT_FALSE(it.eof()) << id;
+        EXPECT_EQ(id, it.id()) << id;
+        it.next();
+    }
+    EXPECT_TRUE(it.eof());
+}
+
 } // namespace
 
 TEST(chunked_bits, rejects_too_many_chunks) {
@@ -164,6 +182,125 @@ TEST(chunked_bits, view_rejects_out_of_bounds_payload) {
     const Ret ret = view.init_blob(blob.data, blob.size);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("ChunkedBitsView::init_blob: payload exceeds blob size", ret.message());
+}
+
+TEST(chunked_bits, batch_add_round_trips_single_chunk) {
+    ChunkedBits bits;
+    const std::vector<uint64_t> ids = {1u, 2u, 3u, 5u, 8u, 13u, 21u};
+    ASSERT_EQ(0, bits.add(ids.data(), ids.size()).code());
+    AlignedBlob blob = serialize_finished(std::move(bits));
+
+    ChunkedBitsView view;
+    ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
+    expect_view_contains_in_order(view, ids);
+}
+
+TEST(chunked_bits, batch_add_round_trips_multi_chunk_with_dense_runs) {
+    ChunkedBits bits;
+    std::vector<uint64_t> ids;
+    // Dense run inside chunk 0 to exercise add_range_closed coalescing.
+    for (uint64_t id = 100; id < 200; ++id) {
+        ids.push_back(id);
+    }
+    // Sparse ids in chunks 1 and 2.
+    ids.push_back((1ull << kChunkBits) + 7u);
+    ids.push_back((1ull << kChunkBits) + 9u);
+    ids.push_back((2ull << kChunkBits));
+    ids.push_back((2ull << kChunkBits) + 42u);
+
+    ASSERT_EQ(0, bits.add(ids.data(), ids.size()).code());
+    AlignedBlob blob = serialize_finished(std::move(bits));
+
+    ChunkedBitsView view;
+    ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
+    expect_view_contains_in_order(view, ids);
+}
+
+TEST(chunked_bits, batch_add_tolerates_duplicates) {
+    ChunkedBits bits;
+    const std::vector<uint64_t> ids = {1u, 1u, 2u, 2u, 2u, 3u};
+    ASSERT_EQ(0, bits.add(ids.data(), ids.size()).code());
+    AlignedBlob blob = serialize_finished(std::move(bits));
+
+    ChunkedBitsView view;
+    ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
+    expect_view_contains_in_order(view, {1u, 2u, 3u});
+}
+
+TEST(chunked_bits, batch_add_rejects_unsorted_input) {
+    ChunkedBits bits;
+    const uint64_t ids[] = {3u, 1u};
+    const Ret ret = bits.add(ids, 2);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("ChunkedBits::add: ids must be sorted in non-decreasing order",
+        ret.message());
+}
+
+TEST(chunked_bits, batch_add_rejects_unsorted_across_chunk_boundary) {
+    ChunkedBits bits;
+    const uint64_t ids[] = {(1ull << kChunkBits) + 5u, 4u};
+    const Ret ret = bits.add(ids, 2);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("ChunkedBits::add: ids must be sorted in non-decreasing order",
+        ret.message());
+}
+
+TEST(chunked_bits, batch_add_empty_size_is_a_noop) {
+    ChunkedBits bits;
+    const uint64_t* ids = nullptr;
+    EXPECT_EQ(0, bits.add(ids, 0).code());
+    AlignedBlob blob = serialize_finished(std::move(bits));
+
+    ChunkedBitsView view;
+    ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
+    EXPECT_TRUE(view.begin().eof());
+}
+
+TEST(chunked_bits, batch_add_rejects_null_pointer_with_nonzero_size) {
+    ChunkedBits bits;
+    const Ret ret = bits.add(nullptr, 1);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("ChunkedBits::add: ids pointer is null", ret.message());
+}
+
+TEST(chunked_bits, batch_add_after_finish_is_rejected) {
+    ChunkedBits bits;
+    ASSERT_EQ(0, bits.finish().code());
+    const uint64_t ids[] = {1u};
+    const Ret ret = bits.add(ids, 1);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("ChunkedBits::add: cannot add after finish", ret.message());
+}
+
+TEST(chunked_bits, batch_add_interleaves_with_single_add) {
+    ChunkedBits bits;
+    ASSERT_EQ(0, bits.add(2u).code());
+    const uint64_t batch1[] = {5u, 7u, (1ull << kChunkBits) + 3u};
+    ASSERT_EQ(0, bits.add(batch1, 3).code());
+    ASSERT_EQ(0, bits.add((1ull << kChunkBits) + 4u).code());
+    const uint64_t batch2[] = {(2ull << kChunkBits), (2ull << kChunkBits) + 1u};
+    ASSERT_EQ(0, bits.add(batch2, 2).code());
+    AlignedBlob blob = serialize_finished(std::move(bits));
+
+    ChunkedBitsView view;
+    ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
+    expect_view_contains_in_order(view, {
+        2u, 5u, 7u,
+        (1ull << kChunkBits) + 3u, (1ull << kChunkBits) + 4u,
+        (2ull << kChunkBits), (2ull << kChunkBits) + 1u,
+    });
+}
+
+TEST(chunked_bits, batch_add_respects_chunk_cap) {
+    ChunkedBits bits;
+    std::vector<uint64_t> ids;
+    ids.reserve(kChunkedBitsMaxChunks + 1);
+    for (size_t i = 0; i <= kChunkedBitsMaxChunks; ++i) {
+        ids.push_back(static_cast<uint64_t>(i) << kChunkBits);
+    }
+    const Ret ret = bits.add(ids.data(), ids.size());
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("ChunkedBits::add: too many chunks", ret.message());
 }
 
 TEST(chunked_bits, view_rejects_unsorted_directory) {
