@@ -1,6 +1,7 @@
 #include "bitset_filter_control.h"
 
 #include "bitset_file_cache.h"
+#include "utils/checked_arithmetic.h"
 #include "utils/file_descriptor_guard.h"
 #include "utils/log.h"
 #include "utils/singleton.h"
@@ -21,15 +22,6 @@
 namespace sketch2 {
 
 namespace {
-
-bool align_up_size(size_t value, size_t alignment, size_t* out) {
-    const size_t mask = alignment - 1u;
-    if (value > std::numeric_limits<size_t>::max() - mask) {
-        return false;
-    }
-    *out = (value + mask) & ~mask;
-    return true;
-}
 
 Ret allocate_file_size(int fd, size_t size) {
     if (size > static_cast<size_t>(std::numeric_limits<off_t>::max())) {
@@ -217,7 +209,7 @@ void BitsetFilterStorage::reset() {
     } else {
         region.reset();
         if (fd >= 0) {
-            close(fd);
+            ::close(fd);
         }
     }
     kind = BitsetFilterStorageKind::Heap;
@@ -305,7 +297,7 @@ Ret BitsetFilterControl::load_named(
 Ret BitsetFilterControl::init_from_builder_(ChunkedBits& bits) {
     Ret ret = bits.finish();
     if (ret.code() != 0) {
-        return Ret("bitset filter builder: finish failed");
+        return Ret("bitset filter builder: " + ret.message());
     }
 
     const size_t blob_size = bits.serialized_size_bytes();
@@ -326,7 +318,7 @@ Ret BitsetFilterControl::init_from_builder_(ChunkedBits& bits) {
 Ret BitsetFilterControl::init_heap_from_bits_(
         const ChunkedBits& bits, size_t blob_size) {
     size_t allocation_size = 0;
-    if (!align_up_size(blob_size, kChunkedBitsBlobAlignment, &allocation_size)) {
+    if (!align_up(blob_size, kChunkedBitsBlobAlignment, &allocation_size)) {
         return Ret("bitset filter builder: serialized blob is too large");
     }
 

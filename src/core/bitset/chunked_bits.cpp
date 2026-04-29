@@ -1,9 +1,11 @@
 #include "chunked_bits.h"
 
+#include "utils/checked_arithmetic.h"
+
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
-#include <cctype>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -19,85 +21,33 @@ constexpr uint32_t kChunkedBitsBlobMagic =
     (static_cast<uint32_t>('B') << 24u);
 constexpr uint16_t kChunkedBitsBlobVersion = 1;
 
-bool is_aligned(const void* ptr, size_t alignment) {
-    return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
-}
+struct ChunkedBitsBlobHeader {
+    uint32_t magic = 0;
+    uint16_t version = 0;
+    uint16_t chunk_bits = 0;
+    uint64_t chunk_count = 0;
+};
 
-bool add_overflows(size_t lhs, size_t rhs, size_t* out) {
-    if (lhs > std::numeric_limits<size_t>::max() - rhs) {
-        return true;
-    }
-    *out = lhs + rhs;
-    return false;
-}
+struct ChunkedBitsBlobDirectoryEntry {
+    uint64_t chunk_id = 0;
+    uint64_t payload_offset = 0;
+    uint64_t payload_size = 0;
+};
 
-bool multiply_overflows(size_t lhs, size_t rhs, size_t* out) {
-    if (rhs != 0 && lhs > std::numeric_limits<size_t>::max() / rhs) {
-        return true;
-    }
-    *out = lhs * rhs;
-    return false;
-}
-
-bool align_up(size_t value, size_t alignment, size_t* out) {
-    const size_t mask = alignment - 1u;
-    if (value > std::numeric_limits<size_t>::max() - mask) {
-        return false;
-    }
-    *out = (value + mask) & ~mask;
-    return true;
-}
-
-void write_u16_le(uint8_t* out, uint16_t value) {
-    out[0] = static_cast<uint8_t>(value);
-    out[1] = static_cast<uint8_t>(value >> 8u);
-}
-
-void write_u32_le(uint8_t* out, uint32_t value) {
-    for (size_t i = 0; i < sizeof(value); ++i) {
-        out[i] = static_cast<uint8_t>(value >> (i * 8u));
-    }
-}
-
-void write_u64_le(uint8_t* out, uint64_t value) {
-    for (size_t i = 0; i < sizeof(value); ++i) {
-        out[i] = static_cast<uint8_t>(value >> (i * 8u));
-    }
-}
-
-uint16_t read_u16_le(const uint8_t* data) {
-    return static_cast<uint16_t>(data[0]) |
-        (static_cast<uint16_t>(data[1]) << 8u);
-}
-
-uint32_t read_u32_le(const uint8_t* data) {
-    uint32_t value = 0;
-    for (size_t i = 0; i < sizeof(value); ++i) {
-        value |= static_cast<uint32_t>(data[i]) << (i * 8u);
-    }
-    return value;
-}
-
-uint64_t read_u64_le(const uint8_t* data) {
-    uint64_t value = 0;
-    for (size_t i = 0; i < sizeof(value); ++i) {
-        value |= static_cast<uint64_t>(data[i]) << (i * 8u);
-    }
-    return value;
-}
+static_assert(sizeof(ChunkedBitsBlobHeader) == kChunkedBitsBlobHeaderBytes);
+static_assert(sizeof(ChunkedBitsBlobDirectoryEntry) ==
+    kChunkedBitsBlobDirectoryEntryBytes);
 
 } // namespace
 
 Ret validate_chunked_bits_name(const char* name) {
-    if (name == nullptr) {
-        return Ret("sketch2: invalid bitset filter name");
-    }
-    if (name[0] == '\0') {
+    if (name == nullptr || name[0] == '\0') {
         return Ret("sketch2: invalid bitset filter name");
     }
 
-    for (const char* s = name; *s; s++) {
-        if (!std::isalnum(static_cast<unsigned char>(*s)) && *s != '_') {
+    for (const char* p = name; *p != '\0'; ++p) {
+        const auto c = static_cast<unsigned char>(*p);
+        if (!std::isalnum(c) && c != '_') {
             return Ret("sketch2: invalid bitset filter name");
         }
     }
@@ -131,14 +81,11 @@ Ret ChunkedBits::add(uint64_t id) {
         if (builders_.size() >= kChunkedBitsMaxChunks) {
             return Ret("ChunkedBits::add: too many chunks");
         }
-        auto [inserted_it, inserted] = builders_.try_emplace(chunk_id);
-        it = inserted_it;
         // Buffered mode lets SQLite feed ids in arbitrary order; each flush
         // sorts within the chunk before handing offsets to CRoaring.
-        if (inserted) {
-            CHECK(it->second.init_buffered(
-                chunk_id << kChunkBits, kChunkedBitsBuilderBufferSize, true));
-        }
+        it = builders_.try_emplace(chunk_id).first;
+        CHECK(it->second.init_buffered(
+            chunk_id << kChunkBits, kChunkedBitsBuilderBufferSize, true));
     }
 
     last_chunk_id_ = chunk_id;
@@ -148,13 +95,11 @@ Ret ChunkedBits::add(uint64_t id) {
 
 Ret ChunkedBits::finish() {
     if (finished_) {
-        return Ret(0);
+        return finish_ret_;
     }
 
     chunks_.reserve(builders_.size());
     for (auto& item : builders_) {
-        // build() flushes any pending buffered ids, run-optimizes the bitmap,
-        // and moves the read-only RoaringIds into the scan-time chunk table.
         chunks_.push_back(Chunk{
             .chunk_id = item.first,
             .ids = std::move(item.second).build(),
@@ -168,7 +113,15 @@ Ret ChunkedBits::finish() {
             return lhs.chunk_id < rhs.chunk_id;
         });
     finished_ = true;
-    return Ret(0);
+
+    size_t size = 0;
+    finish_ret_ = compute_serialized_size_bytes(&size);
+    if (finish_ret_.code() != 0) {
+        cached_serialized_size_ = 0;
+    } else {
+        cached_serialized_size_ = size;
+    }
+    return finish_ret_;
 }
 
 Ret ChunkedBits::compute_serialized_size_bytes(size_t* out) const {
@@ -205,16 +158,18 @@ Ret ChunkedBits::compute_serialized_size_bytes(size_t* out) const {
 }
 
 size_t ChunkedBits::serialized_size_bytes() const {
-    size_t size = 0;
-    if (compute_serialized_size_bytes(&size).code() != 0) {
+    if (!finished_) {
         return 0;
     }
-    return size;
+    return cached_serialized_size_;
 }
 
 Ret ChunkedBits::serialize(void* out, size_t size) const {
     if (!finished_) {
         return Ret("ChunkedBits::serialize: finish must be called before serialization");
+    }
+    if (finish_ret_.code() != 0) {
+        return finish_ret_;
     }
     if (out == nullptr) {
         return Ret("ChunkedBits::serialize: output pointer is null");
@@ -223,21 +178,19 @@ Ret ChunkedBits::serialize(void* out, size_t size) const {
         return Ret("ChunkedBits::serialize: output buffer must be 32-byte aligned");
     }
 
-    size_t expected_size = 0;
-    Ret ret = compute_serialized_size_bytes(&expected_size);
-    if (ret.code() != 0) {
-        return ret;
-    }
-    if (size != expected_size) {
+    if (size != cached_serialized_size_) {
         return Ret("ChunkedBits::serialize: output buffer size mismatch");
     }
 
     auto* bytes = static_cast<uint8_t*>(out);
     std::memset(bytes, 0, size);
-    write_u32_le(bytes, kChunkedBitsBlobMagic);
-    write_u16_le(bytes + 4, kChunkedBitsBlobVersion);
-    write_u16_le(bytes + 6, static_cast<uint16_t>(kChunkBits));
-    write_u64_le(bytes + 8, static_cast<uint64_t>(chunks_.size()));
+    const ChunkedBitsBlobHeader header = {
+        .magic = kChunkedBitsBlobMagic,
+        .version = kChunkedBitsBlobVersion,
+        .chunk_bits = static_cast<uint16_t>(kChunkBits),
+        .chunk_count = static_cast<uint64_t>(chunks_.size()),
+    };
+    std::memcpy(bytes, &header, sizeof(header));
 
     size_t payload_offset = kChunkedBitsBlobHeaderBytes +
         chunks_.size() * kChunkedBitsBlobDirectoryEntryBytes;
@@ -251,11 +204,14 @@ Ret ChunkedBits::serialize(void* out, size_t size) const {
             return Ret("ChunkedBits::serialize: payload exceeds output buffer");
         }
 
-        uint8_t* dir = bytes + kChunkedBitsBlobHeaderBytes +
-            i * kChunkedBitsBlobDirectoryEntryBytes;
-        write_u64_le(dir, chunk.chunk_id);
-        write_u64_le(dir + 8, static_cast<uint64_t>(payload_offset));
-        write_u64_le(dir + 16, static_cast<uint64_t>(payload_size));
+        const ChunkedBitsBlobDirectoryEntry entry = {
+            .chunk_id = chunk.chunk_id,
+            .payload_offset = static_cast<uint64_t>(payload_offset),
+            .payload_size = static_cast<uint64_t>(payload_size),
+        };
+        std::memcpy(bytes + kChunkedBitsBlobHeaderBytes +
+                i * kChunkedBitsBlobDirectoryEntryBytes,
+            &entry, sizeof(entry));
         CHECK(chunk.ids.serialize(reinterpret_cast<char*>(bytes + payload_offset)));
         payload_offset += payload_size;
     }
@@ -278,17 +234,19 @@ Ret ChunkedBitsView::init_blob(const void* data, size_t size) {
     }
 
     const auto* bytes = static_cast<const uint8_t*>(data);
-    if (read_u32_le(bytes) != kChunkedBitsBlobMagic) {
+    ChunkedBitsBlobHeader header;
+    std::memcpy(&header, bytes, sizeof(header));
+    if (header.magic != kChunkedBitsBlobMagic) {
         return Ret("ChunkedBitsView::init_blob: invalid blob magic");
     }
-    if (read_u16_le(bytes + 4) != kChunkedBitsBlobVersion) {
+    if (header.version != kChunkedBitsBlobVersion) {
         return Ret("ChunkedBitsView::init_blob: unsupported blob version");
     }
-    if (read_u16_le(bytes + 6) != kChunkBits) {
+    if (header.chunk_bits != kChunkBits) {
         return Ret("ChunkedBitsView::init_blob: invalid chunk_bits");
     }
 
-    const uint64_t chunk_count_u64 = read_u64_le(bytes + 8);
+    const uint64_t chunk_count_u64 = header.chunk_count;
     if (chunk_count_u64 > kChunkedBitsMaxChunks ||
             chunk_count_u64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
         return Ret("ChunkedBitsView::init_blob: too many chunks");
@@ -315,11 +273,13 @@ Ret ChunkedBitsView::init_blob(const void* data, size_t size) {
     chunks_.reserve(chunk_count);
     uint64_t previous_chunk_id = 0;
     for (size_t i = 0; i < chunk_count; ++i) {
-        const uint8_t* dir = bytes + kChunkedBitsBlobHeaderBytes +
-            i * kChunkedBitsBlobDirectoryEntryBytes;
-        const uint64_t chunk_id = read_u64_le(dir);
-        const uint64_t payload_offset_u64 = read_u64_le(dir + 8);
-        const uint64_t payload_size_u64 = read_u64_le(dir + 16);
+        ChunkedBitsBlobDirectoryEntry entry;
+        std::memcpy(&entry, bytes + kChunkedBitsBlobHeaderBytes +
+                i * kChunkedBitsBlobDirectoryEntryBytes,
+            sizeof(entry));
+        const uint64_t chunk_id = entry.chunk_id;
+        const uint64_t payload_offset_u64 = entry.payload_offset;
+        const uint64_t payload_size_u64 = entry.payload_size;
         if (i > 0 && chunk_id <= previous_chunk_id) {
             return Ret("ChunkedBitsView::init_blob: chunk directory is not strictly sorted");
         }

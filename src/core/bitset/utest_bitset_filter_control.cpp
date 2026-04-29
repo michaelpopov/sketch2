@@ -15,6 +15,15 @@
 #include <gtest/gtest.h>
 
 namespace sketch2 {
+class ChunkedBitsTestPeer {
+public:
+    static void mark_finish_failed(ChunkedBits* bits, const Ret& ret) {
+        bits->finished_ = true;
+        bits->cached_serialized_size_ = 0;
+        bits->finish_ret_ = ret;
+    }
+};
+
 namespace {
 
 using test::expect_persisted_filter_contains;
@@ -307,6 +316,20 @@ TEST(bitset_filter_control, rejects_empty_named_filter_name) {
     EXPECT_NE(0, ret.code());
     EXPECT_NE(ret.message().find("bitset_drop: invalid bitset filter name"), std::string::npos);
     EXPECT_FALSE(removed);
+}
+
+TEST(bitset_filter_control, create_preserves_finish_root_cause) {
+    ChunkedBits bits;
+    const Ret overflow("ChunkedBits::serialized_size_bytes: payload size overflow");
+    ChunkedBitsTestPeer::mark_finish_failed(&bits, overflow);
+
+    BitsetFilterControlPtr control;
+    const Ret ret = BitsetFilterControl::create(bits, &control);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ(nullptr, control);
+    EXPECT_EQ(
+        "bitset filter builder: ChunkedBits::serialized_size_bytes: payload size overflow",
+        ret.message());
 }
 
 TEST(bitset_filter_control, named_publish_failure_removes_temporary_file) {

@@ -1,6 +1,5 @@
 #include "bitset_file_cache.h"
 
-#include "utils/log.h"
 #include "utils/mapped_region.h"
 #include "utils/shared_consts.h"
 
@@ -37,13 +36,8 @@ Ret BitsetFileCache::insert(
             if (entries_.size() >= kMaxLoadedBitsetCount) {
                 // The cache does not auto-evict; callers must explicitly
                 // remove an entry (or call clear()) before a subsequent
-                // insert can succeed. Log here so operators see the saturation
-                // event regardless of how each caller surfaces the error
-                // — without auto-eviction this state silently degrades load
-                // performance until something is removed.
-                LOG_WARN << "BitsetFileCache::insert: cache is full (limit "
-                         << kMaxLoadedBitsetCount << "); rejected insert of "
-                         << name;
+                // insert can succeed. The error is returned to the caller,
+                // which is responsible for logging so we do not double-log.
                 return Ret("BitsetFileCache::insert: cache is full (limit "
                     + std::to_string(kMaxLoadedBitsetCount)
                     + "); evict an entry before inserting another");
@@ -106,7 +100,7 @@ Ret BitsetFileCache::acquire(
 
 bool BitsetFileCache::contains(const std::string& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return entries_.find(name) != entries_.end();
+    return entries_.count(name) > 0;
 }
 
 bool BitsetFileCache::remove(const std::string& name) {

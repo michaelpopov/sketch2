@@ -103,6 +103,10 @@ int ensure_bitset_filter_builder_name(
 
     const char* requested_name = name != nullptr ? name : "";
     if (chunked_bits->name() != requested_name) {
+        // SQLite-style aggregator bindings call xFinal (i.e. finish) even after
+        // xStep returns an error. Destroying the builder here ensures finish()
+        // sees a null state and produces an empty control with no name, so a
+        // mid-stream error never publishes a partially-built named filter file.
         delete chunked_bits;
         *state = nullptr;
         set_builder_error(out_of_memory, error_message_out, false,

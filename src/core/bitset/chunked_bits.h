@@ -48,6 +48,8 @@ public:
     const std::string& name() const { return name_; }
 
 private:
+    friend class ChunkedBitsTestPeer;
+
     using BuildersMap = std::unordered_map<uint64_t, RoaringIdsBuilder>;
 
     // Finalized chunks are sorted by chunk_id so membership checks can find
@@ -68,6 +70,8 @@ private:
     RoaringIdsBuilder* last_builder_ = nullptr;
     std::vector<Chunk> chunks_;
     bool finished_ = false;
+    size_t cached_serialized_size_ = 0;
+    Ret finish_ret_ = Ret(0);
     std::string name_;
 };
 

@@ -10,24 +10,28 @@
 #include <gtest/gtest.h>
 
 namespace sketch2 {
+class ChunkedBitsTestPeer {
+public:
+    static void mark_finish_failed(ChunkedBits* bits, const Ret& ret) {
+        bits->finished_ = true;
+        bits->cached_serialized_size_ = 0;
+        bits->finish_ret_ = ret;
+    }
+};
+
 namespace {
 
 using test::AlignedBlob;
 using test::align_up;
 
-void write_u64_le(uint8_t* out, uint64_t value) {
-    for (size_t i = 0; i < sizeof(value); ++i) {
-        out[i] = static_cast<uint8_t>(value >> (i * 8u));
-    }
-}
+struct ChunkedBitsBlobDirectoryEntry {
+    uint64_t chunk_id = 0;
+    uint64_t payload_offset = 0;
+    uint64_t payload_size = 0;
+};
 
-uint64_t read_u64_le(const uint8_t* data) {
-    uint64_t value = 0;
-    for (size_t i = 0; i < sizeof(value); ++i) {
-        value |= static_cast<uint64_t>(data[i]) << (i * 8u);
-    }
-    return value;
-}
+static_assert(sizeof(ChunkedBitsBlobDirectoryEntry) ==
+    kChunkedBitsBlobDirectoryEntryBytes);
 
 test::AlignedBlob serialize_ids(const std::vector<uint64_t>& ids) {
     ChunkedBits bits;
@@ -63,6 +67,18 @@ TEST(chunked_bits, serialize_before_finish_reports_root_cause) {
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("ChunkedBits::serialize: finish must be called before serialization",
         ret.message());
+}
+
+TEST(chunked_bits, finish_failure_is_stable_and_blocks_serialize) {
+    ChunkedBits bits;
+    const Ret overflow("ChunkedBits::serialized_size_bytes: payload size overflow");
+    ChunkedBitsTestPeer::mark_finish_failed(&bits, overflow);
+
+    EXPECT_EQ(overflow.message(), bits.finish().message());
+
+    alignas(kChunkedBitsBlobAlignment) uint8_t buffer[kChunkedBitsBlobHeaderBytes] = {};
+    const Ret serialize_ret = bits.serialize(buffer, 0);
+    EXPECT_EQ(overflow.message(), serialize_ret.message());
 }
 
 TEST(chunked_bits, serialized_empty_filter_round_trips) {
@@ -106,10 +122,13 @@ TEST(chunked_bits, serialized_payload_offsets_are_aligned) {
     ASSERT_GE(blob.size,
         kChunkedBitsBlobHeaderBytes + 2u * kChunkedBitsBlobDirectoryEntryBytes);
 
-    const uint8_t* first_dir = blob.bytes() + kChunkedBitsBlobHeaderBytes;
-    const uint8_t* second_dir = first_dir + kChunkedBitsBlobDirectoryEntryBytes;
-    EXPECT_EQ(0u, read_u64_le(first_dir + 8) % kChunkedBitsBlobAlignment);
-    EXPECT_EQ(0u, read_u64_le(second_dir + 8) % kChunkedBitsBlobAlignment);
+    ChunkedBitsBlobDirectoryEntry first_dir;
+    ChunkedBitsBlobDirectoryEntry second_dir;
+    std::memcpy(&first_dir, blob.bytes() + kChunkedBitsBlobHeaderBytes, sizeof(first_dir));
+    std::memcpy(&second_dir, blob.bytes() + kChunkedBitsBlobHeaderBytes +
+        kChunkedBitsBlobDirectoryEntryBytes, sizeof(second_dir));
+    EXPECT_EQ(0u, first_dir.payload_offset % kChunkedBitsBlobAlignment);
+    EXPECT_EQ(0u, second_dir.payload_offset % kChunkedBitsBlobAlignment);
 }
 
 TEST(chunked_bits, view_rejects_misaligned_blob_pointer) {
@@ -135,9 +154,11 @@ TEST(chunked_bits, view_rejects_malformed_header) {
 
 TEST(chunked_bits, view_rejects_out_of_bounds_payload) {
     AlignedBlob blob = serialize_ids({1u});
-    uint8_t* first_dir = blob.bytes() + kChunkedBitsBlobHeaderBytes;
-    write_u64_le(first_dir + 8, static_cast<uint64_t>(
-        align_up(blob.size, kChunkedBitsBlobAlignment)));
+    ChunkedBitsBlobDirectoryEntry first_dir;
+    std::memcpy(&first_dir, blob.bytes() + kChunkedBitsBlobHeaderBytes, sizeof(first_dir));
+    first_dir.payload_offset = static_cast<uint64_t>(
+        align_up(blob.size, kChunkedBitsBlobAlignment));
+    std::memcpy(blob.bytes() + kChunkedBitsBlobHeaderBytes, &first_dir, sizeof(first_dir));
 
     ChunkedBitsView view;
     const Ret ret = view.init_blob(blob.data, blob.size);
@@ -147,9 +168,12 @@ TEST(chunked_bits, view_rejects_out_of_bounds_payload) {
 
 TEST(chunked_bits, view_rejects_unsorted_directory) {
     AlignedBlob blob = serialize_ids({1u, (1ull << kChunkBits) + 5u});
-    uint8_t* second_dir = blob.bytes() + kChunkedBitsBlobHeaderBytes +
-        kChunkedBitsBlobDirectoryEntryBytes;
-    write_u64_le(second_dir, 0);
+    ChunkedBitsBlobDirectoryEntry second_dir;
+    std::memcpy(&second_dir, blob.bytes() + kChunkedBitsBlobHeaderBytes +
+        kChunkedBitsBlobDirectoryEntryBytes, sizeof(second_dir));
+    second_dir.chunk_id = 0;
+    std::memcpy(blob.bytes() + kChunkedBitsBlobHeaderBytes +
+        kChunkedBitsBlobDirectoryEntryBytes, &second_dir, sizeof(second_dir));
 
     ChunkedBitsView view;
     const Ret ret = view.init_blob(blob.data, blob.size);

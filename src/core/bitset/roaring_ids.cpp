@@ -2,6 +2,8 @@
 
 #include "roaring_ids.h"
 
+#include "utils/checked_arithmetic.h"
+
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
@@ -11,8 +13,26 @@ namespace sketch2 {
 
 namespace {
 
-bool is_aligned_32(const void* ptr) {
-    return reinterpret_cast<uintptr_t>(ptr) % 32 == 0;
+uint64_t compute_id_from_base_and_offset(uint64_t base, uint32_t offset) {
+    if (base > std::numeric_limits<uint64_t>::max() - offset) {
+        throw std::overflow_error(
+            "base plus id offset overflows uint64_t");
+    }
+    return base + offset;
+}
+
+bool try_offset_from_id(uint64_t base, uint64_t id, uint32_t* offset_out) {
+    if (id < base) {
+        *offset_out = 0;
+        return false;
+    }
+    const uint64_t offset64 = id - base;
+    if (offset64 > std::numeric_limits<uint32_t>::max()) {
+        *offset_out = 0;
+        return false;
+    }
+    *offset_out = static_cast<uint32_t>(offset64);
+    return true;
 }
 
 } // namespace
@@ -60,14 +80,10 @@ bool RoaringIds::Iterator::seek_at_least(uint64_t id) {
     }
 
     uint32_t offset = 0;
-    if (id > roaring_ids_->base_) {
-        const uint64_t offset64 = id - roaring_ids_->base_;
-        if (offset64 > std::numeric_limits<uint32_t>::max()) {
-            iterator_.has_value = false;
-            index_ = target_index;
-            return false;
-        }
-        offset = static_cast<uint32_t>(offset64);
+    if (!try_offset_from_id(roaring_ids_->base_, id, &offset)) {
+        iterator_.has_value = false;
+        index_ = target_index;
+        return false;
     }
 
     const bool has_value =
@@ -84,12 +100,7 @@ uint64_t RoaringIds::Iterator::id() const {
     if (eof()) {
         throw std::out_of_range("RoaringIds::Iterator::id: index out of range");
     }
-    if (roaring_ids_->base_ >
-        std::numeric_limits<uint64_t>::max() - iterator_.current_value) {
-        throw std::overflow_error(
-            "RoaringIds::Iterator::id: base plus id offset overflows uint64_t");
-    }
-    return roaring_ids_->base_ + iterator_.current_value;
+    return compute_id_from_base_and_offset(roaring_ids_->base_, iterator_.current_value);
 }
 
 size_t RoaringIds::Iterator::index() const {
@@ -144,13 +155,9 @@ bool RoaringIds::SeekCursor::seek_at_least(uint64_t id) {
     }
 
     uint32_t offset = 0;
-    if (id > roaring_ids_->base_) {
-        const uint64_t offset64 = id - roaring_ids_->base_;
-        if (offset64 > std::numeric_limits<uint32_t>::max()) {
-            iterator_.has_value = false;
-            return false;
-        }
-        offset = static_cast<uint32_t>(offset64);
+    if (!try_offset_from_id(roaring_ids_->base_, id, &offset)) {
+        iterator_.has_value = false;
+        return false;
     }
 
     return roaring::api::roaring_uint32_iterator_move_equalorlarger(&iterator_, offset);
@@ -164,19 +171,14 @@ uint64_t RoaringIds::SeekCursor::id() const {
     if (eof()) {
         throw std::out_of_range("RoaringIds::SeekCursor::id: index out of range");
     }
-    if (roaring_ids_->base_ >
-        std::numeric_limits<uint64_t>::max() - iterator_.current_value) {
-        throw std::overflow_error(
-            "RoaringIds::SeekCursor::id: base plus id offset overflows uint64_t");
-    }
-    return roaring_ids_->base_ + iterator_.current_value;
+    return compute_id_from_base_and_offset(roaring_ids_->base_, iterator_.current_value);
 }
 
 Ret RoaringIds::init_frozen_view(const uint8_t* data, size_t size, uint64_t base) {
     if (data == nullptr) {
         return Ret("RoaringIds::init_frozen_view: data pointer is null");
     }
-    if (!is_aligned_32(data)) {
+    if (!is_aligned(data, 32)) {
         return Ret("RoaringIds::init_frozen_view: frozen view buffer must be 32-byte aligned");
     }
 
@@ -307,7 +309,7 @@ Ret RoaringIds::serialize(char* buffer) const {
     if (buffer == nullptr) {
         return Ret("RoaringIds::serialize: buffer pointer is null");
     }
-    if (!is_aligned_32(buffer)) {
+    if (!is_aligned(buffer, 32)) {
         return Ret("RoaringIds::serialize: buffer must be 32-byte aligned");
     }
 
