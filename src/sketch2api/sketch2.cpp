@@ -216,6 +216,17 @@ int sk_knn_items_bitset_filter(sk_handle_t* handle, const char* vec, unsigned in
     }
 }
 
+int sk_knn_vector_items_bitset_filter(sk_handle_t* handle, const float* vec, uint64_t vec_size,
+        unsigned int k, const void* allowed_ids,
+        uint64_t** ids_out, double** scores_out, size_t* count_out) {
+    try {
+        return sk_knn_vector_items_bitset_filter_(
+            handle, vec, vec_size, k, allowed_ids, ids_out, scores_out, count_out);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
 int sk_score_ascending_is_better(sk_handle_t* handle, bool* out) {
     try {
         return sk_score_ascending_is_better_(handle, out);

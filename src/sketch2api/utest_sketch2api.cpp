@@ -16,6 +16,7 @@
 #include <experimental/scope>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <string>
 #include <sys/wait.h>
@@ -191,6 +192,46 @@ void* build_opaque_bitset_filter(const std::vector<uint64_t>& ids) {
         << (error_message != nullptr ? error_message : "");
     EXPECT_EQ(nullptr, state);
     return out;
+}
+
+std::vector<uint64_t> make_spill_bitset_filter_ids();
+
+void assert_knn_with_spilled_bitset_filter(
+        const std::function<void(sk_handle_t*, void*, uint64_t**, double**, size_t*)>& run_query) {
+    const std::filesystem::path root = make_temp_dir();
+
+    sk_handle_t* handle = sk_new_handle(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
+
+    ASSERT_OK(handle, sk_start_writing(handle));
+    ASSERT_OK(handle, sk_write_vector(handle, 10, "10.0, 10.0, 10.0, 10.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 20, "20.0, 20.0, 20.0, 20.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 30, "30.0, 30.0, 30.0, 30.0"));
+    ASSERT_OK(handle, sk_write_vector(handle, 40, "40.0, 40.0, 40.0, 40.0"));
+    ASSERT_OK(handle, sk_complete_writing(handle));
+
+    void* bitset_filter = build_opaque_bitset_filter(make_spill_bitset_filter_ids());
+    ASSERT_NE(nullptr, bitset_filter);
+    ASSERT_EQ(2, sk_bitset_storage_kind_for_testing(bitset_filter));
+
+    uint64_t* ids = nullptr;
+    double* scores = nullptr;
+    size_t count = 0;
+    run_query(handle, bitset_filter, &ids, &scores, &count);
+
+    ASSERT_EQ(2u, count);
+    EXPECT_EQ(40u, ids[0]);
+    EXPECT_EQ(20u, ids[1]);
+
+    sk_free(ids);
+    sk_free(scores);
+    sk_bitset_delete(bitset_filter);
+
+    EXPECT_OK(handle, sk_close(handle));
+    EXPECT_OK(handle, sk_drop(handle, "ds"));
+    sk_release_handle(handle);
+    std::filesystem::remove_all(root);
 }
 
 std::vector<uint64_t> make_spill_bitset_filter_ids() {
@@ -845,42 +886,22 @@ TEST(sketch2api, bitset_filter_cache_remove_rejects_invalid_args) {
 }
 
 TEST(sketch2api, knn_items_bitset_filter_filters_with_spilled_bitset_filter) {
-    const std::filesystem::path root = make_temp_dir();
+    assert_knn_with_spilled_bitset_filter([](
+            sk_handle_t* handle, void* bitset_filter, uint64_t** ids, double** scores, size_t* count) {
+        ASSERT_EQ(0, sk_knn_items_bitset_filter(
+            handle, "25.0, 25.0, 25.0, 25.0", 4, bitset_filter, ids, scores, count))
+            << sk_error_message(handle);
+    });
+}
 
-    sk_handle_t* handle = sk_new_handle(root.string().c_str());
-    ASSERT_NE(handle, nullptr);
-    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
-
-    ASSERT_OK(handle, sk_start_writing(handle));
-    ASSERT_OK(handle, sk_write_vector(handle, 10, "10.0, 10.0, 10.0, 10.0"));
-    ASSERT_OK(handle, sk_write_vector(handle, 20, "20.0, 20.0, 20.0, 20.0"));
-    ASSERT_OK(handle, sk_write_vector(handle, 30, "30.0, 30.0, 30.0, 30.0"));
-    ASSERT_OK(handle, sk_write_vector(handle, 40, "40.0, 40.0, 40.0, 40.0"));
-    ASSERT_OK(handle, sk_complete_writing(handle));
-
-    void* bitset_filter = build_opaque_bitset_filter(make_spill_bitset_filter_ids());
-    ASSERT_NE(nullptr, bitset_filter);
-    ASSERT_EQ(2, sk_bitset_storage_kind_for_testing(bitset_filter));
-
-    uint64_t* ids = nullptr;
-    double* scores = nullptr;
-    size_t count = 0;
-    ASSERT_EQ(0, sk_knn_items_bitset_filter(
-        handle, "25.0, 25.0, 25.0, 25.0", 4, bitset_filter, &ids, &scores, &count))
-        << sk_error_message(handle);
-
-    ASSERT_EQ(2u, count);
-    EXPECT_EQ(40u, ids[0]);
-    EXPECT_EQ(20u, ids[1]);
-
-    sk_free(ids);
-    sk_free(scores);
-    sk_bitset_delete(bitset_filter);
-
-    EXPECT_OK(handle, sk_close(handle));
-    EXPECT_OK(handle, sk_drop(handle, "ds"));
-    sk_release_handle(handle);
-    std::filesystem::remove_all(root);
+TEST(sketch2api, knn_vector_items_bitset_filter_filters_with_spilled_bitset_filter) {
+    assert_knn_with_spilled_bitset_filter([](
+            sk_handle_t* handle, void* bitset_filter, uint64_t** ids, double** scores, size_t* count) {
+        const std::vector<float> query = {25.0f, 25.0f, 25.0f, 25.0f};
+        ASSERT_EQ(0, sk_knn_vector_items_bitset_filter(
+            handle, query.data(), query.size(), 4, bitset_filter, ids, scores, count))
+            << sk_error_message(handle);
+    });
 }
 
 TEST(sketch2api, staged_write_creates_data_and_removes_input_file) {

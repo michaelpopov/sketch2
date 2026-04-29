@@ -54,6 +54,9 @@ int sk_knn_vector_items(sk_handle_t* handle, const float* vec, uint64_t vec_size
 int sk_knn_items_bitset_filter(sk_handle_t* handle, const char* vec, unsigned int k,
                            const void* allowed_ids, uint64_t** ids_out,
                            double** scores_out, size_t* count_out);
+int sk_knn_vector_items_bitset_filter(sk_handle_t* handle, const float* vec, uint64_t vec_size,
+                           unsigned int k, const void* allowed_ids, uint64_t** ids_out,
+                           double** scores_out, size_t* count_out);
 int sk_bitset_load(const char* name, void** out, bool* out_of_memory,
                           const char** error_message_out);
 void sk_release_bitset_filter(void* ptr);
@@ -85,8 +88,12 @@ documented in `src/sketch2api/BITSET.md`.
 
 `sk_bitset_*()` builds an opaque API-owned bitset filter object for
 in-process adapters. The object may be heap-backed or mmap-backed. Pass it to
-`sk_knn_items_bitset_filter()` and release it with `sk_release_bitset_filter()`, which
-releases either storage kind correctly. Passing `name` to
+`sk_knn_items_bitset_filter()` or `sk_knn_vector_items_bitset_filter()`, and
+release it with `sk_release_bitset_filter()`, which releases either storage
+kind correctly. `sk_knn_vector_items_bitset_filter()` mirrors the
+`sk_knn_items_bitset_filter()` behavior but accepts an already parsed float
+query vector (`vec` + `vec_size`) instead of a text vector string. Passing
+`name` to
 `sk_bitset_add_id()` or `sk_bitset_create_builder()`
 publishes the finished filter as `<spill_dir>/<name>.bitset`; names may contain
 only ASCII letters, digits, and underscores, and empty names are rejected.
