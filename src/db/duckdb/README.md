@@ -1,147 +1,206 @@
 # DuckDB Integration
 
-Sketch2 also has a DuckDB integration, but that integration is developed in a
-separate repository:
+Sketch2 has a DuckDB extension that lives in a separate repository:
 
 - GitHub: `https://github.com/michaelpopov/sketch2duckdb`
 
-That separate repository exists intentionally. DuckDB extension development is
-organized around DuckDB's extension template and build flow, so keeping the
-extension in its own repo is the practical model encouraged by DuckDB for
-developing, testing, and packaging extensions.
+That split is intentional. The DuckDB side follows DuckDB's extension
+template, build system, packaging flow, and SQL test conventions, so it is
+maintained separately from the core Sketch2 repository.
 
-## Why A DuckDB Extension Exists
+## Why This Integration Exists
 
-Sketch2 is focused on vector storage and vector search. DuckDB is strong at:
+Sketch2 is the vector engine:
 
-- SQL querying
-- joins
-- metadata filtering
-- analytics
+- vector storage
+- nearest-neighbor search
+- named bitset filters
 
-The DuckDB extension connects those responsibilities cleanly:
+DuckDB is the SQL and analytics layer:
 
-- Sketch2 performs nearest-neighbor search
-- DuckDB provides the relational and analytical layer around that search
+- SQL execution
+- joins with relational metadata
+- filtering, grouping, and analytics around vector results
 
-This makes it possible to use Sketch2 as a specialized vector engine inside a
-DuckDB workflow instead of treating Sketch2 as a general-purpose database.
+Together, this lets Sketch2 handle vector search while DuckDB handles the rest
+of the query plan.
 
-## What The Extension Provides
+## Current SQL Surface
 
-The current DuckDB integration is query-oriented. It assumes that a Sketch2
-dataset already exists and exposes the read/query path inside DuckDB.
+The DuckDB extension currently exposes these functions and pragmas:
 
-The main SQL surface is:
-
-- `sketch2(arg)`
-  Returns extension-related information such as Sketch2 version or the current
-  opened dataset name.
-- `sketch2_open(database_path, dataset_name)`
+- `PRAGMA sketch2_open(database_path, dataset_name)`
   Opens a Sketch2 dataset for the current DuckDB connection.
-- `sketch2_knn(query_vector, k, bitset_filter_ref)`
-  Returns nearest neighbors as `(id, score)`.
-- `sketch2_bitset_filter(id)`
-  Aggregates DuckDB ids into a Sketch2 bitset filter that can be reused by
-  `sketch2_knn`.
+- `PRAGMA sketch2_close`
+  Closes the currently opened Sketch2 dataset for the current DuckDB
+  connection.
+- `sketch2_version() -> VARCHAR`
+  Returns the Sketch2 library version.
+- `sketch2_dataset() -> VARCHAR`
+  Returns the dataset name currently opened on this connection.
+- `sketch2_knn(query_vector, k, bitset_filter_name) -> TABLE(id UBIGINT, score DOUBLE)`
+  Runs nearest-neighbor search in Sketch2 and returns result rows to DuckDB.
+- `sketch2_bitset_filter(id, name) -> VARCHAR`
+  Aggregates DuckDB ids into a persisted named Sketch2 bitset filter.
+- `sketch2_bitset_load(name) -> VARCHAR`
+  Validates a persisted named filter and warms Sketch2's named-filter cache.
+- `sketch2_bitset_cache_remove(name) -> INTEGER`
+  Removes one named filter from the process-global cache.
+- `sketch2_bitset_cache_clear() -> BOOLEAN`
+  Clears the process-global named-filter cache.
+- `sketch2_bitset_drop(name) -> INTEGER`
+  Deletes a persisted named filter. Returns `1` when something was removed and
+  `0` when the name was already absent.
 
-Supported query-vector formats include:
+## Supported Query Patterns
 
-- Sketch2 text vectors as `VARCHAR`
-- DuckDB `FLOAT[]`
-- DuckDB `DOUBLE[]`
-- DuckDB float/double `ARRAY`
+The integration is query-oriented. It assumes the Sketch2 dataset already
+exists and focuses on reading/searching it from DuckDB.
 
-## How It Works
-
-The separation of responsibilities is similar in spirit to the SQLite
-integration in this repo:
-
-1. Sketch2 owns dataset files, vector parsing, filtering, and scoring.
-2. DuckDB owns SQL execution, joins, metadata predicates, and query shaping.
-3. The extension stores a Sketch2 handle in DuckDB connection-local state.
-4. `sketch2_knn(...)` calls Sketch2 through the C API and returns rows back to
-   DuckDB.
-5. `sketch2_bitset_filter(...)` builds a compact Sketch2 bitset filter blob from
-   ids produced by DuckDB queries.
-
-Important behavior:
-
-- one DuckDB connection tracks one opened Sketch2 dataset at a time
-- bitset filter references are connection-local and ephemeral
-- the integration is currently read/query oriented
-- dataset creation, staged writes, deletes, and merges still happen through
-  Sketch2 itself
-
-## Typical Usage
-
-Open a dataset:
+### 1. Open A Dataset And Run KNN
 
 ```sql
-CALL sketch2_open('/mnt/nvme/sketch2/db', 'items');
-```
+PRAGMA sketch2_open('/mnt/nvme/sketch2_db', 'items');
 
-Run a KNN query:
+SELECT sketch2_version(), sketch2_dataset();
 
-```sql
 SELECT id, score
-FROM sketch2_knn([1.0, 2.0, 3.0, 4.0]::FLOAT[], 5, NULL);
+FROM sketch2_knn([1.0, 1.0, 1.0, 1.0]::FLOAT[], 5, NULL)
+ORDER BY score, id;
 ```
 
-Join KNN results with DuckDB metadata:
+### 2. Join Sketch2 Results With DuckDB Metadata
 
 ```sql
-SELECT n.id, n.score, m.title
+SELECT n.id, n.score, m.title, m.category
 FROM sketch2_knn([7.4, 7.4, 7.4, 7.4]::FLOAT[], 5, NULL) AS n
-JOIN metadata AS m ON m.id = n.id;
+JOIN metadata AS m ON m.id = n.id
+ORDER BY n.score, n.id;
 ```
 
-Build a bitset filter in DuckDB and push it down into Sketch2:
+### 3. Post-Filter In DuckDB
 
 ```sql
-SELECT sketch2_bitset_filter(id)
+SELECT n.id, n.score, m.category
+FROM sketch2_knn([7.4, 7.4, 7.4, 7.4]::FLOAT[], 6, NULL) AS n
+JOIN metadata AS m ON m.id = n.id
+WHERE m.category = 'books'
+ORDER BY n.score, n.id;
+```
+
+### 4. Push Metadata-Derived Filters Down Into Sketch2
+
+Build a named filter from DuckDB rows:
+
+```sql
+SELECT sketch2_bitset_filter(id, 'books_filter')
 FROM metadata
 WHERE category = 'books';
 ```
 
-The returned filter reference can then be passed as the third argument to
-`sketch2_knn(...)`.
+Then reuse it in KNN:
 
-## Building The Extension
+```sql
+SELECT n.id, n.score
+FROM sketch2_knn([7.4, 7.4, 7.4, 7.4]::FLOAT[], 6, 'books_filter') AS n
+ORDER BY n.score, n.id;
+```
 
-The DuckDB extension repository depends on an external Sketch2 build.
+This is important because pushdown can change the neighbor set compared to
+running an unrestricted KNN first and filtering afterward in DuckDB.
 
+### 5. Reuse And Manage Persisted Named Filters
+
+```sql
+SELECT sketch2_bitset_load('books_filter');
+SELECT sketch2_bitset_cache_remove('books_filter');
+SELECT sketch2_bitset_cache_clear();
+SELECT sketch2_bitset_drop('books_filter');
+```
+
+The tutorials and tests cover the full lifecycle:
+
+- create a named filter once
+- reuse it across multiple KNN queries
+- explicitly warm the cache
+- evict one cached filter or clear the cache entirely
+- drop the persisted filter from storage
+
+## Query Vector Input Types
+
+`sketch2_knn` accepts these query-vector formats:
+
+- Sketch2 text vectors as `VARCHAR`
+- DuckDB `FLOAT[]`
+- DuckDB `DOUBLE[]`
+- DuckDB fixed-size float/double `ARRAY`
+
+Examples:
+
+```sql
+SELECT * FROM sketch2_knn('1.0, 1.0, 1.0, 1.0', 5, NULL);
+SELECT * FROM sketch2_knn([1.0, 1.0, 1.0, 1.0]::FLOAT[], 5, NULL);
+SELECT * FROM sketch2_knn([1.0, 1.0, 1.0, 1.0]::DOUBLE[], 5, NULL);
+```
+
+## Important Behavior And Limits
+
+- The opened Sketch2 dataset is connection-local. One DuckDB connection tracks
+  one opened Sketch2 dataset at a time.
+- `sketch2_knn` requires `PRAGMA sketch2_open(...)` to run first on that
+  connection.
+- `k` must be greater than `0` and at most `1,000,000`.
+- `bitset_filter_name` is optional, but when provided it must be a non-empty
+  string naming a persisted Sketch2 filter.
+- `sketch2_bitset_filter(id, name)` requires a constant, non-NULL, non-empty
+  filter name.
+- `sketch2_bitset_filter` accepts unsorted ids and rejects negative ids.
+- When `sketch2_bitset_filter` sees no input rows, it returns `NULL` instead of
+  creating a filter.
+- Named-filter cache operations act on Sketch2's process-global cache.
+
+## What The Integration Demonstrates Today
+
+The DuckDB tutorials in `sketch2duckdb/tutorial/` currently cover:
+
+- basic KNN from SQL
+- joining KNN results with ordinary DuckDB tables
+- metadata filtering after the join
+- metadata-derived filter pushdown into Sketch2
+- reuse and cleanup of persisted named bitset filters
+
+The automated tests also verify that DuckDB queries see the current state of an
+already-created Sketch2 dataset, including staged writes and staged deletes
+performed through Sketch2 itself.
+
+## What The Extension Does Not Currently Provide
+
+The DuckDB SQL surface is still read/query focused. Dataset management remains
+in Sketch2 itself. In practice that means:
+
+- dataset creation is not done from DuckDB SQL
+- staged writes are not done from DuckDB SQL
+- deletes are not done from DuckDB SQL
+- merge/maintenance operations are not done from DuckDB SQL
+
+Those workflows still happen through Sketch2 APIs and tools; DuckDB is used to
+query the resulting datasets.
+
+## Build And Repository Notes
+
+The extension repository depends on a Sketch2 build outside the DuckDB repo.
 Before building the extension, set:
 
 ```sh
 export SKETCH2_ROOT=/path/to/sketch2
 ```
 
-The extension build expects the Sketch2 public header in the source tree and an
-installed runtime directory for the shared library:
-
-- `"$SKETCH2_ROOT/src/sketch2api"`
-- `"$SKETCH2_ROOT/install-hwy/bin"`
-
-Build steps and extension-specific tests live in the separate
+The DuckDB extension sources, build instructions, SQLLogicTests, Python
+integration tests, and tutorial scripts all live in the separate
 `sketch2duckdb` repository.
-
-## What Is Not In This Repo
-
-This Sketch2 repository contains documentation for the DuckDB integration, but
-the DuckDB extension source code, its DuckDB-specific build system, and its SQL
-test suite live in the separate `sketch2duckdb` repository.
-
-If you want:
-
-- DuckDB extension source code
-- DuckDB extension build artifacts
-- SQLLogicTests for the DuckDB integration
-- deployment/install instructions for DuckDB extension binaries
-
-use the sibling repository instead.
 
 ## See Also
 
-- `src/db/sqlite/README.md` for the SQLite integration in this repo
-- For the full DuckDB extension documentation `https://github.com/michaelpopov/sketch2duckdb`
+- `src/db/sqlite/README.md` for the SQLite integration
+- `https://github.com/michaelpopov/sketch2duckdb` for the DuckDB extension
+  source, tests, and tutorials

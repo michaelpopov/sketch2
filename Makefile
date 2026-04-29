@@ -12,6 +12,9 @@ CMAKE_BUILD_TYPE_dbg := Debug
 CMAKE_BUILD_TYPE_rel := Release
 
 INSTALL_DIR := install
+INSTALL_INCLUDE_DIR := $(INSTALL_DIR)/include
+INSTALL_LIB_DIR := $(INSTALL_DIR)/lib
+INSTALL_BIN_DIR := $(INSTALL_DIR)/bin
 
 BUILD_DIR := $(BUILD_DIR_$(TYPE))
 BIN_DIR := $(BIN_DIR_$(TYPE))
@@ -121,17 +124,19 @@ rtest:
 	$(MAKE) test TYPE=rel
 
 # Installs the release runtime directory.
-# The staged tree contains the public C header plus the Python-facing runtime.
+# The staged tree contains the public C header, the shared library, and the
+# Python-facing helper script.
 # Example: make install
 .PHONY: install
 install:
 	$(MAKE) test TYPE=rel
-	@mkdir -p $(INSTALL_DIR)/include $(INSTALL_DIR)/bin
-	@find "$(INSTALL_DIR)/include" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-	@find "$(INSTALL_DIR)/bin" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-	cp src/sketch2api/sketch2.h $(INSTALL_DIR)/include/
-	cp $(BIN_DIR_rel)/libsketch2.so $(INSTALL_DIR)/bin/
-	cp src/pytest/sketch2_wrapper.py $(INSTALL_DIR)/bin/
+	@mkdir -p $(INSTALL_INCLUDE_DIR) $(INSTALL_LIB_DIR) $(INSTALL_BIN_DIR)
+	@find "$(INSTALL_INCLUDE_DIR)" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	@find "$(INSTALL_LIB_DIR)" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	@find "$(INSTALL_BIN_DIR)" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	cp src/sketch2api/sketch2.h $(INSTALL_INCLUDE_DIR)/
+	cp $(BUILD_DIR_rel)/lib/libsketch2.so $(INSTALL_LIB_DIR)/
+	cp src/pytest/sketch2_wrapper.py $(INSTALL_BIN_DIR)/
 
 # Runs Python API tests against the release runtime
 .PHONY: pytest
