@@ -143,7 +143,7 @@ Meaning:
 - `query`: hidden input query vector
 - `match_expr`: alternate hidden input query vector
 - `k`: hidden input top-k count
-- `allowed_ids`: optional hidden input allowlist filter
+- `allowed_ids`: optional hidden input bitset filter
 - `id`: output vector id
 - `score`: output score
 
@@ -158,7 +158,7 @@ SQLite integration supports:
 - `LIMIT` and `OFFSET`
 - joins with regular SQLite tables
 - optional candidate filtering through `allowed_ids`
-- SQL-side allowlist generation through `bitset_agg(id)`
+- SQL-side bitset filter generation through `bitset_agg(id)`
 
 The score function is not selected in SQL. It comes from the Sketch2 dataset
 metadata.
@@ -291,12 +291,13 @@ Rules:
 SQLite does not allocate the `bitset_agg(id)` buffer. It receives an API-owned
 typed pointer and calls Sketch2's release function when the value is destroyed.
 
-## `bitset_agg(id)`
+## `bitset_agg(id[, name])`
 
-`bitset_agg(id)` is an aggregate helper function exported by the extension.
-It accepts integer ids in any order and returns an API-owned typed pointer that
-wraps the serialized chunked-Roaring format documented in
-`src/sketch2api/BITSET.md`.
+`bitset_agg(id[, name])` is an aggregate helper function exported by the
+extension. It accepts integer ids in any order and returns an API-owned typed
+pointer that wraps the serialized chunked-Roaring format documented in
+`src/sketch2api/BITSET.md`. When present, `name` must be non-empty and contain
+only ASCII letters, digits, and underscores.
 
 Example:
 
@@ -324,6 +325,10 @@ FROM (
 );
 ```
 
+`bitset_drop(name)` deletes the persistent file created by a named
+`bitset_agg(id, name)` call. It returns `1` when a file was removed and `0` when
+the named file was already absent.
+
 ## `allowed_ids` Query Examples
 
 Filter candidates to a fixed SQL-generated set:
@@ -340,7 +345,7 @@ WHERE n.match_expr MATCH '2.1, 2.1, 2.1, 2.1'
 ORDER BY n.score;
 ```
 
-Build the allowlist from a metadata table:
+Build the bitset filter from a metadata table:
 
 ```sql
 SELECT n.id, n.score

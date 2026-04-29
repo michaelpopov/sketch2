@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
@@ -17,6 +18,7 @@
 #include "core/compute/scanner_scan_loops.h"
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"
+#include "core/bitset/chunked_bits.h"
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
@@ -35,15 +37,56 @@ Scanner make_compiled_scanner() {
 }
 
 Ret find_ids(const Scanner& scanner, const DatasetReader& dataset, size_t count, const uint8_t* vec,
-             std::vector<uint64_t>& result) {
+             std::vector<uint64_t>& result, const BitsetFilter* bitset = nullptr) {
     result.clear();
     std::vector<DistItem> items;
-    Ret ret = scanner.find_items(dataset, count, vec, items, nullptr);
+    Ret ret = scanner.find_items(dataset, count, vec, items, bitset);
     if (ret.code() != 0) {
         return ret;
     }
     extract_ids_from_items(items, &result);
     return ret;
+}
+
+struct ScannerBitsetFilter {
+    ScannerBitsetFilter() {
+        filter.view = &view;
+    }
+    ScannerBitsetFilter(const ScannerBitsetFilter&) = delete;
+    ScannerBitsetFilter& operator=(const ScannerBitsetFilter&) = delete;
+    ~ScannerBitsetFilter() {
+        std::free(data);
+    }
+
+    void* data = nullptr;
+    size_t size = 0;
+    size_t allocation_size = 0;
+    ChunkedBitsView view;
+    BitsetFilter filter;
+};
+
+size_t align_up_for_chunked_bits(size_t value) {
+    const size_t mask = kChunkedBitsBlobAlignment - 1u;
+    return (value + mask) & ~mask;
+}
+
+void build_allowed_ids_filter(const std::vector<uint64_t>& ids, ScannerBitsetFilter* out) {
+    ASSERT_NE(nullptr, out);
+    ASSERT_EQ(nullptr, out->data);
+
+    ChunkedBits bits;
+    for (uint64_t id : ids) {
+        ASSERT_EQ(0, bits.add(id).code());
+    }
+    ASSERT_EQ(0, bits.finish().code());
+
+    out->size = bits.serialized_size_bytes();
+    out->allocation_size = align_up_for_chunked_bits(out->size);
+    out->data = std::aligned_alloc(kChunkedBitsBlobAlignment, out->allocation_size);
+    ASSERT_NE(nullptr, out->data);
+    ASSERT_EQ(0, bits.serialize(out->data, out->size).code());
+    ASSERT_EQ(0, out->view.init_blob(out->data, out->size).code());
+    out->filter.view = &out->view;
 }
 
 void extract_absolute_reader_heap_items(const DataReader& reader, LocalDistHeap* heap,
@@ -530,6 +573,82 @@ TEST_F(ScannerTest, FindF16CosWorksWithHighway) {
 }
 
 // ---------------------------------------------------------------------------
+// Bitset filter tests
+// ---------------------------------------------------------------------------
+
+TEST_F(ScannerTest, BitsetFilterWalksSparseAllowedIds) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+        "20 : [ 20.0, 20.0, 20.0, 20.0 ]\n"
+        "30 : [ 30.0, 30.0, 30.0, 30.0 ]\n"
+        "40 : [ 40.0, 40.0, 40.0, 40.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_}, 100);
+
+    ScannerBitsetFilter allowed;
+    ASSERT_NO_FATAL_FAILURE(build_allowed_ids_filter({5, 30, 999}, &allowed));
+
+    Scanner s = make_compiled_scanner();
+    auto q = f32_vec(1.0f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result, &allowed.filter).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(30u, result[0]);
+}
+
+TEST_F(ScannerTest, BitsetFilterWalksAllowedIdsAcrossChunks) {
+    const uint64_t id0 = 7;
+    const uint64_t id1 = kChunkSize + 11;
+    const uint64_t id2 = 2 * kChunkSize + 13;
+    write_input_raw(
+        input_path_,
+        std::string("f32,4\n") +
+        std::to_string(id0) + " : [ 1.0, 1.0, 1.0, 1.0 ]\n" +
+        std::to_string(kChunkSize / 2) + " : [ 50.0, 50.0, 50.0, 50.0 ]\n" +
+        std::to_string(id1) + " : [ 2.0, 2.0, 2.0, 2.0 ]\n" +
+        std::to_string(id2) + " : [ 3.0, 3.0, 3.0, 3.0 ]\n");
+    auto reader = make_dataset_reader(
+        DataType::f32, 4, DistFunc::DOT, {input_path_}, 3 * kChunkSize);
+
+    ScannerBitsetFilter allowed;
+    ASSERT_NO_FATAL_FAILURE(build_allowed_ids_filter({id0, id1, id2}, &allowed));
+
+    Scanner s = make_compiled_scanner();
+    auto q = f32_vec(1.0f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result, &allowed.filter).code());
+    ASSERT_EQ(3u, result.size());
+    EXPECT_EQ(id2, result[0]);
+    EXPECT_EQ(id1, result[1]);
+    EXPECT_EQ(id0, result[2]);
+}
+
+TEST_F(ScannerTest, BitsetFilterAllowsDenseReaderWithoutDuplicates) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+        "20 : [ 2.0, 2.0, 2.0, 2.0 ]\n"
+        "30 : [ 3.0, 3.0, 3.0, 3.0 ]\n"
+        "40 : [ 4.0, 4.0, 4.0, 4.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT, {input_path_}, 100);
+
+    ScannerBitsetFilter allowed;
+    ASSERT_NO_FATAL_FAILURE(build_allowed_ids_filter({10, 20, 30, 40}, &allowed));
+
+    Scanner s = make_compiled_scanner();
+    auto q = f32_vec(1.0f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 4, q.data(), result, &allowed.filter).code());
+    ASSERT_EQ(4u, result.size());
+    EXPECT_EQ(40u, result[0]);
+    EXPECT_EQ(30u, result[1]);
+    EXPECT_EQ(20u, result[2]);
+    EXPECT_EQ(10u, result[3]);
+}
+
+// ---------------------------------------------------------------------------
 // Delta tests
 // ---------------------------------------------------------------------------
 
@@ -581,6 +700,61 @@ TEST_F(ScannerTest, DeltaDeletingAllVectorsReturnsEmptyResult) {
     std::vector<uint64_t> result;
     ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     EXPECT_TRUE(result.empty());
+}
+
+TEST_F(ScannerTest, BitsetFilterRestartsForDeltaRows) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "0 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+        "2 : [ 2.0, 2.0, 2.0, 2.0 ]\n"
+        "3 : [ 3.0, 3.0, 3.0, 3.0 ]\n"
+        "4 : [ 4.0, 4.0, 4.0, 4.0 ]\n"
+        "5 : [ 5.0, 5.0, 5.0, 5.0 ]\n");
+    write_delta_raw(
+        "f32,4\n"
+        "2 : []\n"
+        "4 : [ 100.0, 100.0, 100.0, 100.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT,
+        {input_path_, delta_input_path_});
+
+    ScannerBitsetFilter allowed;
+    ASSERT_NO_FATAL_FAILURE(build_allowed_ids_filter({2, 4, 5}, &allowed));
+
+    Scanner s = make_compiled_scanner();
+    auto q = f32_vec(1.0f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result, &allowed.filter).code());
+    ASSERT_EQ(2u, result.size());
+    EXPECT_EQ(4u, result[0]);
+    EXPECT_EQ(5u, result[1]);
+}
+
+TEST_F(ScannerTest, BitsetFilterSkipsHiddenBaseRowTarget) {
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "0 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "1 : [ 1.0, 1.0, 1.0, 1.0 ]\n"
+        "2 : [ 100.0, 100.0, 100.0, 100.0 ]\n"
+        "3 : [ 3.0, 3.0, 3.0, 3.0 ]\n"
+        "4 : [ 4.0, 4.0, 4.0, 4.0 ]\n");
+    write_delta_raw(
+        "f32,4\n"
+        "2 : []\n");
+    auto reader = make_dataset_reader(DataType::f32, 4, DistFunc::DOT,
+        {input_path_, delta_input_path_});
+
+    ScannerBitsetFilter allowed;
+    ASSERT_NO_FATAL_FAILURE(build_allowed_ids_filter({2, 3}, &allowed));
+
+    Scanner s = make_compiled_scanner();
+    auto q = f32_vec(1.0f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 2, q.data(), result, &allowed.filter).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(3u, result[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,6 +1211,41 @@ TEST_F(ScannerTest, FindDatasetHandlesDeltaIdBelowBaseMinId) {
     auto q = f32_vec(0.0f, 4);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, find_ids(s, ds, 1, q.data(), result).code());
+    ASSERT_EQ(1u, result.size());
+    EXPECT_EQ(1u, result[0]);
+}
+
+TEST_F(ScannerTest, BitsetFilterHandlesDeltaIdBelowBaseMinId) {
+    std::string d = tmp_dir() + "/sketch2_utest_scanner_ex_bitset_delta_low_id_" +
+        std::to_string(getpid());
+    fs::create_directories(d);
+    std::experimental::scope_exit cleanup([&]() { fs::remove_all(d); });
+
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({d}, 100, DataType::f32, 4, DistFunc::L2).code());
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
+        "11 : [ 11.0, 11.0, 11.0, 11.0 ]\n"
+        "12 : [ 12.0, 12.0, 12.0, 12.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    write_input_raw(
+        input_path_,
+        "f32,4\n"
+        "1 : [ 0.0, 0.0, 0.0, 0.0 ]\n");
+    ASSERT_EQ(0, ds.store(input_path_).code());
+    ASSERT_TRUE(fs::exists(d + "/0.delta")) << "expected a delta file to exist";
+
+    ScannerBitsetFilter allowed;
+    ASSERT_NO_FATAL_FAILURE(build_allowed_ids_filter({1}, &allowed));
+
+    Scanner s = make_compiled_scanner();
+    auto q = f32_vec(0.0f, 4);
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, ds, 1, q.data(), result, &allowed.filter).code());
     ASSERT_EQ(1u, result.size());
     EXPECT_EQ(1u, result[0]);
 }

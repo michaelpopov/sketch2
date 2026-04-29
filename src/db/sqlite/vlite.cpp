@@ -48,7 +48,7 @@ constexpr const char* kVliteSchemaWithAllowedIds =
     "id INTEGER, "
     "score REAL)";
 constexpr const char* kVliteModuleName = "vlite";
-constexpr const char* kAllowlistPointerType = "sketch2.AllowlistBlob";
+constexpr const char* kBitsetFilterPointerType = "sketch2.BitsetFilterBlob";
 
 // Removes the outer quoting syntax SQLite may preserve in module arguments so
 // the dataset path can be passed to Dataset::init verbatim.
@@ -177,14 +177,20 @@ sqlite3_int64 saturating_add(sqlite3_int64 lhs, sqlite3_int64 rhs) {
     return lhs + rhs;
 }
 
-void release_allowlist(void* ptr) {
-    sk_release_allowlist(ptr);
+void release_bitset_filter(void* ptr) {
+    if (ptr == nullptr) {
+        return;
+    }
+    sk_bitset_delete(ptr);
 }
 
 // SQLite owns this aggregate context per GROUP BY group. We keep only the
 // API-owned builder here. Finalization returns an API-owned typed pointer.
 struct BitsetAggState {
-    void* allowlist_builder = nullptr;
+    void* bitset_filter_builder = nullptr;
+    uint64_t name_hash = 0;
+    int name_size = 0;
+    bool has_name_fingerprint = false;
     bool has_error = false;
     bool has_nomem = false;
     const char* error_message = nullptr;
@@ -199,11 +205,28 @@ void set_bitset_agg_error(BitsetAggState* state, bool nomem, const char* message
     state->error_message = message;
 }
 
+const char* sqlite_text_value_or_nomem(sqlite3_context* context, sqlite3_value* value) {
+    const char* text = reinterpret_cast<const char*>(sqlite3_value_text(value));
+    if (text == nullptr) {
+        sqlite3_result_error_nomem(context);
+    }
+    return text;
+}
+
+uint64_t hash_sqlite_text(const char* text, int size) {
+    uint64_t hash = 1469598103934665603ull;
+    for (int i = 0; i < size; ++i) {
+        hash ^= static_cast<unsigned char>(text[i]);
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
 void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     if (context == nullptr) {
         return;
     }
-    if (argc != 1 || argv == nullptr) {
+    if ((argc != 1 && argc != 2) || argv == nullptr) {
         sqlite3_result_error(context, "bitset_agg: invalid arguments", -1);
         return;
     }
@@ -215,6 +238,53 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     }
     if (state->has_error) {
         return;
+    }
+
+    if (argc == 2) {
+        const int parameter_type = sqlite3_value_type(argv[1]);
+        if (parameter_type != SQLITE_NULL && parameter_type != SQLITE_TEXT) {
+            set_bitset_agg_error(state, false, "bitset_agg: parameter must be a string");
+            sqlite3_result_error(context, state->error_message, -1);
+            return;
+        }
+    }
+
+    const char* name = nullptr;
+    if (argc == 2 && sqlite3_value_type(argv[1]) != SQLITE_NULL) {
+        name = sqlite_text_value_or_nomem(context, argv[1]);
+        if (name == nullptr) {
+            set_bitset_agg_error(state, true, "sketch2: out of memory");
+            return;
+        }
+    }
+
+    bool name_checked = false;
+    if (name != nullptr) {
+        const int name_size = sqlite3_value_bytes(argv[1]);
+        const uint64_t name_hash = hash_sqlite_text(name, name_size);
+        name_checked = state->has_name_fingerprint &&
+            state->name_size == name_size &&
+            state->name_hash == name_hash;
+        if (!name_checked) {
+            if (sk_bitset_create_builder(
+                    &state->bitset_filter_builder, &state->has_nomem,
+                    &state->error_message, name) != 0) {
+                state->has_error = true;
+                if (state->has_nomem) {
+                    sqlite3_result_error_nomem(context);
+                    return;
+                }
+                const char* message = state->error_message != nullptr
+                    ? state->error_message
+                    : "bitset_agg: aggregation failed";
+                sqlite3_result_error(context, message, -1);
+                return;
+            }
+
+            state->name_size = name_size;
+            state->name_hash = name_hash;
+            state->has_name_fingerprint = true;
+        }
     }
 
     sqlite3_value* value = argv[0];
@@ -236,8 +306,12 @@ void bitset_agg_step(sqlite3_context* context, int argc, sqlite3_value** argv) {
     }
 
     const sqlite3_uint64 id_u64 = static_cast<sqlite3_uint64>(id);
-    if (sk_allowlist_builder_add(
-            &state->allowlist_builder, id_u64, &state->has_nomem, &state->error_message) != 0) {
+    const int add_rc = name != nullptr
+        ? sk_bitset_add_id_name(
+            &state->bitset_filter_builder, id_u64, &state->has_nomem, &state->error_message)
+        : sk_bitset_add_id(
+            &state->bitset_filter_builder, id_u64, &state->has_nomem, &state->error_message, nullptr);
+    if (add_rc != 0) {
         state->has_error = true;
         if (state->has_nomem) {
             sqlite3_result_error_nomem(context);
@@ -257,18 +331,18 @@ void bitset_agg_final(sqlite3_context* context) {
         return;
     }
 
-    void* allowlist = nullptr;
+    void* bitset_filter = nullptr;
     bool finish_nomem = false;
     const char* finish_error = nullptr;
-    if (sk_allowlist_builder_finish(
-            &state->allowlist_builder, &allowlist, &finish_nomem, &finish_error) != 0) {
+    if (sk_bitset_finish(
+            &state->bitset_filter_builder, &bitset_filter, &finish_nomem, &finish_error) != 0) {
         state->has_error = true;
         state->has_nomem = finish_nomem;
         state->error_message = finish_error;
     }
 
     if (state->has_error) {
-        sk_release_allowlist(allowlist);
+        sk_bitset_delete(bitset_filter);
         if (state->has_nomem) {
             sqlite3_result_error_nomem(context);
             return;
@@ -279,9 +353,87 @@ void bitset_agg_final(sqlite3_context* context) {
         return;
     }
 
-    assert(allowlist != nullptr);
+    assert(bitset_filter != nullptr);
 
-    sqlite3_result_pointer(context, allowlist, kAllowlistPointerType, release_allowlist);
+    sqlite3_result_pointer(context, bitset_filter, kBitsetFilterPointerType, release_bitset_filter);
+}
+
+void bitset_drop_func(sqlite3_context* context, int argc, sqlite3_value** argv) {
+    if (context == nullptr) {
+        return;
+    }
+    if (argc != 1 || argv == nullptr) {
+        sqlite3_result_error(context, "bitset_drop: invalid arguments", -1);
+        return;
+    }
+
+    if (sqlite3_value_type(argv[0]) != SQLITE_TEXT) {
+        sqlite3_result_error(context, "bitset_drop: name must be a string", -1);
+        return;
+    }
+
+    const char* name = sqlite_text_value_or_nomem(context, argv[0]);
+    if (name == nullptr) {
+        return;
+    }
+    int removed = 0;
+    bool out_of_memory = false;
+    const char* error_message = nullptr;
+    if (sk_bitset_drop(name, &removed, &out_of_memory, &error_message) != 0) {
+        if (out_of_memory) {
+            sqlite3_result_error_nomem(context);
+            return;
+        }
+        sqlite3_result_error(
+            context, error_message != nullptr ? error_message : "bitset_drop: failed", -1);
+        return;
+    }
+
+    sqlite3_result_int(context, removed);
+}
+
+void bitset_load_func(sqlite3_context* context, int argc, sqlite3_value** argv) {
+    if (context == nullptr) {
+        return;
+    }
+    if (argc != 1 || argv == nullptr) {
+        sqlite3_result_error(context, "bitset_load: invalid arguments", -1);
+        return;
+    }
+
+    if (sqlite3_value_type(argv[0]) != SQLITE_TEXT) {
+        sqlite3_result_error(context, "bitset_load: name must be a string", -1);
+        return;
+    }
+
+    try {
+        const char* name = sqlite_text_value_or_nomem(context, argv[0]);
+        if (name == nullptr) {
+            return;
+        }
+
+        void* bitset_filter = nullptr;
+        bool out_of_memory = false;
+        const char* error_message = nullptr;
+        if (sk_bitset_load(name, &bitset_filter, &out_of_memory, &error_message) != 0) {
+            if (out_of_memory) {
+                sqlite3_result_error_nomem(context);
+                return;
+            }
+            sqlite3_result_error(
+                context, error_message != nullptr ? error_message : "bitset_load: failed", -1);
+            return;
+        }
+
+        assert(bitset_filter != nullptr);
+        sqlite3_result_pointer(context, bitset_filter, kBitsetFilterPointerType, release_bitset_filter);
+    } catch (const std::bad_alloc&) {
+        sqlite3_result_error_nomem(context);
+    } catch (const std::exception& ex) {
+        sqlite3_result_error(context, ex.what(), -1);
+    } catch (...) {
+        sqlite3_result_error(context, "sketch2: unexpected error", -1);
+    }
 }
 
 // VliteVTab exists to bind SQLite's virtual-table object to the dataset state
@@ -576,7 +728,7 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
             }
 
             sqlite3_value* allowed_ids_value = argv[arg_index++];
-            allowed_ids = sqlite3_value_pointer(allowed_ids_value, kAllowlistPointerType);
+            allowed_ids = sqlite3_value_pointer(allowed_ids_value, kBitsetFilterPointerType);
             const int allowed_ids_type = sqlite3_value_type(allowed_ids_value);
             if (allowed_ids == nullptr &&
                     allowed_ids_type != SQLITE_NULL && allowed_ids_type != SQLITE_BLOB) {
@@ -617,7 +769,7 @@ int vlite_filter(sqlite3_vtab_cursor* cursor, int idx_num, const char* idx_str,
         double* scores = nullptr;
         size_t count = 0;
         const int rc = allowed_ids != nullptr
-            ? sk_knn_items_allowlist(
+            ? sk_knn_items_bitset_filter(
                 vlite_vtab->handle,
                 vlite_cursor->query_text.c_str(),
                 static_cast<unsigned int>(effective_k),
@@ -875,12 +1027,40 @@ extern "C" int sqlite3_sketch2_init(sqlite3* db, char** pz_err_msg, const sqlite
         rc = sqlite3_create_function_v2(
             db,
             "bitset_agg",
-            1,
+            -1,
             SQLITE_UTF8,
             nullptr,
             nullptr,
             bitset_agg_step,
             bitset_agg_final,
+            nullptr);
+        if (rc != SQLITE_OK) {
+            return rc;
+        }
+
+        rc = sqlite3_create_function_v2(
+            db,
+            "bitset_drop",
+            1,
+            SQLITE_UTF8,
+            nullptr,
+            bitset_drop_func,
+            nullptr,
+            nullptr,
+            nullptr);
+        if (rc != SQLITE_OK) {
+            return rc;
+        }
+
+        rc = sqlite3_create_function_v2(
+            db,
+            "bitset_load",
+            1,
+            SQLITE_UTF8,
+            nullptr,
+            bitset_load_func,
+            nullptr,
+            nullptr,
             nullptr);
         if (rc != SQLITE_OK) {
             return rc;

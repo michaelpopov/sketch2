@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
+#include <limits>
 #include <thread>
 
 namespace sketch2 {
@@ -30,7 +32,8 @@ unsigned int max_thread_pool_size() {
 
 } // namespace
 
-Singleton::Singleton() = default;
+Singleton::Singleton()
+        : bitset_filter_spill_dir_(std::filesystem::temp_directory_path()) {}
 
 Singleton& Singleton::instance() {
     static Singleton singleton;
@@ -69,6 +72,14 @@ void Singleton::force_thread_pool_for_testing(std::shared_ptr<ThreadPool> pool) 
 
 const std::shared_ptr<ThreadPool>& Singleton::thread_pool() const {
     return thread_pool_;
+}
+
+size_t Singleton::bitset_filter_spill_threshold_bytes() const {
+    return bitset_filter_spill_threshold_bytes_;
+}
+
+const std::filesystem::path& Singleton::bitset_filter_spill_dir() const {
+    return bitset_filter_spill_dir_;
 }
 
 bool Singleton::check_file_path(const std::string& file_path) {
@@ -154,6 +165,9 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
             merged.level = reader.get_str("log.level", "");
             merged.log_file = reader.get_str("log.path", "");
             merged.thread_pool_size = reader.get_str("thread_pool.size", "");
+            merged.bitset_filter_spill_threshold_bytes =
+                reader.get_str("bitset_filter.spill_threshold_bytes", "");
+            merged.bitset_filter_spill_dir = reader.get_str("bitset_filter.spill_dir", "");
         } else {
             LOG_WARN << "Failed to read SKETCH2_CONFIG from " << config_path
                      << ": " << ret.message();
@@ -178,6 +192,21 @@ bool Singleton::collect_config_values_(const std::string* path, ConfigValues* va
         merged.thread_pool_size = env_thread_pool_size;
     }
 
+    const char* env_bitset_filter_spill_threshold_bytes =
+        std::getenv("SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES");
+    if (env_bitset_filter_spill_threshold_bytes != nullptr
+            && env_bitset_filter_spill_threshold_bytes[0] != '\0') {
+        LOG_INFO << "Bitset filter spill threshold is set in env var: "
+                 << env_bitset_filter_spill_threshold_bytes;
+        merged.bitset_filter_spill_threshold_bytes = env_bitset_filter_spill_threshold_bytes;
+    }
+
+    const char* env_bitset_filter_spill_dir = std::getenv("SKETCH2_BITSET_FILTER_SPILL_DIR");
+    if (env_bitset_filter_spill_dir != nullptr && env_bitset_filter_spill_dir[0] != '\0') {
+        LOG_INFO << "Bitset filter spill directory is set in env var: " << env_bitset_filter_spill_dir;
+        merged.bitset_filter_spill_dir = env_bitset_filter_spill_dir;
+    }
+
     *values = std::move(merged);
     return true;
 }
@@ -199,6 +228,15 @@ bool Singleton::apply_config_values_(const ConfigValues& values, bool allow_defa
         applied = apply_thread_pool_size_(values.thread_pool_size) || applied;
     } else if (allow_defaults) {
         applied = apply_default_thread_pool_size_() || applied;
+    }
+
+    if (!values.bitset_filter_spill_threshold_bytes.empty()) {
+        applied = apply_bitset_filter_spill_threshold_bytes_(
+            values.bitset_filter_spill_threshold_bytes) || applied;
+    }
+
+    if (!values.bitset_filter_spill_dir.empty()) {
+        applied = apply_bitset_filter_spill_dir_(values.bitset_filter_spill_dir) || applied;
     }
 
     return applied;
@@ -271,6 +309,35 @@ bool Singleton::apply_log_file_(const std::string& path) {
     }
 
     return log::initialize_log_file(path);
+}
+
+bool Singleton::apply_bitset_filter_spill_threshold_bytes_(const std::string& size) {
+    if (size.empty()) {
+        return false;
+    }
+
+    try {
+        size_t parsed_chars = 0;
+        const unsigned long long parsed = std::stoull(size, &parsed_chars);
+        if (parsed_chars != size.size()
+                || parsed > static_cast<unsigned long long>(std::numeric_limits<size_t>::max())) {
+            return false;
+        }
+        bitset_filter_spill_threshold_bytes_ = static_cast<size_t>(parsed);
+    } catch (const std::exception&) {
+        return false;
+    }
+
+    return true;
+}
+
+bool Singleton::apply_bitset_filter_spill_dir_(const std::string& path) {
+    if (path.empty()) {
+        return false;
+    }
+
+    bitset_filter_spill_dir_ = path;
+    return true;
 }
 
 } // namespace sketch2

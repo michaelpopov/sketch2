@@ -15,7 +15,7 @@ add_library(stor STATIC
 target_include_directories(stor PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
 set_target_properties(stor PROPERTIES OUTPUT_NAME "stor")
-target_link_libraries(stor PUBLIC utils sketch_compile_options Threads::Threads)
+target_link_libraries(stor PUBLIC bitset utils sketch_compile_options Threads::Threads)
 target_link_libraries(stor PRIVATE sketch_warnings)
 
 add_executable(utest_stor
@@ -30,5 +30,5 @@ add_executable(utest_stor
   utest_dataset.cpp
   utest_full_cycle.cpp
 )
-target_link_libraries(utest_stor PRIVATE stor croaring GTest::gtest Threads::Threads sketch_warnings)
+target_link_libraries(utest_stor PRIVATE stor GTest::gtest sketch_warnings)
 add_test(NAME utest_stor COMMAND utest_stor)

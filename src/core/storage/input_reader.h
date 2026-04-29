@@ -1,7 +1,7 @@
 // Declares the input reader and subrange view types for text and binary imports.
 
 #pragma once
-#include "utils/dynamic_bitset.h"
+#include "core/bitset/dynamic_bitset.h"
 #include "utils/shared_types.h"
 #include <algorithm>
 #include <cstdint>

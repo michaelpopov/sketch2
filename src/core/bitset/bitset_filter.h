@@ -1,4 +1,4 @@
-// Declares the shared bitset-based allowlist filter used by scanner APIs.
+// Declares the shared bitset filter used by scanner APIs.
 
 #pragma once
 

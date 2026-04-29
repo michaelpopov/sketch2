@@ -8,23 +8,28 @@
 #include "sqlite3.h"
 
 #include "sketch2api/sketch2.h"
+#include "core/bitset/bitset_filter_control.h"
+#include "core/bitset/chunked_bits.h"
+#include "utils/singleton.h"
 #include "utils/shared_types.h"
+#include "core/bitset/utest_chunked_bits_helpers.h"
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
-#include <unistd.h>
-#include <utility>
 #include <vector>
 
 using namespace sketch2;
 namespace fs = std::filesystem;
 
 namespace {
+
+using test::expect_persisted_filter_contains;
+using test::ScopedPathCleanup;
+using test::unique_filter_name;
 
 struct SqliteDbCloser {
     void operator()(sqlite3* db) const {
@@ -36,7 +41,7 @@ struct SqliteDbCloser {
 
 using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
 
-class AllowlistSqlTest : public ::testing::Test {
+class BitsetFilterSqlTest : public ::testing::Test {
 protected:
     fs::path root_;
     fs::path db_root_;
@@ -48,7 +53,7 @@ protected:
     void SetUp() override {
         static uint64_t counter = 0;
         root_ = fs::temp_directory_path() /
-            ("sketch2_utest_allowlist_" + std::to_string(getpid()) + "_" + std::to_string(++counter));
+            ("sketch2_utest_bitset_filter_" + std::to_string(getpid()) + "_" + std::to_string(++counter));
         fs::create_directories(root_);
         db_root_ = root_ / "db";
         dataset_dir_ = db_root_ / dataset_name_;
@@ -125,6 +130,29 @@ protected:
         ASSERT_EQ(SQLITE_OK, rc) << error_text << " : " << sql;
     }
 
+    int query_single_int(sqlite3* db, const std::string& sql) {
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+            ADD_FAILURE() << sqlite3_errmsg(db) << " : " << sql;
+            return -1;
+        }
+        int value = -1;
+        int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_ROW) {
+            ADD_FAILURE() << sqlite3_errmsg(db) << " : " << sql;
+            sqlite3_finalize(stmt);
+            return -1;
+        }
+        value = sqlite3_column_int(stmt, 0);
+        rc = sqlite3_step(stmt);
+        EXPECT_EQ(SQLITE_DONE, rc) << sqlite3_errmsg(db) << " : " << sql;
+        if (sqlite3_finalize(stmt) != SQLITE_OK) {
+            ADD_FAILURE() << sqlite3_errmsg(db);
+            return -1;
+        }
+        return value;
+    }
+
     std::vector<uint64_t> query_ids(sqlite3* db, const std::string& sql) {
         sqlite3_stmt* stmt = nullptr;
         if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
@@ -170,7 +198,7 @@ protected:
 
     // Standard 5-row dataset with ids 10, 20, 30, 40, 50, each whose vector
     // scales with the id. For DOT against query [25,25,25,25] the natural DESC
-    // order is 50, 40, 30, 20, 10 — easy to verify allowlist filtering.
+    // order is 50, 40, 30, 20, 10 — easy to verify bitset filtering.
     void setup_decimal_dataset() {
         write_input("f32,4\n"
                     "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
@@ -180,13 +208,34 @@ protected:
                     "50 : [ 50.0, 50.0, 50.0, 50.0 ]\n");
         create_dataset(DataType::f32, 4, 100, DistFunc::DOT);
     }
+
+    void populate_spill_sized_allowed_table(sqlite3* db) {
+        exec_sql(db, "CREATE TABLE many(id INTEGER)");
+        exec_sql(db, "BEGIN");
+        sqlite3_stmt* stmt = nullptr;
+        ASSERT_EQ(SQLITE_OK,
+            sqlite3_prepare_v2(db, "INSERT INTO many(id) VALUES (?)", -1, &stmt, nullptr));
+        sqlite3_bind_int64(stmt, 1, 20);
+        ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+        sqlite3_reset(stmt);
+        sqlite3_bind_int64(stmt, 1, 40);
+        ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+        sqlite3_reset(stmt);
+        for (uint64_t i = 0; i < 50000; ++i) {
+            sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>((i + 1) << kChunkBits));
+            ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+            sqlite3_reset(stmt);
+        }
+        sqlite3_finalize(stmt);
+        exec_sql(db, "COMMIT");
+    }
 };
 
 // ---------------------------------------------------------------------------
 // Source variations: the rows feeding bitset_agg can come from many shapes.
 // ---------------------------------------------------------------------------
 
-TEST_F(AllowlistSqlTest, BitsetAggSourcedFromValuesClause) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSourcedFromValuesClause) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -200,7 +249,7 @@ TEST_F(AllowlistSqlTest, BitsetAggSourcedFromValuesClause) {
     EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggSourcedFromCte) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSourcedFromCte) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -213,7 +262,7 @@ TEST_F(AllowlistSqlTest, BitsetAggSourcedFromCte) {
     EXPECT_EQ((std::vector<uint64_t>{10, 30, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggSourcedFromRecursiveCte) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSourcedFromRecursiveCte) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -229,7 +278,7 @@ TEST_F(AllowlistSqlTest, BitsetAggSourcedFromRecursiveCte) {
     EXPECT_EQ((std::vector<uint64_t>{10, 20, 30, 40, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggSourcedFromRegularTable) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSourcedFromRegularTable) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -244,7 +293,7 @@ TEST_F(AllowlistSqlTest, BitsetAggSourcedFromRegularTable) {
     EXPECT_EQ((std::vector<uint64_t>{20, 40, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggSourcedFromTempTable) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSourcedFromTempTable) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -263,7 +312,7 @@ TEST_F(AllowlistSqlTest, BitsetAggSourcedFromTempTable) {
 // Filtering / shaping the bitset_agg input rows.
 // ---------------------------------------------------------------------------
 
-TEST_F(AllowlistSqlTest, BitsetAggSourceFilteredByWhereClause) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSourceFilteredByWhereClause) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -282,7 +331,7 @@ TEST_F(AllowlistSqlTest, BitsetAggSourceFilteredByWhereClause) {
     EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggSourceShapedByLimit) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSourceShapedByLimit) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -299,13 +348,13 @@ TEST_F(AllowlistSqlTest, BitsetAggSourceShapedByLimit) {
     EXPECT_EQ((std::vector<uint64_t>{40, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggInputOrderIndependence) {
+TEST_F(BitsetFilterSqlTest, BitsetAggInputOrderIndependence) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
 
     // Whether the source is sorted, reverse-sorted, or random, the resulting
-    // allowlist must be identical: the same ids end up in the result set.
+    // Bitset filters must be identical: the same ids end up in the result set.
     const auto sorted_ids = sorted_query_ids(db.get(),
         "SELECT id FROM nn "
         "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
@@ -329,7 +378,7 @@ TEST_F(AllowlistSqlTest, BitsetAggInputOrderIndependence) {
     EXPECT_EQ(sorted_ids, random_ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggWithDistinctOnSource) {
+TEST_F(BitsetFilterSqlTest, BitsetAggWithDistinctOnSource) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -347,7 +396,7 @@ TEST_F(AllowlistSqlTest, BitsetAggWithDistinctOnSource) {
     EXPECT_EQ((std::vector<uint64_t>{10, 30}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggInputFromGroupByHaving) {
+TEST_F(BitsetFilterSqlTest, BitsetAggInputFromGroupByHaving) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -373,7 +422,7 @@ TEST_F(AllowlistSqlTest, BitsetAggInputFromGroupByHaving) {
 // Set-operation combinations to compose the input set.
 // ---------------------------------------------------------------------------
 
-TEST_F(AllowlistSqlTest, BitsetAggFromUnion) {
+TEST_F(BitsetFilterSqlTest, BitsetAggFromUnion) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -389,7 +438,7 @@ TEST_F(AllowlistSqlTest, BitsetAggFromUnion) {
     EXPECT_EQ((std::vector<uint64_t>{10, 20, 30}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggFromIntersect) {
+TEST_F(BitsetFilterSqlTest, BitsetAggFromIntersect) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -407,7 +456,7 @@ TEST_F(AllowlistSqlTest, BitsetAggFromIntersect) {
     EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggFromExcept) {
+TEST_F(BitsetFilterSqlTest, BitsetAggFromExcept) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -425,7 +474,7 @@ TEST_F(AllowlistSqlTest, BitsetAggFromExcept) {
     EXPECT_EQ((std::vector<uint64_t>{10, 30, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggFromInnerJoin) {
+TEST_F(BitsetFilterSqlTest, BitsetAggFromInnerJoin) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -446,7 +495,7 @@ TEST_F(AllowlistSqlTest, BitsetAggFromInnerJoin) {
     EXPECT_EQ((std::vector<uint64_t>{10, 20, 30, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggFromLeftJoinTreatsUnmatchedNullsAsNoop) {
+TEST_F(BitsetFilterSqlTest, BitsetAggFromLeftJoinTreatsUnmatchedNullsAsNoop) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -471,7 +520,7 @@ TEST_F(AllowlistSqlTest, BitsetAggFromLeftJoinTreatsUnmatchedNullsAsNoop) {
 // Expression variations on the aggregated value.
 // ---------------------------------------------------------------------------
 
-TEST_F(AllowlistSqlTest, BitsetAggOnArithmeticExpression) {
+TEST_F(BitsetFilterSqlTest, BitsetAggOnArithmeticExpression) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -486,7 +535,7 @@ TEST_F(AllowlistSqlTest, BitsetAggOnArithmeticExpression) {
     EXPECT_EQ((std::vector<uint64_t>{10, 30, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggOnCaseExpression) {
+TEST_F(BitsetFilterSqlTest, BitsetAggOnCaseExpression) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -506,7 +555,7 @@ TEST_F(AllowlistSqlTest, BitsetAggOnCaseExpression) {
     EXPECT_EQ((std::vector<uint64_t>{10, 30, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggOnExplicitCastFromText) {
+TEST_F(BitsetFilterSqlTest, BitsetAggOnExplicitCastFromText) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -527,7 +576,7 @@ TEST_F(AllowlistSqlTest, BitsetAggOnExplicitCastFromText) {
 // Edge values: id = 0, very large ids, empty input, all-NULL input.
 // ---------------------------------------------------------------------------
 
-TEST_F(AllowlistSqlTest, BitsetAggIncludesZeroId) {
+TEST_F(BitsetFilterSqlTest, BitsetAggIncludesZeroId) {
     write_input("f32,4\n"
                 "0  : [ 0.5, 0.5, 0.5, 0.5 ]\n"
                 "10 : [ 10.0, 10.0, 10.0, 10.0 ]\n"
@@ -546,7 +595,7 @@ TEST_F(AllowlistSqlTest, BitsetAggIncludesZeroId) {
     EXPECT_EQ((std::vector<uint64_t>{0, 20}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggHandlesIdsAcrossManyChunks) {
+TEST_F(BitsetFilterSqlTest, BitsetAggHandlesIdsAcrossManyChunks) {
     constexpr uint64_t kFirstChunkId = 5;
     constexpr uint64_t kSecondChunkId = (1ull << 16u) + 7u;
     constexpr uint64_t kFarChunkId = (1ull << 24u) + 11u;
@@ -571,7 +620,7 @@ TEST_F(AllowlistSqlTest, BitsetAggHandlesIdsAcrossManyChunks) {
     EXPECT_EQ((std::vector<uint64_t>{kFirstChunkId, kFarChunkId}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggOnAllNullInputMatchesNothing) {
+TEST_F(BitsetFilterSqlTest, BitsetAggOnAllNullInputMatchesNothing) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -585,7 +634,30 @@ TEST_F(AllowlistSqlTest, BitsetAggOnAllNullInputMatchesNothing) {
     EXPECT_TRUE(ids.empty());
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggOnFilteredOutInputMatchesNothing) {
+TEST_F(BitsetFilterSqlTest, NamedBitsetAggOnAllNullInputPersistsEmptyFile) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string name = unique_filter_name("sql_named_empty_all_null");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+
+    const auto ids = query_ids(db.get(),
+        std::string("SELECT id FROM nn ")
+        + "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        + "AND allowed_ids = ("
+        + "  SELECT bitset_agg(column1, '" + name + "') FROM (VALUES (NULL), (NULL), (NULL))"
+        + ")");
+    EXPECT_TRUE(ids.empty());
+    ASSERT_TRUE(fs::exists(expected_path));
+    EXPECT_GT(fs::file_size(expected_path), 0u);
+    expect_persisted_filter_contains(expected_path, {});
+
+    fs::remove(expected_path);
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetAggOnFilteredOutInputMatchesNothing) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -599,7 +671,26 @@ TEST_F(AllowlistSqlTest, BitsetAggOnFilteredOutInputMatchesNothing) {
     EXPECT_TRUE(ids.empty());
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggOnIdsNotInDatasetReturnsNoRows) {
+TEST_F(BitsetFilterSqlTest, NamedBitsetAggOnZeroRowsMatchesNothingWithoutFile) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string name = unique_filter_name("sql_named_empty_zero_rows");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+
+    const auto ids = query_ids(db.get(),
+        std::string("SELECT id FROM nn ")
+        + "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        + "AND allowed_ids = ("
+        + "  SELECT bitset_agg(column1, '" + name + "') FROM (VALUES (10),(20)) WHERE 1 = 0"
+        + ")");
+    EXPECT_TRUE(ids.empty());
+    EXPECT_FALSE(fs::exists(expected_path));
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetAggOnIdsNotInDatasetReturnsNoRows) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -613,7 +704,7 @@ TEST_F(AllowlistSqlTest, BitsetAggOnIdsNotInDatasetReturnsNoRows) {
     EXPECT_TRUE(ids.empty());
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggMixedExistingAndMissingIdsKeepsExisting) {
+TEST_F(BitsetFilterSqlTest, BitsetAggMixedExistingAndMissingIdsKeepsExisting) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -631,7 +722,7 @@ TEST_F(AllowlistSqlTest, BitsetAggMixedExistingAndMissingIdsKeepsExisting) {
 // Composition with the host query.
 // ---------------------------------------------------------------------------
 
-TEST_F(AllowlistSqlTest, BitsetAggLargeAggregateAcrossManyRows) {
+TEST_F(BitsetFilterSqlTest, BitsetAggLargeAggregateAcrossManyRows) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -660,7 +751,206 @@ TEST_F(AllowlistSqlTest, BitsetAggLargeAggregateAcrossManyRows) {
     EXPECT_EQ((std::vector<uint64_t>{10, 20, 30, 40, 50}), ids);
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggGroupByCollapsedToSingleAllowlist) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSpillSizedTypedPointerFiltersQuery) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    populate_spill_sized_allowed_table(db.get());
+
+    const auto ids = sorted_query_ids(db.get(),
+        "SELECT id FROM nn "
+        "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        "AND allowed_ids = (SELECT bitset_agg(id) FROM many)");
+    EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
+}
+
+TEST_F(BitsetFilterSqlTest, NamedSpillSizedBitsetAggPersistsFile) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+    populate_spill_sized_allowed_table(db.get());
+
+    const std::string name = unique_filter_name("sql_named_spill");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+
+    const auto ids = sorted_query_ids(db.get(),
+        std::string("SELECT id FROM nn ")
+        + "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        + "AND allowed_ids = (SELECT bitset_agg(id, '" + name + "') FROM many)");
+    EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
+
+    ASSERT_TRUE(fs::exists(expected_path));
+    EXPECT_GT(fs::file_size(expected_path), 0u);
+    expect_persisted_filter_contains(expected_path, {20, 40});
+
+    fs::remove(expected_path);
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetLoadUsesPersistedNamedFilter) {
+    setup_decimal_dataset();
+    SqliteDbPtr db = open_db_with_extension();
+    create_virtual_table(db.get());
+
+    const std::string name = unique_filter_name("sql_load_filter");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name
+        + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    const auto ids = sorted_query_ids(db.get(),
+        std::string("SELECT id FROM nn ")
+        + "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
+        + "AND allowed_ids = bitset_load('" + name + "')");
+    EXPECT_EQ((std::vector<uint64_t>{20, 40}), ids);
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetLoadRejectsInvalidAndMissingNames) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    expect_query_error(db.get(), "SELECT bitset_load(NULL)", "name must be a string");
+    expect_query_error(db.get(), "SELECT bitset_load('')", "bitset_load: invalid bitset filter name");
+    expect_query_error(
+        db.get(), "SELECT bitset_load('bad-name')", "bitset_load: invalid bitset filter name");
+
+    const std::string name = unique_filter_name("sql_missing_filter");
+    expect_query_error(db.get(), "SELECT bitset_load('" + name + "')", "failed to open");
+}
+
+// Within a single prepared statement, repeated bitset_load(?) invocations
+// benefit from the process-wide cache: removing the on-disk file after the
+// first row must not affect subsequent rows.
+TEST_F(BitsetFilterSqlTest, BitsetLoadServesRepeatedRowsFromCacheWithinPreparedStatement) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    const std::string name = unique_filter_name("sql_load_cache_in_stmt");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name
+        + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT bitset_load(?) FROM (VALUES (1), (2), (3))";
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db.get(), sql, -1, &stmt, nullptr))
+        << sqlite3_errmsg(db.get());
+    ASSERT_EQ(SQLITE_OK, sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT))
+        << sqlite3_errmsg(db.get());
+
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    // Once the cache has the entry, removing the on-disk file must not
+    // affect subsequent steps: each step should serve from the cache.
+    ASSERT_TRUE(fs::remove(expected_path));
+
+    EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_DONE, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_OK, sqlite3_finalize(stmt)) << sqlite3_errmsg(db.get());
+}
+
+// The cache is process-wide, so an entry populated by one prepared statement
+// remains available to a separate prepared statement issued later — even
+// after the on-disk file has been removed.
+TEST_F(BitsetFilterSqlTest, BitsetLoadCachePersistsAcrossPreparedStatements) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    const std::string name = unique_filter_name("sql_load_cache_across");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
+
+    // bitset_agg() persists the file and inserts the entry into the cache.
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name
+        + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    // First prepared statement uses the cached entry, then completes.
+    exec_sql(db.get(), "SELECT bitset_load('" + name + "')");
+
+    // Remove the file: only the cached mapping remains in memory.
+    ASSERT_TRUE(fs::remove(expected_path));
+
+    // A separate, freshly prepared statement must still succeed via the cache.
+    sqlite3_stmt* stmt = nullptr;
+    const std::string sql = "SELECT bitset_load('" + name + "')";
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db.get(), sql.c_str(), -1, &stmt, nullptr))
+        << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_ROW, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_DONE, sqlite3_step(stmt)) << sqlite3_errmsg(db.get());
+    EXPECT_EQ(SQLITE_OK, sqlite3_finalize(stmt)) << sqlite3_errmsg(db.get());
+}
+
+// bitset_drop() must evict the cache entry alongside removing the file:
+// otherwise a follow-up bitset_load() would still succeed via the cache.
+// This complements the cache-hit tests above by confirming the eviction
+// path is honored end-to-end.
+TEST_F(BitsetFilterSqlTest, BitsetDropEvictsCacheSoSubsequentLoadFails) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    const std::string name = unique_filter_name("sql_drop_then_load");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+    ScopedPathCleanup cleanup{expected_path};
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name
+        + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    // Warm path: the cache holds the entry from bitset_agg and load succeeds.
+    exec_sql(db.get(), "SELECT bitset_load('" + name + "')");
+
+    // bitset_drop evicts the cache entry and removes the file.
+    EXPECT_EQ(1, query_single_int(db.get(), "SELECT bitset_drop('" + name + "')"));
+    EXPECT_FALSE(fs::exists(expected_path));
+
+    expect_query_error(
+        db.get(), "SELECT bitset_load('" + name + "')", "failed to open");
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetDropRemovesNamedFileAndReturnsStatus) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    const std::string name = unique_filter_name("sql_drop_filter");
+    const fs::path expected_path = named_bitset_filter_path(name);
+    fs::remove(expected_path);
+
+    exec_sql(db.get(),
+        std::string("SELECT bitset_agg(column1, '") + name + "') FROM (VALUES (20), (40))");
+    ASSERT_TRUE(fs::exists(expected_path));
+
+    EXPECT_EQ(1, query_single_int(db.get(), "SELECT bitset_drop('" + name + "')"));
+    EXPECT_FALSE(fs::exists(expected_path));
+    EXPECT_EQ(0, query_single_int(db.get(), "SELECT bitset_drop('" + name + "')"));
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetDropRejectsInvalidNameArguments) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    expect_query_error(db.get(), "SELECT bitset_drop(NULL)", "name must be a string");
+    expect_query_error(db.get(), "SELECT bitset_drop('')", "bitset_drop: invalid bitset filter name");
+    expect_query_error(
+        db.get(), "SELECT bitset_drop('bad-name')", "bitset_drop: invalid bitset filter name");
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetAggRejectsEmptyName) {
+    SqliteDbPtr db = open_db_with_extension();
+
+    expect_query_error(db.get(),
+        "SELECT bitset_agg(column1, '') FROM (VALUES (1))",
+        "invalid bitset filter name");
+}
+
+TEST_F(BitsetFilterSqlTest, BitsetAggGroupByCollapsedToSingleBitsetFilter) {
     setup_decimal_dataset();
     SqliteDbPtr db = open_db_with_extension();
     create_virtual_table(db.get());
@@ -669,7 +959,7 @@ TEST_F(AllowlistSqlTest, BitsetAggGroupByCollapsedToSingleAllowlist) {
     exec_sql(db.get(),
         "INSERT INTO buckets VALUES (1,10),(1,30),(2,20),(2,40),(2,50)");
 
-    // GROUP BY produces one allowlist per group; pick bucket=2 with LIMIT 1.
+    // GROUP BY produces one bitset filter per group; pick bucket=2 with LIMIT 1.
     const auto ids = sorted_query_ids(db.get(),
         "SELECT id FROM nn "
         "WHERE query = '25.0, 25.0, 25.0, 25.0' AND k = 5 "
@@ -683,28 +973,28 @@ TEST_F(AllowlistSqlTest, BitsetAggGroupByCollapsedToSingleAllowlist) {
 // Type-validation paths not covered by utest_vlite.cpp.
 // ---------------------------------------------------------------------------
 
-TEST_F(AllowlistSqlTest, BitsetAggRejectsRealValue) {
+TEST_F(BitsetFilterSqlTest, BitsetAggRejectsRealValue) {
     SqliteDbPtr db = open_db_with_extension();
     expect_query_error(db.get(),
         "SELECT bitset_agg(column1) FROM (VALUES (1.5))",
         "must be an integer");
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggRejectsBlobValue) {
+TEST_F(BitsetFilterSqlTest, BitsetAggRejectsBlobValue) {
     SqliteDbPtr db = open_db_with_extension();
     expect_query_error(db.get(),
         "SELECT bitset_agg(column1) FROM (VALUES (X'deadbeef'))",
         "must be an integer");
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggRejectsNegativeFromExpression) {
+TEST_F(BitsetFilterSqlTest, BitsetAggRejectsNegativeFromExpression) {
     SqliteDbPtr db = open_db_with_extension();
     expect_query_error(db.get(),
         "SELECT bitset_agg(column1 - 100) FROM (VALUES (10))",
         "non-negative");
 }
 
-TEST_F(AllowlistSqlTest, BitsetAggSurfacesErrorMidStream) {
+TEST_F(BitsetFilterSqlTest, BitsetAggSurfacesErrorMidStream) {
     SqliteDbPtr db = open_db_with_extension();
     // First two ids are valid; the third is negative and must abort the query.
     expect_query_error(db.get(),

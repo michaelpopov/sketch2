@@ -159,7 +159,7 @@ These tests use the Python `sqlite3` module to:
 
 This layer checks SQL-visible behavior such as:
 
-- `bitset_agg(id)` validation rules and unordered-id allowlist filtering
+- `bitset_agg(id)` validation rules and unordered-id bitset filtering
 - `allowed_ids` filtering when a pointer or aligned BLOB is supplied
 - baseline behavior when `allowed_ids` is `NULL`
 - rejection of invalid non-BLOB inputs

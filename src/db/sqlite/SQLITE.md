@@ -54,7 +54,7 @@ Column notes:
 
 - `query` / `match_expr` (hidden input): query vector text
 - `k` (hidden input): top-k size, default `10`
-- `allowed_ids` (hidden input): optional allowlist filter
+- `allowed_ids` (hidden input): optional bitset filter
 - `id` (output): vector id
 - `score` (output): score according to dataset metric
 
@@ -114,21 +114,80 @@ LIMIT 5 OFFSET 10;
 `allowed_ids` is optional.
 
 - `NULL` means no filtering
-- the typed pointer returned by `bitset_agg(id)` applies filtering
+- the typed pointer returned by `bitset_agg(id[, name])` or `bitset_load(name)`
+  applies filtering
 - `BLOB` applies filtering when SQLite provides a 32-byte-aligned pointer
 - non-`BLOB` and non-`NULL` values are rejected
 
-`bitset_agg(id)` accepts ids in any order:
+`bitset_agg(id[, name])` accepts ids in any order. The optional `name` parameter
+must be a non-empty string when present:
 
 ```sql
 SELECT bitset_agg(id)
 FROM labels
 WHERE label = 3;
+
+SELECT bitset_agg(id, 'label_3')
+FROM labels
+WHERE label = 3;
 ```
 
 The aggregate returns an API-owned typed pointer that wraps the serialized
-chunked-Roaring format documented in `src/sketch2api/BITSET.md`. SQLite calls
-Sketch2's release function when that pointer value is destroyed.
+chunked-Roaring format documented in `src/sketch2api/BITSET.md`. The opaque
+object may be heap-backed or mmap-backed. SQLite calls Sketch2's release
+function when that pointer value is destroyed, and the release path handles
+either storage kind.
+
+When `name` is provided on a row observed by the aggregate, Sketch2 also
+publishes the serialized filter as `<spill_dir>/<name>.bitset`, where
+`spill_dir` comes from `bitset_filter.spill_dir` or
+`SKETCH2_BITSET_FILTER_SPILL_DIR`. Names may contain only ASCII letters, digits,
+and underscores, and empty names are rejected. The published file persists after
+the SQL pointer value is released and is replaced atomically when rebuilt with
+the same name. All-`NULL` id input can still publish an empty named file.
+
+The first non-`NULL` `name` observed by the step function wins for naming. Later
+non-`NULL` names in the same group must pass the same value; a different value is
+rejected instead of silently publishing under the first name. A zero-row SQL
+aggregate still returns a valid empty filter, but publishes no named file because
+SQLite never calls the step function and Sketch2 cannot observe the name
+argument.
+
+Raw SQL `BLOB` bitset filters are still accepted only when SQLite provides a
+32-byte-aligned caller-owned buffer. Spillover applies to the opaque
+`bitset_agg(id[, name])` result, not to arbitrary BLOB values.
+
+`bitset_drop(name)` deletes the persistent file for a named filter:
+
+```sql
+SELECT bitset_drop('label_3');
+```
+
+It returns `1` when a file was removed and `0` when the named file was already
+absent. `NULL`, empty, and otherwise invalid names are rejected.
+
+`bitset_load(name)` maps a previously published named filter and returns the same
+typed pointer shape accepted by `allowed_ids`:
+
+```sql
+SELECT id, score
+FROM nn
+WHERE query = '0.0, 0.0, 0.0, 0.0'
+  AND allowed_ids = bitset_load('label_3')
+ORDER BY score
+LIMIT 5;
+```
+
+It reads `<spill_dir>/<name>.bitset`, validates the serialized chunked-Roaring
+format, and keeps the mapping alive until SQLite destroys the pointer value.
+`NULL`, empty, invalid, missing, and malformed named filters are rejected.
+Within one prepared statement, SQLite auxdata is used to reuse the loaded filter
+for repeated calls at the same expression site and argument value. The function is
+not registered as deterministic; later statements can observe file changes.
+
+Mapped spill only avoids allocating the final serialized bitset filter buffer with
+`aligned_alloc`. The aggregate still accumulates its `ChunkedBits` /
+`RoaringIdsBuilder` working state in memory before serialization.
 
 ## Dataset Metadata (`dataset.ini`)
 
@@ -159,6 +218,11 @@ Set before loading extension:
 - `SKETCH2_LOG_LEVEL`
 - `SKETCH2_THREAD_POOL_SIZE`
 - `SKETCH2_LOG_FILE`
+- `SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES`
+- `SKETCH2_BITSET_FILTER_SPILL_DIR`
+
+The bitset filter spill settings apply only to the finalized serialized buffer, not
+to the in-memory `bitset_agg(id)` builder state.
 
 ## Score Functions
 

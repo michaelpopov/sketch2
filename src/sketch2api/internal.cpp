@@ -2,7 +2,8 @@
 
 #include "core/compute/scanner.h"
 #include "core/storage/input_generator.h"
-#include "core/utils/chunked_bits.h"
+#include "core/bitset/bitset_filter_control.h"
+#include "core/bitset/chunked_bits.h"
 #include "core/utils/log.h"
 #include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
@@ -152,14 +153,17 @@ std::string join_dirs(const std::vector<std::filesystem::path>& dirs) {
     return out;
 }
 
-Ret build_bitset_filter(const void* allowed_ids_blob, size_t allowed_ids_blob_size,
-        ChunkedBitsView* view, const BitsetFilter** bitset_filter_out,
-        BitsetFilter* bitset_filter_storage) {
-    if (view == nullptr || bitset_filter_out == nullptr || bitset_filter_storage == nullptr) {
+// Initialize `view` from a serialized allowed-ids blob. On success, sets
+// `*present` to true when a real filter was supplied (non-null blob), or
+// false when the caller passed nullptr/0 to request no filtering. The caller
+// is responsible for wrapping the view as `BitsetFilter{.view = &view}`.
+Ret init_allowed_ids_view(const void* allowed_ids_blob, size_t allowed_ids_blob_size,
+        ChunkedBitsView* view, bool* present) {
+    if (view == nullptr || present == nullptr) {
         return Ret("Invalid arguments");
     }
+    *present = false;
 
-    *bitset_filter_out = nullptr;
     if (allowed_ids_blob == nullptr && allowed_ids_blob_size == 0) {
         return Ret(0);
     }
@@ -168,8 +172,7 @@ Ret build_bitset_filter(const void* allowed_ids_blob, size_t allowed_ids_blob_si
     }
 
     CHECK(view->init_blob(allowed_ids_blob, allowed_ids_blob_size));
-    *bitset_filter_storage = BitsetFilter{.view = view};
-    *bitset_filter_out = bitset_filter_storage;
+    *present = true;
     return Ret(0);
 }
 
@@ -529,14 +532,14 @@ int sk_knn_vector_items_(sk_handle_t* handle, const float* vec, uint64_t vec_siz
     *count_out = 0;
 
     ChunkedBitsView allowed_ids_view;
-    BitsetFilter bitset_filter;
-    const BitsetFilter* bitset_filter_ptr = nullptr;
-    Ret ret = build_bitset_filter(
-        allowed_ids_blob, allowed_ids_blob_size,
-        &allowed_ids_view, &bitset_filter_ptr, &bitset_filter);
+    bool has_filter = false;
+    Ret ret = init_allowed_ids_view(
+        allowed_ids_blob, allowed_ids_blob_size, &allowed_ids_view, &has_filter);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
+    const BitsetFilter bitset_filter{.view = &allowed_ids_view};
+    const BitsetFilter* bitset_filter_ptr = has_filter ? &bitset_filter : nullptr;
 
     std::vector<DistItem> items;
     ret = run_knn_items_query(
@@ -568,14 +571,14 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
     *count_out = 0;
 
     ChunkedBitsView allowed_ids_view;
-    BitsetFilter bitset_filter;
-    const BitsetFilter* bitset_filter_ptr = nullptr;
-    Ret ret = build_bitset_filter(
-        allowed_ids_blob, allowed_ids_blob_size,
-        &allowed_ids_view, &bitset_filter_ptr, &bitset_filter);
+    bool has_filter = false;
+    Ret ret = init_allowed_ids_view(
+        allowed_ids_blob, allowed_ids_blob_size, &allowed_ids_view, &has_filter);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
+    const BitsetFilter bitset_filter{.view = &allowed_ids_view};
+    const BitsetFilter* bitset_filter_ptr = has_filter ? &bitset_filter : nullptr;
 
     std::vector<DistItem> items;
     ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), bitset_filter_ptr, &items);
@@ -590,13 +593,13 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
     return 0;
 }
 
-int sk_knn_items_allowlist_(sk_handle_t* handle, const char* vec, unsigned int k,
+int sk_knn_items_bitset_filter_(sk_handle_t* handle, const char* vec, unsigned int k,
         const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out) {
     if (allowed_ids == nullptr) {
         return sk_knn_items_(handle, vec, k, nullptr, 0, ids_out, scores_out, count_out);
     }
 
-    const auto* view = static_cast<const ChunkedBitsView*>(allowed_ids);
+    const auto* control = static_cast<const BitsetFilterControl*>(allowed_ids);
     DECL
 
     if (handle->ds == nullptr) {
@@ -609,7 +612,7 @@ int sk_knn_items_allowlist_(sk_handle_t* handle, const char* vec, unsigned int k
     *scores_out = nullptr;
     *count_out = 0;
 
-    const BitsetFilter bitset_filter{.view = view};
+    const BitsetFilter bitset_filter{.view = &control->view};
     std::vector<DistItem> items;
     Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), &bitset_filter, &items);
     if (ret.code() != 0) {

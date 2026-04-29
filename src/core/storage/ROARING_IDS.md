@@ -4,7 +4,7 @@ This document provides a comprehensive overview of how vector IDs are handled wi
 
 ## 1. Overview of `RoaringIds`
 
-At the heart of ID management are `RoaringIds` and `RoaringIdsBuilder` (`src/core/utils/roaring_ids.h`). They wrap the `CRoaring` library, which provides a highly optimized implementation of Roaring Bitmaps.
+At the heart of ID management are `RoaringIds` and `RoaringIdsBuilder` (`src/core/bitset/roaring_ids.h`). They wrap the `CRoaring` library, which provides a highly optimized implementation of Roaring Bitmaps.
 
 Vectors in `sketch2` are identified by a user-provided `uint64_t` ID. While the underlying CRoaring bitmap operates on 32-bit integers natively, `RoaringIds` manages 64-bit IDs by storing them as offsets from a base ID (passed as `base` to the API; persisted as `min_range_id` in the file header). This delta encoding enables the system to support a 64-bit ID space while leveraging the memory and performance efficiency of 32-bit Roaring bitmaps, provided the maximum ID minus the base within a single file fits within a 32-bit range.
 

@@ -42,7 +42,7 @@ The main SQL surface is:
 - `sketch2_knn(query_vector, k, bitset_filter_ref)`
   Returns nearest neighbors as `(id, score)`.
 - `sketch2_bitset_filter(id)`
-  Aggregates DuckDB ids into a Sketch2 allow-list filter that can be reused by
+  Aggregates DuckDB ids into a Sketch2 bitset filter that can be reused by
   `sketch2_knn`.
 
 Supported query-vector formats include:
@@ -62,7 +62,7 @@ integration in this repo:
 3. The extension stores a Sketch2 handle in DuckDB connection-local state.
 4. `sketch2_knn(...)` calls Sketch2 through the C API and returns rows back to
    DuckDB.
-5. `sketch2_bitset_filter(...)` builds a compact Sketch2 allow-list blob from
+5. `sketch2_bitset_filter(...)` builds a compact Sketch2 bitset filter blob from
    ids produced by DuckDB queries.
 
 Important behavior:
@@ -96,7 +96,7 @@ FROM sketch2_knn([7.4, 7.4, 7.4, 7.4]::FLOAT[], 5, NULL) AS n
 JOIN metadata AS m ON m.id = n.id;
 ```
 
-Build an allow-list in DuckDB and push it down into Sketch2:
+Build a bitset filter in DuckDB and push it down into Sketch2:
 
 ```sql
 SELECT sketch2_bitset_filter(id)

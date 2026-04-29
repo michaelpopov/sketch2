@@ -1,81 +1,46 @@
-// Unit tests for chunked sparse allowlists.
+// Unit tests for chunked sparse bitset filters.
 
 #include "chunked_bits.h"
+#include "utest_chunked_bits_helpers.h"
 
-#include <cstdlib>
+#include <cstdint>
 #include <cstring>
-#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 namespace sketch2 {
-namespace {
-
-struct AlignedBlob {
-    void* data = nullptr;
-    size_t size = 0;
-    size_t allocation_size = 0;
-
-    AlignedBlob() = default;
-    AlignedBlob(const AlignedBlob&) = delete;
-    AlignedBlob& operator=(const AlignedBlob&) = delete;
-    AlignedBlob(AlignedBlob&& other) noexcept
-        : data(std::exchange(other.data, nullptr)),
-          size(std::exchange(other.size, 0)),
-          allocation_size(std::exchange(other.allocation_size, 0)) {}
-    AlignedBlob& operator=(AlignedBlob&& other) noexcept {
-        if (this != &other) {
-            std::free(data);
-            data = std::exchange(other.data, nullptr);
-            size = std::exchange(other.size, 0);
-            allocation_size = std::exchange(other.allocation_size, 0);
-        }
-        return *this;
-    }
-    ~AlignedBlob() {
-        std::free(data);
-    }
-
-    uint8_t* bytes() {
-        return static_cast<uint8_t*>(data);
-    }
-    const uint8_t* bytes() const {
-        return static_cast<const uint8_t*>(data);
+class ChunkedBitsTestPeer {
+public:
+    static void mark_finish_failed(ChunkedBits* bits, const Ret& ret) {
+        bits->finished_ = true;
+        bits->cached_serialized_size_ = 0;
+        bits->finish_ret_ = ret;
     }
 };
 
-size_t align_up(size_t value, size_t alignment) {
-    const size_t mask = alignment - 1u;
-    return (value + mask) & ~mask;
-}
+namespace {
 
-void write_u64_le(uint8_t* out, uint64_t value) {
-    for (size_t i = 0; i < sizeof(value); ++i) {
-        out[i] = static_cast<uint8_t>(value >> (i * 8u));
-    }
-}
+using test::AlignedBlob;
+using test::align_up;
 
-uint64_t read_u64_le(const uint8_t* data) {
-    uint64_t value = 0;
-    for (size_t i = 0; i < sizeof(value); ++i) {
-        value |= static_cast<uint64_t>(data[i]) << (i * 8u);
-    }
-    return value;
-}
+struct ChunkedBitsBlobDirectoryEntry {
+    uint64_t chunk_id = 0;
+    uint64_t payload_offset = 0;
+    uint64_t payload_size = 0;
+};
 
-AlignedBlob serialize_ids(const std::vector<uint64_t>& ids) {
+static_assert(sizeof(ChunkedBitsBlobDirectoryEntry) ==
+    kChunkedBitsBlobDirectoryEntryBytes);
+
+test::AlignedBlob serialize_ids(const std::vector<uint64_t>& ids) {
     ChunkedBits bits;
     for (uint64_t id : ids) {
         EXPECT_EQ(0, bits.add(id).code());
     }
     EXPECT_EQ(0, bits.finish().code());
 
-    AlignedBlob blob;
-    blob.size = bits.serialized_size_bytes();
-    blob.allocation_size = align_up(blob.size, kChunkedBitsBlobAlignment);
-    blob.data = std::aligned_alloc(kChunkedBitsBlobAlignment, blob.allocation_size);
-    EXPECT_NE(nullptr, blob.data);
+    test::AlignedBlob blob = test::make_aligned_blob(bits.serialized_size_bytes());
     EXPECT_EQ(0, bits.serialize(blob.data, blob.size).code());
     return blob;
 }
@@ -104,14 +69,28 @@ TEST(chunked_bits, serialize_before_finish_reports_root_cause) {
         ret.message());
 }
 
+TEST(chunked_bits, finish_failure_is_stable_and_blocks_serialize) {
+    ChunkedBits bits;
+    const Ret overflow("ChunkedBits::serialized_size_bytes: payload size overflow");
+    ChunkedBitsTestPeer::mark_finish_failed(&bits, overflow);
+
+    EXPECT_EQ(overflow.message(), bits.finish().message());
+
+    alignas(kChunkedBitsBlobAlignment) uint8_t buffer[kChunkedBitsBlobHeaderBytes] = {};
+    const Ret serialize_ret = bits.serialize(buffer, 0);
+    EXPECT_EQ(overflow.message(), serialize_ret.message());
+}
+
 TEST(chunked_bits, serialized_empty_filter_round_trips) {
     AlignedBlob blob = serialize_ids({});
 
     ASSERT_EQ(kChunkedBitsBlobHeaderBytes, blob.size);
     ChunkedBitsView view;
     ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
-    EXPECT_FALSE(view.contains(0));
-    EXPECT_FALSE(view.contains(100));
+    auto it = view.begin();
+    EXPECT_TRUE(it.eof());
+    EXPECT_FALSE(it.seek_at_least(0));
+    EXPECT_FALSE(it.consume_if_equal(100));
 }
 
 TEST(chunked_bits, serialized_unsorted_multi_chunk_input_round_trips) {
@@ -119,11 +98,23 @@ TEST(chunked_bits, serialized_unsorted_multi_chunk_input_round_trips) {
 
     ChunkedBitsView view;
     ASSERT_EQ(0, view.init_blob(blob.data, blob.size).code());
-    EXPECT_TRUE(view.contains(1));
-    EXPECT_TRUE(view.contains(5));
-    EXPECT_TRUE(view.contains((1ull << kChunkBits) + 5u));
-    EXPECT_FALSE(view.contains(2));
-    EXPECT_FALSE(view.contains(1ull << kChunkBits));
+
+    auto it = view.begin();
+    ASSERT_FALSE(it.eof());
+    EXPECT_EQ(1u, it.id());
+    EXPECT_TRUE(it.consume_if_equal(1));
+    EXPECT_FALSE(it.consume_if_equal(2));
+    EXPECT_TRUE(it.consume_if_equal(5));
+    EXPECT_FALSE(it.consume_if_equal(1ull << kChunkBits));
+    EXPECT_TRUE(it.consume_if_equal((1ull << kChunkBits) + 5u));
+    EXPECT_TRUE(it.eof());
+
+    auto seek_it = view.begin();
+    EXPECT_TRUE(seek_it.seek_at_least(2));
+    EXPECT_EQ(5u, seek_it.id());
+    EXPECT_TRUE(seek_it.seek_at_least(1ull << kChunkBits));
+    EXPECT_EQ((1ull << kChunkBits) + 5u, seek_it.id());
+    EXPECT_FALSE(seek_it.seek_at_least((1ull << kChunkBits) + 6u));
 }
 
 TEST(chunked_bits, serialized_payload_offsets_are_aligned) {
@@ -131,10 +122,13 @@ TEST(chunked_bits, serialized_payload_offsets_are_aligned) {
     ASSERT_GE(blob.size,
         kChunkedBitsBlobHeaderBytes + 2u * kChunkedBitsBlobDirectoryEntryBytes);
 
-    const uint8_t* first_dir = blob.bytes() + kChunkedBitsBlobHeaderBytes;
-    const uint8_t* second_dir = first_dir + kChunkedBitsBlobDirectoryEntryBytes;
-    EXPECT_EQ(0u, read_u64_le(first_dir + 8) % kChunkedBitsBlobAlignment);
-    EXPECT_EQ(0u, read_u64_le(second_dir + 8) % kChunkedBitsBlobAlignment);
+    ChunkedBitsBlobDirectoryEntry first_dir;
+    ChunkedBitsBlobDirectoryEntry second_dir;
+    std::memcpy(&first_dir, blob.bytes() + kChunkedBitsBlobHeaderBytes, sizeof(first_dir));
+    std::memcpy(&second_dir, blob.bytes() + kChunkedBitsBlobHeaderBytes +
+        kChunkedBitsBlobDirectoryEntryBytes, sizeof(second_dir));
+    EXPECT_EQ(0u, first_dir.payload_offset % kChunkedBitsBlobAlignment);
+    EXPECT_EQ(0u, second_dir.payload_offset % kChunkedBitsBlobAlignment);
 }
 
 TEST(chunked_bits, view_rejects_misaligned_blob_pointer) {
@@ -160,9 +154,11 @@ TEST(chunked_bits, view_rejects_malformed_header) {
 
 TEST(chunked_bits, view_rejects_out_of_bounds_payload) {
     AlignedBlob blob = serialize_ids({1u});
-    uint8_t* first_dir = blob.bytes() + kChunkedBitsBlobHeaderBytes;
-    write_u64_le(first_dir + 8, static_cast<uint64_t>(
-        align_up(blob.size, kChunkedBitsBlobAlignment)));
+    ChunkedBitsBlobDirectoryEntry first_dir;
+    std::memcpy(&first_dir, blob.bytes() + kChunkedBitsBlobHeaderBytes, sizeof(first_dir));
+    first_dir.payload_offset = static_cast<uint64_t>(
+        align_up(blob.size, kChunkedBitsBlobAlignment));
+    std::memcpy(blob.bytes() + kChunkedBitsBlobHeaderBytes, &first_dir, sizeof(first_dir));
 
     ChunkedBitsView view;
     const Ret ret = view.init_blob(blob.data, blob.size);
@@ -172,9 +168,12 @@ TEST(chunked_bits, view_rejects_out_of_bounds_payload) {
 
 TEST(chunked_bits, view_rejects_unsorted_directory) {
     AlignedBlob blob = serialize_ids({1u, (1ull << kChunkBits) + 5u});
-    uint8_t* second_dir = blob.bytes() + kChunkedBitsBlobHeaderBytes +
-        kChunkedBitsBlobDirectoryEntryBytes;
-    write_u64_le(second_dir, 0);
+    ChunkedBitsBlobDirectoryEntry second_dir;
+    std::memcpy(&second_dir, blob.bytes() + kChunkedBitsBlobHeaderBytes +
+        kChunkedBitsBlobDirectoryEntryBytes, sizeof(second_dir));
+    second_dir.chunk_id = 0;
+    std::memcpy(blob.bytes() + kChunkedBitsBlobHeaderBytes +
+        kChunkedBitsBlobDirectoryEntryBytes, &second_dir, sizeof(second_dir));
 
     ChunkedBitsView view;
     const Ret ret = view.init_blob(blob.data, blob.size);

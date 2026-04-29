@@ -8,10 +8,10 @@ target_link_libraries(sketch2
     sketch2api
     sk2sqlite
     -Wl,--no-whole-archive
+    bitset
     compute
     stor
     utils
-    croaring
     hwy
     sketch_warnings
 )

@@ -1,8 +1,8 @@
-// Shared helpers for storage tests that build Roaring id trailers.
+// Shared test helpers for building RoaringIds instances
 
 #pragma once
 
-#include "core/utils/roaring_ids.h"
+#include "roaring_ids.h"
 
 #include <cstdint>
 #include <utility>

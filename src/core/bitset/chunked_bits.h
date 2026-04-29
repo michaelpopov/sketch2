@@ -1,7 +1,7 @@
 #pragma once
 
 #include "roaring_ids.h"
-#include "shared_types.h"
+#include "utils/shared_types.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -11,7 +11,7 @@
 
 namespace sketch2 {
 
-// ChunkedBits builds the allowlist representation serialized by SQLite
+// ChunkedBits builds the bitset filter representation serialized by SQLite
 // bitset_agg(). A single RoaringIdsBuilder can only cover a uint32_t offset
 // span from its base, so ids are split into fixed 2^20-sized chunks. The chunk
 // size is independent of dataset ranges: bitset_agg() does not know which
@@ -40,12 +40,16 @@ public:
 
     Ret add(uint64_t id);
     Ret finish();
-    bool contains(uint64_t id) const;
-    bool empty() const;
     size_t serialized_size_bytes() const;
     Ret serialize(void* out, size_t size) const;
 
+    // nullptr means "no persistent name"; empty and invalid non-null names fail.
+    Ret set_name(const char* name);
+    const std::string& name() const { return name_; }
+
 private:
+    friend class ChunkedBitsTestPeer;
+
     using BuildersMap = std::unordered_map<uint64_t, RoaringIdsBuilder>;
 
     // Finalized chunks are sorted by chunk_id so membership checks can find
@@ -66,7 +70,14 @@ private:
     RoaringIdsBuilder* last_builder_ = nullptr;
     std::vector<Chunk> chunks_;
     bool finished_ = false;
+    size_t cached_serialized_size_ = 0;
+    Ret finish_ret_ = Ret(0);
+    std::string name_;
 };
+
+// Validates a required persistent name. Unlike ChunkedBits::set_name(), nullptr
+// is invalid here because callers use this when a name must be present.
+Ret validate_chunked_bits_name(const char* name);
 
 // ChunkedBitsView reads serialized ChunkedBits blobs without copying payloads:
 // each RoaringIds chunk keeps frozen-view pointers into the blob bytes.
@@ -75,6 +86,27 @@ private:
 // keeps it alive for the view.
 class ChunkedBitsView {
 public:
+    class Iterator {
+    public:
+        Iterator() = default;
+
+        bool eof() const;
+        uint64_t id() const;
+        void next();
+        bool seek_at_least(uint64_t id);
+        bool consume_if_equal(uint64_t id);
+
+    private:
+        friend class ChunkedBitsView;
+        explicit Iterator(const ChunkedBitsView* view);
+
+        bool load_current_chunk_();
+
+        const ChunkedBitsView* view_ = nullptr;
+        size_t chunk_index_ = 0;
+        RoaringIds::SeekCursor ids_;
+    };
+
     ChunkedBitsView() = default;
     ChunkedBitsView(const ChunkedBitsView&) = delete;
     ChunkedBitsView& operator=(const ChunkedBitsView&) = delete;
@@ -83,7 +115,7 @@ public:
 
     Ret init_blob(const void* data, size_t size);
     Ret init_owned_blob(void* data, size_t size);
-    bool contains(uint64_t id) const;
+    Iterator begin() const;
 
 private:
     struct FreeDeleter {

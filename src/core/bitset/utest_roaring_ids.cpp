@@ -353,6 +353,52 @@ TEST(roaring_ids, iterator_visits_ids_in_order) {
     EXPECT_EQ((std::vector<uint64_t>{1, 3, 5}), visited);
 }
 
+TEST(roaring_ids, iterator_seek_at_least_updates_id_and_index) {
+    RoaringIds ids = build_ids(1000, {1000, 1005, 1010, 2000});
+
+    auto it = ids.begin();
+    ASSERT_FALSE(it.eof());
+    EXPECT_TRUE(it.seek_at_least(1004));
+    EXPECT_FALSE(it.eof());
+    EXPECT_EQ(1005u, it.id());
+    EXPECT_EQ(1u, it.index());
+
+    EXPECT_TRUE(it.seek_at_least(1005));
+    EXPECT_EQ(1005u, it.id());
+    EXPECT_EQ(1u, it.index());
+
+    EXPECT_TRUE(it.seek_at_least(1500));
+    EXPECT_EQ(2000u, it.id());
+    EXPECT_EQ(3u, it.index());
+
+    EXPECT_FALSE(it.seek_at_least(2001));
+    EXPECT_TRUE(it.eof());
+    EXPECT_THROW(it.index(), std::out_of_range);
+}
+
+TEST(roaring_ids, seek_cursor_seek_at_least_updates_id_without_index) {
+    RoaringIds ids = build_ids(1000, {1000, 1005, 1010, 2000});
+
+    auto cursor = ids.seek_begin();
+    ASSERT_FALSE(cursor.eof());
+    EXPECT_TRUE(cursor.seek_at_least(1004));
+    EXPECT_FALSE(cursor.eof());
+    EXPECT_EQ(1005u, cursor.id());
+
+    EXPECT_TRUE(cursor.seek_at_least(1005));
+    EXPECT_EQ(1005u, cursor.id());
+
+    cursor.next();
+    EXPECT_EQ(1010u, cursor.id());
+
+    EXPECT_TRUE(cursor.seek_at_least(1500));
+    EXPECT_EQ(2000u, cursor.id());
+
+    EXPECT_FALSE(cursor.seek_at_least(2001));
+    EXPECT_TRUE(cursor.eof());
+    EXPECT_THROW(cursor.id(), std::out_of_range);
+}
+
 TEST(roaring_ids, iterator_on_empty_container_is_eof) {
     RoaringIdsBuilder builder;
     ASSERT_EQ(0, builder.init(0).code());

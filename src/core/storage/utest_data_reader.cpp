@@ -17,8 +17,8 @@
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
-#include "core/utils/roaring_ids.h"
-#include "utest_roaring_ids_helpers.h"
+#include "core/bitset/roaring_ids.h"
+#include "core/bitset/utest_roaring_ids_helpers.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;

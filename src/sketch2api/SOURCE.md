@@ -1,7 +1,7 @@
 # Source Index
 
 - `CMakeLists.txt`: Build rules for the sketch2api library and tests.
-- `BITSET.md`: Sketch2 API ownership doc for the binary allowlist bitset format used by query helpers.
+- `BITSET.md`: Sketch2 API ownership doc for the binary bitset filter format used by query helpers.
 - `DESIGN.md`: Design notes for the sketch2api API layer.
 - `README.md`: Overview of the sketch2api C API and usage model.
 - `sketch2.cpp`: C API implementation for dataset lifecycle, updates, queries, and text/binary bulk generation or loading.

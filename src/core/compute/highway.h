@@ -4,7 +4,7 @@
 
 #include "core/compute/compute_kernels.h"
 #include "core/compute/dist_item.h"
-#include "core/utils/bitset_filter.h"
+#include "core/bitset/bitset_filter.h"
 
 #include <cstdint>
 #include <vector>

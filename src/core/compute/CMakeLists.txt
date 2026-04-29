@@ -9,7 +9,7 @@ set(COMPUTE_UTEST_SOURCES
 
 add_library(compute STATIC ${COMPUTE_SOURCES})
 set_target_properties(compute PROPERTIES OUTPUT_NAME "compute")
-target_link_libraries(compute PUBLIC stor hwy sketch_compile_options Threads::Threads)
+target_link_libraries(compute PUBLIC bitset stor hwy sketch_compile_options Threads::Threads)
 target_link_libraries(compute PRIVATE sketch_warnings)
 
 add_executable(bench_compute bench_compute.cpp)
@@ -29,5 +29,5 @@ add_executable(utest_compute
   ${SHARED_UTEST_MAIN}
   ${COMPUTE_UTEST_SOURCES}
 )
-target_link_libraries(utest_compute PRIVATE compute stor GTest::gtest Threads::Threads sketch_warnings)
+target_link_libraries(utest_compute PRIVATE compute GTest::gtest sketch_warnings)
 add_test(NAME utest_compute COMMAND utest_compute)
