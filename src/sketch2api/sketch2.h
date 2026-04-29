@@ -82,6 +82,15 @@ int sk_knn_items(sk_handle_t* handle, const char* vec, unsigned int k,
  */
 int sk_knn_items_bitset_filter(sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out);
+/*
+ * Run KNN for an in-memory float query vector with an opaque API-owned bitset
+ * filter object produced by sk_bitset_finish(). This mirrors
+ * sk_knn_items_bitset_filter(), but accepts vec/vec_size instead of a text
+ * query string. If allowed_ids is nullptr, no filtering is applied.
+ */
+int sk_knn_vector_items_bitset_filter(sk_handle_t* handle, const float* vec, uint64_t vec_size,
+    unsigned int k, const void* allowed_ids,
+    uint64_t** ids_out, double** scores_out, size_t* count_out);
 
 /*
  * Return true when smaller score means better match for the currently open dataset.
@@ -174,8 +183,8 @@ void sk_free(void* ptr);
 
 /*
  * Build an API-owned serialized chunked-Roaring bitset filter object. The finished
- * object is opaque; pass it to sk_knn_items_bitset_filter() and delete it with
- * sk_bitset_delete().
+ * object is opaque; pass it to sk_knn_items_bitset_filter() or
+ * sk_knn_vector_items_bitset_filter() and delete it with sk_bitset_delete().
  */
 int sk_bitset_add_id(
     void** state, uint64_t id, bool* out_of_memory, const char** error_message_out,

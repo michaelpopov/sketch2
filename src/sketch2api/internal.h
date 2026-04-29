@@ -22,6 +22,9 @@ SKETCH2API_HIDDEN int sk_knn_items_(
 SKETCH2API_HIDDEN int sk_knn_items_bitset_filter_(
     sk_handle_t* handle, const char* vec, unsigned int k,
     const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out);
+SKETCH2API_HIDDEN int sk_knn_vector_items_bitset_filter_(
+    sk_handle_t* handle, const float* vec, uint64_t vec_size, unsigned int k,
+    const void* allowed_ids, uint64_t** ids_out, double** scores_out, size_t* count_out);
 SKETCH2API_HIDDEN int sk_score_ascending_is_better_(sk_handle_t* handle, bool* out);
 SKETCH2API_HIDDEN const char* sk_knn_engine_name_for_testing_();
 SKETCH2API_HIDDEN int sk_merge_delta_(sk_handle_t* handle);

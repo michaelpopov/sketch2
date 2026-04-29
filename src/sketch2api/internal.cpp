@@ -480,6 +480,29 @@ Ret run_knn_items_query(
     return scanner.find_items(dataset.reader_dataset(), k, buf.data(), *items, bitset_filter);
 }
 
+Ret run_and_extract_knn_items_query(
+        const DatasetNode& dataset, const char* vec, size_t k, const BitsetFilter* bitset_filter,
+        uint64_t** ids_out, double** scores_out, size_t* count_out) {
+    std::vector<DistItem> items;
+    Ret ret = run_knn_items_query(dataset, vec, k, bitset_filter, &items);
+    if (ret.code() != 0) {
+        return ret;
+    }
+    return extract_items_outputs(items, ids_out, scores_out, count_out);
+}
+
+Ret run_and_extract_knn_items_query(
+        const DatasetNode& dataset, const float* vec, uint64_t vec_size, size_t k,
+        const BitsetFilter* bitset_filter, uint64_t** ids_out, double** scores_out,
+        size_t* count_out) {
+    std::vector<DistItem> items;
+    Ret ret = run_knn_items_query(dataset, vec, vec_size, k, bitset_filter, &items);
+    if (ret.code() != 0) {
+        return ret;
+    }
+    return extract_items_outputs(items, ids_out, scores_out, count_out);
+}
+
 int sk_knn_(sk_handle_t* handle, const char* vec, unsigned int k,
         uint64_t** ids_out, size_t* count_out) {
     DECL
@@ -541,14 +564,9 @@ int sk_knn_vector_items_(sk_handle_t* handle, const float* vec, uint64_t vec_siz
     const BitsetFilter bitset_filter{.view = &allowed_ids_view};
     const BitsetFilter* bitset_filter_ptr = has_filter ? &bitset_filter : nullptr;
 
-    std::vector<DistItem> items;
-    ret = run_knn_items_query(
-        *handle->ds, vec, vec_size, static_cast<size_t>(k), bitset_filter_ptr, &items);
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
-    ret = extract_items_outputs(items, ids_out, scores_out, count_out);
+    ret = run_and_extract_knn_items_query(
+        *handle->ds, vec, vec_size, static_cast<size_t>(k), bitset_filter_ptr,
+        ids_out, scores_out, count_out);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
@@ -580,13 +598,9 @@ int sk_knn_items_(sk_handle_t* handle, const char* vec, unsigned int k,
     const BitsetFilter bitset_filter{.view = &allowed_ids_view};
     const BitsetFilter* bitset_filter_ptr = has_filter ? &bitset_filter : nullptr;
 
-    std::vector<DistItem> items;
-    ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), bitset_filter_ptr, &items);
-    if (ret.code() != 0) {
-        ERR(ret.message().c_str())
-    }
-
-    ret = extract_items_outputs(items, ids_out, scores_out, count_out);
+    ret = run_and_extract_knn_items_query(
+        *handle->ds, vec, static_cast<size_t>(k), bitset_filter_ptr,
+        ids_out, scores_out, count_out);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
@@ -613,13 +627,40 @@ int sk_knn_items_bitset_filter_(sk_handle_t* handle, const char* vec, unsigned i
     *count_out = 0;
 
     const BitsetFilter bitset_filter{.view = &control->view};
-    std::vector<DistItem> items;
-    Ret ret = run_knn_items_query(*handle->ds, vec, static_cast<size_t>(k), &bitset_filter, &items);
+    Ret ret = run_and_extract_knn_items_query(
+        *handle->ds, vec, static_cast<size_t>(k), &bitset_filter,
+        ids_out, scores_out, count_out);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
+    return 0;
+}
 
-    ret = extract_items_outputs(items, ids_out, scores_out, count_out);
+int sk_knn_vector_items_bitset_filter_(sk_handle_t* handle, const float* vec, uint64_t vec_size,
+        unsigned int k, const void* allowed_ids,
+        uint64_t** ids_out, double** scores_out, size_t* count_out) {
+    if (allowed_ids == nullptr) {
+        return sk_knn_vector_items_(handle, vec, vec_size, k, nullptr, 0, ids_out, scores_out, count_out);
+    }
+
+    const auto* control = static_cast<const BitsetFilterControl*>(allowed_ids);
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+    if (vec == nullptr || vec_size == 0 || k == 0 ||
+            ids_out == nullptr || scores_out == nullptr || count_out == nullptr) {
+        ERR("Invalid arguments")
+    }
+    *ids_out = nullptr;
+    *scores_out = nullptr;
+    *count_out = 0;
+
+    const BitsetFilter bitset_filter{.view = &control->view};
+    Ret ret = run_and_extract_knn_items_query(
+        *handle->ds, vec, vec_size, static_cast<size_t>(k), &bitset_filter,
+        ids_out, scores_out, count_out);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }
