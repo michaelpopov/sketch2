@@ -41,18 +41,31 @@ inline void assert_raw_record_scan_visibility_contract(const DataReader& reader)
     assert(!reader.has_hidden_rows_unchecked());
 }
 
+//#define IO_TEST_ONLY
+
 template <typename PushFn>
 inline void scan_reader_records_unfiltered(const DataReader& reader, size_t start_index,
         size_t end_index, const PushFn& push_fn) {
     assert_raw_record_scan_visibility_contract(reader);
     auto cursor = reader.base_scan_cursor_unchecked(start_index);
     while (cursor.index() < end_index) {
-        const uint64_t id = cursor.id();
         const size_t next_index = cursor.index() + 1;
         if (next_index < end_index) {
             prefetch_vector_record(reader.record_unchecked(next_index));
         }
-        push_fn(id, cursor.record());
+
+#ifdef IO_TEST_ONLY
+        (void)push_fn;
+        uint8_t dummy = 0;
+        const uint8_t* record = cursor.record();
+        const size_t vec_size = reader.size();
+        for (size_t i = 0; i < vec_size; i += 1024) {
+            dummy ^= record[i];
+        }
+        asm volatile("" : : "r"(dummy));
+#else
+        push_fn(cursor.id(), cursor.record());
+#endif
         cursor.advance_to(next_index);
     }
 }
