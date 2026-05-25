@@ -106,6 +106,9 @@ private:
     std::filesystem::path bitset_filter_spill_dir_;
     FilePathLock file_path_lock_;
     bool initialized_ = false;
+
+    void check_swappiness_() const;
+    void check_disk_queue_() const;
 };
 
 Singleton& get_singleton();

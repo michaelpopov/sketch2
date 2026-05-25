@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <thread>
 
@@ -102,6 +103,10 @@ bool Singleton::runtime_init_() {
     ConfigValues values;
     const bool applied = collect_config_values_(nullptr, &values) && apply_config_values_(values, /*allow_defaults=*/true);
     initialized_ = true;
+
+    check_swappiness_();
+    check_disk_queue_();
+
     return applied;
 }
 
@@ -338,6 +343,39 @@ bool Singleton::apply_bitset_filter_spill_dir_(const std::string& path) {
 
     bitset_filter_spill_dir_ = path;
     return true;
+}
+
+void Singleton::check_swappiness_() const {
+    std::ifstream swappiness_input("/proc/sys/vm/swappiness");
+    if (!swappiness_input.is_open()) {
+        return;
+    }
+
+    std::string swappiness_str;
+    swappiness_input >> swappiness_str;
+    if (swappiness_str.empty()) {
+        return;
+    }
+
+    try {
+        size_t parsed_chars = 0;
+        const int swappiness = std::stoi(swappiness_str, &parsed_chars);
+        if (parsed_chars != swappiness_str.size()) {
+            return;
+        }
+        if (swappiness != 0) {
+            LOG_WARN << "vm.swappiness is set to " << swappiness
+                     << ". For best I/O performance, run `sudo sysctl vm.swappiness=0` "
+                     << "and `echo 'vm.swappiness=0' | sudo tee /etc/sysctl.d/99-swappiness.conf`.";
+        }
+    } catch (const std::exception&) {
+        return;
+    }
+}
+
+void Singleton::check_disk_queue_() const {
+    LOG_INFO << "Check disk queue length for the disk storing data. "
+             << "Example of command that can improve performance: `echo 4096 | sudo tee /sys/block/sde/queue/read_ahead_kb`.";
 }
 
 } // namespace sketch2
