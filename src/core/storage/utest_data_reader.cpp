@@ -120,7 +120,6 @@ protected:
             fd,
             static_cast<size_t>(offset),
             static_cast<size_t>(bytes),
-            false,
             MappedRegionAccess::Writable).code());
         ASSERT_EQ(0, ids.serialize(reinterpret_cast<char*>(region.mutable_data())).code());
         ASSERT_EQ(0, region.sync(context).code());

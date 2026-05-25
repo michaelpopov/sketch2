@@ -149,7 +149,7 @@ Ret open_validate_and_map_named_filter(
     auto storage = make_mapped_storage(file, BitsetFilterStorageKind::MappedFile);
 
     Ret ret = storage->region.init(
-        storage->fd, 0, blob_size, /*is_seq=*/true, MappedRegionAccess::ReadOnly,
+        storage->fd, 0, blob_size, MappedRegionAccess::ReadOnly,
         error_prefix + ": mmap named bitset filter");
     if (ret.code() != 0) {
         return ret;
@@ -351,7 +351,7 @@ Ret BitsetFilterControl::init_mapped_storage_from_fd_(
     auto new_storage = make_mapped_storage(local_fd, kind);
 
     ret = new_storage->region.init(
-        new_storage->fd, 0, blob_size, false, MappedRegionAccess::Writable,
+        new_storage->fd, 0, blob_size, MappedRegionAccess::Writable,
         "bitset filter builder: mmap spill file");
     if (ret.code() != 0) {
         return ret;

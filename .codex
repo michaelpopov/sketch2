@@ -1,8 +1,0 @@
-Backward compatibility is not required.
-Avoid making copies of data if possible. Try to use existing data in place.
-If my prompt ends with question "Does it make sense?" or similar question, do not start making changes in the code, discuss the proposed changes first.
-If the code change introduces significant increase in code complexity, present the issue and wait for approval.
-Questions, reviews, analysis, and brainstorming are read-only by default.
-If the prompt is ambiguous, do not infer permission to modify the codebase.
-Try to preserve the original code and the logic of the original code as much as possible. If changing the part of the current code is not strictly required for completing a task, do not change it.
-

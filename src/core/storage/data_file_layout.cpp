@@ -88,7 +88,6 @@ Ret write_roaring_ids_trailer_mmap(FILE* f,
             fd,
             trailer_layout.ids_offset,
             map_size,
-            false,
             MappedRegionAccess::Writable,
             context + ": failed to mmap ids trailer"));
         uint8_t* data = trailer_region.mutable_data();

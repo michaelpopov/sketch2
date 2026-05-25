@@ -65,7 +65,6 @@ Ret map_roaring_ids_section(
         fd,
         static_cast<size_t>(offset),
         static_cast<size_t>(bytes),
-        false,
         MappedRegionAccess::ReadOnly,
         std::string("DataReader: failed to mmap ") + section_name + " trailer"));
     CHECK(ids->init_frozen_view(region->data(), region->size(), base));
@@ -353,7 +352,6 @@ Ret DataReader::map_regions_(int fd, const DataMetadataLayout& metadata_layout) 
             fd,
             hdr_.data_offset,
             metadata_layout.vectors_bytes,
-            true,
             MappedRegionAccess::ReadOnly,
             "DataReader: failed to mmap vector data"));
     }

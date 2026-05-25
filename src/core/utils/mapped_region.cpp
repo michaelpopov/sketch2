@@ -36,7 +36,6 @@ Ret MappedRegion::init(
         int fd,
         size_t offset,
         size_t size,
-        bool is_seq,
         MappedRegionAccess access,
         const std::string& context) {
     const auto error = [&context](const std::string& message) {
@@ -72,10 +71,6 @@ Ret MappedRegion::init(
     void* region = mmap(nullptr, size, prot, flags, fd, static_cast<off_t>(offset));
     if (region == MAP_FAILED) {
         return error("failed to mmap region");
-    }
-    if (is_seq && madvise(region, size, MADV_SEQUENTIAL) != 0) {
-        munmap(region, size);
-        return error("failed to madvise region");
     }
 
     data_ = static_cast<uint8_t*>(region);

@@ -87,7 +87,7 @@ Ret BitsetFileCache::acquire(
     storage->fd = -1;
 
     Ret ret = storage->region.init(
-        local_fd.fd(), 0, blob_size, /*is_seq=*/true,
+        local_fd.fd(), 0, blob_size,
         MappedRegionAccess::ReadOnly,
         "BitsetFileCache::acquire: mmap cached bitset filter");
     if (ret.code() != 0) {
