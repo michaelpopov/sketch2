@@ -18,8 +18,12 @@ namespace sketch2 {
 
 inline void merge_local_heap(
         LocalDistHeap* local_heap, uint64_t heap_base_id, size_t count, DistHeap* final_heap) {
-    while (!local_heap->empty()) {
-        const LocalDistItem item = local_heap->pop_top();
+    // Insertion order into the bounded final heap doesn't matter -- it maintains
+    // its own top-k invariant -- so iterate the backing array directly rather
+    // than draining via pop_top(), which would sift down O(log n) per item. This
+    // mirrors how the single-reader fast path reads data() in
+    // sort_local_heap_into_result().
+    for (const LocalDistItem& item : local_heap->data()) {
         push_result(final_heap, count, item.id + heap_base_id, item.score);
     }
 }
