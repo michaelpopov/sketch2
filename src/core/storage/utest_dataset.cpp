@@ -654,6 +654,35 @@ TEST_F(DatasetTest, MergeCombinesExistingDeltaIntoDataFile) {
     EXPECT_NEAR(99.0f, v[0], 1e-5f);
 }
 
+TEST_F(DatasetTest, FailedMergeKeepsDeltaFile) {
+    auto dir = make_dir("d_merge_failure");
+    DatasetNode sc;
+    ASSERT_EQ(0, sc.init_for_test({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    write_input("f32,4\n5 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    const std::string delta_path = file_path(dir, 0, ".delta");
+    ASSERT_TRUE(fs::exists(delta_path));
+
+    DataFileHeader delta_hdr = read_header(delta_path);
+    delta_hdr.min_range_id = 100;
+    std::fstream delta_file(delta_path, std::ios::in | std::ios::out | std::ios::binary);
+    ASSERT_TRUE(delta_file.is_open());
+    delta_file.write(reinterpret_cast<const char*>(&delta_hdr), sizeof(delta_hdr));
+    ASSERT_TRUE(delta_file.good());
+    delta_file.close();
+
+    const Ret ret = sc.merge();
+    EXPECT_NE(0, ret.code());
+    EXPECT_TRUE(fs::exists(delta_path));
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".merge")));
+}
+
 
 TEST_F(DatasetTest, MergeProcessesAllRangesWithDeltaFiles) {
     auto dir = make_dir("d_merge_all");

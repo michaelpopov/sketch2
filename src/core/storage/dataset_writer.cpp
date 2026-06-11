@@ -713,11 +713,6 @@ bool DatasetWriter::check_data_delta_merge(const DataReader& data_reader,
 Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
         const std::string& output_path_base, const std::string& ext) const {
     const std::string source_path = output_path_base + ext;
-    std::experimental::scope_exit file_guard([source_path]() {
-        std::error_code ec;
-        std::filesystem::remove(source_path, ec);
-    });
-
     DataMerger processor;
     const std::string merge_path = output_path_base + kMergeExt;
     CHECK(processor.merge_data_file(data_reader, output_reader, merge_path));
@@ -730,6 +725,7 @@ Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const DataRead
         return Ret("DatasetWriter::merge_data_file: failed to rename merge file to data file");
     }
 
+    std::filesystem::remove(source_path, ec);
     return Ret(0);
 }
 
