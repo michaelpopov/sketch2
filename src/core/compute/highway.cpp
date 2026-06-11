@@ -554,6 +554,18 @@ ScanCosFn pick_scan_cos_stored(DataType type) {
     return nullptr;
 }
 
+// Guards a runtime-resolved kernel pointer. The pick_* resolvers return nullptr
+// for any DataType they do not handle (a corrupted header or a future enum
+// value), so callers translate that into a clean error instead of calling
+// through a null function pointer.
+template <typename Fn>
+Ret require_kernel(Fn fn) {
+    if (fn == nullptr) {
+        return Ret("Highway::find_items: unsupported data type.");
+    }
+    return Ret(0);
+}
+
 } // namespace
 
 void initialize_hwy_runtime() {
@@ -590,6 +602,7 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
             log_query_branch(query_id, "dot");
             const QueryDotContext query{vec, dim};
             const ScanDotFn scan_fn = pick_scan_dot(type);
+            CHECK(require_kernel(scan_fn));
             CHECK(scan_dataset_readers(
                 query_id, readers, count, result,
                 [query_id, query, scan_fn](const DataReader& reader, size_t local_count,
@@ -601,11 +614,14 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
             break;
         }
         case DistFunc::L2: {
-            const double query_norm_sq = pick_squared_norm(type)(vec, dim);
+            const ComputeSquaredNormFn squared_norm_fn = pick_squared_norm(type);
+            CHECK(require_kernel(squared_norm_fn));
+            const double query_norm_sq = squared_norm_fn(vec, dim);
             log_query_branch(query_id, "l2_stored_norms",
                 query_norm_sq, query_norm_sq == 0.0);
             const QueryL2Context query{vec, dim, query_norm_sq};
             const ScanL2StoredFn scan_stored = pick_scan_l2_stored(type);
+            CHECK(require_kernel(scan_stored));
             CHECK(scan_dataset_readers(
                 query_id, readers, count, result,
                 [query_id, query, scan_stored](const DataReader& reader,
@@ -622,12 +638,15 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
             break;
         }
         case DistFunc::COS: {
-            const double query_norm_sq = pick_squared_norm(type)(vec, dim);
+            const ComputeSquaredNormFn squared_norm_fn = pick_squared_norm(type);
+            CHECK(require_kernel(squared_norm_fn));
+            const double query_norm_sq = squared_norm_fn(vec, dim);
             log_query_branch(query_id, "cos_stored_norms",
                 query_norm_sq, query_norm_sq == 0.0);
             const QueryCosContext query{
                 vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)};
             const ScanCosFn scan_stored = pick_scan_cos_stored(type);
+            CHECK(require_kernel(scan_stored));
             CHECK(scan_dataset_readers(
                 query_id, readers, count, result,
                 [query_id, query, scan_stored](const DataReader& reader,

@@ -9,6 +9,7 @@
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"
 
+#include <algorithm>
 #include <exception>
 #include <future>
 #include <vector>
@@ -21,6 +22,24 @@ inline void merge_local_heap(
         const LocalDistItem item = local_heap->pop_top();
         push_result(final_heap, count, item.id + heap_base_id, item.score);
     }
+}
+
+// Total rows a reader can contribute to a scan: its base records plus any
+// attached delta records.
+inline size_t reader_total_rows(const DataReader& reader) {
+    size_t rows = reader.count_unchecked();
+    if (const DataReader* delta = reader.delta_reader_unchecked()) {
+        rows += delta->count_unchecked();
+    }
+    return rows;
+}
+
+// Upper bound on items a reader can place in a top-k heap of size `count`. A
+// reader never yields more than its own row total, so clamping here keeps the
+// bounded top-k policy identical while preventing a large k against a small
+// reader from pre-allocating capacity for rows that cannot exist.
+inline size_t reader_heap_capacity_hint(const DataReader& reader, size_t count) {
+    return std::min(count, reader_total_rows(reader));
 }
 
 inline Ret collect_dataset_readers(const DatasetReader& dataset, uint64_t query_id,
@@ -56,20 +75,26 @@ inline Ret scan_dataset_readers(uint64_t query_id, const std::vector<DataReaderP
         // Single-reader fast path: scan into a local heap and convert directly
         // into the result vector, skipping the final-heap construction.
         LocalDistHeap local_heap(LocalDistItemCompare{func});
-        local_heap.reserve(count);
+        local_heap.reserve(reader_heap_capacity_hint(*readers[0], count));
         scan_reader(*readers[0], count, &local_heap, bitset);
         sort_local_heap_into_result(
             &local_heap, reader_heap_base_id(*readers[0]), func, result);
         return Ret(0);
     }
 
+    // The merged heap holds the global top-k, so it can never exceed the total
+    // rows across all readers. Clamp the same way as the per-reader heaps.
+    size_t total_reader_rows = 0;
+    for (const auto& reader : readers) {
+        total_reader_rows += reader_total_rows(*reader);
+    }
     DistHeap final_heap(DistItemCompare{func});
-    final_heap.reserve(count);
+    final_heap.reserve(std::min(count, total_reader_rows));
 
     if (!uses_parallel) {
         for (size_t i = 0; i < readers.size(); ++i) {
             LocalDistHeap local_heap(LocalDistItemCompare{func});
-            local_heap.reserve(count);
+            local_heap.reserve(reader_heap_capacity_hint(*readers[i], count));
             scan_reader(*readers[i], count, &local_heap, bitset);
             merge_local_heap(
                 &local_heap, reader_heap_base_id(*readers[i]), count, &final_heap);
@@ -91,7 +116,7 @@ inline Ret scan_dataset_readers(uint64_t query_id, const std::vector<DataReaderP
         for (const auto& reader : readers) {
             futures.push_back(pool->submit([scan_reader, count, reader, func, bitset]() {
                 LocalDistHeap local_heap(LocalDistItemCompare{func});
-                local_heap.reserve(count);
+                local_heap.reserve(reader_heap_capacity_hint(*reader, count));
                 scan_reader(*reader, count, &local_heap, bitset);
                 return local_heap;
             }));

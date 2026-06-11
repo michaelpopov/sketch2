@@ -11,6 +11,7 @@
 #include "core/bitset/chunked_bits.h"
 
 #include <cassert>
+#include <cstring>
 
 namespace sketch2 {
 
@@ -310,8 +311,13 @@ inline bool l2_lower_bound_skips_record(const LocalDistHeap& heap, size_t count,
 
     const double clamped_stored_norm_sq = std::max(0.0, stored_norm_sq);
 
-    // Keep ties exact: an equal score can still win on smaller id, so only reject
-    // when the lower bound is strictly worse than the current heap worst score.
+    // Reject only when the candidate's distance lower bound is strictly worse
+    // than the heap's current worst score, so a candidate that ties the bound is
+    // still scanned and can win the smaller-id tie-break. Ties are preserved at
+    // double precision but not at float granularity: scores are stored as float
+    // (LocalDistItem), so a skipped candidate whose true distance rounds down to
+    // the worst float score would have won the id tie-break had it been pushed.
+    // That is within sketch2's documented no-exact-ordering contract (dist_item.h).
     return clamped_stored_norm_sq < state->lo_stored_norm_sq
         || clamped_stored_norm_sq > state->hi_stored_norm_sq;
 }

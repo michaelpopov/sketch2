@@ -31,7 +31,7 @@ inline const char* scanner_query_path_name(const char* path) {
 
 inline void log_query_start(uint64_t query_id, const std::string& source, DistFunc func, DataType type,
         size_t dim, size_t count, bool has_bitset) {
-    LOG_INFO << "Scanner query start: query_id=" << query_id
+    LOG_TRACE << "Scanner query start: query_id=" << query_id
              << " source=" << source
              << " metric=" << scanner_dist_func_name(func)
              << " type=" << data_type_to_string(type)
@@ -51,7 +51,7 @@ inline void log_query_branch(uint64_t query_id, const char* path, double query_n
 inline void log_query_finish(uint64_t query_id, const std::string& source, DistFunc func, DataType type,
         size_t dim, size_t count, int64_t elapsed_ms,
         const std::vector<DistItem>& result) {
-    LOG_INFO << "Scanner query finish: query_id=" << query_id
+    LOG_TRACE << "Scanner query finish: query_id=" << query_id
              << " source=" << source
              << " metric=" << scanner_dist_func_name(func)
              << " type=" << data_type_to_string(type)

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 
 namespace sketch2 {
 
