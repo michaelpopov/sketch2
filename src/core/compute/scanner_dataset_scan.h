@@ -80,16 +80,26 @@ inline Ret scan_dataset_readers(uint64_t query_id, const std::vector<DataReaderP
 
     std::vector<std::future<LocalDistHeap>> futures;
     futures.reserve(readers.size());
-    for (const auto& reader : readers) {
-        futures.push_back(pool->submit([scan_reader, count, reader, func, bitset]() {
-            LocalDistHeap local_heap(LocalDistItemCompare{func});
-            local_heap.reserve(count);
-            scan_reader(*reader, count, &local_heap, bitset);
-            return local_heap;
-        }));
+
+    // If submit() throws partway through (pool shutting down, or OOM), the tasks
+    // already enqueued keep running on worker threads and still dereference
+    // caller-owned memory (the query vector and bitset). Capture the error but
+    // fall through to the drain loop so every submitted task is waited on before
+    // this scope exits.
+    std::exception_ptr first_error;
+    try {
+        for (const auto& reader : readers) {
+            futures.push_back(pool->submit([scan_reader, count, reader, func, bitset]() {
+                LocalDistHeap local_heap(LocalDistItemCompare{func});
+                local_heap.reserve(count);
+                scan_reader(*reader, count, &local_heap, bitset);
+                return local_heap;
+            }));
+        }
+    } catch (...) {
+        first_error = std::current_exception();
     }
 
-    std::exception_ptr first_error;
     size_t merged_candidates = 0;
     for (size_t i = 0; i < futures.size(); ++i) {
         try {
