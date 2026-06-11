@@ -12,6 +12,7 @@
 #include <memory>
 #include <filesystem>
 #include <experimental/scope>
+#include "core/compute/compute_value_helpers.h"
 #include "core/compute/scanner.h"
 #include "core/compute/scanner_heap_utils.h"
 #include "core/compute/scanner_query_context.h"
@@ -230,22 +231,31 @@ protected:
         return buf;
     }
 
-    std::vector<uint8_t> f16_vec(float val, size_t dim) {
-        std::vector<uint8_t> buf(dim * sizeof(uint16_t));
-        auto* p = reinterpret_cast<uint16_t*>(buf.data());
-        for (size_t i = 0; i < dim; ++i) p[i] = float_to_f16(val);
+    std::vector<uint8_t> i16_values(std::initializer_list<int16_t> values) {
+        std::vector<uint8_t> buf(values.size() * sizeof(int16_t));
+        auto* p = reinterpret_cast<int16_t*>(buf.data());
+        size_t i = 0;
+        for (int16_t v : values) {
+            p[i++] = v;
+        }
         return buf;
     }
 
-    static uint16_t float_to_f16(float f) {
-        uint32_t x;
-        memcpy(&x, &f, sizeof(x));
-        uint16_t sign     = static_cast<uint16_t>((x >> 16) & 0x8000);
-        int      exp      = static_cast<int>((x >> 23) & 0xFF) - 127 + 15;
-        uint32_t mantissa = x & 0x7FFFFFu;
-        if (exp <= 0)  return sign;
-        if (exp >= 31) return static_cast<uint16_t>(sign | 0x7C00u);
-        return static_cast<uint16_t>(sign | (exp << 10) | (mantissa >> 13));
+    std::vector<uint8_t> f16_vec(float val, size_t dim) {
+        std::vector<uint8_t> buf(dim * sizeof(uint16_t));
+        auto* p = reinterpret_cast<uint16_t*>(buf.data());
+        for (size_t i = 0; i < dim; ++i) p[i] = float_to_f16_bits(val);
+        return buf;
+    }
+
+    std::vector<uint8_t> f16_values(std::initializer_list<float> values) {
+        std::vector<uint8_t> buf(values.size() * sizeof(uint16_t));
+        auto* p = reinterpret_cast<uint16_t*>(buf.data());
+        size_t i = 0;
+        for (float v : values) {
+            p[i++] = float_to_f16_bits(v);
+        }
+        return buf;
     }
 
     void overwrite_stored_norm(const std::string& path, size_t index, float value) {
@@ -563,7 +573,7 @@ TEST_F(ScannerTest, FindF16CosWorksWithHighway) {
     auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::COS, {input_path_});
     Scanner s = make_compiled_scanner();
     auto q = f16_vec(0.0f, 4);
-    reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16(1.0f);
+    reinterpret_cast<uint16_t*>(q.data())[0] = float_to_f16_bits(1.0f);
     std::vector<uint64_t> result;
     ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
     ASSERT_EQ(3u, result.size());
@@ -812,6 +822,38 @@ TEST_F(ScannerTest, FindDatasetL2Works) {
     EXPECT_EQ(14u, result[2]);
 }
 
+TEST_F(ScannerTest, FindDatasetF16L2Works) {
+    write_input_raw(
+        input_path_,
+        "f16,4\n"
+        "10 : [ 0.0, 0.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 0.0, 0.0, 0.0 ]\n"
+        "30 : [ 3.0, 0.0, 0.0, 0.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::L2, {input_path_}, 100);
+
+    Scanner s = make_compiled_scanner();
+    auto q = f16_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
+    ASSERT_EQ((std::vector<uint64_t>{20u, 10u, 30u}), result);
+}
+
+TEST_F(ScannerTest, FindDatasetI16L2Works) {
+    write_input_raw(
+        input_path_,
+        "i16,4\n"
+        "10 : [ 0, 0, 0, 0 ]\n"
+        "20 : [ 1, 0, 0, 0 ]\n"
+        "30 : [ 3, 0, 0, 0 ]\n");
+    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::L2, {input_path_}, 100);
+
+    Scanner s = make_compiled_scanner();
+    auto q = i16_values({1, 0, 0, 0});
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
+    ASSERT_EQ((std::vector<uint64_t>{20u, 10u, 30u}), result);
+}
+
 TEST_F(ScannerTest, FindDatasetL2UsesStoredSquaredNormsForCompiledEngine) {
     const std::string dataset_dir =
         tmp_dir() + "/sketch2_utest_scanner_ex_l2_stored_norms_" + std::to_string(getpid());
@@ -1024,6 +1066,38 @@ TEST_F(ScannerTest, FindDatasetCosWorks) {
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
+}
+
+TEST_F(ScannerTest, FindDatasetF16CosWorks) {
+    write_input_raw(
+        input_path_,
+        "f16,4\n"
+        "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
+        "20 : [ 1.0, 1.0, 0.0, 0.0 ]\n"
+        "30 : [ -1.0, 0.0, 0.0, 0.0 ]\n");
+    auto reader = make_dataset_reader(DataType::f16, 4, DistFunc::COS, {input_path_}, 100);
+
+    Scanner s = make_compiled_scanner();
+    auto q = f16_values({1.0f, 0.0f, 0.0f, 0.0f});
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
+    ASSERT_EQ((std::vector<uint64_t>{10u, 20u, 30u}), result);
+}
+
+TEST_F(ScannerTest, FindDatasetI16CosWorks) {
+    write_input_raw(
+        input_path_,
+        "i16,4\n"
+        "10 : [ 100, 1, 0, 0 ]\n"
+        "20 : [ 1, 1, 0, 0 ]\n"
+        "30 : [ -1, 0, 0, 0 ]\n");
+    auto reader = make_dataset_reader(DataType::i16, 4, DistFunc::COS, {input_path_}, 100);
+
+    Scanner s = make_compiled_scanner();
+    auto q = i16_values({1, 0, 0, 0});
+    std::vector<uint64_t> result;
+    ASSERT_EQ(0, find_ids(s, *reader, 3, q.data(), result).code());
+    ASSERT_EQ((std::vector<uint64_t>{10u, 20u, 30u}), result);
 }
 
 TEST_F(ScannerTest, FindDatasetCosRejectsFilesMissingStoredInverseNorms) {

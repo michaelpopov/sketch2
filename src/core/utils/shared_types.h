@@ -112,7 +112,8 @@ public:
     Ret(const char* message) : code_(-1), message_(message) {}
     Ret(int code, const std::string& message, bool is_content = false)
       : code_(code), message_(message), is_content_(is_content) {}
-    Ret(const Ret& ret) : code_(ret.code_), message_(ret.message_) {}
+    Ret(const Ret& ret)
+      : code_(ret.code_), message_(ret.message_), is_content_(ret.is_content_) {}
     Ret& operator=(const Ret&) = default;
     int code() const { return code_; }
     const std::string& message() const { return message_; }

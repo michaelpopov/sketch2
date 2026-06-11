@@ -93,23 +93,26 @@ double DistL2I16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = AsElements<int16_t>(a);
     const int16_t* vb = AsElements<int16_t>(b);
     const hn::ScalableTag<int32_t> di32;
-    const hn::ScalableTag<float> df;
+    const hn::ScalableTag<int64_t> di64;
     const size_t N = hn::Lanes(di32);
-    auto acc = hn::Zero(df);
+    // Diffs of i16 fit in i32 and their squares in i64, so accumulate exactly
+    // via WidenMulAccumulate rather than converting to f32 (which loses bits as
+    // the running sum grows). Mirrors DotI16.
+    auto acc_lo = hn::Zero(di64);
+    auto acc_hi = hn::Zero(di64);
     size_t i = 0;
     for (; i + N <= dim; i += N) {
         const auto av = LoadI16AsI32(di32, a + i * 2);
         const auto bv = LoadI16AsI32(di32, b + i * 2);
         const auto diff = hn::Sub(av, bv);
-        const auto diff_f = hn::ConvertTo(df, diff);
-        acc = hn::MulAdd(diff_f, diff_f, acc);
+        acc_lo = hn::WidenMulAccumulate(di64, diff, diff, acc_lo, acc_hi);
     }
-    double sum = hn::ReduceSum(df, acc);
+    int64_t sum = hn::ReduceSum(di64, acc_lo) + hn::ReduceSum(di64, acc_hi);
     for (; i < dim; ++i) {
-        const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
+        const int64_t d = static_cast<int64_t>(va[i]) - static_cast<int64_t>(vb[i]);
         sum += d * d;
     }
-    return sum;
+    return static_cast<double>(sum);
 }
 
 double DotF32(const uint8_t* a, const uint8_t* b, size_t dim) {
@@ -210,21 +213,23 @@ double SquaredNormF16(const uint8_t* a, size_t dim) {
 double SquaredNormI16(const uint8_t* a, size_t dim) {
     const int16_t* va = AsElements<int16_t>(a);
     const hn::ScalableTag<int32_t> di32;
-    const hn::ScalableTag<float> df;
+    const hn::ScalableTag<int64_t> di64;
     const size_t N = hn::Lanes(di32);
-    auto acc = hn::Zero(df);
+    // Squares of i16 are integers; accumulate exactly in i64 via
+    // WidenMulAccumulate instead of f32. Mirrors DotI16.
+    auto acc_lo = hn::Zero(di64);
+    auto acc_hi = hn::Zero(di64);
     size_t i = 0;
     for (; i + N <= dim; i += N) {
         const auto av = LoadI16AsI32(di32, a + i * 2);
-        const auto av_f = hn::ConvertTo(df, av);
-        acc = hn::MulAdd(av_f, av_f, acc);
+        acc_lo = hn::WidenMulAccumulate(di64, av, av, acc_lo, acc_hi);
     }
-    double sum = hn::ReduceSum(df, acc);
+    int64_t sum = hn::ReduceSum(di64, acc_lo) + hn::ReduceSum(di64, acc_hi);
     for (; i < dim; ++i) {
-        const double ai = static_cast<double>(va[i]);
+        const int64_t ai = static_cast<int64_t>(va[i]);
         sum += ai * ai;
     }
-    return sum;
+    return static_cast<double>(sum);
 }
 
 double DistCosF32(const uint8_t* a, const uint8_t* b, size_t dim) {

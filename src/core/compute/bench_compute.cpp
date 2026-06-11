@@ -1,6 +1,7 @@
 // Direct kernel benchmark for the compiled Highway backend.
 
 #include "core/compute/metric_finalizers.h"
+#include "core/compute/compute_value_helpers.h"
 #include "core/compute/highway.h"
 #include "core/compute/scanner_query_context.h"
 #include "core/utils/shared_types.h"
@@ -64,42 +65,22 @@ std::string json_escape(std::string_view input) {
     return out;
 }
 
-template <typename T>
-void fill_pair(std::vector<T>* a, std::vector<T>* b, uint32_t seed, size_t dim) {
+void fill_pair(std::vector<float>* a, std::vector<float>* b, uint32_t seed, size_t dim) {
     a->resize(dim);
     b->resize(dim);
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 977 + seed * 131) % 65536) - 32768;
-        const int32_t bi = static_cast<int32_t>((i * 733 + seed * 191) % 65536) - 32768;
-        (*a)[i] = static_cast<T>(ai);
-        (*b)[i] = static_cast<T>(bi);
-    }
+    fill_f32(a->data(), b->data(), dim, seed);
 }
 
-template <>
-void fill_pair<float>(std::vector<float>* a, std::vector<float>* b, uint32_t seed, size_t dim) {
+void fill_pair(std::vector<float16>* a, std::vector<float16>* b, uint32_t seed, size_t dim) {
     a->resize(dim);
     b->resize(dim);
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        (*a)[i] = static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f;
-        (*b)[i] = static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f;
-    }
+    fill_f16(a->data(), b->data(), dim, seed);
 }
 
-template <>
-void fill_pair<float16>(std::vector<float16>* a, std::vector<float16>* b, uint32_t seed, size_t dim) {
+void fill_pair(std::vector<int16_t>* a, std::vector<int16_t>* b, uint32_t seed, size_t dim) {
     a->resize(dim);
     b->resize(dim);
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        (*a)[i] = static_cast<float16>(static_cast<float>(ai) * 0.125f +
-                                       static_cast<float>((i + seed) % 5) * 0.03125f);
-        (*b)[i] = static_cast<float16>(static_cast<float>(bi) * 0.125f -
-                                       static_cast<float>((i + seed) % 3) * 0.0625f);
-    }
+    fill_i16(a->data(), b->data(), dim, seed);
 }
 
 template <typename Fn>

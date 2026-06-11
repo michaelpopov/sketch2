@@ -66,10 +66,6 @@ template <typename ReaderScanFn>
 inline Ret scan_dataset_readers(uint64_t query_id, const std::vector<DataReaderPtr>& readers, size_t count,
         std::vector<DistItem>* result, const ReaderScanFn& scan_reader, DistFunc func,
         const BitsetFilter* bitset = nullptr) {
-    if (count == 0) {
-        return Ret(0);
-    }
-
     const auto& pool = get_singleton().thread_pool();
     const bool has_thread_pool = static_cast<bool>(pool);
     const bool uses_parallel = has_thread_pool && readers.size() >= 2;

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/compute/compute_value_helpers.h"
 #include "core/utils/shared_types.h"
 
 namespace sketch2 {
@@ -84,35 +85,6 @@ double reference_cosine_distance(const T* a, const T* b, size_t dim) {
 
     const double cosine = std::clamp(dot / std::sqrt(norm_a * norm_b), -1.0, 1.0);
     return 1.0 - cosine;
-}
-
-inline void fill_f32(float* a, float* b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f;
-        b[i] = static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f;
-    }
-}
-
-inline void fill_i16(int16_t* a, int16_t* b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 977 + seed * 131) % 65536) - 32768;
-        const int32_t bi = static_cast<int32_t>((i * 733 + seed * 191) % 65536) - 32768;
-        a[i] = static_cast<int16_t>(ai);
-        b[i] = static_cast<int16_t>(bi);
-    }
-}
-
-inline void fill_f16(float16* a, float16* b, size_t dim, uint32_t seed) {
-    for (size_t i = 0; i < dim; ++i) {
-        const int32_t ai = static_cast<int32_t>((i * 17 + seed * 13) % 401) - 200;
-        const int32_t bi = static_cast<int32_t>((i * 29 + seed * 7) % 401) - 200;
-        a[i] = static_cast<float16>(
-            static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f);
-        b[i] = static_cast<float16>(
-            static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f);
-    }
 }
 
 } // namespace test
