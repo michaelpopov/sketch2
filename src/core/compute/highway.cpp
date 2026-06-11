@@ -17,6 +17,7 @@
 #include "hwy/highway.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -243,16 +244,16 @@ double DistCosF32(const uint8_t* a, const uint8_t* b, size_t dim) {
         nb_acc = hn::MulAdd(bv, bv, nb_acc);
     }
     double dot = hn::ReduceSum(df, dot_acc);
-    double norm_a = hn::ReduceSum(df, na_acc);
-    double norm_b = hn::ReduceSum(df, nb_acc);
+    double norm_a_sq = hn::ReduceSum(df, na_acc);
+    double norm_b_sq = hn::ReduceSum(df, nb_acc);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
-        norm_a += ai * ai;
-        norm_b += bi * bi;
+        norm_a_sq += ai * ai;
+        norm_b_sq += bi * bi;
     }
-    return cos_dist_from_norms(dot, norm_a, norm_b);
+    return cos_dist_from_squared_norms(dot, norm_a_sq, norm_b_sq);
 }
 
 double DistCosF16(const uint8_t* a, const uint8_t* b, size_t dim) {
@@ -270,18 +271,18 @@ double DistCosF16(const uint8_t* a, const uint8_t* b, size_t dim) {
         nb_acc = hn::MulAdd(bv, bv, nb_acc);
     }
     double dot = hn::ReduceSum(df, dot_acc);
-    double norm_a = hn::ReduceSum(df, na_acc);
-    double norm_b = hn::ReduceSum(df, nb_acc);
+    double norm_a_sq = hn::ReduceSum(df, na_acc);
+    double norm_b_sq = hn::ReduceSum(df, nb_acc);
     const auto* va = AsElements<hwy::float16_t>(a);
     const auto* vb = AsElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
-        norm_a += ai * ai;
-        norm_b += bi * bi;
+        norm_a_sq += ai * ai;
+        norm_b_sq += bi * bi;
     }
-    return cos_dist_from_norms(dot, norm_a, norm_b);
+    return cos_dist_from_squared_norms(dot, norm_a_sq, norm_b_sq);
 }
 
 double DistCosI16(const uint8_t* a, const uint8_t* b, size_t dim) {
@@ -304,16 +305,16 @@ double DistCosI16(const uint8_t* a, const uint8_t* b, size_t dim) {
         nb_acc = hn::MulAdd(bv_f, bv_f, nb_acc);
     }
     double dot = hn::ReduceSum(df, dot_acc);
-    double norm_a = hn::ReduceSum(df, na_acc);
-    double norm_b = hn::ReduceSum(df, nb_acc);
+    double norm_a_sq = hn::ReduceSum(df, na_acc);
+    double norm_b_sq = hn::ReduceSum(df, nb_acc);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
-        norm_a += ai * ai;
-        norm_b += bi * bi;
+        norm_a_sq += ai * ai;
+        norm_b_sq += bi * bi;
     }
-    return cos_dist_from_norms(dot, norm_a, norm_b);
+    return cos_dist_from_squared_norms(dot, norm_a_sq, norm_b_sq);
 }
 
 double DistCosWithQueryNormF32(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
@@ -331,14 +332,14 @@ double DistCosWithQueryNormF32(const uint8_t* a, const uint8_t* b, size_t dim, d
         na_acc = hn::MulAdd(av, av, na_acc);
     }
     double dot = hn::ReduceSum(df, dot_acc);
-    double norm_a = hn::ReduceSum(df, na_acc);
+    double norm_a_sq = hn::ReduceSum(df, na_acc);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
-        norm_a += ai * ai;
+        norm_a_sq += ai * ai;
     }
-    return cos_dist_from_norms(dot, norm_a, query_norm_sq);
+    return cos_dist_from_squared_norms(dot, norm_a_sq, query_norm_sq);
 }
 
 double DistCosWithQueryNormF16(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
@@ -354,16 +355,16 @@ double DistCosWithQueryNormF16(const uint8_t* a, const uint8_t* b, size_t dim, d
         na_acc = hn::MulAdd(av, av, na_acc);
     }
     double dot = hn::ReduceSum(df, dot_acc);
-    double norm_a = hn::ReduceSum(df, na_acc);
+    double norm_a_sq = hn::ReduceSum(df, na_acc);
     const auto* va = AsElements<hwy::float16_t>(a);
     const auto* vb = AsElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
-        norm_a += ai * ai;
+        norm_a_sq += ai * ai;
     }
-    return cos_dist_from_norms(dot, norm_a, query_norm_sq);
+    return cos_dist_from_squared_norms(dot, norm_a_sq, query_norm_sq);
 }
 
 double DistCosWithQueryNormI16(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
@@ -384,14 +385,14 @@ double DistCosWithQueryNormI16(const uint8_t* a, const uint8_t* b, size_t dim, d
         na_acc = hn::MulAdd(av_f, av_f, na_acc);
     }
     double dot = hn::ReduceSum(df, dot_acc);
-    double norm_a = hn::ReduceSum(df, na_acc);
+    double norm_a_sq = hn::ReduceSum(df, na_acc);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
         dot += ai * bi;
-        norm_a += ai * ai;
+        norm_a_sq += ai * ai;
     }
-    return cos_dist_from_norms(dot, norm_a, query_norm_sq);
+    return cos_dist_from_squared_norms(dot, norm_a_sq, query_norm_sq);
 }
 
 // Per-reader scanners. Each compiles once per Highway target and threads the
@@ -425,19 +426,6 @@ void ScanL2I16Stored(const DataReader& reader, size_t count, LocalDistHeap* heap
     scan_l2_stored_norms<DotI16>(reader, count, heap, query, bitset);
 }
 
-void ScanL2F32Fallback(const DataReader& reader, size_t count, LocalDistHeap* heap,
-        const QueryDistContext& query, const BitsetFilter* bitset) {
-    scan_l2_fallback<DistL2F32>(reader, count, heap, query, bitset);
-}
-void ScanL2F16Fallback(const DataReader& reader, size_t count, LocalDistHeap* heap,
-        const QueryDistContext& query, const BitsetFilter* bitset) {
-    scan_l2_fallback<DistL2F16>(reader, count, heap, query, bitset);
-}
-void ScanL2I16Fallback(const DataReader& reader, size_t count, LocalDistHeap* heap,
-        const QueryDistContext& query, const BitsetFilter* bitset) {
-    scan_l2_fallback<DistL2I16>(reader, count, heap, query, bitset);
-}
-
 void ScanCosF32Stored(const DataReader& reader, size_t count, LocalDistHeap* heap,
         const QueryCosContext& query, const BitsetFilter* bitset) {
     scan_cos_stored_norms<DotF32>(reader, count, heap, query, bitset);
@@ -449,19 +437,6 @@ void ScanCosF16Stored(const DataReader& reader, size_t count, LocalDistHeap* hea
 void ScanCosI16Stored(const DataReader& reader, size_t count, LocalDistHeap* heap,
         const QueryCosContext& query, const BitsetFilter* bitset) {
     scan_cos_stored_norms<DotI16>(reader, count, heap, query, bitset);
-}
-
-void ScanCosF32QueryNorm(const DataReader& reader, size_t count, LocalDistHeap* heap,
-        const QueryCosContext& query, const BitsetFilter* bitset) {
-    scan_cos_fallback<DistCosWithQueryNormF32>(reader, count, heap, query, bitset);
-}
-void ScanCosF16QueryNorm(const DataReader& reader, size_t count, LocalDistHeap* heap,
-        const QueryCosContext& query, const BitsetFilter* bitset) {
-    scan_cos_fallback<DistCosWithQueryNormF16>(reader, count, heap, query, bitset);
-}
-void ScanCosI16QueryNorm(const DataReader& reader, size_t count, LocalDistHeap* heap,
-        const QueryCosContext& query, const BitsetFilter* bitset) {
-    scan_cos_fallback<DistCosWithQueryNormI16>(reader, count, heap, query, bitset);
 }
 
 }  // namespace HWY_NAMESPACE
@@ -496,22 +471,14 @@ HWY_EXPORT(ScanDotI16);
 HWY_EXPORT(ScanL2F32Stored);
 HWY_EXPORT(ScanL2F16Stored);
 HWY_EXPORT(ScanL2I16Stored);
-HWY_EXPORT(ScanL2F32Fallback);
-HWY_EXPORT(ScanL2F16Fallback);
-HWY_EXPORT(ScanL2I16Fallback);
 HWY_EXPORT(ScanCosF32Stored);
 HWY_EXPORT(ScanCosF16Stored);
 HWY_EXPORT(ScanCosI16Stored);
-HWY_EXPORT(ScanCosF32QueryNorm);
-HWY_EXPORT(ScanCosF16QueryNorm);
-HWY_EXPORT(ScanCosI16QueryNorm);
 
 using ScanDotFn = void (*)(const DataReader&, size_t, LocalDistHeap*,
     const QueryDotContext&, const BitsetFilter*);
 using ScanL2StoredFn = void (*)(const DataReader&, size_t, LocalDistHeap*,
     const QueryL2Context&, const BitsetFilter*);
-using ScanDistFn = void (*)(const DataReader&, size_t, LocalDistHeap*,
-    const QueryDistContext&, const BitsetFilter*);
 using ScanCosFn = void (*)(const DataReader&, size_t, LocalDistHeap*,
     const QueryCosContext&, const BitsetFilter*);
 
@@ -578,29 +545,11 @@ ScanL2StoredFn pick_scan_l2_stored(DataType type) {
     return nullptr;
 }
 
-ScanDistFn pick_scan_l2_fallback(DataType type) {
-    switch (type) {
-        case DataType::f32: return HWY_DYNAMIC_POINTER(ScanL2F32Fallback);
-        case DataType::f16: return HWY_DYNAMIC_POINTER(ScanL2F16Fallback);
-        case DataType::i16: return HWY_DYNAMIC_POINTER(ScanL2I16Fallback);
-    }
-    return nullptr;
-}
-
 ScanCosFn pick_scan_cos_stored(DataType type) {
     switch (type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(ScanCosF32Stored);
         case DataType::f16: return HWY_DYNAMIC_POINTER(ScanCosF16Stored);
         case DataType::i16: return HWY_DYNAMIC_POINTER(ScanCosI16Stored);
-    }
-    return nullptr;
-}
-
-ScanCosFn pick_scan_cos_fallback(DataType type) {
-    switch (type) {
-        case DataType::f32: return HWY_DYNAMIC_POINTER(ScanCosF32QueryNorm);
-        case DataType::f16: return HWY_DYNAMIC_POINTER(ScanCosF16QueryNorm);
-        case DataType::i16: return HWY_DYNAMIC_POINTER(ScanCosI16QueryNorm);
     }
     return nullptr;
 }
@@ -653,52 +602,43 @@ Ret find_items_hw(const DatasetReader& dataset, size_t count, const uint8_t* vec
         }
         case DistFunc::L2: {
             const double query_norm_sq = pick_squared_norm(type)(vec, dim);
-            log_query_branch(query_id, "l2_with_optional_norms",
+            log_query_branch(query_id, "l2_stored_norms",
                 query_norm_sq, query_norm_sq == 0.0);
             const QueryL2Context query{vec, dim, query_norm_sq};
             const ScanL2StoredFn scan_stored = pick_scan_l2_stored(type);
-            const ScanDistFn scan_fallback = pick_scan_l2_fallback(type);
             CHECK(scan_dataset_readers(
                 query_id, readers, count, result,
-                [query_id, query, scan_stored, scan_fallback](const DataReader& reader,
+                [query_id, query, scan_stored](const DataReader& reader,
                         size_t local_count, LocalDistHeap* local_heap,
                         const BitsetFilter* bitset_filter) {
-                    const bool uses_stored = reader.has_matching_stored_norms(DistFunc::L2);
-                    log_reader_scan_plan(query_id, reader,
-                        uses_stored ? "l2_stored_norms" : "l2_dist_fallback",
-                        uses_stored, bitset_filter != nullptr);
-                    if (uses_stored) {
-                        scan_stored(reader, local_count, local_heap, query, bitset_filter);
-                    } else {
-                        scan_fallback(reader, local_count, local_heap,
-                            QueryDistContext{query.vec, query.dim}, bitset_filter);
-                    }
+                    // DatasetReader::open_reader_ rejects L2 files without matching
+                    // stored norms, so every collected reader is guaranteed to have them.
+                    assert(reader.has_matching_stored_norms(DistFunc::L2));
+                    log_reader_scan_plan(query_id, reader, "l2_stored_norms",
+                        true, bitset_filter != nullptr);
+                    scan_stored(reader, local_count, local_heap, query, bitset_filter);
                 },
                 func, bitset));
             break;
         }
         case DistFunc::COS: {
             const double query_norm_sq = pick_squared_norm(type)(vec, dim);
-            log_query_branch(query_id, "cos_with_optional_norms",
+            log_query_branch(query_id, "cos_stored_norms",
                 query_norm_sq, query_norm_sq == 0.0);
             const QueryCosContext query{
                 vec, dim, query_norm_sq, query_inverse_norm(query_norm_sq)};
             const ScanCosFn scan_stored = pick_scan_cos_stored(type);
-            const ScanCosFn scan_fallback = pick_scan_cos_fallback(type);
             CHECK(scan_dataset_readers(
                 query_id, readers, count, result,
-                [query_id, query, scan_stored, scan_fallback](const DataReader& reader,
+                [query_id, query, scan_stored](const DataReader& reader,
                         size_t local_count, LocalDistHeap* local_heap,
                         const BitsetFilter* bitset_filter) {
-                    const bool uses_stored = reader.has_matching_stored_norms(DistFunc::COS);
-                    log_reader_scan_plan(query_id, reader,
-                        uses_stored ? "cos_stored_norms" : "cos_query_norm_fallback",
-                        uses_stored, bitset_filter != nullptr);
-                    if (uses_stored) {
-                        scan_stored(reader, local_count, local_heap, query, bitset_filter);
-                    } else {
-                        scan_fallback(reader, local_count, local_heap, query, bitset_filter);
-                    }
+                    // DatasetReader::open_reader_ rejects COS files without matching
+                    // stored inverse norms, so every collected reader has them.
+                    assert(reader.has_matching_stored_norms(DistFunc::COS));
+                    log_reader_scan_plan(query_id, reader, "cos_stored_norms",
+                        true, bitset_filter != nullptr);
+                    scan_stored(reader, local_count, local_heap, query, bitset_filter);
                 },
                 func, bitset));
             break;

@@ -213,21 +213,6 @@ inline void scan_with_optional_bitset(const DataReader& reader,
 // than a runtime function pointer, so GCC inlines the kernel into the record
 // loop instead of emitting an indirect call per candidate.
 
-// L2 path used when the reader has no stored norms: invokes a generic squared
-// L2 kernel directly per record. No norms are needed because L2 = Σ(a-b)².
-template <ComputeDistFn DistFn>
-inline void scan_l2_fallback(const DataReader& reader, size_t count, LocalDistHeap* heap,
-        const QueryDistContext& query, const BitsetFilter* bitset = nullptr) {
-    assert(heap->comparator().smaller_score_better);
-    const uint64_t heap_base_id = reader_heap_base_id(reader);
-    scan_with_optional_bitset(reader, bitset,
-        [heap, count, query, heap_base_id](uint64_t id, const uint8_t* record) {
-            push_result_local(
-                heap, count, normalize_reader_heap_id(id, heap_base_id),
-                DistFn(record, query.vec, query.dim));
-        });
-}
-
 // DOT metric: invokes a dot-product kernel per record.
 template <ComputeDotFn DotFn>
 inline void scan_dot(const DataReader& reader, size_t count, LocalDistHeap* heap,
@@ -242,23 +227,8 @@ inline void scan_dot(const DataReader& reader, size_t count, LocalDistHeap* heap
         });
 }
 
-// COS path used when the reader has no stored norms: invokes a kernel that
-// receives the precomputed query norm and computes the record norm internally.
-template <ComputeDistWithQueryNormFn DistFn>
-inline void scan_cos_fallback(const DataReader& reader, size_t count, LocalDistHeap* heap,
-        const QueryCosContext& query, const BitsetFilter* bitset = nullptr) {
-    assert(heap->comparator().smaller_score_better);
-    const uint64_t heap_base_id = reader_heap_base_id(reader);
-    scan_with_optional_bitset(reader, bitset,
-        [heap, count, query, heap_base_id](uint64_t id, const uint8_t* record) {
-            push_result_local(
-                heap, count, normalize_reader_heap_id(id, heap_base_id),
-                DistFn(record, query.vec, query.dim, query.norm_sq));
-        });
-}
-
 // COS path used when the reader has stored inline norms: reads each stored
-// norm, calls a dot kernel, then combines them into the cosine distance.
+// inverse norm, calls a dot kernel, then combines them into the cosine distance.
 template <ComputeDotFn DotFn>
 inline void scan_cos_stored_norms(const DataReader& reader, size_t count,
         LocalDistHeap* heap, const QueryCosContext& query, const BitsetFilter* bitset = nullptr) {
@@ -268,9 +238,9 @@ inline void scan_cos_stored_norms(const DataReader& reader, size_t count,
     scan_with_optional_bitset(reader, bitset,
         [heap, count, query, norm_offset_in_record, heap_base_id](
                 uint64_t id, const uint8_t* record) {
-            float norm = 0.0f;
-            std::memcpy(&norm, record + norm_offset_in_record, sizeof(norm));
-            if (norm == 0.0f) {
+            float stored_inv_norm = 0.0f;
+            std::memcpy(&stored_inv_norm, record + norm_offset_in_record, sizeof(stored_inv_norm));
+            if (stored_inv_norm == 0.0f) {
                 push_result_local(
                     heap, count, normalize_reader_heap_id(id, heap_base_id),
                     query.inv_norm == 0.0 ? 0.0 : 1.0);
@@ -280,7 +250,7 @@ inline void scan_cos_stored_norms(const DataReader& reader, size_t count,
             push_result_local(
                 heap, count, normalize_reader_heap_id(id, heap_base_id),
                 cos_dist_from_inv_norms(
-                    dot, static_cast<double>(norm), query.inv_norm));
+                    dot, static_cast<double>(stored_inv_norm), query.inv_norm));
         });
 }
 
@@ -373,7 +343,7 @@ inline void scan_l2_stored_norms(const DataReader& reader, size_t count,
             const double dot = DotFn(record, query.vec, query.dim);
             const bool heap_changed = push_result_local_changed(
                 heap, count, normalize_reader_heap_id(id, heap_base_id),
-                l2_dist_from_dot_and_norms(
+                l2_dist_from_squared_norms(
                     dot, stored_norm_sq, query.norm_sq));
             update_l2_lower_bound_after_push(
                 *heap, count, heap_changed, lower_bound_state_ptr);

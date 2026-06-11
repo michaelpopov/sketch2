@@ -15,11 +15,6 @@ inline double query_inverse_norm(double query_norm_sq) {
     return 1.0 / std::sqrt(query_norm_sq);
 }
 
-struct QueryDistContext {
-    const uint8_t* vec = nullptr;
-    size_t dim = 0;
-};
-
 struct QueryDotContext {
     const uint8_t* vec = nullptr;
     size_t dim = 0;
