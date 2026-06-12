@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <unistd.h>
 
@@ -30,13 +31,45 @@ protected:
         std::remove(file_path_.c_str());
     }
 
-    uint64_t read_counter_from_file() {
-        int fd = open(file_path_.c_str(), O_RDONLY);
+    uint64_t read_counter_from_file(const std::string& path) {
+        int fd = open(path.c_str(), O_RDONLY);
         if (fd < 0) return UINT64_MAX;
         uint64_t value = 0;
         ssize_t n = pread(fd, &value, sizeof(value), 0);
         close(fd);
         return (n == static_cast<ssize_t>(sizeof(value))) ? value : UINT64_MAX;
+    }
+
+    uint64_t read_counter_from_file() {
+        return read_counter_from_file(file_path_);
+    }
+
+    int count_open_fds_for_path(const std::string& path) {
+        std::error_code ec;
+        const fs::path target = fs::weakly_canonical(path, ec);
+        if (ec) {
+            return -1;
+        }
+
+        int count = 0;
+        for (const auto& entry : fs::directory_iterator("/proc/self/fd", ec)) {
+            if (ec) {
+                return -1;
+            }
+
+            std::error_code link_ec;
+            const fs::path link_target = fs::read_symlink(entry.path(), link_ec);
+            if (link_ec) {
+                continue;
+            }
+
+            std::error_code canonical_ec;
+            const fs::path canonical_link = fs::weakly_canonical(link_target, canonical_ec);
+            if (!canonical_ec && canonical_link == target) {
+                ++count;
+            }
+        }
+        return count;
     }
 };
 
@@ -57,6 +90,25 @@ TEST_F(UpdateNotifierTest, UpdateIncrementsCounter) {
 
     ASSERT_EQ(0, notifier.update().code());
     EXPECT_EQ(2u, read_counter_from_file());
+}
+
+TEST_F(UpdateNotifierTest, ReinitUpdaterClosesPreviousDescriptor) {
+    const std::string second_path = file_path_ + ".second";
+    std::remove(second_path.c_str());
+
+    UpdateNotifier notifier;
+    ASSERT_EQ(0, notifier.init_updater(file_path_).code());
+    ASSERT_EQ(1, count_open_fds_for_path(file_path_));
+
+    ASSERT_EQ(0, notifier.init_updater(second_path).code());
+    EXPECT_EQ(0, count_open_fds_for_path(file_path_));
+    EXPECT_EQ(1, count_open_fds_for_path(second_path));
+
+    ASSERT_EQ(0, notifier.update().code());
+    EXPECT_EQ(0u, read_counter_from_file(file_path_));
+    EXPECT_EQ(1u, read_counter_from_file(second_path));
+
+    std::remove(second_path.c_str());
 }
 
 TEST_F(UpdateNotifierTest, UpdateFailsWithoutInit) {
@@ -117,6 +169,36 @@ TEST_F(UpdateNotifierTest, CheckerDetectsMultipleUpdates) {
         EXPECT_TRUE(checker.check_updated());
         EXPECT_FALSE(checker.check_updated());
     }
+}
+
+TEST_F(UpdateNotifierTest, ReinitCheckerClosesPreviousDescriptorAndReadsNewPath) {
+    const std::string second_path = file_path_ + ".second";
+    std::remove(second_path.c_str());
+
+    {
+        UpdateNotifier updater;
+        ASSERT_EQ(0, updater.init_updater(file_path_).code());
+    }
+    {
+        UpdateNotifier updater;
+        ASSERT_EQ(0, updater.init_updater(second_path).code());
+        ASSERT_EQ(0, updater.update().code());
+    }
+
+    UpdateNotifier checker;
+    ASSERT_EQ(0, checker.init_checker(file_path_).code());
+    EXPECT_TRUE(checker.check_updated());
+    EXPECT_FALSE(checker.check_updated());
+    ASSERT_EQ(1, count_open_fds_for_path(file_path_));
+
+    ASSERT_EQ(0, checker.init_checker(second_path).code());
+    EXPECT_EQ(0, count_open_fds_for_path(file_path_));
+    EXPECT_EQ(0, count_open_fds_for_path(second_path));
+    EXPECT_TRUE(checker.check_updated());
+    EXPECT_FALSE(checker.check_updated());
+    EXPECT_EQ(1, count_open_fds_for_path(second_path));
+
+    std::remove(second_path.c_str());
 }
 
 TEST_F(UpdateNotifierTest, CheckerReturnsTrueWhenFileMissing) {

@@ -11,15 +11,25 @@
 
 namespace sketch2 {
 
+namespace {
+
+void close_fd(int& fd) {
+    if (fd >= 0) {
+        (void)close(fd);
+        fd = -1;
+    }
+}
+
+} // namespace
+
 UpdateNotifier::~UpdateNotifier() {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (fd_ >= 0) {
-        (void)close(fd_);
-    }
+    close_fd(fd_);
 }
 
 Ret UpdateNotifier::init_updater(const std::string& path) {
     std::lock_guard<std::mutex> lock(mutex_);
+    close_fd(fd_);
     path_ = path;
     is_updater_ = true;
 
@@ -69,6 +79,7 @@ Ret UpdateNotifier::update() {
 
 Ret UpdateNotifier::init_checker(const std::string& path) {
     std::lock_guard<std::mutex> lock(mutex_);
+    close_fd(fd_);
     path_ = path;
     is_updater_ = false;
     return Ret(0);

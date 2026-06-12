@@ -32,6 +32,10 @@ public:
     }
 
     Ret lock(const std::string& path) {
+        if (fd_ >= 0) {
+            return Ret("Dataset: lock guard already owns a lock");
+        }
+
         fd_ = open(path.c_str(), O_RDWR | O_CREAT, 0666);
         if (fd_ < 0) {
             return Ret("Dataset: failed to open lock file " + path + ": " + std::strerror(errno));
@@ -52,6 +56,10 @@ public:
     // Returns true and holds the lock if it was immediately available,
     // false if another process already holds it (non-blocking).
     bool try_lock(const std::string& path) {
+        if (fd_ >= 0) {
+            return false;
+        }
+
         fd_ = open(path.c_str(), O_RDWR | O_CREAT, 0666);
         if (fd_ < 0) {
             return false;

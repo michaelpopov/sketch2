@@ -20,6 +20,46 @@ using namespace sketch2;
 
 namespace fs = std::filesystem;
 
+namespace {
+
+bool child_can_try_lock(const std::string& path) {
+    int pipe_fds[2];
+    if (pipe(pipe_fds) != 0) {
+        return false;
+    }
+
+    const pid_t child_pid = fork();
+    if (child_pid < 0) {
+        close(pipe_fds[0]);
+        close(pipe_fds[1]);
+        return false;
+    }
+
+    if (child_pid == 0) {
+        close(pipe_fds[0]);
+        FileLockGuard child_guard;
+        const char status = child_guard.try_lock(path) ? '1' : '0';
+        const auto sz = write(pipe_fds[1], &status, 1);
+        (void)sz;
+        close(pipe_fds[1]);
+        _exit(0);
+    }
+
+    close(pipe_fds[1]);
+    char status = '\0';
+    const ssize_t n = read(pipe_fds[0], &status, 1);
+    close(pipe_fds[0]);
+
+    int child_status = 0;
+    if (waitpid(child_pid, &child_status, 0) != child_pid) {
+        return false;
+    }
+
+    return n == 1 && status == '1' && WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0;
+}
+
+} // namespace
+
 class FileLockGuardTest : public ::testing::Test {
 protected:
     std::string lock_path_;
@@ -110,6 +150,39 @@ TEST_F(FileLockGuardTest, DestructorReleasesLockAllowingReacquisition) {
     FileLockGuard guard2;
     const Ret ret = guard2.lock(lock_path_);
     EXPECT_EQ(0, ret.code()) << ret.message();
+}
+
+TEST_F(FileLockGuardTest, LockWhileLockedFailsAndDestructorReleasesOriginalLock) {
+    const std::string second_path = lock_path_ + ".second";
+    std::remove(second_path.c_str());
+
+    {
+        FileLockGuard guard;
+        ASSERT_EQ(0, guard.lock(lock_path_).code());
+
+        const Ret ret = guard.lock(second_path);
+        EXPECT_NE(0, ret.code());
+        EXPECT_FALSE(child_can_try_lock(lock_path_));
+    }
+
+    EXPECT_TRUE(child_can_try_lock(lock_path_));
+    std::remove(second_path.c_str());
+}
+
+TEST_F(FileLockGuardTest, TryLockWhileLockedFailsAndDestructorReleasesOriginalLock) {
+    const std::string second_path = lock_path_ + ".second";
+    std::remove(second_path.c_str());
+
+    {
+        FileLockGuard guard;
+        ASSERT_EQ(0, guard.lock(lock_path_).code());
+
+        EXPECT_FALSE(guard.try_lock(second_path));
+        EXPECT_FALSE(child_can_try_lock(lock_path_));
+    }
+
+    EXPECT_TRUE(child_can_try_lock(lock_path_));
+    std::remove(second_path.c_str());
 }
 
 TEST(FilePathLockTest, RejectsNonexistentFile) {
