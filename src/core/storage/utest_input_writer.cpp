@@ -4,10 +4,12 @@
 
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <unistd.h>
 #include <vector>
 
+#include "core/storage/count_utils.h"
 #include "core/storage/input_reader.h"
 #include "core/storage/input_writer.h"
 #include "core/utest_tmp_dir.h"
@@ -359,6 +361,18 @@ TEST_F(InputWriterTest, WriteBeforeInitReturnsError) {
     InputWriter writer;
     EXPECT_NE(0, writer.write_vector(1, "1.0, 1.0, 1.0, 1.0").code());
     EXPECT_NE(0, writer.write_deleted(1).code());
+}
+
+TEST_F(InputWriterTest, CheckedCountConversionRejectsOverflow) {
+    uint32_t value = 123;
+    const Ret ret = checked_size_to_uint32(
+        static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 1u,
+        &value,
+        "InputWriter: indexed block count exceeds uint32_t");
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos,
+              ret.message().find("indexed block count exceeds uint32_t"));
+    EXPECT_EQ(123u, value);
 }
 
 TEST_F(InputWriterTest, CloseWithoutInitSucceeds) {

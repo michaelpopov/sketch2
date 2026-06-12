@@ -2,6 +2,7 @@
 
 #include "input_writer.h"
 
+#include "core/storage/count_utils.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/string_utils.h"
 
@@ -160,8 +161,13 @@ Ret InputWriter::flush_block(bool write_footer) {
     std::memcpy(block_buffer_.data(), &block_bitset_, sizeof(block_bitset_));
     size_t bytes_to_write = block_used_;
     if (write_footer) {
+        uint32_t footer_count = 0;
+        CHECK(checked_size_to_uint32(
+            total_items_,
+            &footer_count,
+            "InputWriter: indexed block count exceeds uint32_t"));
         IndexedBlockFooter footer{
-            static_cast<uint32_t>(total_items_),
+            footer_count,
             crc32_update(0, block_buffer_.data(), block_used_)
         };
         std::memcpy(block_buffer_.data() + block_used_, &footer, sizeof(footer));

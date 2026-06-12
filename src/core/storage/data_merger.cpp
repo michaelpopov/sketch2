@@ -2,6 +2,7 @@
 
 #include "data_merger.h"
 #include "core/compute/norm_utils.h"
+#include "core/storage/count_utils.h"
 #include "core/storage/data_file_layout.h"
 #include "core/storage/input_reader.h"
 #include "core/utils/log.h"
@@ -594,10 +595,13 @@ Ret merge_records(const DataReader& source,
 
 // Header min/max/count are derived from the final live-id stream, so they can
 // only be filled in after merge_records has finished.
-void set_output_id_range(const MergeOutputWriter& output, DataFileHeader* header) {
+Ret set_output_id_range(const MergeOutputWriter& output, DataFileHeader* header) {
     header->min_id = output.output_empty() ? 0 : output.output_min_id();
     header->max_id = output.output_empty() ? 0 : output.output_max_id();
-    header->count = static_cast<uint32_t>(output.output_count());
+    return checked_size_to_uint32(
+        output.output_count(),
+        &header->count,
+        "DataMerger: active id count exceeds uint32_t");
 }
 
 // Writes the trailer + final header for a merged file and flushes it durably.
@@ -607,9 +611,12 @@ Ret finalize_merge_file(MergeFile* merge_file,
         MergeOutputWriter* output,
         const RoaringIds& deleted_ids,
         const char* context) {
+    CHECK(checked_size_to_uint32(
+        deleted_ids.count(),
+        &merge_file->header()->deleted_count,
+        "DataMerger: deleted id count exceeds uint32_t"));
+    CHECK(set_output_id_range(*output, merge_file->header()));
     CHECK(output->write_ids_section(*merge_file->header(), deleted_ids));
-    merge_file->header()->deleted_count = static_cast<uint32_t>(deleted_ids.count());
-    set_output_id_range(*output, merge_file->header());
     CHECK(set_data_header_layout(
         merge_file->header(), output->output_ids_bytes(), output->deleted_ids_bytes()));
     CHECK(rewrite_header(merge_file->file(), *merge_file->header(), context));
