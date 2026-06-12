@@ -494,6 +494,35 @@ TEST_F(DatasetTest, StoreSkipsMissingMiddleRanges) {
     EXPECT_TRUE(fs::exists(dir + "/2.data"));
 }
 
+TEST_F(DatasetTest, StoreSparseHugeIdSpanOnlyVisitsTouchedRanges) {
+    auto dir = make_dir("d_sparse_huge_span");
+    const uint64_t high_id = 1000000000000000ULL;
+    const uint64_t range_size = 10000;
+    const uint64_t high_file_id = high_id / range_size;
+
+    write_input(
+        "f32,4\n"
+        "0 : [ 0.10, 0.10, 0.10, 0.10 ]\n" +
+        std::to_string(high_id) +
+        " : [ 1.10, 1.10, 1.10, 1.10 ]\n");
+
+    DatasetNode sc;
+    ASSERT_EQ(0, sc.init_for_test({dir}, range_size, DataType::f32, 4).code());
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 1, ".data")));
+    EXPECT_TRUE(fs::exists(file_path(dir, high_file_id, ".data")));
+
+    DataReader low_reader, high_reader;
+    ASSERT_EQ(0, low_reader.init(file_path(dir, 0, ".data")).code());
+    ASSERT_EQ(0, high_reader.init(file_path(dir, high_file_id, ".data")).code());
+    EXPECT_EQ(1u, low_reader.count());
+    EXPECT_EQ(1u, high_reader.count());
+    EXPECT_NE(nullptr, low_reader.get(0));
+    EXPECT_NE(nullptr, high_reader.get(high_id));
+}
+
 // --- merge and delta lifecycle ---
 
 TEST_F(DatasetTest, StoreHeaderOnlyInputCreatesNoFiles) {

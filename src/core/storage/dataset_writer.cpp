@@ -437,21 +437,18 @@ Ret DatasetWriter::store_(const std::string& input_path) {
         return Ret(0);
     }
 
-    const uint64_t min_id = reader.id(0);
-    const uint64_t max_id = reader.id(reader.count() - 1);
-
-    const uint64_t first_file = min_id / metadata_.range_size;
-    const uint64_t last_file  = max_id / metadata_.range_size;
     std::vector<StoreRangeTask> tasks;
-    tasks.reserve(static_cast<size_t>(last_file - first_file + 1));
+    tasks.reserve(reader.count());
 
-    for (uint64_t file_id = first_file; file_id <= last_file; ++file_id) {
+    for (size_t i = 0; i < reader.count(); ++i) {
+        const uint64_t file_id = reader.id(i) / metadata_.range_size;
+        if (!tasks.empty() && tasks.back().file_id == file_id) {
+            continue;
+        }
+
         const uint64_t range_start = file_id * metadata_.range_size;
         const uint64_t range_end   = range_start + metadata_.range_size;
-
-        if (reader.is_range_present(range_start, range_end)) {
-            tasks.push_back({file_id, range_start, range_end});
-        }
+        tasks.push_back({file_id, range_start, range_end});
     }
 
     const auto& thread_pool = get_singleton().thread_pool();
