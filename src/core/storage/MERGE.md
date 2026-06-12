@@ -49,7 +49,7 @@ The decision to merge into a base file is governed by `metadata_.data_merge_rati
 - [check_data_file_merge](dataset_writer.cpp): Returns true if `base_count < update_count * ratio`.
 - [check_data_delta_merge](dataset_writer.cpp): Returns true if `base_count < delta_count * ratio`.
 
-A higher ratio means merges happen less frequently (allowing larger deltas), while a lower ratio keeps base files more up-to-date at the cost of more frequent merge IO.
+A higher ratio means merges happen more frequently, while a lower ratio allows larger deltas before compaction.
 
 ## 3. Low-Level Execution: [DataMerger](data_merger.cpp)
 

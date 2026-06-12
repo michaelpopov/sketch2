@@ -767,13 +767,13 @@ bool DatasetWriter::check_data_file_merge(const DataReader& data_reader,
     // The heuristic compares update volume to the size of the current base
     // file. Large updates go straight into a rewritten base file; small updates
     // become or remain a delta.
-    return (data_reader.count() < output_count * metadata_.data_merge_ratio);
+    return output_count > data_reader.count() / metadata_.data_merge_ratio;
 }
 
 bool DatasetWriter::check_data_delta_merge(const DataReader& data_reader,
         const DataReader& delta_reader) const {
     const uint64_t delta_count = delta_reader.count() + delta_reader.deleted_count();
-    return (data_reader.count() < delta_count * metadata_.data_merge_ratio);
+    return delta_count > data_reader.count() / metadata_.data_merge_ratio;
 }
 
 Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,

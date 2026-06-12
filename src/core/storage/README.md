@@ -399,6 +399,9 @@ That lets it choose between:
 - keeping a small delta
 - or rewriting the full data file immediately
 
+The default ratio is `2`; higher values merge sooner, while lower values allow
+larger deltas before compaction.
+
 This helps balance:
 
 - write amplification

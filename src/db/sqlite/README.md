@@ -38,6 +38,7 @@ INI file, for example:
 [dataset]
 dirs=/tmp/my_dataset
 range_size=1000
+data_merge_ratio=2
 dim=4
 type=f32
 dist_func=l1

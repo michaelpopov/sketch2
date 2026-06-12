@@ -6,6 +6,7 @@
 #include "core/bitset/bitset_filter_control.h"
 #include "core/bitset/chunked_bits.h"
 #include "core/utils/log.h"
+#include "core/utils/shared_consts.h"
 #include "core/utils/singleton.h"
 #include "core/utils/string_utils.h"
 #include "core/utils/timer.h"
@@ -300,11 +301,13 @@ int sk_create_(sk_handle_t* handle, const char* name, const char* dirs, unsigned
         "[dataset]\n"
         "dirs=%s\n"
         "range_size=%u\n"
+        "data_merge_ratio=%llu\n"
         "dim=%u\n"
         "type=%s\n"
         "dist_func=%s\n",
         dirs_value.c_str(),
         range_size,
+        static_cast<unsigned long long>(kDataMergeRatio),
         dim,
         type,
         dist_func);

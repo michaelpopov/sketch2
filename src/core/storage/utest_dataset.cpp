@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <tuple>
 #include <unistd.h>
 #include "core/storage/input_generator.h"
@@ -229,6 +230,45 @@ TEST_F(DatasetTest, InitFromIniAcceptsLargeRangeSize) {
     EXPECT_EQ(large_range_size, sc.range_size());
 }
 
+TEST_F(DatasetTest, InitFromIniReadsDataMergeRatio) {
+    const auto dir = make_dir("d_merge_ratio_ini");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "data_merge_ratio = 7\n"
+        "type = f32\n"
+        "dim = 4\n");
+
+    DatasetWriter writer;
+    const Ret ret = writer.init(config_path_);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ(7u, writer.data_merge_ratio());
+}
+
+TEST_F(DatasetTest, WriteDatasetIniPersistsDataMergeRatio) {
+    const auto dir = make_dir("d_merge_ratio_write");
+    DatasetMetadata metadata;
+    metadata.dirs = {dir};
+    metadata.range_size = 100;
+    metadata.type = DataType::f32;
+    metadata.dist_func = DistFunc::DOT;
+    metadata.dim = 4;
+    metadata.data_merge_ratio = 5;
+
+    ASSERT_EQ(0, write_dataset_ini(metadata, config_path_).code());
+    const std::string config = [&]() {
+        std::ifstream in(config_path_);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }();
+    EXPECT_NE(std::string::npos, config.find("data_merge_ratio = 5\n"));
+
+    DatasetWriter writer;
+    const Ret ret = writer.init(config_path_);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ(5u, writer.data_merge_ratio());
+}
+
 TEST_F(DatasetTest, InitFromIniSetsDatasetNameFromIniFilenameStem) {
     const auto dir = make_dir("d_name");
     const std::string named_config_path = base_dir_ + "/dataset_name_test.ini";
@@ -332,6 +372,22 @@ TEST_F(DatasetTest, InitFromIniFailsOnNegativeRangeSize) {
     const Ret ret = sc.init(config_path_);
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Dataset: dataset.range_size must be >= 0", ret.message());
+}
+
+TEST_F(DatasetTest, InitFromIniFailsOnZeroDataMergeRatio) {
+    auto dir = make_dir("d_zero_merge_ratio");
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = 100\n"
+        "data_merge_ratio = 0\n"
+        "type = f32\n"
+        "dim = 4\n");
+
+    DatasetNode sc;
+    const Ret ret = sc.init(config_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Dataset: data_merge_ratio must be > 0.", ret.message());
 }
 
 
@@ -596,6 +652,36 @@ TEST_F(DatasetTest, SecondLargeLoadMergesIntoDataWithoutDelta) {
     EXPECT_EQ(8u, merged.count());
     EXPECT_NE(nullptr, merged.get(0));
     EXPECT_NE(nullptr, merged.get(7));
+}
+
+TEST_F(DatasetTest, CustomDataMergeRatioControlsSecondLoadMerge) {
+    auto dir = make_dir("d_custom_merge_ratio");
+    DatasetMetadata metadata;
+    metadata.dirs = {dir};
+    metadata.range_size = 100;
+    metadata.type = DataType::f32;
+    metadata.dist_func = DistFunc::DOT;
+    metadata.dim = 4;
+    metadata.data_merge_ratio = 4;
+
+    DatasetNode sc;
+    ASSERT_EQ(0, sc.init_for_test(metadata).code());
+    EXPECT_EQ(4u, sc.data_merge_ratio());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    generate_input_file(input_path_, cfg(6, 30, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".delta")));
+
+    DataReader merged;
+    ASSERT_EQ(0, merged.init(file_path(dir, 0, ".data")).code());
+    EXPECT_EQ(26u, merged.count());
+    EXPECT_NE(nullptr, merged.get(30));
+    EXPECT_NE(nullptr, merged.get(35));
 }
 
 TEST_F(DatasetTest, ExistingDeltaGetsMergedWithNewSmallUpdateAndStaysDelta) {

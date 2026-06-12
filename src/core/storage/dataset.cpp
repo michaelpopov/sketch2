@@ -30,6 +30,9 @@ Ret Dataset::init(const DatasetMetadata& metadata) {
     if (metadata.range_size == 0) {
         return Ret("Dataset: range_size must be > 0.");
     }
+    if (metadata.data_merge_ratio == 0) {
+        return Ret("Dataset: data_merge_ratio must be > 0.");
+    }
     if (metadata.dim < kMinDimension || metadata.dim > kMaxDimension) {
         return Ret("Dataset: dim must be in range [" +
             std::to_string(kMinDimension) + ", " + std::to_string(kMaxDimension) + "].");
@@ -74,6 +77,7 @@ Ret Dataset::init_(const std::string& path) {
     metadata.dirs             = cfg.get_str_list("dataset.dirs");
     CHECK(get_non_negative_ini_u64(cfg, "dataset.dim", 0, &metadata.dim));
     CHECK(get_non_negative_ini_u64(cfg, "dataset.range_size", kRangeSize, &metadata.range_size));
+    CHECK(get_non_negative_ini_u64(cfg, "dataset.data_merge_ratio", kDataMergeRatio, &metadata.data_merge_ratio));
 
     std::string type_str = cfg.get_str("dataset.type", "f32");
     metadata.type = data_type_from_string(type_str);
@@ -110,6 +114,7 @@ Ret write_dataset_ini(const DatasetMetadata& metadata, const std::string& path) 
     }
     out << "\n";
     out << "range_size = " << metadata.range_size << "\n";
+    out << "data_merge_ratio = " << metadata.data_merge_ratio << "\n";
     out << "type = " << data_type_to_string(metadata.type) << "\n";
     out << "dist_func = " << dist_func_to_string(metadata.dist_func) << "\n";
     out << "dim = " << metadata.dim << "\n";

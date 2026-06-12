@@ -31,6 +31,7 @@ public:
     DistFunc dist_func() const;
     uint64_t dim() const;
     uint64_t range_size() const;
+    uint64_t data_merge_ratio() const;
     const std::vector<std::string>& dirs() const;
 
     const DatasetReader& reader_dataset() const;

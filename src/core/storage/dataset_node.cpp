@@ -163,6 +163,13 @@ uint64_t DatasetNode::range_size() const {
     return reader_->range_size();
 }
 
+uint64_t DatasetNode::data_merge_ratio() const {
+    if (!reader_) {
+        throw std::runtime_error("DatasetNode::data_merge_ratio: not initialized");
+    }
+    return reader_->data_merge_ratio();
+}
+
 const std::vector<std::string>& DatasetNode::dirs() const {
     if (!reader_) {
         throw std::runtime_error("DatasetNode::dirs: not initialized");

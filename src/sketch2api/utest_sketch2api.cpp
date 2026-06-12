@@ -139,6 +139,7 @@ TEST(sketch2api, create_open_close_drop_lifecycle) {
     EXPECT_NE(ini.find("[dataset]\n"), std::string::npos);
     EXPECT_NE(ini.find("dirs=" + (root / "dataset").string() + "\n"), std::string::npos);
     EXPECT_NE(ini.find("range_size=1000\n"), std::string::npos);
+    EXPECT_NE(ini.find("data_merge_ratio=2\n"), std::string::npos);
     EXPECT_NE(ini.find("dim=4\n"), std::string::npos);
     EXPECT_NE(ini.find("type=f32\n"), std::string::npos);
     EXPECT_NE(ini.find("dist_func=dot\n"), std::string::npos);

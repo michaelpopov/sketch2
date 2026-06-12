@@ -197,6 +197,7 @@ Typical section:
 [dataset]
 dirs=/data/my_dataset
 range_size=10000
+data_merge_ratio=2
 dim=128
 type=f32
 dist_func=l2
@@ -206,6 +207,7 @@ Important keys:
 
 - `dirs`: one or more data directories
 - `range_size`: id-range sharding size
+- `data_merge_ratio`: merge compaction threshold, default `2`
 - `dim`: vector dimension (`4..4096`)
 - `type`: `f32`, `f16`, `i16`
 - `dist_func`: `l1`, `l2`, `cos`

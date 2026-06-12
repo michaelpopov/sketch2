@@ -14,8 +14,7 @@ struct DatasetMetadata {
     DistFunc dist_func = DistFunc::DOT;
     uint64_t dim = 4;
     uint64_t range_size = kRangeSize;
-    uint64_t data_merge_ratio = 2; // merge data files when the new file is less than
-                                   // data_merge_ratio times smaller than the existing file
+    uint64_t data_merge_ratio = kDataMergeRatio;
 };
 
 struct DatasetItem {
@@ -43,6 +42,7 @@ public:
     DistFunc dist_func() const { return metadata_.dist_func; }
     uint64_t dim() const { return metadata_.dim; }
     uint64_t range_size() const { return metadata_.range_size; }
+    uint64_t data_merge_ratio() const { return metadata_.data_merge_ratio; }
     const std::vector<std::string>& dirs() const { return metadata_.dirs; }
     const std::string name() const { return name_; }
 

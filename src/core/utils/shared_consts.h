@@ -16,6 +16,10 @@ inline constexpr char kMetadataFileName[] = "sketch2.metadata";
 // Default dataset id range size used when splitting vectors into per-range files.
 inline constexpr uint64_t kRangeSize = 10'000;
 
+// Default ratio used by DatasetWriter to decide when updates are large enough
+// to merge into a base data file instead of remaining as deltas.
+inline constexpr uint64_t kDataMergeRatio = 2;
+
 // Minimum supported vector dimension enforced by Dataset/InputReader/InputGenerator validation.
 inline constexpr uint64_t kMinDimension = 4;
 
