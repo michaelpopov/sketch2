@@ -5,11 +5,6 @@
 #include <stdexcept>
 #include <cstdint>
 
-// NEON intrinsics are only used by the aarch64 compute path.
-#if defined(__aarch64__)
-#include <arm_neon.h> 
-#endif
-
 namespace sketch2 {
 
 #if !defined(__FLT16_MANT_DIG__)

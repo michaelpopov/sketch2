@@ -81,7 +81,7 @@ Ret InputWriter::init_(DataType type, size_t dim, const std::string& path) {
 
     char header[64];
     const int header_len = std::snprintf(
-        header, sizeof(header), "%s,%zu,%s\n", data_type_to_string(type_), dim_, BinIndexedFileMarker);
+        header, sizeof(header), "%s,%zu,%s\n", data_type_to_string(type_), dim_, kBinIndexedFileMarker);
     if (header_len <= 0 || static_cast<size_t>(header_len) >= sizeof(header)) {
         (void)::close(fd_);
         fd_ = -1;

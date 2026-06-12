@@ -575,13 +575,13 @@ Ret InputReader::parse_input_header(const char* begin, const char* end) {
 
     if (second_comma != std::string::npos) {
         const std::string mode = header.substr(second_comma + 1);
-        if (mode != BinFileMarker && mode != BinIndexedFileMarker) {
+        if (mode != kBinFileMarker && mode != kBinIndexedFileMarker) {
             return Ret("Invalid header: unsupported mode");
         }
 
         binary_ = true;
 
-        if (mode == BinIndexedFileMarker) {
+        if (mode == kBinIndexedFileMarker) {
             bit_indexed_ = true;
         }
     }

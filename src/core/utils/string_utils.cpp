@@ -349,7 +349,7 @@ Ret load_vector(const char* file_path, std::string& vec) {
 
 // Formats a binary vector back into "[ ... ]" text while checking buffer
 // capacity after every append so callers can grow the output buffer and retry.
-Ret print_vector(uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size_t buf_size, size_t digits) {
+Ret print_vector(const uint8_t* vec_data, DataType type, uint16_t dim, char* buf, size_t buf_size, size_t digits) {
     if (vec_data == nullptr || buf == nullptr || buf_size == 0 || digits > 6) {
         return Ret("print_vector: invalid arguments");
     }

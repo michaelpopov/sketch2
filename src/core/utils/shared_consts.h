@@ -100,8 +100,8 @@ inline constexpr size_t kIndexedBinaryBlockItems = sizeof(uint64_t) * 8;
 inline constexpr size_t kMaxLoadedBitsetCount = 128;
 
 // Input format markers.
-constexpr const char* BinFileMarker = "bin";
-constexpr const char* BinIndexedFileMarker = "binind";
+constexpr const char* kBinFileMarker = "bin";
+constexpr const char* kBinIndexedFileMarker = "binind";
 
 
 } // namespace sketch2
