@@ -9,8 +9,11 @@
 #include <iterator>
 #include <tuple>
 #include <unistd.h>
+#include <vector>
+#include "core/bitset/utest_roaring_ids_helpers.h"
 #include "core/storage/input_generator.h"
 #include "core/storage/data_file.h"
+#include "core/storage/data_file_layout.h"
 #include "core/storage/data_writer.h"
 #include "core/storage/dataset_node.h"
 #include "core/storage/data_reader.h"
@@ -72,6 +75,56 @@ protected:
             fclose(f);
         }
         return hdr;
+    }
+
+    void write_conflicting_delta_file(const std::string& path, uint64_t id) {
+        RoaringIds active_ids;
+        init_roaring_ids_for_test(0, {id}, &active_ids);
+        RoaringIds deleted_ids;
+        init_roaring_ids_for_test(0, {id}, &deleted_ids);
+
+        DataFileHeader hdr = make_data_header(
+            id,
+            id,
+            0,
+            1,
+            1,
+            DataType::f32,
+            4);
+        ASSERT_EQ(0, set_data_header_layout(
+            &hdr,
+            serialized_bytes_or_zero(active_ids),
+            serialized_bytes_or_zero(deleted_ids)).code());
+
+        FILE* f = fopen(path.c_str(), "w+b");
+        ASSERT_NE(nullptr, f);
+        ASSERT_EQ(0, write_header_and_data_padding(
+            f, hdr, "DatasetTest::write_conflicting_delta_file").code());
+
+        const std::array<float, 4> vector = {99.0f, 99.0f, 99.0f, 99.0f};
+        const DataRecordLayout record_layout =
+            compute_data_record_layout(DataType::f32, 4, false);
+        ASSERT_EQ(0, write_data_record(
+            f,
+            reinterpret_cast<const uint8_t*>(vector.data()),
+            record_layout,
+            nullptr,
+            "DatasetTest::write_conflicting_delta_file").code());
+
+        const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, 1);
+        ASSERT_EQ(0, write_zero_padding(
+            f,
+            metadata_layout.vectors_padding,
+            "DatasetTest::write_conflicting_delta_file: failed to write ids alignment padding").code());
+        const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
+            metadata_layout.ids_trailer_offset, active_ids, deleted_ids);
+        ASSERT_EQ(0, write_roaring_ids_trailer_mmap(
+            f,
+            active_ids,
+            deleted_ids,
+            trailer_layout,
+            "DatasetTest::write_conflicting_delta_file").code());
+        fclose(f);
     }
 };
 
@@ -831,6 +884,31 @@ TEST_F(DatasetTest, FailedMergeKeepsDeltaFile) {
     EXPECT_FALSE(fs::exists(file_path(dir, 0, ".merge")));
 }
 
+TEST_F(DatasetTest, MergeFailureAfterOutputOpenCleansMergeFile) {
+    auto dir = make_dir("d_merge_failure_cleanup");
+    DatasetNode sc;
+    ASSERT_EQ(0, sc.init_for_test({dir}, 100, DataType::f32, 4).code());
+
+    generate_input_file(input_path_, cfg(20, 0, DataType::f32, 4));
+    ASSERT_EQ(0, sc.store(input_path_).code());
+
+    const std::string delta_path = file_path(dir, 0, ".delta");
+    write_conflicting_delta_file(delta_path, 5);
+    ASSERT_TRUE(fs::exists(delta_path));
+
+    const Ret ret = sc.merge();
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("updated id is also deleted"));
+    EXPECT_TRUE(fs::exists(file_path(dir, 0, ".data")));
+    EXPECT_TRUE(fs::exists(delta_path));
+    EXPECT_FALSE(fs::exists(file_path(dir, 0, ".merge")));
+
+    DataReader data_reader;
+    ASSERT_EQ(0, data_reader.init(file_path(dir, 0, ".data")).code());
+    const float* v = reinterpret_cast<const float*>(data_reader.get(5));
+    ASSERT_NE(nullptr, v);
+    EXPECT_NEAR(5.1f, v[0], 1e-5f);
+}
 
 TEST_F(DatasetTest, MergeProcessesAllRangesWithDeltaFiles) {
     auto dir = make_dir("d_merge_all");
