@@ -179,11 +179,6 @@ Ret InputWriter::flush_block(bool write_footer) {
         return write_ret;
     }
 
-    const int flush_rc = fdatasync(fd_);
-    if (flush_rc != 0) {
-        return Ret(std::string("InputWriter: failed to store data: ") + strerror(errno));
-    }
-
     block_used_ = sizeof(uint64_t);
     block_items_ = 0;
     block_bitset_ = 0;
@@ -215,15 +210,24 @@ Ret InputWriter::close_file() {
         return Ret(0);
     }
 
-    Ret flush_ret = flush_block(false);
-    const int fsync_rc = ::fsync(fd_);
+    const Ret flush_ret = flush_block(false);
+    int fsync_rc = 0;
+    int fsync_errno = 0;
+    if (flush_ret.code() == 0) {
+        fsync_rc = ::fsync(fd_);
+        fsync_errno = errno;
+    }
     const int close_rc = ::close(fd_);
+    const int close_errno = errno;
     fd_ = -1;
     if (flush_ret.code() != 0) {
         return flush_ret;
     }
-    if (fsync_rc != 0 || close_rc != 0) {
-        return Ret("InputWriter: failed to close file");
+    if (fsync_rc != 0) {
+        return Ret(std::string("InputWriter: failed to sync file on close: ") + strerror(fsync_errno));
+    }
+    if (close_rc != 0) {
+        return Ret(std::string("InputWriter: failed to close file: ") + strerror(close_errno));
     }
 
     return Ret(0);
