@@ -755,14 +755,6 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
 }
 
 bool DatasetWriter::check_data_file_merge(const DataReader& data_reader,
-        const DataReader& output_reader) const {
-    // This overload is convenient when the candidate updater is already stored
-    // as a DataReader-backed file.
-    const uint64_t output_count = output_reader.count() + output_reader.deleted_count();
-    return check_data_file_merge(data_reader, output_count);
-}
-
-bool DatasetWriter::check_data_file_merge(const DataReader& data_reader,
         uint64_t output_count) const {
     // The heuristic compares update volume to the size of the current base
     // file. Large updates go straight into a rewritten base file; small updates
@@ -814,32 +806,6 @@ Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const InputRea
         merge_path,
         data_path,
         "DatasetWriter::merge_data_file: publish data file");
-    if (ret.code() != 0) {
-        std::error_code ec;
-        std::filesystem::remove(merge_path, ec);
-        return ret;
-    }
-
-    return Ret(0);
-}
-
-Ret DatasetWriter::merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader,
-        const std::string& output_path_base) const {
-    const std::string source_path = output_path_base + kTempExt;
-    std::experimental::scope_exit file_guard([source_path]() {
-        std::error_code ec;
-        std::filesystem::remove(source_path, ec);
-    });
-
-    DataMerger processor;
-    const std::string merge_path = output_path_base + kMergeExt;
-    CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path));
-
-    const std::string delta_path = output_path_base + kDeltaExt;
-    const Ret ret = rename_and_fsync_parent_directory(
-        merge_path,
-        delta_path,
-        "DatasetWriter::merge_delta_file: publish delta file");
     if (ret.code() != 0) {
         std::error_code ec;
         std::filesystem::remove(merge_path, ec);

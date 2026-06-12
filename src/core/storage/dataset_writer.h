@@ -71,16 +71,12 @@ private:
         uint64_t range_start, uint64_t range_end) const;
 
     bool check_data_file_merge(const DataReader& data_reader,
-        const DataReader& output_reader) const;
-    bool check_data_file_merge(const DataReader& data_reader,
         uint64_t output_count) const;
     bool check_data_delta_merge(const DataReader& data_reader,
         const DataReader& delta_reader) const;
     Ret merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
         const std::string& output_path_base, const std::string& ext) const;
     Ret merge_data_file(const DataReader& data_reader, const InputReaderView& output_reader,
-        const std::string& output_path_base) const;
-    Ret merge_delta_file(const DataReader& delta_reader, const DataReader& output_reader,
         const std::string& output_path_base) const;
     Ret merge_delta_file(const DataReader& delta_reader, const InputReaderView& output_reader,
         const std::string& output_path_base) const;
