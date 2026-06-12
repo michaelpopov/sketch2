@@ -174,7 +174,17 @@ std::pair<std::shared_ptr<const std::vector<DatasetItem>>, Ret> DatasetReader::g
         return {nullptr, notifier_ret};
     }
 
-    const bool cache_updated = update_notifier_ && update_notifier_->check_updated();
+    bool cache_updated = false;
+    {
+        std::lock_guard<std::mutex> notifier_lock(update_notifier_mutex_);
+        cache_updated = update_notifier_ && update_notifier_->check_updated();
+        if (cache_updated) {
+            sketch::WriteGuard wg(cache_lock_);
+            items_cache_.reset();
+            reader_cache_.clear();
+        }
+    }
+
     if (!cache_updated) {
         sketch::ReadGuard rg(cache_lock_);
         if (items_cache_) {
@@ -183,11 +193,6 @@ std::pair<std::shared_ptr<const std::vector<DatasetItem>>, Ret> DatasetReader::g
     }
 
     sketch::WriteGuard wg(cache_lock_);
-    if (cache_updated) {
-        items_cache_.reset();
-        reader_cache_.clear();
-    }
-
     if (!items_cache_) {
         std::vector<DatasetItem> items;
         const Ret collect_ret = collect_dataset_items(name_, metadata_, &items);

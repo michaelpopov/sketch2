@@ -2,11 +2,13 @@
 
 #include <gtest/gtest.h>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <thread>
 #include <tuple>
 #include <unistd.h>
 #include <vector>
@@ -1353,6 +1355,72 @@ TEST_F(DatasetTest, GuestDetectsOwnerStoreAndFlushesCache) {
     const float* v = reinterpret_cast<const float*>(reader1->get(2));
     ASSERT_NE(nullptr, v);
     EXPECT_NEAR(99.0f, v[0], 1e-5f);
+}
+
+TEST_F(DatasetTest, ConcurrentGuestReadsInvalidateCacheAfterOwnerStore) {
+    auto dir = make_dir("d_notifier_guest_concurrent");
+
+    DatasetNode owner;
+    ASSERT_EQ(0, owner.init_for_test({dir}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    DatasetReader guest;
+    ASSERT_EQ(0, guest.init(dir + "/dataset.ini").code());
+
+    auto [cached_reader, cached_ret] = guest.get(2);
+    ASSERT_EQ(0, cached_ret.code()) << cached_ret.message();
+    ASSERT_NE(nullptr, cached_reader);
+    const void* old_ptr = cached_reader.get();
+
+    write_input("f32,4\n2 : [ 99.0, 99.0, 99.0, 99.0 ]\n");
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    constexpr size_t kThreadCount = 16;
+    std::atomic<size_t> ready{0};
+    std::atomic<bool> start{false};
+    std::vector<std::thread> threads;
+    std::vector<DataReaderPtr> readers(kThreadCount);
+    std::vector<Ret> rets(kThreadCount, Ret(0));
+    std::vector<float> values(kThreadCount, 0.0f);
+    threads.reserve(kThreadCount);
+
+    for (size_t i = 0; i < kThreadCount; ++i) {
+        threads.emplace_back([&, i]() {
+            ready.fetch_add(1, std::memory_order_acq_rel);
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            auto [reader, ret] = guest.get(2);
+            readers[i] = reader;
+            rets[i] = ret;
+            if (reader != nullptr) {
+                const float* v = reinterpret_cast<const float*>(reader->get(2));
+                if (v != nullptr) {
+                    values[i] = v[0];
+                }
+            }
+        });
+    }
+
+    while (ready.load(std::memory_order_acquire) != kThreadCount) {
+        std::this_thread::yield();
+    }
+    start.store(true, std::memory_order_release);
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_NE(nullptr, readers[0]);
+    const void* fresh_ptr = readers[0].get();
+    EXPECT_NE(old_ptr, fresh_ptr);
+    for (size_t i = 0; i < kThreadCount; ++i) {
+        ASSERT_EQ(0, rets[i].code()) << rets[i].message();
+        ASSERT_NE(nullptr, readers[i]);
+        EXPECT_EQ(fresh_ptr, readers[i].get());
+        EXPECT_NEAR(99.0f, values[i], 1e-5f);
+    }
 }
 
 TEST_F(DatasetTest, GuestCacheStaysValidWhenNoUpdate) {
