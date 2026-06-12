@@ -114,13 +114,14 @@ DataWriter
 A class that gets generates sealed data file based on the content of InputReader.
 Format:
 
-|--------|------------------------------------------|-------------|-------------|
-  header       aligned vector records with optional    array of ids   array of
-               inline stored norm                                     deleted ids
+|--------|------------------------------------------|--------------------|---------------------|
+  header       aligned vector records with optional    frozen RoaringIds     frozen RoaringIds
+               inline stored norm                      active ids           deleted ids
 
 header is a struct DataFileHeader.
 Each vector record stores the vector payload plus optional inline norm data in the same stride-sized slot.
-ids is an array of u64.
+ids are stored as frozen RoaringIds trailers. Active ids and deleted ids are
+stored in separate trailers, both encoded as uint32 offsets from `min_range_id`.
 For cosine datasets each active record also stores an inline `f32` inverse norm, `1.0 / ||vector||`.
 Zero vectors store `0.0`.
 The values are intentionally stored as `f32` instead of `f64` to keep each record compact and
@@ -136,22 +137,22 @@ Interface:
     init(input_path, output_path)
     exec()
 
-Position of id in array ids matches position of the corresponding vector record.
+The position of an active id in the active RoaringIds set matches the position
+of the corresponding vector record.
 
 Create an instance of InputReader and init it with input_path.
-Create a vector<u64>, resize it with InputReader::count() and populate with ids.
 Init DataFileHeader (data_file.h)
 Write output file:
   - write header
   - iterate over all data(index) in InputReader and write each vector record
   - for cosine datasets, compute one inverse norm per active vector and store it inline in that record
-  - write vector of ids.
+  - write frozen RoaringIds trailers for active ids and deleted ids.
 
 
 DataReader
 -------------------------
-A class that reads data from a data file.
-See format defined for DataWriter.
+A class that reads data from a data file or a data file with an attached delta
+file. See format defined for DataWriter.
 Interface:
     init(path)
     type()
@@ -167,20 +168,18 @@ Iterator
     next()
     eof()
 
-There is a bitset of boolean flags. The size matches the number of vectors
-in the file. Each vector has a corresponding bit. 0 (false) means the vector
-is valid as it is. 1 (true) means the vector was modified. 
+The reader memory-maps vector records and frozen RoaringIds trailers directly
+from the file. The active ids trailer supports id lookup, positional lookup, and
+ordered iteration. The deleted ids trailer records tombstones.
 
-There is an additional map that points to modified values. 
-     id -> modified value position
-If the flag is on in the bitset, then find an uint32 value in the hash map 
-by vector's id. If it is found, then use the value identifued by the offset.
-If it is not found, then the vector is deleted.
+When a delta DataReader is attached, the base reader builds a hidden-row bitset
+whose size matches the base active-id count. A bit is set when the delta either
+deletes the base id or provides a newer active row for the same id. Base
+iteration skips hidden rows, and delta rows are exposed from the delta reader.
+There is no per-id hash map in the current design.
 
-Bitset and the map are populated only if a delta DataReader is provided.
-
-Iterator skips deleted vectors by checking the bitset and look up in the map.
-For files with cosine metadata, iterator also exposes the stored inline inverse norm for each visible vector.
+For files with stored norm metadata, the reader exposes the inline stored norm
+for each visible vector.
 
 
 Scanner

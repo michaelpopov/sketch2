@@ -149,19 +149,19 @@ These are internal staging files used while writing or merging a range.
 
 They let the code build the next version safely and then rename it into place.
 
-### 4. Per-Range Lock Files
+### 4. Dataset Owner Lock
 
 Extension: `.lock`
 
-Each range operation takes a file lock on `<file_id>.lock` so concurrent writes
-to the same range do not corrupt persisted state.
+The lock path is:
 
-### 5. Dataset Owner Lock
+```text
+<first dataset directory>/<dataset name>.lock
+```
 
-File name: `sketch2.owner.lock`
-
-This lock lives in the first dataset directory and ensures only one owner-mode
-dataset instance performs modifications at a time.
+If the dataset name is empty, `dataset` is used as the fallback name. This
+single owner lock ensures only one owner-mode dataset instance performs
+modifications at a time.
 
 ## Partitioning by Id Range
 
@@ -462,7 +462,6 @@ The scanner relies on this storage model in two important ways.
 The storage layer uses several mechanisms together:
 
 - mmap-based validated reads
-- per-range file locks
 - a dataset owner lock
 - temporary/merge files before rename
 

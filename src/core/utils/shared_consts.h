@@ -73,11 +73,8 @@ inline constexpr char kDeltaExt[] = ".delta";
 // Merge-file suffix used by Dataset while combining base data and accumulator/delta updates.
 inline constexpr char kMergeExt[] = ".merge";
 
-// Advisory lock suffix used by Dataset for per-range file mutation serialization.
+// Dataset owner lock suffix; the path is <first dataset dir>/<dataset name>.lock.
 inline constexpr char kLockExt[] = ".lock";
-
-// Dataset owner lock file name used by Dataset::ensure_owner_lock_() and parasol::sk_drop().
-inline constexpr char kOwnerLockFileName[] = "sketch2.owner.lock";
 
 // Accumulator WAL file name used by Dataset to persist owner-side pending updates across restarts.
 inline constexpr char kAccumulatorWalFileName[] = "sketch2.accumulator.wal";

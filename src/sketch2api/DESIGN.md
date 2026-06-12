@@ -18,7 +18,7 @@ Sketch2api supports the following functions:
     Functionality: in the database root directory creates dataset's ini file and lock file, 
                    creates dataset's directory
     Arguments:  handler obtained in connect
-                name string - used as a <name>.ini file and <name>.lock files, <db_root>/name 
+                name string - used as a <name>.ini file, a <name>.lock file, and a <db_root>/name
                   data directory. Ini file has "dataset" section for values.
                 dim int - value written into ini file, validate it's positive
                 type string - value written into ini file, validate it's one of "f16", "f32", "i16",
