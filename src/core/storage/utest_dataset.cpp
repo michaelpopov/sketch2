@@ -357,6 +357,46 @@ TEST_F(DatasetTest, ReaderIgnoresOverflowingNumericFileStem) {
     EXPECT_EQ(nullptr, data_reader);
 }
 
+TEST_F(DatasetTest, CollectDatasetItemsIgnoresHostileFilenames) {
+    const auto dir = make_dir("d_hostile_file_id");
+    DatasetNode owner;
+    ASSERT_EQ(0, owner.init_for_test({dir}, 100, DataType::f32, 4).code());
+    generate_input_file(input_path_, cfg(5, 0, DataType::f32, 4));
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    const std::vector<std::string> hostile_names = {
+        "..data",
+        "..0.data",
+        "-1.data",
+        "+1.delta",
+        "1..data",
+        "1.data.tmp",
+        "1.data.delta",
+        "18446744073709551616.data",
+        "999999999999999999999999999999.delta",
+        ".data",
+        "data",
+    };
+    for (const std::string& name : hostile_names) {
+        std::ofstream stray(dir + "/" + name);
+        ASSERT_TRUE(stray.is_open()) << name;
+    }
+
+    DatasetMetadata metadata;
+    metadata.dirs = {dir};
+    metadata.range_size = 100;
+    metadata.type = DataType::f32;
+    metadata.dim = 4;
+
+    std::vector<DatasetItem> items;
+    const Ret ret = collect_dataset_items("dataset", metadata, &items);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_EQ(1u, items.size());
+    EXPECT_EQ(0u, items[0].id);
+    EXPECT_EQ(file_path(dir, 0, ".data"), items[0].data_file_path);
+    EXPECT_TRUE(items[0].delta_file_path.empty());
+}
+
 TEST_F(DatasetTest, InitFromMetadataExposesDistanceFunction) {
     DatasetMetadata metadata;
     metadata.dirs = {make_dir("d_metadata_dist")};
