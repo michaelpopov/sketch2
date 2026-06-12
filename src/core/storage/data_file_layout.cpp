@@ -4,6 +4,10 @@
 #include "utils/mapped_region.h"
 #include "utils/shared_consts.h"
 #include <cassert>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace sketch2 {
@@ -46,6 +50,57 @@ Ret OutputFile::flush_and_close(const std::string& context) {
     f_ = nullptr;
     if (flush_ret != 0 || fsync_ret != 0 || close_ret != 0) {
         return Ret(context + ": failed to flush and close file");
+    }
+    return Ret(0);
+}
+
+Ret read_data_file_header(const std::string& path, DataFileHeader* hdr) {
+    if (hdr == nullptr) {
+        return Ret("read_data_file_header: missing header output");
+    }
+    *hdr = {};
+
+    const int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return Ret("read_data_file_header: failed to open file " + path + ": " + std::strerror(errno));
+    }
+
+    auto fail = [&](const std::string& message) {
+        (void)::close(fd);
+        *hdr = {};
+        return Ret(message);
+    };
+
+    struct stat st;
+    if (::fstat(fd, &st) < 0) {
+        return fail("read_data_file_header: failed to stat file " + path + ": " + std::strerror(errno));
+    }
+    if (st.st_size < static_cast<off_t>(sizeof(DataFileHeader))) {
+        return fail("read_data_file_header: file too small to contain a valid header");
+    }
+
+    const ssize_t header_bytes = ::pread(fd, hdr, sizeof(*hdr), 0);
+    if (header_bytes < 0) {
+        return fail("read_data_file_header: failed to read file header from " + path + ": " + std::strerror(errno));
+    }
+    if (header_bytes != static_cast<ssize_t>(sizeof(*hdr))) {
+        return fail("read_data_file_header: short read while reading file header");
+    }
+
+    if (hdr->base.magic != kMagic) {
+        return fail("read_data_file_header: invalid magic number");
+    }
+    if (hdr->base.kind != static_cast<uint16_t>(FileType::Data)) {
+        return fail("read_data_file_header: not a data file");
+    }
+    if (hdr->base.version != kVersion) {
+        return fail("read_data_file_header: unsupported file version");
+    }
+
+    const int close_rc = ::close(fd);
+    if (close_rc != 0) {
+        *hdr = {};
+        return Ret("read_data_file_header: failed to close file " + path + ": " + std::strerror(errno));
     }
     return Ret(0);
 }

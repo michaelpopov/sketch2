@@ -175,6 +175,8 @@ Ret write_roaring_ids_trailer_mmap(FILE* f,
 
 Ret write_zero_padding(FILE* f, size_t size, const std::string& error_message);
 
+Ret read_data_file_header(const std::string& path, DataFileHeader* hdr);
+
 Ret write_header_and_data_padding(FILE* f, const DataFileHeader& hdr, const std::string& context);
 
 Ret rewrite_header(FILE* f, const DataFileHeader& hdr, const std::string& context);

@@ -563,9 +563,9 @@ Ret DatasetWriter::garbage_collect_() {
             continue;
         }
 
-        DataReader data_reader;
-        CHECK(data_reader.init(item.data_file_path));
-        if (data_reader.count() == 0) {
+        DataFileHeader data_header{};
+        CHECK(read_data_file_header(item.data_file_path, &data_header));
+        if (data_header.count == 0) {
             std::error_code ec;
             std::filesystem::remove(item.data_file_path, ec);
             if (ec) {

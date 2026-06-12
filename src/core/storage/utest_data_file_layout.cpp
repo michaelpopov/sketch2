@@ -206,6 +206,40 @@ TEST_F(DataFileLayoutTest, RewriteHeaderOverwritesExistingHeader) {
     EXPECT_EQ(100u, read.min_id);
 }
 
+TEST_F(DataFileLayoutTest, ReadDataFileHeaderReadsValidHeaderWithoutFullReader) {
+    auto hdr = make_data_header(11, 19, 10, 3, 1, DataType::f32, 4);
+    ASSERT_EQ(0, set_data_header_layout(&hdr, 0, 0).code());
+
+    FILE* f = fopen(path_.c_str(), "wb");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(0, write_header_and_data_padding(f, hdr, "ctx").code());
+    fclose(f);
+
+    DataFileHeader read{};
+    ASSERT_EQ(0, read_data_file_header(path_, &read).code());
+    EXPECT_EQ(hdr.base.magic, read.base.magic);
+    EXPECT_EQ(hdr.base.kind, read.base.kind);
+    EXPECT_EQ(hdr.base.version, read.base.version);
+    EXPECT_EQ(3u, read.count);
+    EXPECT_EQ(1u, read.deleted_count);
+}
+
+TEST_F(DataFileLayoutTest, ReadDataFileHeaderRejectsNonDataHeader) {
+    DataFileHeader hdr = make_data_header(0, 0, 0, 0, 0, DataType::f32, 4);
+    hdr.base.kind = static_cast<uint16_t>(FileType::Wal);
+
+    FILE* f = fopen(path_.c_str(), "wb");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(1u, fwrite(&hdr, sizeof(hdr), 1, f));
+    fclose(f);
+
+    DataFileHeader read{};
+    const Ret ret = read_data_file_header(path_, &read);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("not a data file"));
+    EXPECT_EQ(0u, read.base.magic);
+}
+
 TEST_F(DataFileLayoutTest, WriteDataRecordPadsToStrideWithoutNorms) {
     const auto layout = compute_data_record_layout(DataType::f32, 5, false);
     const std::vector<float> values = {1.f, 2.f, 3.f, 4.f, 5.f};
