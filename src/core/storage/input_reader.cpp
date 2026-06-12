@@ -365,11 +365,22 @@ Ret InputReader::process_text_data(const char* record_begin, const char* end) {
             return Ret("Invalid line: missing ']'");
         }
 
+        const bool is_deleted = close == bracket + 1;
+        if (!is_deleted) {
+            const char* first_payload = bracket + 1;
+            while (first_payload < close && std::isspace(static_cast<unsigned char>(*first_payload))) {
+                ++first_payload;
+            }
+            if (first_payload == close) {
+                return Ret("Invalid line: deleted vector must be []");
+            }
+        }
+
         // offset points to the character after "[" (first number)
         uint64_t offset = static_cast<uint64_t>(bracket + 1 - p);
         lines_.add(id, offset);
 
-        if (once && bracket[1] != ']') { // skip checking "delete" vectors
+        if (once && !is_deleted) {
             once = false;
             const char* p = reinterpret_cast<const char*>(map_) + offset;
             is_comma_delimited_ = check_comma_format(p, close);
@@ -428,6 +439,10 @@ Ret InputReader::data(size_t index, uint8_t* buf, size_t size) const {
 
         std::memcpy(buf, map_ + lines_.offset(index), this->size());
         return Ret(0);
+    }
+
+    if (is_no_data(index)) {
+        return Ret("InputReader::data: vector is deleted");
     }
 
     const char* p = reinterpret_cast<const char*>(map_) + lines_.offset(index);

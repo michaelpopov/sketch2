@@ -377,12 +377,30 @@ TEST_F(InputReaderTest, IsNoDataReturnsFalseForNormalVector) {
 }
 
 TEST_F(InputReaderTest, IsNoDataReturnsTrueForEmptyBrackets) {
-    // Write a line with empty brackets: "5 : [  ]\n"
     write_raw("f32,4\n5 : []\n");
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
     ASSERT_EQ(1u, r.count());
     EXPECT_TRUE(r.is_no_data(0));
+}
+
+TEST_F(InputReaderTest, DataReturnsVectorDeletedForEmptyBrackets) {
+    write_raw("f32,4\n5 : []\n");
+    InputReader r;
+    ASSERT_EQ(0, r.init(path_).code());
+
+    std::vector<uint8_t> buf(r.size());
+    Ret ret = r.data(0, buf.data(), buf.size());
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("InputReader::data: vector is deleted", ret.message());
+}
+
+TEST_F(InputReaderTest, RejectsWhitespaceOnlyDeletedVector) {
+    write_raw("f32,4\n5 : [ ]\n");
+    InputReader r;
+    Ret ret = r.init(path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Invalid line: deleted vector must be []", ret.message());
 }
 
 TEST_F(InputReaderTest, F16DataWorks) {
