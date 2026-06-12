@@ -60,6 +60,41 @@ TEST(LinesInfoTest, SortKeepsOffsetsMatchedToIds) {
     EXPECT_EQ(300u, lines.offset(2));
 }
 
+TEST(LinesInfoTest, SortKeepsU64OffsetsMatchedToIds) {
+    LinesInfo lines;
+    lines.set_u64_offsets(true);
+    lines.add(30, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 300u);
+    lines.add(10, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 100u);
+    lines.add(20, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 200u);
+
+    lines.sort();
+
+    ASSERT_EQ(3u, lines.size());
+    EXPECT_EQ(10u, lines.id(0));
+    EXPECT_EQ(static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 100u, lines.offset(0));
+    EXPECT_EQ(20u, lines.id(1));
+    EXPECT_EQ(static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 200u, lines.offset(1));
+    EXPECT_EQ(30u, lines.id(2));
+    EXPECT_EQ(static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 300u, lines.offset(2));
+}
+
+TEST(LinesInfoTest, SortHandlesDescendingInput) {
+    LinesInfo lines;
+    constexpr uint64_t kCount = 1024;
+    for (uint64_t id = kCount; id > 0; --id) {
+        lines.add(id, id * 10);
+    }
+
+    lines.sort();
+
+    ASSERT_EQ(static_cast<size_t>(kCount), lines.size());
+    for (uint64_t i = 0; i < kCount; ++i) {
+        const uint64_t expected_id = i + 1;
+        EXPECT_EQ(expected_id, lines.id(static_cast<size_t>(i)));
+        EXPECT_EQ(expected_id * 10, lines.offset(static_cast<size_t>(i)));
+    }
+}
+
 TEST(LinesInfoTest, LowerBoundIndexFindsExpectedPosition) {
     LinesInfo lines;
     lines.add(10, 100);
