@@ -33,9 +33,10 @@ inline constexpr uint64_t kMaxDimension = 4096;
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 
 // Binary storage format version written into data headers and checked when reopening files.
-// Version 13 stores aligned vector records with any optional norm inline in the record stride,
-// followed by region-aligned frozen Roaring id trailers.
-inline constexpr uint16_t kVersion = 13;
+// Version 14 adds optional payload CRC32 metadata to the v13 layout of aligned vector
+// records with any optional norm inline in the record stride, followed by
+// region-aligned frozen Roaring id trailers.
+inline constexpr uint16_t kVersion = 14;
 
 // Vector payload alignment used by data files and accumulator storage for SIMD-friendly access.
 inline constexpr uint32_t kDataAlignment = 32;
@@ -49,8 +50,11 @@ static_assert(kDataRegionAlignment % 32u == 0,
 // active vector records.
 inline constexpr uint32_t kDataFileHasCosineInvNorms = 1u;
 inline constexpr uint32_t kDataFileHasSquaredNorms = 2u;
+inline constexpr uint32_t kDataFileHasPayloadCrc32 = 4u;
 inline constexpr uint32_t kDataFileNormKindMask =
     kDataFileHasCosineInvNorms | kDataFileHasSquaredNorms;
+inline constexpr uint32_t kDataFileSupportedFlags =
+    kDataFileNormKindMask | kDataFileHasPayloadCrc32;
 
 // Shared stdio buffer size used by DataWriter, DataMerger, and Dataset merge/store paths.
 inline constexpr size_t kFileBufferSize = 4 * 1024 * 1024;

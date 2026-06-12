@@ -34,6 +34,8 @@ struct DataFileHeader {
     uint64_t vectors_bytes; // total bytes in the vector-record region
     uint32_t vector_stride; // bytes between consecutive persisted records, including inline norm/padding
     uint32_t flags; // optional per-record metadata flags, e.g. stored inline norms
+    uint32_t payload_crc32; // CRC32 over bytes [data_offset, file_size), when flag is set
+    uint32_t reserved0;
     uint64_t ids_offset; // offset from file start to active ids trailer
     uint64_t ids_bytes; // size of active ids section
     uint64_t deleted_ids_offset; // offset from file start to deleted ids section
@@ -41,13 +43,21 @@ struct DataFileHeader {
     uint64_t min_range_id;
 };
 
-static_assert(sizeof(DataFileHeader) == 104, "Unexpected DataFileHeader size");
+static_assert(sizeof(DataFileHeader) == 112, "Unexpected DataFileHeader size");
 
-// Data file payload contract (v13):
+inline bool data_file_has_payload_crc32(const DataFileHeader& hdr) {
+    return (hdr.flags & kDataFileHasPayloadCrc32) != 0u;
+}
+
+// Data file payload contract (v14):
 // 1) aligned vector records with optional inline norm
 // 2) region-alignment padding
 // 3) frozen RoaringIds(active ids), omitted when count is zero
 // 4) region-alignment padding
 // 5) frozen RoaringIds(deleted ids), omitted when deleted_count is zero
+// If kDataFileHasPayloadCrc32 is set, payload_crc32 covers bytes from
+// data_offset through the end of the file. Header bytes and header-to-data
+// alignment padding are intentionally excluded so readers can verify payload
+// integrity only when requested.
 
 } // namespace sketch2

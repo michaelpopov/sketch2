@@ -171,9 +171,11 @@ Ret write_roaring_ids_trailer_mmap(FILE* f,
         const RoaringIds& ids,
         const RoaringIds& deleted_ids,
         const RoaringIdsTrailerLayout& trailer_layout,
-        const std::string& context);
+        const std::string& context,
+        uint32_t* payload_crc32 = nullptr);
 
-Ret write_zero_padding(FILE* f, size_t size, const std::string& error_message);
+Ret write_zero_padding(FILE* f, size_t size, const std::string& error_message,
+        uint32_t* payload_crc32 = nullptr);
 
 Ret read_data_file_header(const std::string& path, DataFileHeader* hdr);
 
@@ -182,12 +184,17 @@ Ret write_header_and_data_padding(FILE* f, const DataFileHeader& hdr, const std:
 Ret rewrite_header(FILE* f, const DataFileHeader& hdr, const std::string& context);
 
 Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, size_t vector_stride,
-        const std::string& context);
+        const std::string& context,
+        uint32_t* payload_crc32 = nullptr);
 
 Ret write_data_record(FILE* f,
         const uint8_t* data,
         const DataRecordLayout& layout,
         const float* norm,
+        const std::string& context,
+        uint32_t* payload_crc32 = nullptr);
+
+Ret verify_data_file_payload_crc32(int fd, const DataFileHeader& hdr, size_t file_size,
         const std::string& context);
 
 } // namespace sketch2

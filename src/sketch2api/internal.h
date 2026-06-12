@@ -44,5 +44,6 @@ SKETCH2API_HIDDEN int sk_generate_test_metadata_(sk_handle_t* handle,
     const char* path, uint64_t count, uint64_t start_id);
 SKETCH2API_HIDDEN int sk_import_data_(sk_handle_t* handle, const char* path);
 SKETCH2API_HIDDEN int sk_stats_(sk_handle_t* handle, const char* path = nullptr);
+SKETCH2API_HIDDEN int sk_verify_integrity_(sk_handle_t* handle);
 
 } // namespace sketch2

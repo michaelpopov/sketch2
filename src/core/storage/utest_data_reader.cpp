@@ -314,6 +314,56 @@ TEST_F(DataReaderTest, FailsOnPreviousVersionHardCutover) {
     EXPECT_NE(0, ret.code());
 }
 
+TEST_F(DataReaderTest, VerifiedInitSucceedsWithWriterChecksum) {
+    generate(3, 0, DataType::f32, 4);
+
+    const DataFileHeader hdr = read_data_header();
+    EXPECT_TRUE(data_file_has_payload_crc32(hdr));
+
+    DataReader r;
+    const Ret ret = r.init_verified(data_path_);
+    EXPECT_EQ(0, ret.code()) << ret.message();
+}
+
+TEST_F(DataReaderTest, VerifiedInitFailsWhenChecksumIsAbsent) {
+    const std::vector<float> vec = {1.0f, 2.0f, 3.0f, 4.0f};
+    const std::vector<std::vector<uint8_t>> vecs = {
+        std::vector<uint8_t>(
+            reinterpret_cast<const uint8_t*>(vec.data()),
+            reinterpret_cast<const uint8_t*>(vec.data()) + vec.size() * sizeof(float)),
+    };
+    write_raw(DataType::f32, 4, 0, vecs);
+
+    DataReader r;
+    const Ret ret = r.init_verified(data_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("payload checksum is absent"));
+}
+
+TEST_F(DataReaderTest, VerifiedInitDetectsCorruptVectorPayloadButLazyInitDoesNot) {
+    generate(3, 0, DataType::f32, 4);
+    const DataFileHeader hdr = read_data_header();
+    ASSERT_TRUE(data_file_has_payload_crc32(hdr));
+
+    FILE* f = fopen(data_path_.c_str(), "r+b");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(0, fseek(f, static_cast<long>(hdr.data_offset), SEEK_SET));
+    uint8_t byte = 0;
+    ASSERT_EQ(1u, fread(&byte, sizeof(byte), 1, f));
+    byte ^= 0x01u;
+    ASSERT_EQ(0, fseek(f, static_cast<long>(hdr.data_offset), SEEK_SET));
+    ASSERT_EQ(1u, fwrite(&byte, sizeof(byte), 1, f));
+    fclose(f);
+
+    DataReader lazy;
+    EXPECT_EQ(0, lazy.init(data_path_).code());
+
+    DataReader verified;
+    const Ret ret = verified.init_verified(data_path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("payload checksum mismatch"));
+}
+
 TEST_F(DataReaderTest, FailsWhenDimensionExceedsMaximum) {
     const uint16_t dim = static_cast<uint16_t>(kMaxDimension + 1);
     const std::vector<std::vector<uint8_t>> vecs = {

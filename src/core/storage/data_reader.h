@@ -223,6 +223,7 @@ public:
     ~DataReader() = default;
 
     Ret init(const std::string& path, std::unique_ptr<DataReader> delta = nullptr);
+    Ret init_verified(const std::string& path, std::unique_ptr<DataReader> delta = nullptr);
 
     DataType type() const;
     size_t dim() const;
@@ -366,7 +367,7 @@ private:
     bool                    has_hidden_rows_ = false;
     std::unique_ptr<DataReader> delta_;
 
-    Ret init_(const std::string &path, std::unique_ptr<DataReader> delta);
+    Ret init_(const std::string &path, std::unique_ptr<DataReader> delta, bool verify_payload_checksum);
     void reset_state_();
     Ret read_header_(int fd, const std::string& path, size_t* file_size);
     Ret validate_header_and_layout_(size_t file_size, DataMetadataLayout* metadata_layout);

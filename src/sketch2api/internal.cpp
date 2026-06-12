@@ -989,4 +989,35 @@ int sk_stats_(sk_handle_t* handle, const char* path) {
     return 0;
 }
 
+int sk_verify_integrity_(sk_handle_t* handle) {
+    DECL
+
+    if (handle->ds == nullptr) {
+        ERR("No dataset is open")
+    }
+
+    const auto& dirs = handle->ds->dirs();
+    for (const auto& dir_str: dirs) {
+        const std::filesystem::path dir_path{dir_str};
+
+        for (const auto& file_path : collect_paths_with_extension(dir_path, ".data")) {
+            DataReader reader;
+            Ret ret = reader.init_verified(file_path.string());
+            if (ret.code() != 0) {
+                ERR(file_path.string() + ": " + ret.message())
+            }
+        }
+
+        for (const auto& file_path : collect_paths_with_extension(dir_path, ".delta")) {
+            DataReader reader;
+            Ret ret = reader.init_verified(file_path.string());
+            if (ret.code() != 0) {
+                ERR(file_path.string() + ": " + ret.message())
+            }
+        }
+    }
+
+    return 0;
+}
+
 } // namespace sketch2

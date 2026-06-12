@@ -3,6 +3,8 @@
 #include "core/storage/data_file_layout.h"
 #include "utils/mapped_region.h"
 #include "utils/shared_consts.h"
+#include "utils/string_utils.h"
+#include <algorithm>
 #include <cassert>
 #include <cerrno>
 #include <cstring>
@@ -111,7 +113,8 @@ Ret write_roaring_ids_trailer_mmap(FILE* f,
         const RoaringIds& ids,
         const RoaringIds& deleted_ids,
         const RoaringIdsTrailerLayout& trailer_layout,
-        const std::string& context) {
+        const std::string& context,
+        uint32_t* payload_crc32) {
     if (f == nullptr) {
         return Ret(context + ": file handle is null");
     }
@@ -161,6 +164,9 @@ Ret write_roaring_ids_trailer_mmap(FILE* f,
                 return Ret(context + ": failed to write deleted_ids: " + ret.message());
             }
         }
+        if (payload_crc32 != nullptr) {
+            *payload_crc32 = crc32_update(*payload_crc32, data, map_size);
+        }
         CHECK(trailer_region.sync(context + ": failed to sync ids trailer mmap"));
         trailer_region.reset();
     }
@@ -171,13 +177,17 @@ Ret write_roaring_ids_trailer_mmap(FILE* f,
     return Ret(0);
 }
 
-Ret write_zero_padding(FILE* f, size_t size, const std::string& error_message) {
+Ret write_zero_padding(FILE* f, size_t size, const std::string& error_message,
+        uint32_t* payload_crc32) {
     if (size == 0) {
         return Ret(0);
     }
     std::vector<uint8_t> pad(size, 0);
     if (fwrite(pad.data(), 1, pad.size(), f) != pad.size()) {
         return Ret(error_message);
+    }
+    if (payload_crc32 != nullptr) {
+        *payload_crc32 = crc32_update(*payload_crc32, pad.data(), pad.size());
     }
     return Ret(0);
 }
@@ -202,7 +212,8 @@ Ret write_header_and_data_padding(FILE* f, const DataFileHeader& hdr, const std:
 }
 
 Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, size_t vector_stride,
-        const std::string& context) {
+        const std::string& context,
+        uint32_t* payload_crc32) {
     if (data == nullptr) {
         return Ret(context + ": missing vector data");
     }
@@ -211,6 +222,9 @@ Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, size_t ve
     }
     if (fwrite(data, vec_size, 1, f) != 1) {
         return Ret(context + ": failed to write vector data");
+    }
+    if (payload_crc32 != nullptr) {
+        *payload_crc32 = crc32_update(*payload_crc32, data, vec_size);
     }
     if (vector_stride == vec_size) {
         return Ret(0);
@@ -223,6 +237,9 @@ Ret write_vector_record(FILE* f, const uint8_t* data, size_t vec_size, size_t ve
     if (fwrite(kZeroPadding, 1, padding_size, f) != padding_size) {
         return Ret(context + ": failed to write vector padding");
     }
+    if (payload_crc32 != nullptr) {
+        *payload_crc32 = crc32_update(*payload_crc32, kZeroPadding, padding_size);
+    }
     return Ret(0);
 }
 
@@ -230,7 +247,8 @@ Ret write_data_record(FILE* f,
         const uint8_t* data,
         const DataRecordLayout& layout,
         const float* norm,
-        const std::string& context) {
+        const std::string& context,
+        uint32_t* payload_crc32) {
     if (data == nullptr) {
         return Ret(context + ": missing vector data");
     }
@@ -243,6 +261,9 @@ Ret write_data_record(FILE* f,
 
     if (fwrite(data, layout.vector_size, 1, f) != 1) {
         return Ret(context + ": failed to write vector data");
+    }
+    if (payload_crc32 != nullptr) {
+        *payload_crc32 = crc32_update(*payload_crc32, data, layout.vector_size);
     }
 
     const size_t bytes_before_norm = norm != nullptr
@@ -257,10 +278,17 @@ Ret write_data_record(FILE* f,
     if (bytes_before_norm > 0 && fwrite(kZeroPadding, 1, bytes_before_norm, f) != bytes_before_norm) {
         return Ret(context + ": failed to write vector padding");
     }
+    if (payload_crc32 != nullptr && bytes_before_norm > 0) {
+        *payload_crc32 = crc32_update(*payload_crc32, kZeroPadding, bytes_before_norm);
+    }
 
     if (norm != nullptr) {
         if (fwrite(norm, sizeof(float), 1, f) != 1) {
             return Ret(context + ": failed to write inline norm");
+        }
+        if (payload_crc32 != nullptr) {
+            *payload_crc32 = crc32_update(
+                *payload_crc32, reinterpret_cast<const uint8_t*>(norm), sizeof(float));
         }
         const size_t bytes_after_norm = layout.stride - (layout.norm_offset + sizeof(float));
         assert(bytes_after_norm <= sizeof(kZeroPadding));
@@ -270,8 +298,46 @@ Ret write_data_record(FILE* f,
         if (bytes_after_norm > 0 && fwrite(kZeroPadding, 1, bytes_after_norm, f) != bytes_after_norm) {
             return Ret(context + ": failed to write inline norm padding");
         }
+        if (payload_crc32 != nullptr && bytes_after_norm > 0) {
+            *payload_crc32 = crc32_update(*payload_crc32, kZeroPadding, bytes_after_norm);
+        }
     }
 
+    return Ret(0);
+}
+
+Ret verify_data_file_payload_crc32(int fd, const DataFileHeader& hdr, size_t file_size,
+        const std::string& context) {
+    if (fd < 0) {
+        return Ret(context + ": invalid file descriptor for payload checksum");
+    }
+    if (!data_file_has_payload_crc32(hdr)) {
+        return Ret(context + ": payload checksum is absent");
+    }
+    if (hdr.data_offset > file_size) {
+        return Ret(context + ": payload checksum range is invalid");
+    }
+
+    uint32_t crc = 0;
+    uint64_t offset = hdr.data_offset;
+    std::vector<uint8_t> buf(kFileBufferSize);
+    while (offset < file_size) {
+        const size_t remaining = static_cast<size_t>(file_size - offset);
+        const size_t chunk = std::min(buf.size(), remaining);
+        const ssize_t bytes = ::pread(fd, buf.data(), chunk, static_cast<off_t>(offset));
+        if (bytes < 0) {
+            return Ret(context + ": failed to read payload for checksum");
+        }
+        if (bytes == 0) {
+            return Ret(context + ": short read while verifying payload checksum");
+        }
+        crc = crc32_update(crc, buf.data(), static_cast<size_t>(bytes));
+        offset += static_cast<uint64_t>(bytes);
+    }
+
+    if (crc != hdr.payload_crc32) {
+        return Ret(context + ": payload checksum mismatch");
+    }
     return Ret(0);
 }
 

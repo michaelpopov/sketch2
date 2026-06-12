@@ -167,6 +167,12 @@ int sk_import_data(sk_handle_t* handle, const char* path);
 int sk_stats(sk_handle_t* handle, const char* path);
 
 /*
+ * Verify payload checksums for all persisted data and delta files in the
+ * currently open dataset. This may read every byte of every data/delta file.
+ */
+int sk_verify_integrity(sk_handle_t* handle);
+
+/*
  * Return the last error code.
  */
 int sk_error(sk_handle_t* handle);

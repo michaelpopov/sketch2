@@ -347,14 +347,22 @@ TEST_F(DataWriterTest, HeaderCosineFlagIsSetWhenRequested) {
     ASSERT_EQ(0, run(3, 0, DataType::f32, 4, 0, DistFunc::COS).code());
     const auto hdr = read_header();
     EXPECT_TRUE(data_file_has_norms(hdr));
-    EXPECT_EQ(kDataFileHasCosineInvNorms, hdr.flags);
+    EXPECT_EQ(kDataFileHasCosineInvNorms, data_file_norm_flags(hdr));
+    EXPECT_TRUE(data_file_has_payload_crc32(hdr));
 }
 
 TEST_F(DataWriterTest, HeaderL2FlagIsSetWhenRequested) {
     ASSERT_EQ(0, run(3, 0, DataType::f32, 4, 0, DistFunc::L2).code());
     const auto hdr = read_header();
     EXPECT_TRUE(data_file_has_norms(hdr));
-    EXPECT_EQ(kDataFileHasSquaredNorms, hdr.flags);
+    EXPECT_EQ(kDataFileHasSquaredNorms, data_file_norm_flags(hdr));
+    EXPECT_TRUE(data_file_has_payload_crc32(hdr));
+}
+
+TEST_F(DataWriterTest, HeaderPayloadCrc32FlagIsSet) {
+    ASSERT_EQ(0, run(3, 0, DataType::f32, 4).code());
+    const auto hdr = read_header();
+    EXPECT_TRUE(data_file_has_payload_crc32(hdr));
 }
 
 // --- ids section ---

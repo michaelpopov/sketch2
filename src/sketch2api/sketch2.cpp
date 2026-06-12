@@ -277,6 +277,14 @@ int sk_stats(sk_handle_t* handle, const char* path) {
     }
 }
 
+int sk_verify_integrity(sk_handle_t* handle) {
+    try {
+        return sk_verify_integrity_(handle);
+    } catch (const std::exception& ex) {
+        ERR(ex.what())
+    }
+}
+
 int sk_error(sk_handle_t* handle) {
     if (handle == nullptr) {
         return -1;

@@ -160,7 +160,15 @@ uint64_t DataReader::Iterator::id() const {
 
 Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta) {
     try {
-        return init_(path, std::move(delta));
+        return init_(path, std::move(delta), false);
+    } catch (const std::exception& e) {
+        return Ret(e.what());
+    }
+}
+
+Ret DataReader::init_verified(const std::string &path, std::unique_ptr<DataReader> delta) {
+    try {
+        return init_(path, std::move(delta), true);
     } catch (const std::exception& e) {
         return Ret(e.what());
     }
@@ -169,7 +177,8 @@ Ret DataReader::init(const std::string &path, std::unique_ptr<DataReader> delta)
 // Memory-maps a binary data file, validates its layout, and caches pointers to
 // the vector, id, and delete sections. When a delta reader is attached,
 // it also builds a visibility bitset for base rows shadowed by newer updates.
-Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta) {
+Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta,
+        bool verify_payload_checksum) {
     if (initialized_) {
         return Ret("DataReader is initialized already.");
     }
@@ -201,6 +210,10 @@ Ret DataReader::init_(const std::string& path, std::unique_ptr<DataReader> delta
         if (ret.code() != 0) return fail(ret.message());
         ret = validate_delta_(delta);
         if (ret.code() != 0) return fail(ret.message());
+        if (verify_payload_checksum) {
+            ret = verify_data_file_payload_crc32(fd.get(), hdr_, file_size, "DataReader");
+            if (ret.code() != 0) return fail(ret.message());
+        }
         ret = map_regions_(fd.get(), metadata_layout);
         if (ret.code() != 0) return fail(ret.message());
     } catch (const std::exception& ex) {
@@ -289,7 +302,7 @@ Ret DataReader::validate_header_and_layout_(size_t file_size, DataMetadataLayout
     vector_size_ = record_layout.vector_size;
     norm_offset_in_record_ = record_layout.norm_offset;
     stride_ = static_cast<size_t>(hdr_.vector_stride);
-    if ((hdr_.flags & ~kDataFileNormKindMask) != 0u) {
+    if ((hdr_.flags & ~kDataFileSupportedFlags) != 0u) {
         return Ret("DataReader: unsupported data-file flags");
     }
     if (!data_file_has_valid_norm_flags(hdr_)) {

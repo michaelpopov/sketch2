@@ -45,7 +45,8 @@ Ret write_vector_section(
         FILE* f,
         const InputReaderView& reader,
         const DataFileHeader& hdr,
-        DistFunc dist_func) {
+        DistFunc dist_func,
+        uint32_t* payload_crc32) {
     const size_t count = reader.count();
     const bool binary_input = reader.is_binary();
     const DataRecordLayout record_layout =
@@ -91,7 +92,8 @@ Ret write_vector_section(
             vector_data,
             record_layout,
             norm_ptr,
-            "DataWriter: failed to write vector data at index " + std::to_string(i)));
+            "DataWriter: failed to write vector data at index " + std::to_string(i),
+            payload_crc32));
     }
 
     return Ret(0);
@@ -249,18 +251,24 @@ Ret DataWriter::write(const InputReaderView& reader, const std::string& output_p
     const DataMetadataLayout metadata_layout = compute_data_metadata_layout(hdr, stats.active_count);
     const RoaringIdsTrailerLayout trailer_layout = compute_roaring_ids_trailer_layout(
         metadata_layout.ids_trailer_offset, active_ids_bytes, deleted_ids_bytes);
-    CHECK(write_vector_section(out.file(), reader, hdr, dist_func));
+    uint32_t payload_crc32 = 0;
+    CHECK(write_vector_section(out.file(), reader, hdr, dist_func, &payload_crc32));
     CHECK(write_zero_padding(out.file(), metadata_layout.vectors_padding,
-        "DataWriter: failed to write ids alignment padding"));
+        "DataWriter: failed to write ids alignment padding", &payload_crc32));
 
     CHECK(write_roaring_ids_trailer_mmap(
         out.file(),
         active_ids,
         deleted_ids,
         trailer_layout,
-        "DataWriter"));
+        "DataWriter",
+        &payload_crc32));
 
     assert(ftell(out.file()) == static_cast<long>(trailer_layout.file_size));
+
+    hdr.flags |= kDataFileHasPayloadCrc32;
+    hdr.payload_crc32 = payload_crc32;
+    CHECK(rewrite_header(out.file(), hdr, "DataWriter"));
 
     return out.flush_and_close("DataWriter");
 }

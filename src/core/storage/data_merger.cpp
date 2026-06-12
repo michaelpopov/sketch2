@@ -128,7 +128,7 @@ public:
         CHECK(output_ids_builder_.add(id));
         ++output_count_;
         CHECK(write_data_record(
-            f_, data, record_layout_, norms_enabled_ ? &norm : nullptr, context_));
+            f_, data, record_layout_, norms_enabled_ ? &norm : nullptr, context_, &payload_crc32_));
         return Ret(0);
     }
 
@@ -168,13 +168,14 @@ public:
         output_ids_bytes_ = trailer_layout.ids_bytes;
         deleted_ids_bytes_ = trailer_layout.deleted_ids_bytes;
         CHECK(write_zero_padding(f_, metadata_layout.vectors_padding,
-            std::string(context_) + ": failed to write ids alignment padding"));
+            std::string(context_) + ": failed to write ids alignment padding", &payload_crc32_));
         CHECK(write_roaring_ids_trailer_mmap(
             f_,
             output_ids_,
             deleted_ids,
             trailer_layout,
-            context_));
+            context_,
+            &payload_crc32_));
         return Ret(0);
     }
 
@@ -185,6 +186,7 @@ public:
     bool norms_enabled() const { return norms_enabled_; }
     size_t output_ids_bytes() const { return output_ids_bytes_; }
     size_t deleted_ids_bytes() const { return deleted_ids_bytes_; }
+    uint32_t payload_crc32() const { return payload_crc32_; }
 
 private:
     FILE* f_ = nullptr;
@@ -201,6 +203,7 @@ private:
     size_t output_count_ = 0;
     uint64_t output_ids_min_ = 0;
     uint64_t output_ids_max_ = 0;
+    uint32_t payload_crc32_ = 0;
     std::vector<uint8_t> parsed_text_buffer_;
 };
 
@@ -619,6 +622,8 @@ Ret finalize_merge_file(MergeFile* merge_file,
     CHECK(output->write_ids_section(*merge_file->header(), deleted_ids));
     CHECK(set_data_header_layout(
         merge_file->header(), output->output_ids_bytes(), output->deleted_ids_bytes()));
+    merge_file->header()->flags |= kDataFileHasPayloadCrc32;
+    merge_file->header()->payload_crc32 = output->payload_crc32();
     CHECK(rewrite_header(merge_file->file(), *merge_file->header(), context));
     return merge_file->flush_and_close(context);
 }

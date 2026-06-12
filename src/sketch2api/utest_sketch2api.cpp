@@ -6,6 +6,7 @@
 
 #include "core/bitset/bitset_filter_control.h"
 #include "core/utils/singleton.h"
+#include "storage/data_file_layout.h"
 #include "storage/input_generator.h"
 
 #include <chrono>
@@ -121,6 +122,15 @@ std::vector<uint64_t> api_knn_vector(sk_handle_t* handle, const std::vector<floa
     return out;
 }
 
+std::filesystem::path find_file_with_extension(const std::filesystem::path& dir, const char* extension) {
+    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.is_regular_file() && entry.path().extension() == extension) {
+            return entry.path();
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 TEST(sketch2api, create_open_close_drop_lifecycle) {
@@ -215,6 +225,43 @@ TEST(sketch2api, generate_stats_and_print_smoke) {
 
     EXPECT_OK(handle, sk_close(handle));
     EXPECT_OK(handle, sk_drop(handle, "ds"));
+
+    sk_release_handle(handle);
+    std::filesystem::remove_all(root);
+}
+
+TEST(sketch2api, verify_integrity_detects_corrupt_payload) {
+    const std::filesystem::path root = make_temp_dir();
+    const std::filesystem::path test_data_path = make_test_data_path();
+    std::experimental::scope_exit cleanup([&]() { std::filesystem::remove(test_data_path); });
+
+    sk_handle_t* handle = sk_new_handle(root.string().c_str());
+    ASSERT_NE(handle, nullptr);
+
+    ASSERT_OK(handle, sk_create(handle, "ds", nullptr, 4, "f32", 1000, "dot"));
+    ASSERT_OK(handle, sk_generate_test_data(handle, test_data_path.c_str(), 8, 10, nullptr, false));
+    ASSERT_OK(handle, sk_verify_integrity(handle));
+
+    const std::filesystem::path data_path = find_file_with_extension(root / "ds", ".data");
+    ASSERT_FALSE(data_path.empty());
+
+    sketch2::DataFileHeader hdr{};
+    ASSERT_EQ(0, sketch2::read_data_file_header(data_path.string(), &hdr).code());
+    ASSERT_TRUE(sketch2::data_file_has_payload_crc32(hdr));
+
+    std::fstream file(data_path, std::ios::binary | std::ios::in | std::ios::out);
+    ASSERT_TRUE(file.good());
+    file.seekg(static_cast<std::streamoff>(hdr.data_offset));
+    char byte = 0;
+    file.read(&byte, 1);
+    ASSERT_TRUE(file.good());
+    byte ^= 0x01;
+    file.seekp(static_cast<std::streamoff>(hdr.data_offset));
+    file.write(&byte, 1);
+    file.close();
+
+    EXPECT_NE(0, sk_verify_integrity(handle));
+    EXPECT_NE(std::string(sk_error_message(handle)).find("payload checksum mismatch"), std::string::npos);
 
     sk_release_handle(handle);
     std::filesystem::remove_all(root);
