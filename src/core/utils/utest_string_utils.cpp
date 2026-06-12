@@ -93,6 +93,14 @@ TEST(string_utils, parse_vector_invalid_arguments) {
                   out.size(), nullptr).code(), 0);
 }
 
+TEST(string_utils, parse_vector_unsupported_data_type_fails) {
+    std::array<uint8_t, 4> out {};
+    const Ret ret = parse_vector(
+        out.data(), out.size(), static_cast<DataType>(99), 1, "");
+    EXPECT_NE(ret.code(), 0);
+    EXPECT_EQ("Unsupported dataset type", ret.message());
+}
+
 TEST(string_utils, parse_vector_buffer_too_small) {
     std::array<float, 2> out {};
     const Ret ret = parse_vector(
@@ -290,6 +298,14 @@ TEST(string_utils, parse_vector_spaces_invalid_arguments) {
     EXPECT_NE(parse_vector_spaces(nullptr, sizeof(out), DataType::f32, out.size(), "1 2").code(), 0);
     EXPECT_NE(parse_vector_spaces(reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::f32,
                   out.size(), nullptr).code(), 0);
+}
+
+TEST(string_utils, parse_vector_spaces_unsupported_data_type_fails) {
+    std::array<uint8_t, 4> out {};
+    const Ret ret = parse_vector_spaces(
+        out.data(), out.size(), static_cast<DataType>(99), 1, "");
+    EXPECT_NE(ret.code(), 0);
+    EXPECT_EQ("Unsupported dataset type", ret.message());
 }
 
 TEST(string_utils, parse_vector_spaces_buffer_too_small) {

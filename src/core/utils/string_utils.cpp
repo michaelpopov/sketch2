@@ -126,6 +126,8 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
             line = next;
             while (line < end && (*line == ',' || *line == ' ')) ++line;
         }
+    } else {
+        return Ret("Unsupported dataset type");
     }
 
     // Any non-separator payload after parsing dim values is malformed.
@@ -211,6 +213,8 @@ Ret parse_vector_spaces(uint8_t* buf, size_t size, DataType type, uint16_t dim, 
             line = next;
             while (line < end && *line == ' ') ++line;
         }
+    } else {
+        return Ret("Unsupported dataset type");
     }
 
     // Any non-separator payload after parsing dim values is malformed.
