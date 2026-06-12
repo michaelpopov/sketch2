@@ -207,9 +207,10 @@ Ret DatasetWriter::init(const std::string& path) {
 }
 
 Ret DatasetWriter::init_writer_() {
-    // Replay WAL only if no other process currently owns this dataset.
-    // Use a temporary lock that is released immediately after replay so that
-    // ownership is still acquired lazily when first write happens.
+    // Clean up stale staged-input files only if no other process currently owns
+    // this dataset. Use a temporary lock that is released immediately after
+    // cleanup so that ownership is still acquired lazily when the first write
+    // happens.
     const std::string lock_path = dataset_owner_lock_path(metadata_, name_);
     {
         FileLockGuard temp_lock;

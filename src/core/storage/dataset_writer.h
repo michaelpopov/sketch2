@@ -25,9 +25,10 @@ class DatasetWriter : public Dataset {
 public:
     ~DatasetWriter() override;
 
-    // init() overrides replay any pending WAL; owner lock is acquired lazily
-    // when a write path first needs ownership. Only the INI-based path is
-    // exposed publicly; the other overloads remain for internal helpers.
+    // init() cleans up stale staged-input files if this process can briefly
+    // take ownership. The owner lock is acquired lazily when a write path first
+    // needs ownership. Only the INI-based path is exposed publicly; the other
+    // overloads remain for internal helpers.
     Ret init(const std::string& path);
 
     Ret store(const std::string& input_path);

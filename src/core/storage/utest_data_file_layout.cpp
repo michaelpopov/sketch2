@@ -226,7 +226,7 @@ TEST_F(DataFileLayoutTest, ReadDataFileHeaderReadsValidHeaderWithoutFullReader) 
 
 TEST_F(DataFileLayoutTest, ReadDataFileHeaderRejectsNonDataHeader) {
     DataFileHeader hdr = make_data_header(0, 0, 0, 0, 0, DataType::f32, 4);
-    hdr.base.kind = static_cast<uint16_t>(FileType::Wal);
+    hdr.base.kind = 0xffffu;
 
     FILE* f = fopen(path_.c_str(), "wb");
     ASSERT_NE(nullptr, f);

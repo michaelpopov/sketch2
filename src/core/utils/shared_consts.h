@@ -29,10 +29,10 @@ inline constexpr uint64_t kMinDimension = 4;
 // Maximum supported vector dimension constrained by current file format and parser APIs.
 inline constexpr uint64_t kMaxDimension = 4096;
 
-// File format magic written by DataWriter/DataMerger and validated by DataReader/WAL replay.
+// File format magic written by DataWriter/DataMerger and validated by DataReader.
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 
-// Binary storage format version written into data/WAL headers and checked when reopening files.
+// Binary storage format version written into data headers and checked when reopening files.
 // Version 13 stores aligned vector records with any optional norm inline in the record stride,
 // followed by region-aligned frozen Roaring id trailers.
 inline constexpr uint16_t kVersion = 13;
