@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <tuple>
 #include <unistd.h>
 #include "core/storage/input_generator.h"
 #include "core/storage/data_file.h"
@@ -227,6 +228,22 @@ TEST_F(DatasetTest, InitFromIniSetsDatasetNameFromIniFilenameStem) {
     DatasetReader reader;
     ASSERT_EQ(0, reader.init(named_config_path).code());
     EXPECT_EQ("dataset_name_test", reader.name());
+}
+
+TEST_F(DatasetTest, ReaderIgnoresOverflowingNumericFileStem) {
+    const auto dir = make_dir("d_overflow_file_id");
+    std::ofstream stray(dir + "/999999999999999999999999999999.data");
+    ASSERT_TRUE(stray.is_open());
+    stray.close();
+
+    TestDatasetReader reader;
+    ASSERT_EQ(0, reader.init_for_test({dir}, 100, DataType::f32, 4).code());
+
+    DataReaderPtr data_reader;
+    Ret ret(0);
+    EXPECT_NO_THROW((std::tie(data_reader, ret) = reader.get(0)));
+    EXPECT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ(nullptr, data_reader);
 }
 
 TEST_F(DatasetTest, InitFromMetadataExposesDistanceFunction) {

@@ -153,6 +153,25 @@ TEST_F(InputReaderTest, AcceptsUnsortedIdsAndSortsById) {
     EXPECT_EQ(10u, r.id(1));
 }
 
+TEST_F(InputReaderTest, RejectsTextIdOverflow) {
+    write_raw("f32,4\n999999999999999999999999999999 : [ 1.0, 1.0, 1.0, 1.0 ]\n");
+
+    InputReader r;
+    const Ret ret = r.init(path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Invalid line: id out of range", ret.message());
+}
+
+TEST_F(InputReaderTest, ParsesFinalLineWithoutTrailingNewline) {
+    write_raw("f32,4\n7 : [ 1.0, 1.0, 1.0, 1.0 ]");
+
+    InputReader r;
+    const Ret ret = r.init(path_);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    ASSERT_EQ(1u, r.count());
+    EXPECT_EQ(7u, r.id(0));
+}
+
 // --- init success + metadata ---
 
 TEST_F(InputReaderTest, SuccessReturnCode) {

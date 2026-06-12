@@ -10,10 +10,13 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <charconv>
+#include <cctype>
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
 #include <stdexcept>
+#include <system_error>
 
 namespace sketch2 {
 
@@ -328,9 +331,14 @@ Ret InputReader::process_text_data(const char* record_begin, const char* end) {
         const char* next_nl = static_cast<const char*>(memchr(line, '\n', static_cast<size_t>(end - line)));
         const char* line_limit = next_nl ? next_nl : end;
 
-        char* id_end;
-        uint64_t id = strtoull(line, &id_end, 10);
-        if (id_end == line) {
+        const char* id_begin = line;
+        while (id_begin < line_limit && std::isspace(static_cast<unsigned char>(*id_begin))) {
+            ++id_begin;
+        }
+
+        uint64_t id = 0;
+        const auto id_result = std::from_chars(id_begin, line_limit, id, 10);
+        if (id_result.ptr == id_begin) {
             // Skip empty lines or trailing whitespace
             if (next_nl) {
                 line = next_nl + 1;
@@ -339,9 +347,15 @@ Ret InputReader::process_text_data(const char* record_begin, const char* end) {
                 break;
             }
         }
+        if (id_result.ec == std::errc::result_out_of_range) {
+            return Ret("Invalid line: id out of range");
+        }
+        if (id_result.ec != std::errc{}) {
+            return Ret("Invalid line: invalid id");
+        }
 
         const char* bracket = static_cast<const char*>(
-            memchr(id_end, '[', static_cast<size_t>(line_limit - id_end)));
+            memchr(id_result.ptr, '[', static_cast<size_t>(line_limit - id_result.ptr)));
         if (!bracket) {
             return Ret("Invalid line: missing '['");
         }

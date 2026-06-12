@@ -10,9 +10,12 @@
 #include "core/utils/timer.h"
 #include <algorithm>
 #include <cassert>
+#include <charconv>
+#include <cctype>
 #include <filesystem>
 #include <span>
 #include <stdexcept>
+#include <system_error>
 #include <unordered_map>
 
 namespace sketch2 {
@@ -35,7 +38,15 @@ bool parse_dataset_file_id(const std::string& name, const std::string& ext, uint
         }
     }
 
-    *out = std::stoull(id_part);
+    uint64_t parsed_id = 0;
+    const char* const id_begin = id_part.data();
+    const char* const id_end = id_begin + id_part.size();
+    const auto result = std::from_chars(id_begin, id_end, parsed_id, 10);
+    if (result.ec != std::errc{} || result.ptr != id_end) {
+        return false;
+    }
+
+    *out = parsed_id;
     return true;
 }
 
