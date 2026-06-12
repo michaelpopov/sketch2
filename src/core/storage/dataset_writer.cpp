@@ -183,6 +183,33 @@ Ret validate_dataset_reader_norms(const DataReader& reader, DistFunc dist_func, 
     return Ret(0);
 }
 
+template <typename MergeFn>
+Ret merge_dataset_file(const std::string& output_path_base, const std::string& target_ext,
+        const std::string& source_ext, MergeFn merge_fn) {
+    const std::string merge_path = output_path_base + kMergeExt;
+    DataMerger processor;
+    CHECK(merge_fn(processor, merge_path));
+
+    const std::string target_path = output_path_base + target_ext;
+    const Ret ret = rename_and_fsync_parent_directory(
+        merge_path,
+        target_path,
+        "DatasetWriter::merge_dataset_file: publish merge file");
+    if (ret.code() != 0) {
+        std::error_code ec;
+        std::filesystem::remove(merge_path, ec);
+        return ret;
+    }
+
+    if (!source_ext.empty()) {
+        CHECK(remove_and_fsync_parent_directory(
+            output_path_base + source_ext,
+            "DatasetWriter::merge_dataset_file: remove source file"));
+    }
+
+    return Ret(0);
+}
+
 } // namespace
 
 /***********************************************************
@@ -771,25 +798,10 @@ bool DatasetWriter::check_data_delta_merge(const DataReader& data_reader,
 
 Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const DataReader& output_reader,
         const std::string& output_path_base, const std::string& ext) const {
-    const std::string source_path = output_path_base + ext;
-    DataMerger processor;
-    const std::string merge_path = output_path_base + kMergeExt;
-    CHECK(processor.merge_data_file(data_reader, output_reader, merge_path));
-
-    const std::string data_path = output_path_base + kDataExt;
-    Ret ret = rename_and_fsync_parent_directory(
-        merge_path,
-        data_path,
-        "DatasetWriter::merge_data_file: publish data file");
-    if (ret.code() != 0) {
-        std::error_code ec;
-        std::filesystem::remove(merge_path, ec);
-        return ret;
-    }
-
-    return remove_and_fsync_parent_directory(
-        source_path,
-        "DatasetWriter::merge_data_file: remove source file");
+    return merge_dataset_file(output_path_base, kDataExt, ext,
+        [&](DataMerger& processor, const std::string& merge_path) {
+            return processor.merge_data_file(data_reader, output_reader, merge_path);
+        });
 }
 
 Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const InputReaderView& output_reader,
@@ -798,22 +810,11 @@ Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const InputRea
     // store_and_merge(). It produces the same final `*.merge -> *.data`
     // transition as the DataReader overload, but the updater comes straight
     // from parsed input instead of a temp persisted file.
-    DataMerger processor;
-    const std::string merge_path = output_path_base + kMergeExt;
-    CHECK(processor.merge_data_file(data_reader, output_reader, merge_path, metadata_.dist_func));
-
-    const std::string data_path = output_path_base + kDataExt;
-    const Ret ret = rename_and_fsync_parent_directory(
-        merge_path,
-        data_path,
-        "DatasetWriter::merge_data_file: publish data file");
-    if (ret.code() != 0) {
-        std::error_code ec;
-        std::filesystem::remove(merge_path, ec);
-        return ret;
-    }
-
-    return Ret(0);
+    return merge_dataset_file(output_path_base, kDataExt, "",
+        [&](DataMerger& processor, const std::string& merge_path) {
+            return processor.merge_data_file(
+                data_reader, output_reader, merge_path, metadata_.dist_func);
+        });
 }
 
 Ret DatasetWriter::merge_delta_file(const DataReader& delta_reader, const InputReaderView& output_reader,
@@ -821,22 +822,11 @@ Ret DatasetWriter::merge_delta_file(const DataReader& delta_reader, const InputR
     // Same idea as merge_data_file(view): keep the atomic "write merge output,
     // then rename it into place" behavior, but avoid staging the updater as a
     // separate temp data file first.
-    DataMerger processor;
-    const std::string merge_path = output_path_base + kMergeExt;
-    CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path, metadata_.dist_func));
-
-    const std::string delta_path = output_path_base + kDeltaExt;
-    const Ret ret = rename_and_fsync_parent_directory(
-        merge_path,
-        delta_path,
-        "DatasetWriter::merge_delta_file: publish delta file");
-    if (ret.code() != 0) {
-        std::error_code ec;
-        std::filesystem::remove(merge_path, ec);
-        return ret;
-    }
-
-    return Ret(0);
+    return merge_dataset_file(output_path_base, kDeltaExt, "",
+        [&](DataMerger& processor, const std::string& merge_path) {
+            return processor.merge_delta_file(
+                delta_reader, output_reader, merge_path, metadata_.dist_func);
+        });
 }
 
 } // namespace sketch2
