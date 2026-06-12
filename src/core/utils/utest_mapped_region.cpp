@@ -16,6 +16,11 @@ using namespace sketch2;
 
 namespace {
 
+size_t system_page_size() {
+    const long page_size = sysconf(_SC_PAGESIZE);
+    return page_size > 0 ? static_cast<size_t>(page_size) : 4096u;
+}
+
 class MappedRegionTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -94,6 +99,55 @@ TEST_F(MappedRegionTest, InitRejectsOffsetNotAlignedToSystemPageSize) {
     EXPECT_EQ(nullptr, region.data());
     EXPECT_EQ(0u, region.size());
     EXPECT_NE(std::string::npos, ret.message().find("not aligned to system page size"));
+}
+
+TEST_F(MappedRegionTest, InitRejectsRangePastEndOfFile) {
+    const size_t page_size = system_page_size();
+    const int fd = create_file(page_size);
+    ASSERT_GE(fd, 0);
+
+    MappedRegion region;
+    const Ret ret = region.init(fd, 0, page_size + 1);
+    close(fd);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ(nullptr, region.data());
+    EXPECT_EQ(0u, region.size());
+    EXPECT_NE(std::string::npos, ret.message().find("mapping range exceeds file size"));
+}
+
+TEST_F(MappedRegionTest, InitRejectsOffsetAtEndOfFileWithNonzeroSize) {
+    const size_t page_size = system_page_size();
+    const int fd = create_file(page_size);
+    ASSERT_GE(fd, 0);
+
+    MappedRegion region;
+    const Ret ret = region.init(fd, page_size, 1);
+    close(fd);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ(nullptr, region.data());
+    EXPECT_EQ(0u, region.size());
+    EXPECT_NE(std::string::npos, ret.message().find("mapping range exceeds file size"));
+}
+
+TEST_F(MappedRegionTest, InitMmapFailureIncludesErrnoText) {
+    const size_t page_size = system_page_size();
+    int fd = create_file(page_size);
+    ASSERT_GE(fd, 0);
+    close(fd);
+
+    fd = open(path_.c_str(), O_WRONLY);
+    ASSERT_GE(fd, 0);
+
+    MappedRegion region;
+    const Ret ret = region.init(fd, 0, page_size);
+    close(fd);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ(nullptr, region.data());
+    EXPECT_EQ(0u, region.size());
+    EXPECT_NE(std::string::npos, ret.message().find("failed to mmap region: "));
 }
 
 TEST_F(MappedRegionTest, ResetClearsOwnedRegion) {

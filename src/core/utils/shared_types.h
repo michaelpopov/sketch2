@@ -114,6 +114,8 @@ public:
       : code_(code), message_(message), is_content_(is_content) {}
     Ret(const Ret&) = default;
     Ret& operator=(const Ret&) = default;
+    Ret(Ret&&) = default;
+    Ret& operator=(Ret&&) = default;
     int code() const { return code_; }
     const std::string& message() const { return message_; }
     bool is_content() const { return is_content_; }

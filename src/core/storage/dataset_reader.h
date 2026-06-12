@@ -55,7 +55,7 @@ public:
         size_t digits = kDefaultVectorStringDigits) const;
 
 protected:
-    mutable sketch::RWLock cache_lock_;
+    mutable RWLock cache_lock_;
     // Guarded by cache_lock_. Replaced atomically as a shared immutable snapshot.
     mutable std::shared_ptr<const std::vector<DatasetItem>> items_cache_;
     // Guarded by cache_lock_.

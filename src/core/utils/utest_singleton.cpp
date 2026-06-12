@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <sys/wait.h>
 #include <unistd.h>
 #include "utest_tmp_dir.h"
 
@@ -39,6 +40,7 @@ protected:
         unsetenv("SKETCH2_LOG_FILE");
         unsetenv("SKETCH2_BITSET_FILTER_SPILL_THRESHOLD_BYTES");
         unsetenv("SKETCH2_BITSET_FILTER_SPILL_DIR");
+        unsetenv("SKETCH2_SINGLETON_BAD_TMPDIR_HELPER");
         std::remove(path1_.c_str());
         std::remove(path2_.c_str());
     }
@@ -47,6 +49,40 @@ protected:
     std::string path2_;
 };
 
+TEST_F(SingletonTest, BadTmpdirFallsBackToTmpDuringFirstInstanceConstruction) {
+    const char* helper = std::getenv("SKETCH2_SINGLETON_BAD_TMPDIR_HELPER");
+    if (helper != nullptr && std::string(helper) == "1") {
+        EXPECT_NO_THROW({
+            EXPECT_EQ(std::filesystem::path("/tmp"), get_singleton().bitset_filter_spill_dir());
+        });
+        return;
+    }
+
+    const std::filesystem::path missing_tmp =
+        std::filesystem::path(tmp_dir()) / ("sketch2-missing-tmpdir-" + std::to_string(getpid()));
+    std::error_code ec;
+    std::filesystem::remove_all(missing_tmp, ec);
+
+    const pid_t child_pid = fork();
+    ASSERT_GE(child_pid, 0);
+    if (child_pid == 0) {
+        if (setenv("TMPDIR", missing_tmp.c_str(), 1) != 0 ||
+            setenv("SKETCH2_SINGLETON_BAD_TMPDIR_HELPER", "1", 1) != 0) {
+            _exit(126);
+        }
+        execl("/proc/self/exe", "utest_utils",
+              "--gtest_filter=SingletonTest.BadTmpdirFallsBackToTmpDuringFirstInstanceConstruction",
+              nullptr);
+        _exit(127);
+    }
+
+    int status = 0;
+    ASSERT_EQ(child_pid, waitpid(child_pid, &status, 0));
+    EXPECT_TRUE(WIFEXITED(status));
+    EXPECT_EQ(0, WEXITSTATUS(status));
+    std::filesystem::remove_all(missing_tmp, ec);
+}
+
 TEST_F(SingletonTest, EnvOverridesApplyWithOrWithoutConfigBeforeSingletonSeals) {
     const log::LogLevel original = log::get_log_level();
 
@@ -54,6 +90,10 @@ TEST_F(SingletonTest, EnvOverridesApplyWithOrWithoutConfigBeforeSingletonSeals) 
     unsetenv("SKETCH2_LOG_LEVEL");
     unsetenv("SKETCH2_THREAD_POOL_SIZE");
     EXPECT_FALSE(Singleton::apply_config_from_env());
+
+    ASSERT_EQ(0, setenv("SKETCH2_THREAD_POOL_SIZE", "3abc", 1));
+    EXPECT_FALSE(Singleton::apply_config_from_env());
+    EXPECT_EQ(nullptr, get_singleton().thread_pool());
 
     ASSERT_EQ(0, setenv("SKETCH2_CONFIG", (tmp_dir() + "/sketch2-missing-config.ini").c_str(), 1));
     ASSERT_EQ(0, setenv("SKETCH2_LOG_LEVEL", "debug", 1));

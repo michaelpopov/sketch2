@@ -3,7 +3,7 @@
 #include <pthread.h>
 #include <system_error>
 
-namespace sketch {
+namespace sketch2 {
 
 class RWLock {
 public:
@@ -71,4 +71,4 @@ private:
     RWLock& _lock;
 };
 
-} // namespace sketch
+} // namespace sketch2

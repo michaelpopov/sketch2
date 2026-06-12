@@ -8,7 +8,7 @@ set_target_properties(utils PROPERTIES OUTPUT_NAME "utils")
 target_link_libraries(utils PUBLIC sketch_compile_options Threads::Threads)
 target_link_libraries(utils PRIVATE sketch_warnings)
 
-add_executable(utest_utils utest_main.cpp utest_ini_reader.cpp utest_string_utils.cpp utest_file_lock.cpp utest_log.cpp utest_singleton.cpp utest_update_notifier.cpp utest_mapped_region.cpp utest_high_perf_heap.cpp utest_shared_types.cpp)
+add_executable(utest_utils utest_main.cpp utest_ini_reader.cpp utest_string_utils.cpp utest_file_lock.cpp utest_log.cpp utest_singleton.cpp utest_update_notifier.cpp utest_mapped_region.cpp utest_high_perf_heap.cpp utest_shared_types.cpp utest_checked_arithmetic.cpp)
 target_link_libraries(utest_utils PRIVATE utils GTest::gtest Threads::Threads sketch_warnings)
 add_test(NAME utest_utils COMMAND utest_utils)
 

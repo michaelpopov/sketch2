@@ -4,7 +4,12 @@
 
 #include <gtest/gtest.h>
 
+#include <type_traits>
+
 namespace sketch2 {
+
+static_assert(std::is_move_constructible_v<Ret>);
+static_assert(std::is_move_assignable_v<Ret>);
 
 TEST(shared_types, ret_copy_preserves_content_flag) {
     const Ret original(0, "payload", true);

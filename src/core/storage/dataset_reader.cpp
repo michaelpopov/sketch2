@@ -179,20 +179,20 @@ std::pair<std::shared_ptr<const std::vector<DatasetItem>>, Ret> DatasetReader::g
         std::lock_guard<std::mutex> notifier_lock(update_notifier_mutex_);
         cache_updated = update_notifier_ && update_notifier_->check_updated();
         if (cache_updated) {
-            sketch::WriteGuard wg(cache_lock_);
+            WriteGuard wg(cache_lock_);
             items_cache_.reset();
             reader_cache_.clear();
         }
     }
 
     if (!cache_updated) {
-        sketch::ReadGuard rg(cache_lock_);
+        ReadGuard rg(cache_lock_);
         if (items_cache_) {
             return {items_cache_, Ret(0)};
         }
     }
 
-    sketch::WriteGuard wg(cache_lock_);
+    WriteGuard wg(cache_lock_);
     if (!items_cache_) {
         std::vector<DatasetItem> items;
         const Ret collect_ret = collect_dataset_items(name_, metadata_, &items);
@@ -245,7 +245,7 @@ std::pair<DataReaderPtr, Ret> DatasetReader::open_reader_(const DatasetItem& ite
 // invalidated and the open is retried once with refreshed paths.
 std::pair<DataReaderPtr, Ret> DatasetReader::get_cached_reader_(const DatasetItem& item) const {
     {
-        sketch::ReadGuard rg(cache_lock_);
+        ReadGuard rg(cache_lock_);
         const auto cache_it = reader_cache_.find(item.id);
         if (cache_it != reader_cache_.end()) {
             return {cache_it->second, Ret(0)};
@@ -262,7 +262,7 @@ std::pair<DataReaderPtr, Ret> DatasetReader::get_cached_reader_(const DatasetIte
     if (ret.code() != 0) {
         DatasetItem refreshed;
         {
-            sketch::WriteGuard wg(cache_lock_);
+            WriteGuard wg(cache_lock_);
             items_cache_.reset();
             reader_cache_.erase(item.id);
         }
@@ -281,13 +281,13 @@ std::pair<DataReaderPtr, Ret> DatasetReader::get_cached_reader_(const DatasetIte
         }
     }
 
-    sketch::WriteGuard wg(cache_lock_);
+    WriteGuard wg(cache_lock_);
     auto [it, inserted] = reader_cache_.emplace(item.id, reader);
     return {it->second, Ret(0)};
 }
 
 void DatasetReader::invalidate_data_caches_() {
-    sketch::WriteGuard wg(cache_lock_);
+    WriteGuard wg(cache_lock_);
     items_cache_.reset();
     reader_cache_.clear();
 }

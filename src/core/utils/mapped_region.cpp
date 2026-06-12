@@ -2,7 +2,10 @@
 
 #include "utils/mapped_region.h"
 
+#include <cerrno>
+#include <cstring>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace sketch2 {
@@ -65,6 +68,18 @@ Ret MappedRegion::init(
             + " is not aligned to system page size " + std::to_string(page_size));
     }
 
+    struct stat st {};
+    if (fstat(fd, &st) != 0) {
+        return error("failed to stat file: " + std::string(std::strerror(errno)));
+    }
+    if (st.st_size < 0) {
+        return error("invalid file size");
+    }
+    const size_t file_size = static_cast<size_t>(st.st_size);
+    if (offset > file_size || size > file_size - offset) {
+        return error("mapping range exceeds file size");
+    }
+
     int prot = PROT_READ;
     int flags = MAP_PRIVATE;
     switch (access) {
@@ -80,7 +95,7 @@ Ret MappedRegion::init(
 
     void* region = mmap(nullptr, size, prot, flags, fd, static_cast<off_t>(offset));
     if (region == MAP_FAILED) {
-        return error("failed to mmap region");
+        return error("failed to mmap region: " + std::string(std::strerror(errno)));
     }
 
     data_ = static_cast<uint8_t*>(region);

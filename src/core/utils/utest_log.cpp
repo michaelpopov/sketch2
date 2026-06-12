@@ -208,4 +208,14 @@ TEST(LogTest, LongMessagesAreTruncatedSafely) {
     set_log_level(original);
 }
 
+TEST(LogTest, FixedBufferStreamBufAppendCharPreservesByteFF) {
+    FixedBufferStreamBuf buffer;
+
+    buffer.append_char(static_cast<char>(0xFF));
+
+    ASSERT_EQ(1u, buffer.size());
+    EXPECT_EQ(0xFFu, static_cast<unsigned char>(buffer.data()[0]));
+    EXPECT_FALSE(buffer.truncated());
+}
+
 } // namespace sketch2::log

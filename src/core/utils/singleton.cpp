@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <system_error>
 #include <thread>
 
 namespace sketch2 {
@@ -31,10 +32,19 @@ unsigned int max_thread_pool_size() {
     return std::max(2u, std::min(kHardThreadPoolCap, scaled_threads));
 }
 
+std::filesystem::path default_bitset_filter_spill_dir() {
+    std::error_code ec;
+    std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
+    if (ec || dir.empty()) {
+        return "/tmp";
+    }
+    return dir;
+}
+
 } // namespace
 
 Singleton::Singleton()
-        : bitset_filter_spill_dir_(std::filesystem::temp_directory_path()) {}
+        : bitset_filter_spill_dir_(default_bitset_filter_spill_dir()) {}
 
 Singleton& Singleton::instance() {
     static Singleton singleton;
@@ -284,7 +294,11 @@ bool Singleton::apply_thread_pool_size_(const std::string& size) {
     }
 
     try {
-        const int thread_pool_size = std::stoi(size);
+        size_t parsed_chars = 0;
+        const int thread_pool_size = std::stoi(size, &parsed_chars);
+        if (parsed_chars != size.size()) {
+            return false;
+        }
         if (thread_pool_size > 1) {
             const unsigned int capped_thread_pool_size = max_thread_pool_size();
             const unsigned int requested_thread_pool_size = static_cast<unsigned int>(thread_pool_size);

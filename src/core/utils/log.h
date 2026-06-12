@@ -83,7 +83,7 @@ public:
 
     bool truncated() const { return truncated_; }
 
-    void append_char(char ch) { overflow(static_cast<int>(ch)); }
+    void append_char(char ch) { overflow(traits_type::to_int_type(ch)); }
 
     void append_suffix(const char* suffix) {
         const size_t suffix_len = std::strlen(suffix);
