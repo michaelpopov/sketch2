@@ -3,6 +3,7 @@
 #include "utils/mapped_region.h"
 
 #include <sys/mman.h>
+#include <unistd.h>
 
 namespace sketch2 {
 
@@ -53,6 +54,15 @@ Ret MappedRegion::init(
     }
     if (size == 0) {
         return error("size must be greater than zero");
+    }
+    const long page_size_long = sysconf(_SC_PAGESIZE);
+    if (page_size_long <= 0) {
+        return error("failed to determine system page size");
+    }
+    const size_t page_size = static_cast<size_t>(page_size_long);
+    if ((offset % page_size) != 0) {
+        return error("offset " + std::to_string(offset)
+            + " is not aligned to system page size " + std::to_string(page_size));
     }
 
     int prot = PROT_READ;

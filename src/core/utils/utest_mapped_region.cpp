@@ -82,6 +82,20 @@ TEST_F(MappedRegionTest, InitMapsRequestedRegion) {
     close(fd);
 }
 
+TEST_F(MappedRegionTest, InitRejectsOffsetNotAlignedToSystemPageSize) {
+    const int fd = create_file(8192);
+    ASSERT_GE(fd, 0);
+
+    MappedRegion region;
+    const Ret ret = region.init(fd, 1, 4096);
+    close(fd);
+
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ(nullptr, region.data());
+    EXPECT_EQ(0u, region.size());
+    EXPECT_NE(std::string::npos, ret.message().find("not aligned to system page size"));
+}
+
 TEST_F(MappedRegionTest, ResetClearsOwnedRegion) {
     const int fd = create_file(4096);
     ASSERT_GE(fd, 0);

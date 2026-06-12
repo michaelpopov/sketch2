@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cerrno>
 #include <cstdio>
 #include <fcntl.h>
 #include <filesystem>
@@ -22,6 +23,7 @@
 #include <future>
 #include <limits>
 #include <sstream>
+#include <system_error>
 #include <unistd.h>
 
 namespace sketch2 {
@@ -61,6 +63,67 @@ InputRangeStats summarize_input_view(const InputReaderView& view) {
         }
     }
     return stats;
+}
+
+std::string errno_string(int value) {
+    return std::error_code(value, std::generic_category()).message();
+}
+
+Ret fsync_parent_directory(const std::string& path, const std::string& context) {
+    std::filesystem::path parent = std::filesystem::path(path).parent_path();
+    if (parent.empty()) {
+        parent = ".";
+    }
+
+    int flags = O_RDONLY;
+#ifdef O_DIRECTORY
+    flags |= O_DIRECTORY;
+#endif
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+
+    const int fd = open(parent.c_str(), flags);
+    if (fd < 0) {
+        return Ret(context + ": failed to open parent directory " + parent.string()
+            + ": " + errno_string(errno));
+    }
+
+    const int sync_ret = fsync(fd);
+    const int sync_errno = errno;
+    const int close_ret = close(fd);
+    const int close_errno = errno;
+    if (sync_ret != 0) {
+        return Ret(context + ": failed to fsync parent directory " + parent.string()
+            + ": " + errno_string(sync_errno));
+    }
+    if (close_ret != 0) {
+        return Ret(context + ": failed to close parent directory " + parent.string()
+            + ": " + errno_string(close_errno));
+    }
+
+    return Ret(0);
+}
+
+Ret rename_and_fsync_parent_directory(
+        const std::string& from,
+        const std::string& to,
+        const std::string& context) {
+    std::error_code ec;
+    std::filesystem::rename(from, to, ec);
+    if (ec) {
+        return Ret(context + ": failed to rename " + from + " to " + to + ": " + ec.message());
+    }
+    return fsync_parent_directory(to, context);
+}
+
+Ret remove_and_fsync_parent_directory(const std::string& path, const std::string& context) {
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    if (ec) {
+        return Ret(context + ": failed to remove " + path + ": " + ec.message());
+    }
+    return fsync_parent_directory(path, context);
 }
 
 Ret cleanup_stale_input_files(const DatasetMetadata& metadata, const std::string& dataset_name) {
@@ -617,7 +680,10 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
             std::filesystem::remove(temp_path, ec);
         });
         CHECK(write_temp_file());
-        std::filesystem::rename(temp_path, data_path);
+        CHECK(rename_and_fsync_parent_directory(
+            temp_path,
+            data_path,
+            "DatasetWriter::store_and_merge: publish data file"));
         LOG_TRACE << "DatasetWriter: loaded data to data file " << data_path;
         return Ret(0);
     }
@@ -649,7 +715,10 @@ Ret DatasetWriter::store_and_merge(const InputReader& reader, uint64_t file_id,
             std::filesystem::remove(temp_path, ec);
         });
         CHECK(write_temp_file());
-        std::filesystem::rename(temp_path, delta_path);
+        CHECK(rename_and_fsync_parent_directory(
+            temp_path,
+            delta_path,
+            "DatasetWriter::store_and_merge: publish delta file"));
         LOG_TRACE << "DatasetWriter: loaded data to delta file " << delta_path;
         return Ret(0);
     }
@@ -715,15 +784,19 @@ Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const DataRead
     CHECK(processor.merge_data_file(data_reader, output_reader, merge_path));
 
     const std::string data_path = output_path_base + kDataExt;
-    std::error_code ec;
-    std::filesystem::rename(merge_path, data_path, ec);
-    if (ec) {
+    Ret ret = rename_and_fsync_parent_directory(
+        merge_path,
+        data_path,
+        "DatasetWriter::merge_data_file: publish data file");
+    if (ret.code() != 0) {
+        std::error_code ec;
         std::filesystem::remove(merge_path, ec);
-        return Ret("DatasetWriter::merge_data_file: failed to rename merge file to data file");
+        return ret;
     }
 
-    std::filesystem::remove(source_path, ec);
-    return Ret(0);
+    return remove_and_fsync_parent_directory(
+        source_path,
+        "DatasetWriter::merge_data_file: remove source file");
 }
 
 Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const InputReaderView& output_reader,
@@ -737,11 +810,14 @@ Ret DatasetWriter::merge_data_file(const DataReader& data_reader, const InputRea
     CHECK(processor.merge_data_file(data_reader, output_reader, merge_path, metadata_.dist_func));
 
     const std::string data_path = output_path_base + kDataExt;
-    std::error_code ec;
-    std::filesystem::rename(merge_path, data_path, ec);
-    if (ec) {
+    const Ret ret = rename_and_fsync_parent_directory(
+        merge_path,
+        data_path,
+        "DatasetWriter::merge_data_file: publish data file");
+    if (ret.code() != 0) {
+        std::error_code ec;
         std::filesystem::remove(merge_path, ec);
-        return Ret("DatasetWriter::merge_data_file: failed to rename merge file to data file");
+        return ret;
     }
 
     return Ret(0);
@@ -760,11 +836,14 @@ Ret DatasetWriter::merge_delta_file(const DataReader& delta_reader, const DataRe
     CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path));
 
     const std::string delta_path = output_path_base + kDeltaExt;
-    std::error_code ec;
-    std::filesystem::rename(merge_path, delta_path, ec);
-    if (ec) {
+    const Ret ret = rename_and_fsync_parent_directory(
+        merge_path,
+        delta_path,
+        "DatasetWriter::merge_delta_file: publish delta file");
+    if (ret.code() != 0) {
+        std::error_code ec;
         std::filesystem::remove(merge_path, ec);
-        return Ret("DatasetWriter::merge_delta_file: failed to rename merge file to delta file");
+        return ret;
     }
 
     return Ret(0);
@@ -780,11 +859,14 @@ Ret DatasetWriter::merge_delta_file(const DataReader& delta_reader, const InputR
     CHECK(processor.merge_delta_file(delta_reader, output_reader, merge_path, metadata_.dist_func));
 
     const std::string delta_path = output_path_base + kDeltaExt;
-    std::error_code ec;
-    std::filesystem::rename(merge_path, delta_path, ec);
-    if (ec) {
+    const Ret ret = rename_and_fsync_parent_directory(
+        merge_path,
+        delta_path,
+        "DatasetWriter::merge_delta_file: publish delta file");
+    if (ret.code() != 0) {
+        std::error_code ec;
         std::filesystem::remove(merge_path, ec);
-        return Ret("DatasetWriter::merge_delta_file: failed to rename merge file to delta file");
+        return ret;
     }
 
     return Ret(0);

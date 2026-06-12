@@ -99,7 +99,8 @@ Merging is designed to be crash-safe:
 1.  **Isolated Output**: All merges write to a temporary `.merge` file.
 2.  **Durable Flush**: The file is explicitly flushed to disk via `fsync()` before closing.
 3.  **Atomic Rename**: Once the merge is complete and durable, `std::filesystem::rename` is used to replace the old file. This ensures that readers never see a partially written or corrupted file.
-4.  **Error Cleanup**: If a merge fails at any point, the `.merge` file is deleted.
+4.  **Directory Sync**: The parent directory is `fsync()`ed after publishing a renamed file. When compaction removes an old delta after replacing the data file, the directory is synced after the rename and again after the unlink so recovery cannot observe old data with the delta missing.
+5.  **Error Cleanup**: If a merge fails at any point, the `.merge` file is deleted.
 
 ## 6. Performance Optimizations
 
