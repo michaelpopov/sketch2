@@ -8,11 +8,60 @@
 #include <cstring>
 #include <fstream>
 #include <filesystem>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include <gtest/gtest.h>
 
 namespace sketch2 {
+
+namespace {
+
+class GuardedPages {
+public:
+    explicit GuardedPages(size_t page_size)
+        : page_size_(page_size),
+          size_(page_size * 2),
+          mapping_(mmap(nullptr, size_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)) {
+    }
+
+    ~GuardedPages() {
+        if (mapping_ != MAP_FAILED) {
+            munmap(mapping_, size_);
+        }
+    }
+
+    bool valid() const {
+        return mapping_ != MAP_FAILED;
+    }
+
+    char* write_at_first_page_end(const char* payload, size_t payload_size) {
+        char* const end = first_page_end();
+        char* const start = end - payload_size;
+        std::memcpy(start, payload, payload_size);
+        return start;
+    }
+
+    char* first_page_end() const {
+        return static_cast<char*>(mapping_) + page_size_;
+    }
+
+    bool protect_second_page() const {
+        return mprotect(static_cast<char*>(mapping_) + page_size_, page_size_, PROT_NONE) == 0;
+    }
+
+private:
+    size_t page_size_;
+    size_t size_;
+    void* mapping_;
+};
+
+size_t system_page_size() {
+    const long page_size = sysconf(_SC_PAGESIZE);
+    return page_size > 0 ? static_cast<size_t>(page_size) : 0;
+}
+
+} // namespace
 
 TEST(string_utils, parse_vector_f32_success) {
     std::array<float, 3> out {};
@@ -169,6 +218,25 @@ TEST(string_utils, parse_vector_i16_min_value_succeeds) {
     EXPECT_EQ(out[1], 32767);
 }
 
+TEST(string_utils, parse_vector_i16_respects_end_pointer_at_page_boundary) {
+    const size_t page_size = system_page_size();
+    ASSERT_GT(page_size, 0u);
+    GuardedPages pages(page_size);
+    ASSERT_TRUE(pages.valid());
+
+    const char payload[] = "1,2";
+    char* const line = pages.write_at_first_page_end(payload, sizeof(payload) - 1);
+    ASSERT_TRUE(pages.protect_second_page());
+
+    std::array<int16_t, 2> out {};
+    const Ret ret = parse_vector(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::i16, out.size(),
+        line, pages.first_page_end());
+    ASSERT_EQ(ret.code(), 0) << ret.message();
+    EXPECT_EQ(out[0], 1);
+    EXPECT_EQ(out[1], 2);
+}
+
 TEST(string_utils, parse_vector_f32_leading_whitespace_succeeds) {
     // The parser skips separators (space/comma) between tokens; leading
     // whitespace is implicitly handled by strtof which skips leading spaces.
@@ -303,6 +371,25 @@ TEST(string_utils, parse_vector_spaces_i16_min_max_succeeds) {
     ASSERT_EQ(ret.code(), 0) << ret.message();
     EXPECT_EQ(out[0], -32768);
     EXPECT_EQ(out[1], 32767);
+}
+
+TEST(string_utils, parse_vector_spaces_i16_respects_end_pointer_at_page_boundary) {
+    const size_t page_size = system_page_size();
+    ASSERT_GT(page_size, 0u);
+    GuardedPages pages(page_size);
+    ASSERT_TRUE(pages.valid());
+
+    const char payload[] = "1 2";
+    char* const line = pages.write_at_first_page_end(payload, sizeof(payload) - 1);
+    ASSERT_TRUE(pages.protect_second_page());
+
+    std::array<int16_t, 2> out {};
+    const Ret ret = parse_vector_spaces(
+        reinterpret_cast<uint8_t*>(out.data()), sizeof(out), DataType::i16, out.size(),
+        line, pages.first_page_end());
+    ASSERT_EQ(ret.code(), 0) << ret.message();
+    EXPECT_EQ(out[0], 1);
+    EXPECT_EQ(out[1], 2);
 }
 
 TEST(string_utils, parse_vector_spaces_f32_scientific_notation) {

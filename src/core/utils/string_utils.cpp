@@ -22,6 +22,33 @@ bool parse_float_token(const char* line, const char* end, float& value, const ch
     return result.ec == std::errc() && next != line && next <= end;
 }
 
+enum class ParseIntResult {
+    ok,
+    invalid,
+    out_of_range,
+};
+
+ParseIntResult parse_i16_token(const char* line, const char* end, int16_t& value, const char*& next) {
+    long parsed = 0;
+    const fast_float::parse_options options(kFastFloatFormat, '.', 10);
+    const auto result = fast_float::from_chars_advanced(line, end, parsed, options);
+    next = result.ptr;
+
+    if (result.ec == std::errc::result_out_of_range) {
+        return ParseIntResult::out_of_range;
+    }
+    if (result.ec != std::errc() || next == line || next > end) {
+        return ParseIntResult::invalid;
+    }
+    if (parsed < static_cast<long>(std::numeric_limits<int16_t>::min()) ||
+        parsed > static_cast<long>(std::numeric_limits<int16_t>::max())) {
+        return ParseIntResult::out_of_range;
+    }
+
+    value = static_cast<int16_t>(parsed);
+    return ParseIntResult::ok;
+}
+
 } // namespace
 
 // Parses a textual vector payload into the typed binary buffer expected by the
@@ -64,16 +91,14 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
             if (line >= end) {
                 return Ret("InputReader::data: truncated vector payload");
             }
-            char* next;
-            const long value = strtol(line, &next, 10);
-            if (next == line || next > end) {
+            const char* next;
+            const ParseIntResult result = parse_i16_token(line, end, out[d], next);
+            if (result == ParseIntResult::invalid) {
                 return Ret("InputReader::data: invalid i16 token");
             }
-            if (value < static_cast<long>(std::numeric_limits<int16_t>::min()) ||
-                value > static_cast<long>(std::numeric_limits<int16_t>::max())) {
+            if (result == ParseIntResult::out_of_range) {
                 return Ret("InputReader::data: i16 token out of range");
             }
-            out[d] = static_cast<int16_t>(value);
             line = next;
             while (line < end && (*line == ',' || *line == ' ')) ++line;
         }
@@ -151,16 +176,14 @@ Ret parse_vector_spaces(uint8_t* buf, size_t size, DataType type, uint16_t dim, 
             if (line >= end) {
                 return Ret("InputReader::data: truncated vector payload");
             }
-            char* next;
-            const long value = strtol(line, &next, 10);
-            if (next == line || next > end) {
+            const char* next;
+            const ParseIntResult result = parse_i16_token(line, end, out[d], next);
+            if (result == ParseIntResult::invalid) {
                 return Ret("InputReader::data: invalid i16 token");
             }
-            if (value < static_cast<long>(std::numeric_limits<int16_t>::min()) ||
-                value > static_cast<long>(std::numeric_limits<int16_t>::max())) {
+            if (result == ParseIntResult::out_of_range) {
                 return Ret("InputReader::data: i16 token out of range");
             }
-            out[d] = static_cast<int16_t>(value);
             line = next;
             while (line < end && *line == ' ') ++line;
         }
