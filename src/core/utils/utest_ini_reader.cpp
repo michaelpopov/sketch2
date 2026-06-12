@@ -1,6 +1,7 @@
 // Unit tests for the INI reader.
 
 #include <gtest/gtest.h>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -100,6 +101,29 @@ TEST_F(IniReaderTest, InvalidIntValueThrows) {
     IniReader reader;
     ASSERT_EQ(0, reader.init(ini_path_).code());
     EXPECT_THROW(reader.get_int("main.count", 11), std::runtime_error);
+}
+
+TEST_F(IniReaderTest, GetU64AcceptsLargeValues) {
+    write_ini(
+        "[main]\n"
+        "range_size = 9223372036854775813\n");
+
+    IniReader reader;
+    ASSERT_EQ(0, reader.init(ini_path_).code());
+    EXPECT_EQ(9223372036854775813ull, reader.get_u64("main.range_size", 0));
+    EXPECT_EQ(123u, reader.get_u64("main.missing", 123));
+}
+
+TEST_F(IniReaderTest, InvalidU64ValueThrows) {
+    write_ini(
+        "[main]\n"
+        "negative = -1\n"
+        "overflow = 18446744073709551616\n");
+
+    IniReader reader;
+    ASSERT_EQ(0, reader.init(ini_path_).code());
+    EXPECT_THROW(reader.get_u64("main.negative", 11), std::runtime_error);
+    EXPECT_THROW(reader.get_u64("main.overflow", 11), std::runtime_error);
 }
 
 TEST_F(IniReaderTest, DuplicateKeyLastValueWins) {

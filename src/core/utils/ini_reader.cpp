@@ -1,11 +1,13 @@
 // Implements a minimal INI reader for dataset configuration files.
 
 #include "ini_reader.h"
+#include <charconv>
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
 #include <fstream>
 #include <limits>
+#include <stdexcept>
 
 namespace sketch2 {
 
@@ -110,6 +112,23 @@ int IniReader::get_int(const std::string& name, int def) const {
         throw std::runtime_error("IniReader::get_int: invalid int value");
     }
     return static_cast<int>(value);
+}
+
+uint64_t IniReader::get_u64(const std::string& name, uint64_t def) const {
+    const auto it = values_.find(name);
+    if (it == values_.end()) {
+        return def;
+    }
+
+    const std::string& value_str = it->second;
+    uint64_t value = 0;
+    const char* begin = value_str.data();
+    const char* end = begin + value_str.size();
+    const auto result = std::from_chars(begin, end, value, 10);
+    if (result.ec != std::errc() || result.ptr != end) {
+        throw std::runtime_error("IniReader::get_u64: invalid uint64 value");
+    }
+    return value;
 }
 
 std::string IniReader::get_str(const std::string& name, const std::string& def) const {

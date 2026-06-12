@@ -213,6 +213,22 @@ TEST_F(DatasetTest, InitFromIniAcceptsCosDistanceFunction) {
     EXPECT_EQ(DistFunc::COS, sc.dist_func());
 }
 
+TEST_F(DatasetTest, InitFromIniAcceptsLargeRangeSize) {
+    const auto dir = make_dir("d_large_range");
+    const uint64_t large_range_size = (uint64_t{1} << 33) + 17;
+    write_config(
+        std::string("[dataset]\n") +
+        "dirs = " + dir + "\n"
+        "range_size = " + std::to_string(large_range_size) + "\n"
+        "type = f32\n"
+        "dim = 4\n");
+
+    DatasetNode sc;
+    const Ret ret = sc.init(config_path_);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_EQ(large_range_size, sc.range_size());
+}
+
 TEST_F(DatasetTest, InitFromIniSetsDatasetNameFromIniFilenameStem) {
     const auto dir = make_dir("d_name");
     const std::string named_config_path = base_dir_ + "/dataset_name_test.ini";

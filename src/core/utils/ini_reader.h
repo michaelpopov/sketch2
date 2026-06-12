@@ -3,6 +3,7 @@
 #pragma once
 
 #include "utils/shared_types.h"
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -17,6 +18,7 @@ public:
     Ret init(const std::string& path);
 
     int get_int(const std::string& name, int def) const;
+    uint64_t get_u64(const std::string& name, uint64_t def) const;
     std::string get_str(const std::string& name, const std::string& def) const;
     std::vector<std::string> get_str_list(const std::string& name) const;
 

@@ -9,12 +9,12 @@ namespace sketch2 {
 
 namespace {
 
-Ret get_non_negative_ini_u64(const IniReader& cfg, const std::string& name, int def, uint64_t* out) {
-    const int value = cfg.get_int(name, def);
-    if (value < 0) {
+Ret get_non_negative_ini_u64(const IniReader& cfg, const std::string& name, uint64_t def, uint64_t* out) {
+    const std::string raw_value = cfg.get_str(name, std::to_string(def));
+    if (!raw_value.empty() && raw_value[0] == '-') {
         return Ret("Dataset: " + name + " must be >= 0");
     }
-    *out = static_cast<uint64_t>(value);
+    *out = cfg.get_u64(name, def);
     return Ret(0);
 }
 
