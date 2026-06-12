@@ -20,6 +20,9 @@ inline constexpr uint64_t kRangeSize = 10'000;
 // to merge into a base data file instead of remaining as deltas.
 inline constexpr uint64_t kDataMergeRatio = 2;
 
+// Default number of fractional digits used when formatting vectors as strings.
+inline constexpr size_t kDefaultVectorStringDigits = 2;
+
 // Minimum supported vector dimension enforced by Dataset/InputReader/InputGenerator validation.
 inline constexpr uint64_t kMinDimension = 4;
 

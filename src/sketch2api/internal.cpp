@@ -721,7 +721,7 @@ int sk_get_(sk_handle_t* handle, uint64_t id, char** value_out) {
     }
     *value_out = nullptr;
 
-    auto [value_str, ret] = handle->ds->get_vector_string(id, 2);
+    auto [value_str, ret] = handle->ds->get_vector_string(id, kDefaultVectorStringDigits);
     if (ret.code() != 0) {
         ERR(ret.message().c_str())
     }

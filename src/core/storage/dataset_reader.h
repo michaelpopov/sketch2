@@ -51,7 +51,8 @@ public:
     DatasetRangeReaderPtr reader() const;
     std::pair<DataReaderPtr, Ret> get(uint64_t id) const;
     std::pair<const uint8_t*, Ret> get_vector(uint64_t id) const;
-    std::pair<std::string, Ret> get_vector_string(uint64_t id, size_t digits = 2) const;
+    std::pair<std::string, Ret> get_vector_string(uint64_t id,
+        size_t digits = kDefaultVectorStringDigits) const;
 
 protected:
     mutable sketch::RWLock cache_lock_;

@@ -1331,6 +1331,26 @@ TEST_F(DatasetTest, GetVectorStringFormatsWithDefaultPrecision) {
     EXPECT_EQ("[ 1.10, 2.20, 3.30, 4.40 ]", vec);
 }
 
+TEST_F(DatasetTest, GetVectorStringDefaultPrecisionMatchesNodeAndReader) {
+    auto dir = make_dir("d_vector_string_default_consistency");
+
+    DatasetNode owner;
+    ASSERT_EQ(0, owner.init_for_test({dir}, 100, DataType::f32, 4).code());
+    write_input("f32,4\n7 : [ 0.1234, 0.1234, 0.1234, 0.1234 ]\n");
+    ASSERT_EQ(0, owner.store(input_path_).code());
+
+    DatasetReader guest;
+    ASSERT_EQ(0, guest.init(dir + "/dataset.ini").code());
+
+    auto [node_vec, node_ret] = owner.get_vector_string(7);
+    ASSERT_EQ(0, node_ret.code()) << node_ret.message();
+    auto [reader_vec, reader_ret] = guest.get_vector_string(7);
+    ASSERT_EQ(0, reader_ret.code()) << reader_ret.message();
+
+    EXPECT_EQ(reader_vec, node_vec);
+    EXPECT_EQ("[ 0.12, 0.12, 0.12, 0.12 ]", node_vec);
+}
+
 TEST_F(DatasetTest, GetVectorStringUsesRequestedDigits) {
     auto dir = make_dir("d_vector_string_digits");
 
