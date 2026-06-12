@@ -173,13 +173,16 @@ void write_binary_perf_test_range(uint8_t* records_base, const GeneratorConfig& 
     }
 }
 
+using BinaryRangeWriter = void (*)(uint8_t*, const GeneratorConfig&, size_t, size_t, size_t);
+
 template <typename T>
-Ret fill_binary_sequential_records(uint8_t* records_base, const GeneratorConfig& config) {
+Ret fill_binary_records(uint8_t* records_base, const GeneratorConfig& config,
+        const char* fallback_error, BinaryRangeWriter write_range) {
     const size_t record_size = sizeof(uint64_t) + config.dim * sizeof(T);
     const size_t chunk_count = (config.count + kBinarySequentialChunkSize - 1) / kBinarySequentialChunkSize;
     const auto& thread_pool = get_singleton().thread_pool();
     if (chunk_count <= 1 || !thread_pool) {
-        write_binary_sequential_range<T>(records_base, config, record_size, 0, config.count);
+        write_range(records_base, config, record_size, 0, config.count);
         return Ret(0);
     }
 
@@ -188,8 +191,8 @@ Ret fill_binary_sequential_records(uint8_t* records_base, const GeneratorConfig&
     for (size_t chunk = 0; chunk < chunk_count; ++chunk) {
         const size_t begin = chunk * kBinarySequentialChunkSize;
         const size_t end = std::min(config.count, begin + kBinarySequentialChunkSize);
-        futures.push_back(thread_pool->submit([records_base, &config, record_size, begin, end] {
-            write_binary_sequential_range<T>(records_base, config, record_size, begin, end);
+        futures.push_back(thread_pool->submit([records_base, &config, record_size, begin, end, write_range] {
+            write_range(records_base, config, record_size, begin, end);
         }));
     }
 
@@ -199,182 +202,106 @@ Ret fill_binary_sequential_records(uint8_t* records_base, const GeneratorConfig&
         } catch (const std::exception& e) {
             return Ret(e.what());
         } catch (...) {
-            return Ret("binary sequential generator failed");
+            return Ret(fallback_error);
         }
     }
 
     return Ret(0);
 }
 
-template <typename T>
-Ret fill_binary_perf_test_records(uint8_t* records_base, const GeneratorConfig& config) {
-    const size_t record_size = sizeof(uint64_t) + config.dim * sizeof(T);
-    const size_t chunk_count = (config.count + kBinarySequentialChunkSize - 1) / kBinarySequentialChunkSize;
-    const auto& thread_pool = get_singleton().thread_pool();
-    if (chunk_count <= 1 || !thread_pool) {
-        write_binary_perf_test_range<T>(records_base, config, record_size, 0, config.count);
-        return Ret(0);
+struct BinarySequentialRecordsFiller {
+    template <typename T>
+    Ret operator()(uint8_t* records_base, const GeneratorConfig& config) const {
+        return fill_binary_records<T>(
+            records_base, config, "binary sequential generator failed", write_binary_sequential_range<T>);
+    }
+};
+
+struct BinaryPerfTestRecordsFiller {
+    template <typename T>
+    Ret operator()(uint8_t* records_base, const GeneratorConfig& config) const {
+        return fill_binary_records<T>(
+            records_base, config, "binary perf-test generator failed", write_binary_perf_test_range<T>);
+    }
+};
+
+template <typename FillRecords>
+Ret generate_binary_mmap_file(const std::string& path, const GeneratorConfig& config,
+        FillRecords fill_records) {
+    const std::string header =
+        std::string(data_type_to_string(config.type)) + "," + std::to_string(config.dim) + ",bin\n";
+    const size_t type_size = data_type_size(config.type);
+    const size_t max_size = std::numeric_limits<size_t>::max();
+    if (type_size == 0 || config.dim > (max_size - sizeof(uint64_t)) / type_size) {
+        return Ret("binary input record size overflow");
     }
 
-    std::vector<std::future<void>> futures;
-    futures.reserve(chunk_count);
-    for (size_t chunk = 0; chunk < chunk_count; ++chunk) {
-        const size_t begin = chunk * kBinarySequentialChunkSize;
-        const size_t end = std::min(config.count, begin + kBinarySequentialChunkSize);
-        futures.push_back(thread_pool->submit([records_base, &config, record_size, begin, end] {
-            write_binary_perf_test_range<T>(records_base, config, record_size, begin, end);
-        }));
+    const size_t record_size = sizeof(uint64_t) + config.dim * type_size;
+    if (config.count > (max_size - header.size()) / record_size) {
+        return Ret("binary input file size overflow");
+    }
+    const size_t file_size = header.size() + config.count * record_size;
+
+    const int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) {
+        return make_io_error("Failed to open file for writing", path);
+    }
+    std::experimental::scope_exit fd_guard([fd]() { close(fd); });
+
+    if (ftruncate(fd, static_cast<off_t>(file_size)) != 0) {
+        return make_io_error("Failed to size file", path);
     }
 
-    for (auto& future : futures) {
-        try {
-            future.get();
-        } catch (const std::exception& e) {
-            return Ret(e.what());
-        } catch (...) {
-            return Ret("binary perf-test generator failed");
+    void* mapped = mmap(nullptr, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (mapped == MAP_FAILED) {
+        return make_io_error("Failed to map file", path);
+    }
+
+    uint8_t* map = static_cast<uint8_t*>(mapped);
+    std::experimental::scope_exit map_guard([&map, file_size]() {
+        if (map != nullptr) {
+            munmap(map, file_size);
         }
+    });
+
+    std::memcpy(map, header.data(), header.size());
+    uint8_t* records_base = map + header.size();
+
+    Ret fill_ret(0);
+    if (config.type == DataType::f32) {
+        fill_ret = fill_records.template operator()<float>(records_base, config);
+    } else if (config.type == DataType::f16) {
+        fill_ret = fill_records.template operator()<float16>(records_base, config);
+    } else if (config.type == DataType::i16) {
+        fill_ret = fill_records.template operator()<int16_t>(records_base, config);
+    } else {
+        return Ret("Unsupported data type");
+    }
+    if (fill_ret.code() != 0) {
+        return fill_ret;
+    }
+
+    if (msync(map, file_size, MS_SYNC) != 0) {
+        return make_io_error("Failed to flush mapped file", path);
+    }
+    if (munmap(map, file_size) != 0) {
+        return make_io_error("Failed to unmap file", path);
+    }
+    map = nullptr;
+
+    if (fsync(fd) != 0) {
+        return make_io_error("Failed to sync file", path);
     }
 
     return Ret(0);
 }
 
 Ret generate_sequential_input_file_binary_mmap(const std::string& path, const GeneratorConfig& config) {
-    const std::string header =
-        std::string(data_type_to_string(config.type)) + "," + std::to_string(config.dim) + ",bin\n";
-    const size_t type_size = data_type_size(config.type);
-    const size_t max_size = std::numeric_limits<size_t>::max();
-    if (type_size == 0 || config.dim > (max_size - sizeof(uint64_t)) / type_size) {
-        return Ret("binary input record size overflow");
-    }
-
-    const size_t record_size = sizeof(uint64_t) + config.dim * type_size;
-    if (config.count > (max_size - header.size()) / record_size) {
-        return Ret("binary input file size overflow");
-    }
-    const size_t file_size = header.size() + config.count * record_size;
-
-    const int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) {
-        return make_io_error("Failed to open file for writing", path);
-    }
-    std::experimental::scope_exit fd_guard([fd]() { close(fd); });
-
-    if (ftruncate(fd, static_cast<off_t>(file_size)) != 0) {
-        return make_io_error("Failed to size file", path);
-    }
-
-    void* mapped = mmap(nullptr, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (mapped == MAP_FAILED) {
-        return make_io_error("Failed to map file", path);
-    }
-
-    uint8_t* map = static_cast<uint8_t*>(mapped);
-    std::experimental::scope_exit map_guard([&map, file_size]() {
-        if (map != nullptr) {
-            munmap(map, file_size);
-        }
-    });
-
-    std::memcpy(map, header.data(), header.size());
-    uint8_t* records_base = map + header.size();
-
-    Ret fill_ret(0);
-    if (config.type == DataType::f32) {
-        fill_ret = fill_binary_sequential_records<float>(records_base, config);
-    } else if (config.type == DataType::f16) {
-        fill_ret = fill_binary_sequential_records<float16>(records_base, config);
-    } else if (config.type == DataType::i16) {
-        fill_ret = fill_binary_sequential_records<int16_t>(records_base, config);
-    } else {
-        return Ret("Unsupported data type");
-    }
-    if (fill_ret.code() != 0) {
-        return fill_ret;
-    }
-
-    if (msync(map, file_size, MS_SYNC) != 0) {
-        return make_io_error("Failed to flush mapped file", path);
-    }
-    if (munmap(map, file_size) != 0) {
-        return make_io_error("Failed to unmap file", path);
-    }
-    map = nullptr;
-
-    if (fsync(fd) != 0) {
-        return make_io_error("Failed to sync file", path);
-    }
-
-    return Ret(0);
+    return generate_binary_mmap_file(path, config, BinarySequentialRecordsFiller{});
 }
 
 Ret generate_perf_test_input_file_binary_mmap(const std::string& path, const GeneratorConfig& config) {
-    const std::string header =
-        std::string(data_type_to_string(config.type)) + "," + std::to_string(config.dim) + ",bin\n";
-    const size_t type_size = data_type_size(config.type);
-    const size_t max_size = std::numeric_limits<size_t>::max();
-    if (type_size == 0 || config.dim > (max_size - sizeof(uint64_t)) / type_size) {
-        return Ret("binary input record size overflow");
-    }
-
-    const size_t record_size = sizeof(uint64_t) + config.dim * type_size;
-    if (config.count > (max_size - header.size()) / record_size) {
-        return Ret("binary input file size overflow");
-    }
-    const size_t file_size = header.size() + config.count * record_size;
-
-    const int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) {
-        return make_io_error("Failed to open file for writing", path);
-    }
-    std::experimental::scope_exit fd_guard([fd]() { close(fd); });
-
-    if (ftruncate(fd, static_cast<off_t>(file_size)) != 0) {
-        return make_io_error("Failed to size file", path);
-    }
-
-    void* mapped = mmap(nullptr, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (mapped == MAP_FAILED) {
-        return make_io_error("Failed to map file", path);
-    }
-
-    uint8_t* map = static_cast<uint8_t*>(mapped);
-    std::experimental::scope_exit map_guard([&map, file_size]() {
-        if (map != nullptr) {
-            munmap(map, file_size);
-        }
-    });
-
-    std::memcpy(map, header.data(), header.size());
-    uint8_t* records_base = map + header.size();
-
-    Ret fill_ret(0);
-    if (config.type == DataType::f32) {
-        fill_ret = fill_binary_perf_test_records<float>(records_base, config);
-    } else if (config.type == DataType::f16) {
-        fill_ret = fill_binary_perf_test_records<float16>(records_base, config);
-    } else if (config.type == DataType::i16) {
-        fill_ret = fill_binary_perf_test_records<int16_t>(records_base, config);
-    } else {
-        return Ret("Unsupported data type");
-    }
-    if (fill_ret.code() != 0) {
-        return fill_ret;
-    }
-
-    if (msync(map, file_size, MS_SYNC) != 0) {
-        return make_io_error("Failed to flush mapped file", path);
-    }
-    if (munmap(map, file_size) != 0) {
-        return make_io_error("Failed to unmap file", path);
-    }
-    map = nullptr;
-
-    if (fsync(fd) != 0) {
-        return make_io_error("Failed to sync file", path);
-    }
-
-    return Ret(0);
+    return generate_binary_mmap_file(path, config, BinaryPerfTestRecordsFiller{});
 }
 
 } // namespace

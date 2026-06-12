@@ -350,6 +350,48 @@ TEST_F(InputGeneratorTest, BinaryPerfTestWritesBoundedPerDimensionPayload) {
     }
 }
 
+TEST_F(InputGeneratorTest, BinaryPerfTestLargeFilePreservesChunkBoundaryRecords) {
+    constexpr size_t kCount = 20050;
+    constexpr size_t kMinId = 100;
+    GeneratorConfig cfg{PatternType::PerfTest, kCount, kMinId, DataType::f32, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    const std::string header = "f32,4,bin\n";
+    const std::streamoff record_size =
+        static_cast<std::streamoff>(sizeof(uint64_t) + cfg.dim * sizeof(float));
+
+    std::ifstream in(path_, std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(in.is_open());
+    const std::streamoff file_size = in.tellg();
+    ASSERT_NE(-1, file_size);
+    EXPECT_EQ(static_cast<std::streamoff>(header.size()) + static_cast<std::streamoff>(kCount) * record_size,
+        file_size);
+
+    auto expect_record = [&](size_t index, uint64_t expected_id) {
+        in.seekg(static_cast<std::streamoff>(header.size()) +
+                 static_cast<std::streamoff>(index) * record_size,
+            std::ios::beg);
+        ASSERT_TRUE(in.good());
+
+        uint64_t id = 0;
+        std::array<float, 4> vec {};
+        in.read(reinterpret_cast<char*>(&id), sizeof(id));
+        in.read(reinterpret_cast<char*>(vec.data()), sizeof(vec));
+
+        ASSERT_TRUE(in.good());
+        EXPECT_EQ(expected_id, id);
+        EXPECT_NE(vec[0], vec[1]);
+        for (float value : vec) {
+            EXPECT_LE(std::abs(value), 4.0f);
+        }
+    };
+
+    expect_record(0, kMinId);
+    expect_record(9999, kMinId + 9999);
+    expect_record(10000, kMinId + 10000);
+    expect_record(kCount - 1, kMinId + kCount - 1);
+}
+
 TEST_F(InputGeneratorTest, BinarySequentialWritesIdAndVectorPayload) {
     GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f32, 4, 1000, 0, true};
     ASSERT_EQ(0, generate_input_file(path_, cfg).code());
