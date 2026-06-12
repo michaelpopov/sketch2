@@ -3,6 +3,7 @@
 #include "input_writer.h"
 
 #include "core/storage/count_utils.h"
+#include "core/utils/crc.h"
 #include "core/utils/shared_consts.h"
 #include "core/utils/string_utils.h"
 

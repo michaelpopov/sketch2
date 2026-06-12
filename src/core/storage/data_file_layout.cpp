@@ -1,9 +1,9 @@
 // Implements non-trivial data-file layout write helpers.
 
 #include "core/storage/data_file_layout.h"
+#include "utils/crc.h"
 #include "utils/mapped_region.h"
 #include "utils/shared_consts.h"
-#include "utils/string_utils.h"
 #include <algorithm>
 #include <cassert>
 #include <cerrno>

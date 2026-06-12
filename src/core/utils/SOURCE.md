@@ -3,6 +3,8 @@
 - `CMakeLists.txt`: Build rules for the shared utilities library and tests.
 - `README.md`: Overview of the core utilities and architecture detection.
 - `arch_detection.h`: Centralized architecture detection and SIMD feature flags.
+- `crc.cpp`: CRC32C checksum implementation with CPU-specific acceleration and portable fallback.
+- `crc.h`: Declarations for shared checksum helpers.
 - `file_lock.h`: Filesystem lock helper declarations.
 - `file_path_lock.cpp`: In-process file-path lock implementation with realpath aliasing.
 - `file_path_lock.h`: FilePathLock declarations for tracking exclusively held file paths.
@@ -25,6 +27,7 @@
 - `update_notifier.cpp`: File-backed update counter implementation for cross-process cache invalidation.
 - `update_notifier.h`: Update notifier interface used by storage reader/writer paths.
 - `utest_file_lock.cpp`: Unit tests for file locking behavior.
+- `utest_crc.cpp`: Unit tests for checksum helpers.
 - `utest_high_perf_heap.cpp`: Unit tests for the high-performance heap utility.
 - `utest_ini_reader.cpp`: Unit tests for the INI reader.
 - `utest_log.cpp`: Unit tests for the logging helpers.

@@ -33,10 +33,10 @@ inline constexpr uint64_t kMaxDimension = 4096;
 inline constexpr uint32_t kMagic = 0x534B5632; // "SKV2"
 
 // Binary storage format version written into data headers and checked when reopening files.
-// Version 14 adds optional payload CRC32 metadata to the v13 layout of aligned vector
-// records with any optional norm inline in the record stride, followed by
-// region-aligned frozen Roaring id trailers.
-inline constexpr uint16_t kVersion = 14;
+// Version 15 switches payload and indexed-block checksums to CRC32C while retaining
+// the v14 layout of aligned vector records, optional inline norms, and region-aligned
+// frozen Roaring id trailers.
+inline constexpr uint16_t kVersion = 15;
 
 // Vector payload alignment used by data files and accumulator storage for SIMD-friendly access.
 inline constexpr uint32_t kDataAlignment = 32;

@@ -1,6 +1,7 @@
 // Implements parsing and range views over textual and binary input files.
 
 #include "input_reader.h"
+#include "utils/crc.h"
 #include "utils/log.h"
 #include "utils/shared_consts.h"
 #include "utils/shared_types.h"

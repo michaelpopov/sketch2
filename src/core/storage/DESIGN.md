@@ -67,7 +67,7 @@ the following data:
 
 In the end of each full block there is a control footer consisting of:
  - uint32_t counter equal to the index of the last record in the block
- - uint32_t CRC32 checksum of the preceding full block payload
+ - uint32_t CRC32C checksum of the preceding full block payload
 
 The counter values should be like 64, 128, 192, 256, etc.
 
@@ -78,7 +78,7 @@ The control footers are used for checking the correctness of file format and det
 of binary data. The control footers are added after each full block of exactly 64 items. If in the
 end there is incomplete block of items, there is no footer to check.
 
-The CRC32 checksum covers the whole preceding full block payload, starting from
+The CRC32C checksum covers the whole preceding full block payload, starting from
 the 64-bit bitset at the beginning of the block and ending with the last byte
 of the 64th item. The footer bytes themselves are not included in the checksum.
 
