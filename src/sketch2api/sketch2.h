@@ -243,6 +243,89 @@ int sk_bitset_cache_clear(
     bool* out_of_memory, const char** error_message_out);
 
 /*
+ * Text embedding support (backed by llama.cpp, CPU only).
+ *
+ * An embedder wraps one loaded GGUF embedding model; pooling behavior comes
+ * from model metadata unless overridden. Embedders are thread-safe: calls on
+ * one handle are serialized internally and error state is per-thread. Share
+ * one embedder per process (a single call already saturates the compute pool)
+ * and batch with sk_embed_texts() for throughput; each additional open loads
+ * the model again and creates another worker pool.
+ */
+typedef struct sk_embedder sk_embedder_t;
+
+/*
+ * Load a GGUF embedding model from model_path. options is NULL/"" for
+ * defaults, or a comma-separated key=value list:
+ *   pooling=mean|cls|last       override pooling (default: model metadata)
+ *   normalize=0|1               L2-normalize output vectors (default: 1)
+ *   truncate=0|1                truncate over-long inputs (default: 0 = error)
+ *   context=N                   max tokens per input (default: min of model
+ *                               training context and 4096)
+ *   threads=N                   compute threads (default: CPUs available to
+ *                               the process; clamped to that budget and to
+ *                               what the OS can grant, e.g. under container
+ *                               pid limits). The embedder owns a resident
+ *                               pool; nothing is spawned per call
+ * Returns NULL on failure; if error_message_out is non-NULL it receives a
+ * pointer to a thread-local message valid until the calling thread's next
+ * sk_embedder_* or sk_embed_* call.
+ *
+ * CPU requirement (x86-64): default builds compile the inference kernels for
+ * AVX2/FMA (Intel Haswell 2013+, AMD Zen 2017+). On CPUs or hypervisor CPU
+ * models lacking a required extension, open fails with a clear error instead
+ * of SIGILL. Other libsketch2 APIs keep the library's baseline requirements.
+ */
+sk_embedder_t* sk_embedder_open(const char* model_path, const char* options,
+    const char** error_message_out);
+
+/*
+ * Release the embedder. Must not run concurrently with other calls on the
+ * same handle.
+ */
+void sk_embedder_close(sk_embedder_t* embedder);
+
+/*
+ * Return the dimension of vectors produced by this embedder.
+ */
+int sk_embedder_dim(sk_embedder_t* embedder, unsigned int* dim_out);
+
+/*
+ * Return the maximum number of tokens accepted per input text.
+ */
+int sk_embedder_max_tokens(sk_embedder_t* embedder, unsigned int* max_tokens_out);
+
+/*
+ * Generate the embedding for one text piece. On success *vec_out receives an
+ * allocated array of *dim_out floats; the caller owns it and must release it
+ * with sk_free().
+ */
+int sk_embed_text(sk_embedder_t* embedder, const char* text,
+    float** vec_out, size_t* dim_out);
+
+/*
+ * Generate embeddings for count text pieces, packing inputs into shared
+ * forward passes — much faster than calling sk_embed_text() in a loop. On
+ * success *vecs_out receives a row-major array of count * *dim_out floats
+ * (row i = texts[i]); the caller frees it with sk_free(). On failure nothing
+ * is allocated and the error message reports the failing input index.
+ */
+int sk_embed_texts(sk_embedder_t* embedder, const char** texts, size_t count,
+    float** vecs_out, size_t* dim_out);
+
+/*
+ * Error code of the calling thread's most recent embedder call (0 success,
+ * -1 failure). Error state is thread-local, errno-style.
+ */
+int sk_embedder_error(sk_embedder_t* embedder);
+
+/*
+ * Error message of the calling thread's most recent failed embedder call
+ * ("" if it succeeded); valid until the thread's next embedder call.
+ */
+const char* sk_embedder_error_message(sk_embedder_t* embedder);
+
+/*
  * Set global log level in Sketch2
  */
 void sk_set_log_level(const char* log_level);

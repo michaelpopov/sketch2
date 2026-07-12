@@ -85,6 +85,7 @@ help:
 		'  build         Build the selected TYPE runtime' \
 		'  build-arm-sve Release build with ARM SVE kernels; combine with ARM_MCPU=<tune>' \
 		'  test          Build and run ctest for the selected TYPE runtime' \
+		'  fetch-test-models Download the pinned embedding test model (enables E2E embed tests)' \
 		'  install       Install release headers and runtime into install' \
 		'  pytest     Run Python tests against the release runtime' \
 			'  pydemo     Run the Python demo' \
@@ -122,6 +123,12 @@ test: build
 
 rtest:
 	$(MAKE) test TYPE=rel
+
+# Downloads the pinned embedding model fixture so `make test` covers the E2E
+# embedding tests. CI runs this and sets SKETCH2_REQUIRE_EMBED_TESTS=1.
+.PHONY: fetch-test-models
+fetch-test-models:
+	scripts/fetch-embed-test-model.sh $(BUILD_DIR)/test-models/all-MiniLM-L6-v2-Q4_K_M.gguf
 
 # Installs the release runtime directory.
 # The staged tree contains the public C header, the shared library, and the
