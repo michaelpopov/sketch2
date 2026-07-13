@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -256,6 +257,19 @@ protected:
         ASSERT_FALSE(out.fail());
     }
 };
+
+TEST(norm_utils, float8_raw_bytes_accumulate_squared_norm_in_double) {
+    // f8 raw storage remains a byte array: +/-1, signed zeros, +/-minimum
+    // subnormal, and moderate normal values +3 and -6.
+    const std::array<uint8_t, 8> raw {
+        0x3c, 0xbc, 0x00, 0x80, 0x01, 0x81, 0x42, 0xc6,
+    };
+    const double expected = 47.0 + std::ldexp(1.0, -31);
+
+    EXPECT_DOUBLE_EQ(expected, compute_norm_sq(raw.data(), DataType::f8, raw.size(), "test"));
+    EXPECT_DOUBLE_EQ(expected, compute_squared_norm(raw.data(), DataType::f8, raw.size()));
+    EXPECT_DOUBLE_EQ(1.0 / std::sqrt(expected), inverse_norm(raw.data(), DataType::f8, raw.size()));
+}
 
 TEST_F(DataMergerTest, MergeDataFileMergesOverrideInsertAndDeletes) {
     const std::string source_path = p("source.data");
