@@ -233,6 +233,8 @@ std::vector<CaseStats> run_benchmarks(const Args& args) {
             const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
             return run_compute_bench(args, av, bv);
         }
+        case DataType::f8:
+            break;
     }
     throw std::runtime_error("unsupported data type");
 }

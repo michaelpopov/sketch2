@@ -197,9 +197,10 @@ TEST(string_utils, print_vector_buffer_too_small_fails) {
     EXPECT_NE(0, ret.code());
 }
 
-TEST(string_utils, data_type_from_int_invalid_values_throw) {
+TEST(string_utils, data_type_from_int_f8_and_invalid_values) {
     EXPECT_THROW(data_type_from_int(-1), std::runtime_error);
-    EXPECT_THROW(data_type_from_int(3), std::runtime_error);
+    EXPECT_EQ(DataType::f8, data_type_from_int(3));
+    EXPECT_THROW(data_type_from_int(4), std::runtime_error);
     EXPECT_THROW(data_type_from_int(99), std::runtime_error);
 }
 
@@ -264,10 +265,14 @@ TEST(string_utils, parse_vector_dist_func_invalid_string_throws) {
 
 TEST(string_utils, parse_vector_data_type_roundtrip) {
     EXPECT_EQ(DataType::f32, data_type_from_string("f32"));
+    EXPECT_EQ(DataType::f16, data_type_from_string("f16"));
     EXPECT_EQ(DataType::i16, data_type_from_string("i16"));
+    EXPECT_EQ(DataType::f8, data_type_from_string("f8"));
     EXPECT_THROW(data_type_from_string("bad"), std::runtime_error);
     EXPECT_STREQ("f32", data_type_to_string(DataType::f32));
+    EXPECT_STREQ("f16", data_type_to_string(DataType::f16));
     EXPECT_STREQ("i16", data_type_to_string(DataType::i16));
+    EXPECT_STREQ("f8", data_type_to_string(DataType::f8));
 }
 
 TEST(string_utils, parse_vector_spaces_f32_success) {

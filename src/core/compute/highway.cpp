@@ -492,6 +492,7 @@ ComputeDotFn pick_dot(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(DotF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(DotF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(DotI16);
+        case DataType::f8: return nullptr;
     }
     return nullptr;
 }
@@ -501,6 +502,7 @@ ComputeDistFn pick_l2_dist(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(DistL2F32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(DistL2F16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(DistL2I16);
+        case DataType::f8: return nullptr;
     }
     return nullptr;
 }
@@ -510,6 +512,7 @@ ComputeDistFn pick_cos_dist(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(DistCosF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(DistCosF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(DistCosI16);
+        case DataType::f8: return nullptr;
     }
     return nullptr;
 }
@@ -519,6 +522,7 @@ ComputeDistWithQueryNormFn pick_cos_query_norm(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(DistCosWithQueryNormF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(DistCosWithQueryNormF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(DistCosWithQueryNormI16);
+        case DataType::f8: return nullptr;
     }
     return nullptr;
 }
@@ -528,6 +532,7 @@ ComputeSquaredNormFn pick_squared_norm(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(SquaredNormF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(SquaredNormF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(SquaredNormI16);
+        case DataType::f8: return nullptr;
     }
     return nullptr;
 }
@@ -537,6 +542,7 @@ ScanDotFn pick_scan_dot(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(ScanDotF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(ScanDotF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(ScanDotI16);
+        case DataType::f8: return nullptr;
     }
     return nullptr;
 }
@@ -546,6 +552,7 @@ ScanL2StoredFn pick_scan_l2_stored(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(ScanL2F32Stored);
         case DataType::f16: return HWY_DYNAMIC_POINTER(ScanL2F16Stored);
         case DataType::i16: return HWY_DYNAMIC_POINTER(ScanL2I16Stored);
+        case DataType::f8: return nullptr;
     }
     return nullptr;
 }
@@ -555,6 +562,7 @@ ScanCosFn pick_scan_cos_stored(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(ScanCosF32Stored);
         case DataType::f16: return HWY_DYNAMIC_POINTER(ScanCosF16Stored);
         case DataType::i16: return HWY_DYNAMIC_POINTER(ScanCosI16Stored);
+        case DataType::f8: return nullptr;
     }
     return nullptr;
 }
