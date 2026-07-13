@@ -77,6 +77,12 @@ void fill_pair(std::vector<float16>* a, std::vector<float16>* b, uint32_t seed, 
     fill_f16(a->data(), b->data(), dim, seed);
 }
 
+void fill_pair(std::vector<float8>* a, std::vector<float8>* b, uint32_t seed, size_t dim) {
+    a->resize(dim);
+    b->resize(dim);
+    fill_f8(a->data(), b->data(), dim, seed);
+}
+
 void fill_pair(std::vector<int16_t>* a, std::vector<int16_t>* b, uint32_t seed, size_t dim) {
     a->resize(dim);
     b->resize(dim);
@@ -233,8 +239,12 @@ std::vector<CaseStats> run_benchmarks(const Args& args) {
             const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
             return run_compute_bench(args, av, bv);
         }
-        case DataType::f8:
-            break;
+        case DataType::f8: {
+            std::vector<float8> a;
+            std::vector<float8> b;
+            const auto [av, bv] = prepare_bytes(&a, &b, args.dim);
+            return run_compute_bench(args, av, bv);
+        }
     }
     throw std::runtime_error("unsupported data type");
 }

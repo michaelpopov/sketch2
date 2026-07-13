@@ -9,6 +9,7 @@
 #include "core/compute/scanner_heap_utils.h"
 #include "core/compute/scanner_log_utils.h"
 #include "core/compute/scanner_query_context.h"
+#include "core/utils/float8.h"
 #include "core/utils/timer.h"
 
 #undef HWY_TARGET_INCLUDE
@@ -38,6 +39,19 @@ HWY_INLINE hn::VFromD<DF> LoadF16AsF32(DF df, const uint8_t* ptr) {
     const hn::Rebind<uint16_t, DF> du16;
     const hn::Rebind<hwy::float16_t, DF> df16;
     const auto u16 = hn::LoadU(du16, AsElements<uint16_t>(ptr));
+    return hn::PromoteTo(df, hn::BitCast(df16, u16));
+}
+
+// E5M2 occupies the numerically high byte of an IEEE f16 bit pattern.  Form
+// that f16 representation in lanes and reuse Highway's existing f16 -> f32
+// promotion path; f8 arithmetic is deliberately not introduced here.
+template <class DF>
+HWY_INLINE hn::VFromD<DF> LoadF8AsF32(DF df, const uint8_t* ptr) {
+    const hn::Rebind<uint8_t, DF> du8;
+    const hn::Rebind<uint16_t, DF> du16;
+    const hn::Rebind<hwy::float16_t, DF> df16;
+    const auto u8 = hn::LoadU(du8, ptr);
+    const auto u16 = hn::ShiftLeft<8>(hn::PromoteTo(du16, u8));
     return hn::PromoteTo(df, hn::BitCast(df16, u16));
 }
 
@@ -84,6 +98,26 @@ double DistL2F16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const auto* vb = AsElements<hwy::float16_t>(b);
     for (; i < dim; ++i) {
         const double d = static_cast<double>(va[i]) - static_cast<double>(vb[i]);
+        sum += d * d;
+    }
+    return sum;
+}
+
+double DistL2F8(const uint8_t* a, const uint8_t* b, size_t dim) {
+    const hn::ScalableTag<float> df;
+    const size_t N = hn::Lanes(df);
+    auto acc = hn::Zero(df);
+    size_t i = 0;
+    for (; i + N <= dim; i += N) {
+        const auto av = LoadF8AsF32(df, a + i);
+        const auto bv = LoadF8AsF32(df, b + i);
+        const auto diff = hn::Sub(av, bv);
+        acc = hn::MulAdd(diff, diff, acc);
+    }
+    double sum = hn::ReduceSum(df, acc);
+    for (; i < dim; ++i) {
+        const double d = static_cast<double>(static_cast<float>(float8::from_bits(a[i]))) -
+            static_cast<double>(static_cast<float>(float8::from_bits(b[i])));
         sum += d * d;
     }
     return sum;
@@ -153,6 +187,24 @@ double DotF16(const uint8_t* a, const uint8_t* b, size_t dim) {
     return sum;
 }
 
+double DotF8(const uint8_t* a, const uint8_t* b, size_t dim) {
+    const hn::ScalableTag<float> df;
+    const size_t N = hn::Lanes(df);
+    auto acc = hn::Zero(df);
+    size_t i = 0;
+    for (; i + N <= dim; i += N) {
+        const auto av = LoadF8AsF32(df, a + i);
+        const auto bv = LoadF8AsF32(df, b + i);
+        acc = hn::MulAdd(av, bv, acc);
+    }
+    double sum = hn::ReduceSum(df, acc);
+    for (; i < dim; ++i) {
+        sum += static_cast<double>(static_cast<float>(float8::from_bits(a[i]))) *
+            static_cast<double>(static_cast<float>(float8::from_bits(b[i])));
+    }
+    return sum;
+}
+
 double DotI16(const uint8_t* a, const uint8_t* b, size_t dim) {
     const int16_t* va = AsElements<int16_t>(a);
     const int16_t* vb = AsElements<int16_t>(b);
@@ -205,6 +257,23 @@ double SquaredNormF16(const uint8_t* a, size_t dim) {
     const auto* va = AsElements<hwy::float16_t>(a);
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
+        sum += ai * ai;
+    }
+    return sum;
+}
+
+double SquaredNormF8(const uint8_t* a, size_t dim) {
+    const hn::ScalableTag<float> df;
+    const size_t N = hn::Lanes(df);
+    auto acc = hn::Zero(df);
+    size_t i = 0;
+    for (; i + N <= dim; i += N) {
+        const auto av = LoadF8AsF32(df, a + i);
+        acc = hn::MulAdd(av, av, acc);
+    }
+    double sum = hn::ReduceSum(df, acc);
+    for (; i < dim; ++i) {
+        const double ai = static_cast<double>(static_cast<float>(float8::from_bits(a[i])));
         sum += ai * ai;
     }
     return sum;
@@ -283,6 +352,33 @@ double DistCosF16(const uint8_t* a, const uint8_t* b, size_t dim) {
     for (; i < dim; ++i) {
         const double ai = static_cast<double>(va[i]);
         const double bi = static_cast<double>(vb[i]);
+        dot += ai * bi;
+        norm_a_sq += ai * ai;
+        norm_b_sq += bi * bi;
+    }
+    return cos_dist_from_squared_norms(dot, norm_a_sq, norm_b_sq);
+}
+
+double DistCosF8(const uint8_t* a, const uint8_t* b, size_t dim) {
+    const hn::ScalableTag<float> df;
+    const size_t N = hn::Lanes(df);
+    auto dot_acc = hn::Zero(df);
+    auto na_acc = hn::Zero(df);
+    auto nb_acc = hn::Zero(df);
+    size_t i = 0;
+    for (; i + N <= dim; i += N) {
+        const auto av = LoadF8AsF32(df, a + i);
+        const auto bv = LoadF8AsF32(df, b + i);
+        dot_acc = hn::MulAdd(av, bv, dot_acc);
+        na_acc = hn::MulAdd(av, av, na_acc);
+        nb_acc = hn::MulAdd(bv, bv, nb_acc);
+    }
+    double dot = hn::ReduceSum(df, dot_acc);
+    double norm_a_sq = hn::ReduceSum(df, na_acc);
+    double norm_b_sq = hn::ReduceSum(df, nb_acc);
+    for (; i < dim; ++i) {
+        const double ai = static_cast<double>(static_cast<float>(float8::from_bits(a[i])));
+        const double bi = static_cast<double>(static_cast<float>(float8::from_bits(b[i])));
         dot += ai * bi;
         norm_a_sq += ai * ai;
         norm_b_sq += bi * bi;
@@ -372,6 +468,30 @@ double DistCosWithQueryNormF16(const uint8_t* a, const uint8_t* b, size_t dim, d
     return cos_dist_from_squared_norms(dot, norm_a_sq, query_norm_sq);
 }
 
+double DistCosWithQueryNormF8(const uint8_t* a, const uint8_t* b, size_t dim,
+        double query_norm_sq) {
+    const hn::ScalableTag<float> df;
+    const size_t N = hn::Lanes(df);
+    auto dot_acc = hn::Zero(df);
+    auto na_acc = hn::Zero(df);
+    size_t i = 0;
+    for (; i + N <= dim; i += N) {
+        const auto av = LoadF8AsF32(df, a + i);
+        const auto bv = LoadF8AsF32(df, b + i);
+        dot_acc = hn::MulAdd(av, bv, dot_acc);
+        na_acc = hn::MulAdd(av, av, na_acc);
+    }
+    double dot = hn::ReduceSum(df, dot_acc);
+    double norm_a_sq = hn::ReduceSum(df, na_acc);
+    for (; i < dim; ++i) {
+        const double ai = static_cast<double>(static_cast<float>(float8::from_bits(a[i])));
+        const double bi = static_cast<double>(static_cast<float>(float8::from_bits(b[i])));
+        dot += ai * bi;
+        norm_a_sq += ai * ai;
+    }
+    return cos_dist_from_squared_norms(dot, norm_a_sq, query_norm_sq);
+}
+
 double DistCosWithQueryNormI16(const uint8_t* a, const uint8_t* b, size_t dim, double query_norm_sq) {
     const int16_t* va = AsElements<int16_t>(a);
     const int16_t* vb = AsElements<int16_t>(b);
@@ -413,6 +533,10 @@ void ScanDotF16(const DataReader& reader, size_t count, LocalDistHeap* heap,
         const QueryDotContext& query, const BitsetFilter* bitset) {
     scan_dot<DotF16>(reader, count, heap, query, bitset);
 }
+void ScanDotF8(const DataReader& reader, size_t count, LocalDistHeap* heap,
+        const QueryDotContext& query, const BitsetFilter* bitset) {
+    scan_dot<DotF8>(reader, count, heap, query, bitset);
+}
 void ScanDotI16(const DataReader& reader, size_t count, LocalDistHeap* heap,
         const QueryDotContext& query, const BitsetFilter* bitset) {
     scan_dot<DotI16>(reader, count, heap, query, bitset);
@@ -426,6 +550,10 @@ void ScanL2F16Stored(const DataReader& reader, size_t count, LocalDistHeap* heap
         const QueryL2Context& query, const BitsetFilter* bitset) {
     scan_l2_stored_norms<DotF16>(reader, count, heap, query, bitset);
 }
+void ScanL2F8Stored(const DataReader& reader, size_t count, LocalDistHeap* heap,
+        const QueryL2Context& query, const BitsetFilter* bitset) {
+    scan_l2_stored_norms<DotF8>(reader, count, heap, query, bitset);
+}
 void ScanL2I16Stored(const DataReader& reader, size_t count, LocalDistHeap* heap,
         const QueryL2Context& query, const BitsetFilter* bitset) {
     scan_l2_stored_norms<DotI16>(reader, count, heap, query, bitset);
@@ -438,6 +566,10 @@ void ScanCosF32Stored(const DataReader& reader, size_t count, LocalDistHeap* hea
 void ScanCosF16Stored(const DataReader& reader, size_t count, LocalDistHeap* heap,
         const QueryCosContext& query, const BitsetFilter* bitset) {
     scan_cos_stored_norms<DotF16>(reader, count, heap, query, bitset);
+}
+void ScanCosF8Stored(const DataReader& reader, size_t count, LocalDistHeap* heap,
+        const QueryCosContext& query, const BitsetFilter* bitset) {
+    scan_cos_stored_norms<DotF8>(reader, count, heap, query, bitset);
 }
 void ScanCosI16Stored(const DataReader& reader, size_t count, LocalDistHeap* heap,
         const QueryCosContext& query, const BitsetFilter* bitset) {
@@ -456,28 +588,36 @@ namespace {
 
 HWY_EXPORT(DistL2F32);
 HWY_EXPORT(DistL2F16);
+HWY_EXPORT(DistL2F8);
 HWY_EXPORT(DistL2I16);
 HWY_EXPORT(DotF32);
 HWY_EXPORT(DotF16);
+HWY_EXPORT(DotF8);
 HWY_EXPORT(DotI16);
 HWY_EXPORT(SquaredNormF32);
 HWY_EXPORT(SquaredNormF16);
+HWY_EXPORT(SquaredNormF8);
 HWY_EXPORT(SquaredNormI16);
 HWY_EXPORT(DistCosF32);
 HWY_EXPORT(DistCosF16);
+HWY_EXPORT(DistCosF8);
 HWY_EXPORT(DistCosI16);
 HWY_EXPORT(DistCosWithQueryNormF32);
 HWY_EXPORT(DistCosWithQueryNormF16);
+HWY_EXPORT(DistCosWithQueryNormF8);
 HWY_EXPORT(DistCosWithQueryNormI16);
 
 HWY_EXPORT(ScanDotF32);
 HWY_EXPORT(ScanDotF16);
+HWY_EXPORT(ScanDotF8);
 HWY_EXPORT(ScanDotI16);
 HWY_EXPORT(ScanL2F32Stored);
 HWY_EXPORT(ScanL2F16Stored);
+HWY_EXPORT(ScanL2F8Stored);
 HWY_EXPORT(ScanL2I16Stored);
 HWY_EXPORT(ScanCosF32Stored);
 HWY_EXPORT(ScanCosF16Stored);
+HWY_EXPORT(ScanCosF8Stored);
 HWY_EXPORT(ScanCosI16Stored);
 
 using ScanDotFn = void (*)(const DataReader&, size_t, LocalDistHeap*,
@@ -492,7 +632,7 @@ ComputeDotFn pick_dot(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(DotF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(DotF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(DotI16);
-        case DataType::f8: return nullptr;
+        case DataType::f8: return HWY_DYNAMIC_POINTER(DotF8);
     }
     return nullptr;
 }
@@ -502,7 +642,7 @@ ComputeDistFn pick_l2_dist(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(DistL2F32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(DistL2F16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(DistL2I16);
-        case DataType::f8: return nullptr;
+        case DataType::f8: return HWY_DYNAMIC_POINTER(DistL2F8);
     }
     return nullptr;
 }
@@ -512,7 +652,7 @@ ComputeDistFn pick_cos_dist(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(DistCosF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(DistCosF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(DistCosI16);
-        case DataType::f8: return nullptr;
+        case DataType::f8: return HWY_DYNAMIC_POINTER(DistCosF8);
     }
     return nullptr;
 }
@@ -522,7 +662,7 @@ ComputeDistWithQueryNormFn pick_cos_query_norm(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(DistCosWithQueryNormF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(DistCosWithQueryNormF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(DistCosWithQueryNormI16);
-        case DataType::f8: return nullptr;
+        case DataType::f8: return HWY_DYNAMIC_POINTER(DistCosWithQueryNormF8);
     }
     return nullptr;
 }
@@ -532,7 +672,7 @@ ComputeSquaredNormFn pick_squared_norm(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(SquaredNormF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(SquaredNormF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(SquaredNormI16);
-        case DataType::f8: return nullptr;
+        case DataType::f8: return HWY_DYNAMIC_POINTER(SquaredNormF8);
     }
     return nullptr;
 }
@@ -542,7 +682,7 @@ ScanDotFn pick_scan_dot(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(ScanDotF32);
         case DataType::f16: return HWY_DYNAMIC_POINTER(ScanDotF16);
         case DataType::i16: return HWY_DYNAMIC_POINTER(ScanDotI16);
-        case DataType::f8: return nullptr;
+        case DataType::f8: return HWY_DYNAMIC_POINTER(ScanDotF8);
     }
     return nullptr;
 }
@@ -552,7 +692,7 @@ ScanL2StoredFn pick_scan_l2_stored(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(ScanL2F32Stored);
         case DataType::f16: return HWY_DYNAMIC_POINTER(ScanL2F16Stored);
         case DataType::i16: return HWY_DYNAMIC_POINTER(ScanL2I16Stored);
-        case DataType::f8: return nullptr;
+        case DataType::f8: return HWY_DYNAMIC_POINTER(ScanL2F8Stored);
     }
     return nullptr;
 }
@@ -562,7 +702,7 @@ ScanCosFn pick_scan_cos_stored(DataType type) {
         case DataType::f32: return HWY_DYNAMIC_POINTER(ScanCosF32Stored);
         case DataType::f16: return HWY_DYNAMIC_POINTER(ScanCosF16Stored);
         case DataType::i16: return HWY_DYNAMIC_POINTER(ScanCosI16Stored);
-        case DataType::f8: return nullptr;
+        case DataType::f8: return HWY_DYNAMIC_POINTER(ScanCosF8Stored);
     }
     return nullptr;
 }
