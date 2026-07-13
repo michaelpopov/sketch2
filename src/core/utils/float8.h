@@ -8,9 +8,12 @@
 
 #include "utils/shared_types.h"
 
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <type_traits>
 
 namespace sketch2 {
@@ -176,6 +179,153 @@ static_assert(alignof(float8) == 1);
 static_assert(std::is_trivially_copyable_v<float8>);
 static_assert(std::is_standard_layout_v<float8>);
 static_assert(std::is_trivially_default_constructible_v<float8>);
+
+// The canonical bounded synthetic-data codebook.  Entries are constructed from
+// E5M2 fields, not decimal floats: negative values are emitted from largest
+// magnitude to smallest so the complete sequence is numerically sorted, then
+// the positive values are emitted from smallest to largest.  Its layout is:
+//
+//   sign | exponent fields 19..11 | mantissas 3..0   (-28 .. -0.0625)
+//   sign | exponent fields 11..19 | mantissas 0..3   (+0.0625 .. +28)
+//
+// Keeping this one byte-level definition here lets storage generators and
+// later compute tests share an auditable, grid-exact source of f8 values.
+namespace float8_codebook {
+
+inline constexpr size_t kSize = 72;
+
+namespace detail {
+
+constexpr std::array<uint8_t, kSize> make_bits() noexcept {
+    std::array<uint8_t, kSize> bits {};
+    size_t index = 0;
+
+    for (int exponent = 19; exponent >= 11; --exponent) {
+        for (int mantissa = 3; mantissa >= 0; --mantissa) {
+            bits[index++] = static_cast<uint8_t>(
+                0x80U | (static_cast<uint8_t>(exponent) << 2) |
+                static_cast<uint8_t>(mantissa));
+        }
+    }
+    for (int exponent = 11; exponent <= 19; ++exponent) {
+        for (int mantissa = 0; mantissa <= 3; ++mantissa) {
+            bits[index++] = static_cast<uint8_t>(
+                (static_cast<uint8_t>(exponent) << 2) |
+                static_cast<uint8_t>(mantissa));
+        }
+    }
+
+    return bits;
+}
+
+} // namespace detail
+
+inline constexpr std::array<uint8_t, kSize> kBits = detail::make_bits();
+
+static_assert(kBits[0] == 0xcfU);
+static_assert(kBits[35] == 0xacU);
+static_assert(kBits[36] == 0x2cU);
+static_assert(kBits[kSize - 1] == 0x4fU);
+
+inline constexpr const std::array<uint8_t, kSize>& bits() noexcept {
+    return kBits;
+}
+
+inline constexpr uint8_t bit_at(size_t index) noexcept {
+    return kBits[index];
+}
+
+inline constexpr float8 value_at(size_t index) noexcept {
+    return float8::from_bits(bit_at(index));
+}
+
+// Returns the exact 72^dim capacity only while it fits in uint64_t.  Callers
+// that only need validation should use range_fits(), which is overflow-safe
+// even when the mathematical capacity exceeds uint64_t.
+inline bool capacity(size_t dim, uint64_t* output) noexcept {
+    if (output == nullptr) {
+        return false;
+    }
+
+    uint64_t result = 1;
+    for (size_t d = 0; d < dim; ++d) {
+        if (result > std::numeric_limits<uint64_t>::max() / kSize) {
+            *output = 0;
+            return false;
+        }
+        result *= kSize;
+    }
+
+    *output = result;
+    return true;
+}
+
+// Tests whether ordinal can be represented by dim base-72 digits without
+// multiplying a potentially overflowing 72^dim value.
+inline bool ordinal_fits(size_t dim, uint64_t ordinal) noexcept {
+    while (dim != 0 && ordinal != 0) {
+        ordinal /= kSize;
+        --dim;
+    }
+    return ordinal == 0;
+}
+
+// item_count is range-relative: the generated ordinals are [0, item_count).
+// Empty ranges fit by definition.  This never wraps/cycles when 72^dim is
+// larger than uint64_t.
+inline bool range_fits(size_t dim, uint64_t item_count) noexcept {
+    return item_count == 0 || ordinal_fits(dim, item_count - 1);
+}
+
+// Maps an ordinal to little-endian base-72 digits: dimension zero contains
+// the least-significant digit.  Failure leaves the output untouched.
+inline bool fill_ordinal_vector(uint64_t ordinal, float8* output, size_t dim) noexcept {
+    if ((dim != 0 && output == nullptr) || !ordinal_fits(dim, ordinal)) {
+        return false;
+    }
+
+    uint64_t remaining = ordinal;
+    for (size_t d = 0; d < dim; ++d) {
+        output[d] = value_at(static_cast<size_t>(remaining % kSize));
+        remaining /= kSize;
+    }
+    return true;
+}
+
+// Deterministic selection used by seeded perf/kernel inputs.  State mixing is
+// owned by the caller; this helper keeps the final codebook selection shared.
+inline constexpr size_t seeded_index(uint64_t state) noexcept {
+    return static_cast<size_t>(state % kSize);
+}
+
+inline constexpr float8 seeded_value(uint64_t state) noexcept {
+    return value_at(seeded_index(state));
+}
+
+// InputVector<float8> treats max_val as an inclusive numeric upper bound on a
+// prefix of this sorted codebook.  Values below -28 (and NaN) clamp to index
+// zero; values above +28 clamp to the final index.
+inline size_t upper_bound_index(float max_val) noexcept {
+    const float first = static_cast<float>(value_at(0));
+    const float last = static_cast<float>(value_at(kSize - 1));
+    if (std::isnan(max_val) || max_val <= first) {
+        return 0;
+    }
+    if (max_val >= last) {
+        return kSize - 1;
+    }
+
+    size_t index = 0;
+    for (size_t candidate = 1; candidate < kSize; ++candidate) {
+        if (static_cast<float>(value_at(candidate)) > max_val) {
+            break;
+        }
+        index = candidate;
+    }
+    return index;
+}
+
+} // namespace float8_codebook
 
 // Checked numeric ingest policy.  from_bits and the explicit constructor are
 // deliberately unchecked so trusted raw bytes can represent every E5M2 class.

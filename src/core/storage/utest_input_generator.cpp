@@ -1,17 +1,103 @@
 // Unit tests for textual input generation helpers.
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
-#include <fstream>
 #include <cstring>
+#include <fstream>
+#include <limits>
+#include <set>
 #include <sstream>
 #include <cstdio>
 #include <unistd.h>
 #include "core/storage/input_generator.h"
+#include "core/utils/string_utils.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
+
+namespace {
+
+struct F8BinaryRecord {
+    uint64_t id = 0;
+    std::vector<uint8_t> payload;
+};
+
+Ret parse_f8_generated_line(const std::string& line, size_t dim, std::vector<uint8_t>* output) {
+    if (output == nullptr) {
+        return Ret("f8 test output is null");
+    }
+
+    const size_t begin = line.find("[ ");
+    const size_t end = line.rfind(" ]");
+    if (begin == std::string::npos || end == std::string::npos || begin + 2 > end) {
+        return Ret("f8 generated line has invalid vector syntax");
+    }
+
+    output->assign(dim, 0);
+    return parse_vector(output->data(), output->size(), DataType::f8,
+        static_cast<uint16_t>(dim), line.data() + begin + 2, line.data() + end);
+}
+
+Ret read_f8_binary_records(const std::string& path, size_t dim, std::string* header,
+        std::vector<F8BinaryRecord>* records) {
+    if (header == nullptr || records == nullptr) {
+        return Ret("f8 binary test output is null");
+    }
+
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        return Ret("failed to open f8 binary test input");
+    }
+    if (!std::getline(input, *header)) {
+        return Ret("failed to read f8 binary test header");
+    }
+
+    records->clear();
+    while (true) {
+        F8BinaryRecord record;
+        input.read(reinterpret_cast<char*>(&record.id), sizeof(record.id));
+        if (input.eof()) {
+            break;
+        }
+        if (!input) {
+            return Ret("failed to read f8 binary test id");
+        }
+
+        record.payload.resize(dim);
+        input.read(reinterpret_cast<char*>(record.payload.data()),
+            static_cast<std::streamsize>(record.payload.size()));
+        if (!input) {
+            return Ret("failed to read f8 binary test payload");
+        }
+        records->push_back(record);
+    }
+
+    return Ret(0);
+}
+
+std::vector<uint8_t> f8_ordinal_bits(uint64_t ordinal, size_t dim) {
+    std::vector<float8> values(dim);
+    if (!float8_codebook::fill_ordinal_vector(ordinal, values.data(), dim)) {
+        return {};
+    }
+
+    std::vector<uint8_t> bits;
+    bits.reserve(dim);
+    for (const float8 value : values) {
+        bits.push_back(value.to_bits());
+    }
+    return bits;
+}
+
+bool is_canonical_f8_generator_byte(uint8_t bits) {
+    const auto& codebook = float8_codebook::bits();
+    return (bits & 0x7fU) < 0x7cU &&
+        std::find(codebook.begin(), codebook.end(), bits) != codebook.end();
+}
+
+} // namespace
 
 class InputGeneratorTest : public ::testing::Test {
 protected:
@@ -46,6 +132,82 @@ protected:
         return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     }
 };
+
+TEST(Float8CodebookTest, ContainsExactlyTheBoundedSortedE5M2Normals) {
+    const auto& bits = float8_codebook::bits();
+    ASSERT_EQ(float8_codebook::kSize, bits.size());
+    EXPECT_EQ(0xcfU, bits.front());   // -28
+    EXPECT_EQ(0xccU, bits[3]);        // -16
+    EXPECT_EQ(0xacU, bits[35]);       // -0.0625
+    EXPECT_EQ(0x2cU, bits[36]);       // +0.0625
+    EXPECT_EQ(0x3cU, bits[52]);       // +1
+    EXPECT_EQ(0x4fU, bits.back());    // +28
+
+    std::set<uint8_t> unique_bits;
+    float previous = -std::numeric_limits<float>::infinity();
+    for (uint8_t bit : bits) {
+        const float value = static_cast<float>(float8::from_bits(bit));
+        EXPECT_TRUE(std::isfinite(value));
+        EXPECT_GE(value, -28.0f);
+        EXPECT_LE(value, 28.0f);
+        EXPECT_GE(std::fabs(value), 0.0625f);
+        EXPECT_LT(previous, value);
+        EXPECT_LT((bit & 0x7fU), 0x7cU);
+        EXPECT_GE((bit >> 2) & 0x1fU, 11U);
+        EXPECT_LE((bit >> 2) & 0x1fU, 19U);
+        previous = value;
+        unique_bits.insert(bit);
+    }
+    EXPECT_EQ(float8_codebook::kSize, unique_bits.size());
+
+    for (uint8_t sign : {uint8_t{0x00}, uint8_t{0x80}}) {
+        for (uint8_t exponent = 11; exponent <= 19; ++exponent) {
+            for (uint8_t mantissa = 0; mantissa <= 3; ++mantissa) {
+                const uint8_t expected = static_cast<uint8_t>(
+                    sign | (exponent << 2) | mantissa);
+                EXPECT_NE(unique_bits.end(), unique_bits.find(expected));
+            }
+        }
+    }
+}
+
+TEST(Float8CodebookTest, MapsBase72OrdinalsAndChecksCapacityWithoutOverflow) {
+    uint64_t capacity = 0;
+    ASSERT_TRUE(float8_codebook::capacity(0, &capacity));
+    EXPECT_EQ(1U, capacity);
+    ASSERT_TRUE(float8_codebook::capacity(1, &capacity));
+    EXPECT_EQ(72U, capacity);
+    ASSERT_TRUE(float8_codebook::capacity(2, &capacity));
+    EXPECT_EQ(5184U, capacity);
+    ASSERT_TRUE(float8_codebook::capacity(10, &capacity));
+    EXPECT_FALSE(float8_codebook::capacity(11, &capacity));
+    EXPECT_EQ(0U, capacity);
+
+    EXPECT_TRUE(float8_codebook::range_fits(1, 72));
+    EXPECT_FALSE(float8_codebook::range_fits(1, 73));
+    EXPECT_TRUE(float8_codebook::range_fits(2, 5184));
+    EXPECT_FALSE(float8_codebook::range_fits(2, 5185));
+    EXPECT_TRUE(float8_codebook::range_fits(11, std::numeric_limits<uint64_t>::max()));
+
+    auto expect_ordinal = [](uint64_t ordinal, const std::array<uint8_t, 3>& expected) {
+        std::array<float8, 3> values {};
+        ASSERT_TRUE(float8_codebook::fill_ordinal_vector(ordinal, values.data(), values.size()));
+        std::array<uint8_t, 3> actual {};
+        for (size_t d = 0; d < values.size(); ++d) {
+            actual[d] = values[d].to_bits();
+        }
+        EXPECT_EQ(expected, actual);
+    };
+
+    expect_ordinal(0, {0xcfU, 0xcfU, 0xcfU});
+    expect_ordinal(71, {0x4fU, 0xcfU, 0xcfU});
+    expect_ordinal(72, {0xcfU, 0xceU, 0xcfU});
+    expect_ordinal(72U * 72U - 1U, {0x4fU, 0x4fU, 0xcfU});
+
+    std::array<float8, 1> unchanged {float8::from_bits(0x55)};
+    EXPECT_FALSE(float8_codebook::fill_ordinal_vector(72, unchanged.data(), unchanged.size()));
+    EXPECT_EQ(0x55U, unchanged[0].to_bits());
+}
 
 TEST_F(InputGeneratorTest, FailsOnZeroCount) {
     GeneratorConfig cfg{PatternType::Sequential, 0, 0, DataType::f32, 4, 1000};
@@ -714,7 +876,244 @@ TEST_F(InputGeneratorTest, ManualItemsAreWrittenInSortedIdOrder) {
     EXPECT_EQ("20 : [ 20, 20, 20, 20 ]", lines[3]);
 }
 
+TEST_F(InputGeneratorTest, F8SequentialTextAndBinaryAreLosslessBase72Parity) {
+    constexpr size_t kDim = 4;
+    constexpr size_t kCount = 73;
+    const size_t min_id = std::numeric_limits<size_t>::max() - 80;
+    GeneratorConfig config {PatternType::Sequential, kCount, min_id, DataType::f8, kDim, 1000};
+
+    ASSERT_EQ(0, generate_input_file(path_, config).code());
+    const auto lines = read_lines();
+    ASSERT_EQ(kCount + 1, lines.size());
+    EXPECT_EQ("f8,4", lines[0]);
+
+    std::vector<std::vector<uint8_t>> text_vectors;
+    text_vectors.reserve(kCount);
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        EXPECT_EQ(0U, lines[ordinal + 1].find(std::to_string(min_id + ordinal) + " : [ "));
+        std::vector<uint8_t> payload;
+        ASSERT_EQ(0, parse_f8_generated_line(lines[ordinal + 1], kDim, &payload).code());
+        EXPECT_EQ(f8_ordinal_bits(ordinal, kDim), payload);
+        for (uint8_t bit : payload) {
+            EXPECT_TRUE(is_canonical_f8_generator_byte(bit));
+        }
+        text_vectors.push_back(payload);
+    }
+    const std::set<std::vector<uint8_t>> unique_vectors(text_vectors.begin(), text_vectors.end());
+    EXPECT_EQ(kCount, unique_vectors.size());
+    // This entry would be rendered as 0.06 by the presentation helper; its
+    // presence proves generator text uses the lossless %.9g path.
+    EXPECT_NE(std::string::npos, lines[37].find("0.0625"));
+
+    config.binary = true;
+    ASSERT_EQ(0, generate_input_file(path_, config).code());
+    std::string header;
+    std::vector<F8BinaryRecord> binary_records;
+    ASSERT_EQ(0, read_f8_binary_records(path_, kDim, &header, &binary_records).code());
+    EXPECT_EQ("f8,4,bin", header);
+    ASSERT_EQ(kCount, binary_records.size());
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        EXPECT_EQ(static_cast<uint64_t>(min_id + ordinal), binary_records[ordinal].id);
+        EXPECT_EQ(text_vectors[ordinal], binary_records[ordinal].payload);
+        for (uint8_t bit : binary_records[ordinal].payload) {
+            EXPECT_TRUE(is_canonical_f8_generator_byte(bit));
+        }
+    }
+}
+
+TEST_F(InputGeneratorTest, F8SequentialRejectsRangesBeyondBase72Capacity) {
+    constexpr size_t kDim = 4;
+    constexpr size_t kCapacity = 72U * 72U * 72U * 72U;
+    GeneratorConfig config {
+        PatternType::Sequential, kCapacity + 1, 0, DataType::f8, kDim, 1000};
+
+    const Ret ret = generate_input_file(path_, config);
+    EXPECT_NE(0, ret.code());
+    EXPECT_NE(std::string::npos, ret.message().find("72^dim"));
+}
+
+TEST_F(InputGeneratorTest, F8RejectsIdRangesThatWouldWrapBeforeReplacingOutput) {
+    constexpr size_t kDim = 4;
+    const std::array<PatternType, 5> patterns {
+        PatternType::Sequential,
+        PatternType::Detailed,
+        PatternType::CosCompatible,
+        PatternType::DotCompatible,
+        PatternType::PerfTest,
+    };
+
+    for (const bool binary : {false, true}) {
+        for (const PatternType pattern : patterns) {
+            SCOPED_TRACE(static_cast<int>(pattern));
+            SCOPED_TRACE(binary);
+            GeneratorConfig config {pattern, 2,
+                std::numeric_limits<size_t>::max() - 1, DataType::f8, kDim, 1000};
+            config.binary = binary;
+
+            ASSERT_EQ(0, generate_input_file(path_, config).code());
+            if (binary) {
+                std::string header;
+                std::vector<F8BinaryRecord> records;
+                ASSERT_EQ(0, read_f8_binary_records(path_, kDim, &header, &records).code());
+                ASSERT_EQ(2U, records.size());
+                EXPECT_EQ(std::numeric_limits<size_t>::max() - 1, records[0].id);
+                EXPECT_EQ(std::numeric_limits<size_t>::max(), records[1].id);
+            } else {
+                const auto lines = read_lines();
+                ASSERT_EQ(3U, lines.size());
+                EXPECT_EQ(0U, lines[1].find(
+                    std::to_string(std::numeric_limits<size_t>::max() - 1) + " : [ "));
+                EXPECT_EQ(0U, lines[2].find(
+                    std::to_string(std::numeric_limits<size_t>::max()) + " : [ "));
+            }
+
+            {
+                std::ofstream output(path_, std::ios::binary | std::ios::trunc);
+                ASSERT_TRUE(output.is_open());
+                output << "preserve existing output";
+            }
+
+            config.count = 3;
+            const Ret ret = generate_input_file(path_, config);
+            EXPECT_NE(0, ret.code());
+            EXPECT_NE(std::string::npos, ret.message().find("ID range overflow"));
+            EXPECT_EQ("preserve existing output", read_file_bytes());
+        }
+    }
+}
+
+TEST_F(InputGeneratorTest, F8SequentialAndManualTombstonesUseLiveSortedOrdinals) {
+    constexpr size_t kDim = 4;
+    auto expect_ordinal = [&](const std::string& line, uint64_t ordinal) {
+        std::vector<uint8_t> payload;
+        ASSERT_EQ(0, parse_f8_generated_line(line, kDim, &payload).code());
+        EXPECT_EQ(f8_ordinal_bits(ordinal, kDim), payload);
+        for (uint8_t bit : payload) {
+            EXPECT_TRUE(is_canonical_f8_generator_byte(bit));
+        }
+    };
+
+    GeneratorConfig sequential {
+        PatternType::Sequential, 5, 10, DataType::f8, kDim, 1000, 2};
+    ASSERT_EQ(0, generate_input_file(path_, sequential).code());
+    auto lines = read_lines();
+    ASSERT_EQ(6U, lines.size());
+    expect_ordinal(lines[1], 0);
+    expect_ordinal(lines[2], 1);
+    EXPECT_EQ("12 : []", lines[3]);
+    expect_ordinal(lines[4], 2);
+    EXPECT_EQ("14 : []", lines[5]);
+
+    ManualInputGenerator manual;
+    manual.type = DataType::f8;
+    manual.dim = kDim;
+    manual.add(20, 1);
+    manual.deleted(11);
+    manual.add(10, 1);
+    manual.add(12, 1);
+
+    ASSERT_EQ(0, generate_input_file(path_, manual).code());
+    lines = read_lines();
+    ASSERT_EQ(5U, lines.size());
+    EXPECT_EQ("f8,4", lines[0]);
+    EXPECT_EQ(0U, lines[1].find("10 : [ "));
+    expect_ordinal(lines[1], 0);
+    EXPECT_EQ("11 : []", lines[2]);
+    EXPECT_EQ(0U, lines[3].find("12 : [ "));
+    expect_ordinal(lines[3], 1);
+    EXPECT_EQ(0U, lines[4].find("20 : [ "));
+    expect_ordinal(lines[4], 2);
+}
+
+TEST_F(InputGeneratorTest, F8AllPatternDispatchesProduceCanonicalTextBinaryParity) {
+    constexpr size_t kDim = 4;
+    const std::array<PatternType, 5> patterns {
+        PatternType::Sequential,
+        PatternType::Detailed,
+        PatternType::CosCompatible,
+        PatternType::DotCompatible,
+        PatternType::PerfTest,
+    };
+
+    for (const PatternType pattern : patterns) {
+        SCOPED_TRACE(static_cast<int>(pattern));
+        GeneratorConfig config {pattern, 4, 17, DataType::f8, kDim, 1000};
+        ASSERT_EQ(0, generate_input_file(path_, config).code());
+        const auto lines = read_lines();
+        ASSERT_EQ(config.count + 1, lines.size());
+        EXPECT_EQ("f8,4", lines[0]);
+
+        std::vector<std::vector<uint8_t>> text_vectors;
+        text_vectors.reserve(config.count);
+        for (size_t index = 0; index < config.count; ++index) {
+            std::vector<uint8_t> payload;
+            ASSERT_EQ(0, parse_f8_generated_line(lines[index + 1], kDim, &payload).code());
+            ASSERT_EQ(kDim, payload.size());
+            for (uint8_t bit : payload) {
+                EXPECT_TRUE(is_canonical_f8_generator_byte(bit));
+            }
+            text_vectors.push_back(payload);
+        }
+
+        if (pattern == PatternType::Sequential || pattern == PatternType::DotCompatible ||
+                pattern == PatternType::CosCompatible) {
+            EXPECT_EQ(f8_ordinal_bits(0, kDim), text_vectors[0]);
+            EXPECT_EQ(f8_ordinal_bits(1, kDim), text_vectors[1]);
+        }
+
+        config.binary = true;
+        ASSERT_EQ(0, generate_input_file(path_, config).code());
+        std::string header;
+        std::vector<F8BinaryRecord> binary_records;
+        ASSERT_EQ(0, read_f8_binary_records(path_, kDim, &header, &binary_records).code());
+        EXPECT_EQ("f8,4,bin", header);
+        ASSERT_EQ(config.count, binary_records.size());
+        for (size_t index = 0; index < config.count; ++index) {
+            EXPECT_EQ(static_cast<uint64_t>(config.min_id + index), binary_records[index].id);
+            EXPECT_EQ(text_vectors[index], binary_records[index].payload);
+            for (uint8_t bit : binary_records[index].payload) {
+                EXPECT_TRUE(is_canonical_f8_generator_byte(bit));
+            }
+        }
+    }
+}
+
 // InputVector tests
+
+TEST(InputVectorTest, Float8UsesBoundedCodebookProgressionAndReset) {
+    EXPECT_EQ(0U, float8_codebook::upper_bound_index(-100.0f));
+    EXPECT_EQ(35U, float8_codebook::upper_bound_index(0.0f));
+    EXPECT_EQ(float8_codebook::kSize - 1, float8_codebook::upper_bound_index(1000.0f));
+
+    InputVector<float8> v(2, -24.0f);
+    ASSERT_EQ(0xcfU, v.data()[0].to_bits());
+    ASSERT_EQ(0xcfU, v.data()[1].to_bits());
+
+    v.next();
+    EXPECT_EQ(0xceU, v.data()[0].to_bits());
+    EXPECT_EQ(0xcfU, v.data()[1].to_bits());
+
+    v.next();
+    EXPECT_EQ(0xceU, v.data()[0].to_bits());
+    EXPECT_EQ(0xceU, v.data()[1].to_bits());
+
+    // The call after the final column completes mirrors the existing
+    // InputVector reset timing and returns to the first codebook entry.
+    v.next();
+    EXPECT_EQ(0xcfU, v.data()[0].to_bits());
+    EXPECT_EQ(0xcfU, v.data()[1].to_bits());
+
+    InputVector<float8> zero_bound(1, 0.0f);
+    for (size_t step = 0; step < 35; ++step) {
+        zero_bound.next();
+        EXPECT_TRUE(is_canonical_f8_generator_byte(zero_bound.data()[0].to_bits()));
+    }
+    // max_val == 0 selects the final negative codebook member, never an f8
+    // signed zero, subnormal, Inf, or NaN.
+    EXPECT_EQ(0xacU, zero_bound.data()[0].to_bits());
+    zero_bound.next();
+    EXPECT_EQ(0xcfU, zero_bound.data()[0].to_bits());
+}
 
 TEST(InputVectorTest, FloatInitializesWithZeros) {
     InputVector<float> v(4, 10000.0f);

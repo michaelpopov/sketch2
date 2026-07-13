@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "core/utils/float8.h"
 #include "core/utils/shared_types.h"
 
 namespace sketch2 {
@@ -44,6 +45,22 @@ inline void fill_f16(float16* a, float16* b, size_t dim, uint32_t seed) {
             static_cast<float>(ai) * 0.125f + static_cast<float>((i + seed) % 5) * 0.03125f);
         b[i] = static_cast<float16>(
             static_cast<float>(bi) * 0.125f - static_cast<float>((i + seed) % 3) * 0.0625f);
+    }
+}
+
+// F8-4's scalar/kernel tests use the same bounded E5M2 values as storage
+// generators.  Keep the mixing here intentionally simple; the canonical
+// value set and selection operation live in float8_codebook.
+inline void fill_f8(float8* a, float8* b, size_t dim, uint32_t seed) {
+    const uint64_t seed_digit = static_cast<uint64_t>(seed) % float8_codebook::kSize;
+    for (size_t i = 0; i < dim; ++i) {
+        const uint64_t index_digit = static_cast<uint64_t>(i % float8_codebook::kSize);
+        const size_t a_index = static_cast<size_t>(
+            (index_digit * 17U + seed_digit * 13U) % float8_codebook::kSize);
+        const size_t b_index = static_cast<size_t>(
+            (index_digit * 29U + seed_digit * 7U) % float8_codebook::kSize);
+        a[i] = float8_codebook::value_at(a_index);
+        b[i] = float8_codebook::value_at(b_index);
     }
 }
 

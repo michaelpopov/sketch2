@@ -5,6 +5,7 @@
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"
 #include <algorithm>
+#include <cassert>
 #include <cerrno>
 #include <cinttypes>
 #include <cstdint>
@@ -32,22 +33,115 @@ constexpr uint64_t kPerfTestSeedMul = 0xbf58476d1ce4e5b9ULL;
 constexpr uint64_t kPerfTestStepMul = 2862933555777941757ULL;
 constexpr uint64_t kPerfTestStepAdd = 3037000493ULL;
 constexpr float kPerfTestFloatScale = 1.0f / 256.0f;
+constexpr const char* kFloat8CapacityError =
+    "f8 generator capacity exceeded: requested ordinal range exceeds 72^dim";
+constexpr const char* kGeneratedIdRangeError =
+    "input generator ID range overflow: min_id + count - 1 exceeds SIZE_MAX";
+
+static_assert(std::numeric_limits<size_t>::digits <= std::numeric_limits<uint64_t>::digits);
 
 Ret make_io_error(const std::string& action, const std::string& path) {
     return Ret(action + ": " + path + ": " + std::strerror(errno));
 }
 
-// Generate the same deterministic vectors used by cosine_demo_vector() in the
-// Python test helpers so COS benchmarks and readers get identical data.
+Ret validate_generated_id_range(const GeneratorConfig& config) {
+    // Every generator derives IDs as min_id + i for i in [0, count). Check
+    // the final addition before a writer can create or replace the output.
+    if (config.count - 1 > std::numeric_limits<size_t>::max() - config.min_id) {
+        return Ret(kGeneratedIdRangeError);
+    }
+    return Ret(0);
+}
+
+size_t live_item_count(const GeneratorConfig& config) {
+    if (config.count == 0 || config.every_n_deleted == 0) {
+        return config.count;
+    }
+
+    // Sequential/DOT generators skip records at i = every_n_deleted, 2*N,
+    // ... but intentionally keep i == 0 live.
+    return config.count - (config.count - 1) / config.every_n_deleted;
+}
+
+bool f8_uses_ordinal_mapping(PatternType pattern_type) {
+    switch (pattern_type) {
+        case PatternType::Sequential:
+        case PatternType::DotCompatible:
+        case PatternType::CosCompatible:
+            return true;
+        case PatternType::Detailed:
+        case PatternType::PerfTest:
+            return false;
+    }
+    return false;
+}
+
+size_t f8_ordinal_item_count(const GeneratorConfig& config) {
+    // CosCompatible intentionally has no tombstone mode, matching the existing
+    // f32/f16 implementation, so every requested item receives an ordinal.
+    if (config.pattern_type == PatternType::CosCompatible) {
+        return config.count;
+    }
+    return live_item_count(config);
+}
+
+Ret validate_f8_ordinal_capacity(const GeneratorConfig& config) {
+    if (config.type != DataType::f8 || !f8_uses_ordinal_mapping(config.pattern_type)) {
+        return Ret(0);
+    }
+
+    if (!float8_codebook::range_fits(
+            config.dim, static_cast<uint64_t>(f8_ordinal_item_count(config)))) {
+        return Ret(kFloat8CapacityError);
+    }
+    return Ret(0);
+}
+
+size_t manual_live_item_count(const ManualInputGenerator& gen) {
+    size_t count = 0;
+    for (const auto& [id, value] : gen.items) {
+        (void)id;
+        if (value) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+Ret validate_f8_manual_capacity(const ManualInputGenerator& gen) {
+    if (gen.type != DataType::f8 || float8_codebook::range_fits(
+            gen.dim, static_cast<uint64_t>(manual_live_item_count(gen)))) {
+        return Ret(0);
+    }
+    return Ret(kFloat8CapacityError);
+}
+
+void fill_f8_ordinal_vector(uint64_t ordinal, size_t dim, std::vector<float8>& out) {
+    out.resize(dim);
+    const bool filled = float8_codebook::fill_ordinal_vector(ordinal, out.data(), dim);
+    // Public generator entry points validate the range before their writer is
+    // invoked; a failure here would therefore be an internal invariant break.
+    assert(filled);
+    (void)filled;
+}
+
+// f32/f16 retain the deterministic cosine_demo_vector() values used by the
+// Python helpers. f8 uses the bounded base-72 mapping below instead.
 template <typename T>
 inline void fill_cos_compatible_vector(uint64_t id, size_t dim, std::vector<T>& out) {
-    const int64_t sid = static_cast<int64_t>(id);
-    out.resize(dim);
-    out[0] = static_cast<T>((sid % 17) + 1);
-    out[1] = static_cast<T>(((sid * 3) % 11) - 5);
-    out[2] = static_cast<T>(((sid * 5) % 7) - 3);
-    for (size_t index = 3; index < dim; ++index) {
-        out[index] = static_cast<T>(((sid + static_cast<int64_t>(index)) % 5) - 2);
+    if constexpr (std::is_same_v<T, float8>) {
+        // f8 callers pass the range-relative ordinal here, not an absolute id,
+        // so large min_id values do not consume codebook capacity.
+        fill_f8_ordinal_vector(id, dim, out);
+    } else {
+        const int64_t sid = static_cast<int64_t>(id);
+        out.resize(dim);
+        out[0] = static_cast<T>((sid % 17) + 1);
+        out[1] = static_cast<T>(((sid * 3) % 11) - 5);
+        out[2] = static_cast<T>(((sid * 5) % 7) - 3);
+        for (size_t index = 3; index < dim; ++index) {
+            out[index] = static_cast<T>(((sid + static_cast<int64_t>(index)) % 5) - 2);
+        }
     }
 }
 
@@ -78,6 +172,11 @@ inline float16 perf_test_value_from_state<float16>(uint64_t state) {
 template <>
 inline int16_t perf_test_value_from_state<int16_t>(uint64_t state) {
     return static_cast<int16_t>(static_cast<int32_t>((state >> 20) & 0xfffU) - 2048);
+}
+
+template <>
+inline float8 perf_test_value_from_state<float8>(uint64_t state) {
+    return float8_codebook::seeded_value(state);
 }
 
 template <typename T>
@@ -152,6 +251,8 @@ void write_binary_sequential_range(uint8_t* records_base, const GeneratorConfig&
         } else if constexpr (std::is_same_v<T, float16>) {
             const float16 value = static_cast<float16>(static_cast<float>(id) + 0.1f);
             std::fill(payload.begin(), payload.end(), value);
+        } else if constexpr (std::is_same_v<T, float8>) {
+            fill_f8_ordinal_vector(static_cast<uint64_t>(i), config.dim, payload);
         } else {
             const T value = static_cast<T>(id);
             std::fill(payload.begin(), payload.end(), value);
@@ -272,6 +373,8 @@ Ret generate_binary_mmap_file(const std::string& path, const GeneratorConfig& co
         fill_ret = fill_records.template operator()<float>(records_base, config);
     } else if (config.type == DataType::f16) {
         fill_ret = fill_records.template operator()<float16>(records_base, config);
+    } else if (config.type == DataType::f8) {
+        fill_ret = fill_records.template operator()<float8>(records_base, config);
     } else if (config.type == DataType::i16) {
         fill_ret = fill_records.template operator()<int16_t>(records_base, config);
     } else {
@@ -329,6 +432,8 @@ Ret generate_input_file(const std::string& path, const GeneratorConfig& config) 
     if (config.binary && config.every_n_deleted > 0) {
         return Ret("binary input format does not support deleted items");
     }
+    CHECK(validate_generated_id_range(config));
+    CHECK(validate_f8_ordinal_capacity(config));
 
     return write_file_atomically(path, [&config](const std::string& temp_path) -> Ret {
         if (config.binary) {
@@ -364,6 +469,23 @@ static inline void print_float_line(FILE* f, uint64_t id, const T* value, size_t
             fprintf(f, "%.2f, ", static_cast<double>(value[index]));
         } else {
             fprintf(f, "%.2f", static_cast<double>(value[index]));
+        }
+    }
+    fprintf(f, " ]\n");
+}
+
+// Generator text is re-parsed by InputReader, so f8 must use the lossless
+// format rather than the two-decimal presentation format used above.
+static inline void print_float8_line(FILE* f, uint64_t id, const float8* value,
+        size_t dim, bool is_array) {
+    fprintf(f, "%" PRIu64 " : [ ", id);
+    for (size_t d = 0; d < dim; ++d) {
+        const size_t index = is_array ? d : 0;
+        const float component = static_cast<float>(value[index]);
+        if (d < dim - 1) {
+            fprintf(f, "%.9g, ", static_cast<double>(component));
+        } else {
+            fprintf(f, "%.9g", static_cast<double>(component));
         }
     }
     fprintf(f, " ]\n");
@@ -409,8 +531,9 @@ static Ret write_binary_record(FILE* f, uint64_t id, const T* value, size_t dim,
     return Ret(0);
 }
 
-// Writes predictable test input where each id maps to a repeated scalar value,
-// with optional tombstones inserted at a fixed cadence.
+// f32/f16/i16 write predictable repeated scalar values. f8 instead writes a
+// bounded range-relative base-72 vector, with tombstones skipped by its live
+// ordinal sequence.
 static Ret generate_sequential_input_file(const std::string& path, const GeneratorConfig& config) {
     FILE* f = fopen(path.c_str(), "w");
     if (!f) {
@@ -419,7 +542,9 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
     std::experimental::scope_exit file_guard([f]() { fclose(f); });
 
     fprintf(f, "%s,%zu\n", data_type_to_string(config.type), config.dim);
-    
+
+    std::vector<float8> f8_payload;
+    uint64_t live_ordinal = 0;
     for (size_t i = 0; i < config.count; ++i) {
         uint64_t id= config.min_id + i;
 
@@ -438,6 +563,10 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
             const float clamped = std::min(value_f32, kFloat16Max);
             const float16 value = static_cast<float16>(clamped);
             print_float_line(f, id, &value, config.dim, false);
+        } else if (config.type == DataType::f8) {
+            fill_f8_ordinal_vector(live_ordinal, config.dim, f8_payload);
+            print_float8_line(f, id, f8_payload.data(), config.dim, true);
+            ++live_ordinal;
         } else if (config.type == DataType::i16) {
             int16_t value = static_cast<int16_t>(id);
             print_int_line(f, id, &value, config.dim, false);
@@ -482,6 +611,17 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
                 v.next();
             }
         }
+    } else if (config.type == DataType::f8) {
+        InputVector<float8> v(config.dim, static_cast<float>(config.max_val));
+        for (size_t i = 0; i < config.count; ++i) {
+            uint64_t id= config.min_id + i;
+            if (i > 0 && config.every_n_deleted > 0 && i % config.every_n_deleted == 0) {
+                print_deleted_line(f, id);
+            } else {
+                print_float8_line(f, id, v.data(), config.dim, true);
+                v.next();
+            }
+        }
     } else if (config.type == DataType::i16) {
         InputVector<int16_t> v(config.dim, static_cast<int16_t>(config.max_val));
         for (size_t i = 0; i < config.count; ++i) {
@@ -501,7 +641,8 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
     return Ret(0);
 }
 
-// Writes cosine-demo-compatible vectors (matches Python cosine_demo_vector()).
+// f32/f16 write cosine_demo_vector()-compatible values; f8 uses the bounded
+// codebook mapping so it remains finite and grid-exact.
 static Ret generate_cos_compatible_input_file(const std::string& path, const GeneratorConfig& config) {
     if (config.type == DataType::i16) {
         return Ret("CosCompatible pattern does not support i16");
@@ -517,22 +658,29 @@ static Ret generate_cos_compatible_input_file(const std::string& path, const Gen
 
     std::vector<float> buf_f32;
     std::vector<float16> buf_f16;
+    std::vector<float8> buf_f8;
     for (size_t i = 0; i < config.count; ++i) {
         const uint64_t id = config.min_id + i;
         if (config.type == DataType::f32) {
             fill_cos_compatible_vector(id, config.dim, buf_f32);
             print_float_line(f, id, buf_f32.data(), config.dim, true);
-        } else { // f16
+        } else if (config.type == DataType::f16) {
             fill_cos_compatible_vector(id, config.dim, buf_f16);
             print_float_line(f, id, buf_f16.data(), config.dim, true);
+        } else if (config.type == DataType::f8) {
+            fill_cos_compatible_vector(static_cast<uint64_t>(i), config.dim, buf_f8);
+            print_float8_line(f, id, buf_f8.data(), config.dim, true);
+        } else {
+            return Ret("CosCompatible pattern does not support this data type");
         }
     }
 
     return Ret(0);
 }
 
-// Writes vectors with positive monotonic magnitudes so DOT top-k ordering is
-// easy to reason about and stable across text/binary generators.
+// f32/f16/i16 use the historical positive scalar payload for easy DOT ranking.
+// f8 deliberately reuses the bounded sequential ordinal mapping instead; its
+// scores are not defined to be monotonic by id.
 static Ret generate_dot_compatible_input_file(const std::string& path, const GeneratorConfig& config) {
     return generate_sequential_input_file(path, config);
 }
@@ -549,6 +697,7 @@ static Ret generate_perf_test_input_file(const std::string& path, const Generato
 
     std::vector<float> buf_f32;
     std::vector<float16> buf_f16;
+    std::vector<float8> buf_f8;
     std::vector<int16_t> buf_i16;
     for (size_t i = 0; i < config.count; ++i) {
         const uint64_t id = config.min_id + i;
@@ -558,6 +707,9 @@ static Ret generate_perf_test_input_file(const std::string& path, const Generato
         } else if (config.type == DataType::f16) {
             fill_perf_test_vector(id, config.dim, buf_f16);
             print_float_line(f, id, buf_f16.data(), config.dim, true);
+        } else if (config.type == DataType::f8) {
+            fill_perf_test_vector(id, config.dim, buf_f8);
+            print_float8_line(f, id, buf_f8.data(), config.dim, true);
         } else if (config.type == DataType::i16) {
             fill_perf_test_vector(id, config.dim, buf_i16);
             print_int_line(f, id, buf_i16.data(), config.dim, true);
@@ -570,12 +722,13 @@ static Ret generate_perf_test_input_file(const std::string& path, const Generato
 }
 
 // Writes a text header followed by binary records made of uint64_t ids and
-// packed vector payloads with a repeated scalar value per dimension.
+// packed payloads. f32/f16/i16 use repeated scalars; f8 uses ordinal vectors.
 static Ret generate_sequential_input_file_binary(const std::string& path, const GeneratorConfig& config) {
     return generate_sequential_input_file_binary_mmap(path, config);
 }
 
-// Writes cosine-demo-compatible vectors in binary form.
+// Binary counterpart of the cosine-compatible generator, including f8's
+// bounded codebook mapping.
 static Ret generate_cos_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config) {
     if (config.type == DataType::i16) {
         return Ret("CosCompatible pattern does not support i16");
@@ -591,22 +744,28 @@ static Ret generate_cos_compatible_input_file_binary(const std::string& path, co
 
     std::vector<float> buf_f32;
     std::vector<float16> buf_f16;
+    std::vector<float8> buf_f8;
     for (size_t i = 0; i < config.count; ++i) {
         const uint64_t id = config.min_id + i;
         if (config.type == DataType::f32) {
             fill_cos_compatible_vector(id, config.dim, buf_f32);
             CHECK(write_binary_record(f, id, buf_f32.data(), config.dim, true));
-        } else { // f16
+        } else if (config.type == DataType::f16) {
             fill_cos_compatible_vector(id, config.dim, buf_f16);
             CHECK(write_binary_record(f, id, buf_f16.data(), config.dim, true));
+        } else if (config.type == DataType::f8) {
+            fill_cos_compatible_vector(static_cast<uint64_t>(i), config.dim, buf_f8);
+            CHECK(write_binary_record(f, id, buf_f8.data(), config.dim, true));
+        } else {
+            return Ret("CosCompatible pattern does not support this data type");
         }
     }
 
     return Ret(0);
 }
 
-// Binary DOT-compatible generation currently matches the monotonic positive
-// scalar payload used by the sequential generator.
+// Binary DOT-compatible generation mirrors the corresponding sequential
+// generator, including f8's bounded ordinal mapping.
 static Ret generate_dot_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config) {
     return generate_sequential_input_file_binary(path, config);
 }
@@ -642,6 +801,13 @@ static Ret generate_detailed_input_file_binary(const std::string& path, const Ge
             CHECK(write_binary_record(f, id, v.data(), config.dim, true));
             v.next();
         }
+    } else if (config.type == DataType::f8) {
+        InputVector<float8> v(config.dim, static_cast<float>(config.max_val));
+        for (size_t i = 0; i < config.count; ++i) {
+            const uint64_t id = config.min_id + i;
+            CHECK(write_binary_record(f, id, v.data(), config.dim, true));
+            v.next();
+        }
     } else if (config.type == DataType::i16) {
         InputVector<int16_t> v(config.dim, static_cast<int16_t>(config.max_val));
         for (size_t i = 0; i < config.count; ++i) {
@@ -667,6 +833,8 @@ static Ret generate_manual_input_file(const std::string& path, const ManualInput
 
     fprintf(f, "%s,%zu\n", data_type_to_string(gen.type), gen.dim);
 
+    std::vector<float8> f8_payload;
+    uint64_t live_ordinal = 0;
     for (const auto& [id, val] : gen.items) {
         if (!val) {
             print_deleted_line(f, id);
@@ -681,6 +849,12 @@ static Ret generate_manual_input_file(const std::string& path, const ManualInput
             const float clamped = std::min(value_f32, kFloat16Max);
             const float16 value = static_cast<float16>(clamped);
             print_float_line(f, id, &value, gen.dim, false);
+        } else if (gen.type == DataType::f8) {
+            // std::map iteration is sorted by id.  Only live entries receive
+            // ordinal digits, so tombstones never consume a codebook vector.
+            fill_f8_ordinal_vector(live_ordinal, gen.dim, f8_payload);
+            print_float8_line(f, id, f8_payload.data(), gen.dim, true);
+            ++live_ordinal;
         } else if (gen.type == DataType::i16) {
             int16_t value = static_cast<int16_t>(id);
             print_int_line(f, id, &value, gen.dim, false);
@@ -697,6 +871,7 @@ Ret generate_input_file(const std::string& path, const ManualInputGenerator& gen
         return Ret("dim must be in range [" + std::to_string(kMinDimension) +
             ", " + std::to_string(kMaxDimension) + "]");
     }
+    CHECK(validate_f8_manual_capacity(gen));
 
     return write_file_atomically(path, [&gen](const std::string& temp_path) -> Ret {
         return generate_manual_input_file(temp_path, gen);
