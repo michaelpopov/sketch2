@@ -1,6 +1,8 @@
 // Unit tests for Scanner nearest-neighbor scanning.
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
@@ -12,6 +14,7 @@
 #include <memory>
 #include <filesystem>
 #include <experimental/scope>
+#include <sstream>
 #include "core/compute/compute_value_helpers.h"
 #include "core/compute/scanner.h"
 #include "core/compute/scanner_heap_utils.h"
@@ -19,6 +22,7 @@
 #include "core/compute/scanner_scan_loops.h"
 #include "core/utils/singleton.h"
 #include "core/utils/thread_pool.h"
+#include "core/utils/utest_float8_helpers.h"
 #include "core/bitset/chunked_bits.h"
 #include "core/storage/input_generator.h"
 #include "core/storage/data_writer.h"
@@ -27,6 +31,10 @@
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
+using sketch2::test::f8_ordinal_bytes;
+using sketch2::test::f8_payload_text;
+using sketch2::test::reference_f8_dot;
+using sketch2::test::reference_f8_squared_norm;
 namespace fs = std::filesystem;
 
 namespace {
@@ -111,6 +119,78 @@ double counting_f32_dot(const uint8_t* a, const uint8_t* b, size_t dim) {
         dot += static_cast<double>(aa[i]) * static_cast<double>(bb[i]);
     }
     return dot;
+}
+
+// Keep this oracle independent from the scan finalizers. The scanner reads
+// f32 persisted norms, whereas query norms remain doubles, so preserve that
+// distinction before applying the public metric contracts directly.
+double decoded_f8_expected_score(
+        const std::vector<uint8_t>& item, const std::vector<uint8_t>& query, DistFunc func) {
+    const double dot = reference_f8_dot(item, query);
+    const double query_norm_sq = reference_f8_squared_norm(query);
+    switch (func) {
+        case DistFunc::DOT:
+            return dot;
+        case DistFunc::L2: {
+            const double stored_norm_sq = static_cast<float>(reference_f8_squared_norm(item));
+            return std::max(0.0, stored_norm_sq + query_norm_sq - (2.0 * dot));
+        }
+        case DistFunc::COS: {
+            const double item_norm_sq = reference_f8_squared_norm(item);
+            const double stored_inverse_norm = item_norm_sq == 0.0
+                ? 0.0
+                : static_cast<float>(1.0 / std::sqrt(item_norm_sq));
+            const double query_inverse_norm = query_norm_sq == 0.0
+                ? 0.0
+                : 1.0 / std::sqrt(query_norm_sq);
+            if (stored_inverse_norm == 0.0 && query_inverse_norm == 0.0) {
+                return 0.0;
+            }
+            if (stored_inverse_norm == 0.0 || query_inverse_norm == 0.0) {
+                return 1.0;
+            }
+            const double cosine = std::clamp(
+                dot * stored_inverse_norm * query_inverse_norm, -1.0, 1.0);
+            return 1.0 - cosine;
+        }
+        default:
+            ADD_FAILURE() << "unsupported f8 reference distance function";
+            return 0.0;
+    }
+}
+
+bool decoded_f8_score_is_better(DistFunc func, const DistItem& a, const DistItem& b) {
+    if (a.score != b.score) {
+        return func == DistFunc::DOT ? a.score > b.score : a.score < b.score;
+    }
+    return a.id < b.id;
+}
+
+std::vector<DistItem> decoded_f8_expected_results(
+        const std::vector<std::pair<uint64_t, std::vector<uint8_t>>>& items,
+        const std::vector<uint8_t>& query, DistFunc func) {
+    std::vector<DistItem> expected;
+    expected.reserve(items.size());
+    for (const auto& [id, bits] : items) {
+        // Scanner heaps intentionally retain scores as float, so mirror that
+        // conversion after deriving every input quantity from decoded f8 bytes.
+        expected.push_back(DistItem{
+            id, static_cast<float>(decoded_f8_expected_score(bits, query, func))});
+    }
+    std::sort(expected.begin(), expected.end(), [func](const DistItem& a, const DistItem& b) {
+        return decoded_f8_score_is_better(func, a, b);
+    });
+    return expected;
+}
+
+void expect_decoded_f8_results(
+        const std::vector<DistItem>& actual, const std::vector<DistItem>& expected, size_t count) {
+    ASSERT_GE(expected.size(), count);
+    ASSERT_EQ(count, actual.size());
+    for (size_t i = 0; i < count; ++i) {
+        EXPECT_EQ(expected[i].id, actual[i].id) << "rank=" << i;
+        EXPECT_NEAR(expected[i].score, actual[i].score, 1e-5) << "rank=" << i;
+    }
 }
 
 }
@@ -580,6 +660,179 @@ TEST_F(ScannerTest, FindF16CosWorksWithHighway) {
     EXPECT_EQ(10u, result[0]);
     EXPECT_EQ(20u, result[1]);
     EXPECT_EQ(30u, result[2]);
+}
+
+TEST_F(ScannerTest, FindDatasetF8DotAcrossRangesMatchesDecodedGeneratedScoreOracle) {
+    constexpr size_t kDim = 4;
+    constexpr size_t kCount = 80;
+    constexpr uint64_t kMinId = 100;
+    ASSERT_EQ(0, generate_input_file(
+        input_path_, GeneratorConfig{PatternType::Sequential, kCount, kMinId, DataType::f8, kDim, 1000}).code());
+    auto reader = make_dataset_reader(DataType::f8, kDim, DistFunc::DOT, {input_path_}, 7);
+
+    // This query crosses the base-72 digit boundary: ordinal 71 and ordinal 72
+    // prove scores cannot be inferred from id order, so rank only with a decoded-byte oracle.
+    const std::vector<uint8_t> query = {0x3c, 0x40, 0x00, 0x00};
+    const std::vector<uint8_t> ordinal_71 = f8_ordinal_bytes(71, kDim);
+    const std::vector<uint8_t> ordinal_72 = f8_ordinal_bytes(72, kDim);
+    ASSERT_EQ(kDim, ordinal_71.size());
+    ASSERT_EQ(kDim, ordinal_72.size());
+    EXPECT_GT(reference_f8_dot(ordinal_71, query), reference_f8_dot(ordinal_72, query));
+
+    std::vector<std::pair<uint64_t, std::vector<uint8_t>>> items;
+    items.reserve(kCount);
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        items.emplace_back(kMinId + ordinal, f8_ordinal_bytes(ordinal, kDim));
+    }
+
+    Scanner scanner = make_compiled_scanner();
+    std::vector<DistItem> actual;
+    constexpr size_t kTopK = 9;
+    ASSERT_EQ(0, scanner.find_items(*reader, kTopK, query.data(), actual).code());
+    const auto expected = decoded_f8_expected_results(items, query, DistFunc::DOT);
+    expect_decoded_f8_results(actual, expected, kTopK);
+}
+
+TEST_F(ScannerTest, FindDatasetF8L2LiveAndAfterMergeMatchesDecodedQueryOracle) {
+    constexpr size_t kDim = 5;
+    constexpr size_t kBaseCount = 20;
+    const std::vector<uint8_t> updated_two = {0xbb, 0x00, 0x00, 0x00, 0x00};
+    const std::vector<uint8_t> inserted_twenty_five = {0x44, 0x00, 0x00, 0x00, 0x00};
+    const std::string dataset_dir = data_path_ + ".f8_lifecycle";
+    cleanup_dirs_.push_back(dataset_dir);
+    fs::create_directories(dataset_dir);
+
+    DatasetNode dataset;
+    ASSERT_EQ(0, dataset.init_for_test({dataset_dir}, 100, DataType::f8, kDim, DistFunc::L2).code());
+    ASSERT_EQ(0, generate_input_file(
+        input_path_, GeneratorConfig{PatternType::Sequential, kBaseCount, 0, DataType::f8, kDim, 1000}).code());
+    ASSERT_EQ(0, dataset.store(input_path_).code());
+
+    write_input_raw(
+        delta_input_path_, "f8,5\n"
+                           "2 : [ " + f8_payload_text(updated_two) + " ]\n"
+                           "3 : []\n"
+                           "25 : [ " + f8_payload_text(inserted_twenty_five) + " ]\n");
+    ASSERT_EQ(0, dataset.store(delta_input_path_).code());
+    ASSERT_TRUE(fs::exists(dataset_dir + "/0.delta"));
+    const std::vector<uint8_t> query = {0x3c, 0x00, 0x00, 0x00, 0x00};
+    std::vector<std::pair<uint64_t, std::vector<uint8_t>>> expected_items;
+    expected_items.reserve(kBaseCount);
+    for (size_t ordinal = 0; ordinal < kBaseCount; ++ordinal) {
+        if (ordinal != 2 && ordinal != 3) {
+            expected_items.emplace_back(ordinal, f8_ordinal_bytes(ordinal, kDim));
+        }
+    }
+    expected_items.emplace_back(2, updated_two);
+    expected_items.emplace_back(25, inserted_twenty_five);
+
+    const auto expected = decoded_f8_expected_results(expected_items, query, DistFunc::L2);
+    Scanner scanner = make_compiled_scanner();
+    // Request more than the 20 base and 2 persisted delta records. This makes
+    // a hidden-row regression observable as an incorrect result count rather
+    // than allowing stale base rows to fall outside a small top-k.
+    constexpr size_t kScanCount = kBaseCount + 3;
+
+    // Query the live base+delta view first: the update replaces base id 2,
+    // id 3 is masked, and id 25 is supplied by the attached delta.
+    {
+        DatasetReader live_reader;
+        ASSERT_EQ(0, live_reader.init(dataset_dir + "/dataset.ini").code());
+
+        auto [updated, updated_ret] = live_reader.get_vector(2);
+        ASSERT_EQ(0, updated_ret.code());
+        ASSERT_NE(nullptr, updated);
+        EXPECT_TRUE(std::equal(updated_two.begin(), updated_two.end(), updated));
+
+        auto [deleted, deleted_ret] = live_reader.get_vector(3);
+        ASSERT_EQ(0, deleted_ret.code());
+        EXPECT_EQ(nullptr, deleted);
+
+        auto [inserted, inserted_ret] = live_reader.get_vector(25);
+        ASSERT_EQ(0, inserted_ret.code());
+        ASSERT_NE(nullptr, inserted);
+        EXPECT_TRUE(std::equal(inserted_twenty_five.begin(), inserted_twenty_five.end(), inserted));
+
+        std::vector<DistItem> live_actual;
+        ASSERT_EQ(0, scanner.find_items(live_reader, kScanCount, query.data(), live_actual).code());
+        expect_decoded_f8_results(live_actual, expected, expected.size());
+    }
+
+    ASSERT_EQ(0, dataset.merge().code());
+    EXPECT_FALSE(fs::exists(dataset_dir + "/0.delta"));
+
+    DatasetReader reopened;
+    ASSERT_EQ(0, reopened.init(dataset_dir + "/dataset.ini").code());
+    std::vector<DistItem> reopened_actual;
+    ASSERT_EQ(0, scanner.find_items(reopened, kScanCount, query.data(), reopened_actual).code());
+    expect_decoded_f8_results(reopened_actual, expected, expected.size());
+}
+
+TEST_F(ScannerTest, FindDatasetF8L2StoredNormsMatchDecodedReference) {
+    constexpr size_t kDim = 5;
+    const std::vector<std::pair<uint64_t, std::vector<uint8_t>>> items = {
+        {10, {0x00, 0x00, 0x00, 0x00, 0x00}},
+        {20, {0x3c, 0x00, 0x00, 0x00, 0x00}},
+        {30, {0x40, 0x00, 0x00, 0x00, 0x00}},
+        {40, {0x44, 0x3c, 0x00, 0x00, 0x00}},
+    };
+    std::ostringstream input;
+    input << "f8,5\n";
+    for (const auto& [id, bits] : items) {
+        input << id << " : [ " << f8_payload_text(bits) << " ]\n";
+    }
+    write_input_raw(input_path_, input.str());
+    auto reader = make_dataset_reader(DataType::f8, kDim, DistFunc::L2, {input_path_}, 10);
+
+    const std::vector<uint8_t> query = {0x42, 0x00, 0x00, 0x00, 0x00};
+    Scanner scanner = make_compiled_scanner();
+    std::vector<DistItem> actual;
+    ASSERT_EQ(0, scanner.find_items(*reader, items.size(), query.data(), actual).code());
+    const auto expected = decoded_f8_expected_results(items, query, DistFunc::L2);
+    expect_decoded_f8_results(actual, expected, items.size());
+}
+
+TEST_F(ScannerTest, FindDatasetF8CosStoredNormsAndZeroVectorContractMatchDecodedReference) {
+    constexpr size_t kDim = 5;
+    const std::vector<std::pair<uint64_t, std::vector<uint8_t>>> items = {
+        {10, {0x00, 0x00, 0x00, 0x00, 0x00}},
+        {20, {0x3c, 0x00, 0x00, 0x00, 0x00}},
+        {30, {0x3c, 0x3c, 0x00, 0x00, 0x00}},
+        {40, {0xbc, 0x00, 0x00, 0x00, 0x00}},
+    };
+    std::ostringstream input;
+    input << "f8,5\n";
+    for (const auto& [id, bits] : items) {
+        input << id << " : [ " << f8_payload_text(bits) << " ]\n";
+    }
+    write_input_raw(input_path_, input.str());
+    auto reader = make_dataset_reader(DataType::f8, kDim, DistFunc::COS, {input_path_}, 10);
+
+    Scanner scanner = make_compiled_scanner();
+    // [1, 2, 0, 0, 0] exercises the non-unit query-normalization path and is
+    // non-collinear with the stored vectors below.
+    const std::vector<uint8_t> query = {0x3c, 0x40, 0x00, 0x00, 0x00};
+    std::vector<DistItem> actual;
+    ASSERT_EQ(0, scanner.find_items(*reader, items.size(), query.data(), actual).code());
+    const auto expected = decoded_f8_expected_results(items, query, DistFunc::COS);
+    expect_decoded_f8_results(actual, expected, items.size());
+
+    const std::vector<uint8_t> zero_query(kDim, 0x00);
+    std::vector<DistItem> zero_actual;
+    ASSERT_EQ(0, scanner.find_items(*reader, items.size(), zero_query.data(), zero_actual).code());
+    ASSERT_EQ(items.size(), zero_actual.size());
+    EXPECT_EQ(10u, zero_actual[0].id);
+    EXPECT_DOUBLE_EQ(0.0, zero_actual[0].score);
+
+    // The remaining three items genuinely tie at distance one. Their ids are
+    // asserted as a set, not as an incidental heap/traversal ordering.
+    std::vector<uint64_t> tied_ids;
+    for (size_t i = 1; i < zero_actual.size(); ++i) {
+        EXPECT_NEAR(1.0, zero_actual[i].score, 1e-6);
+        tied_ids.push_back(zero_actual[i].id);
+    }
+    std::sort(tied_ids.begin(), tied_ids.end());
+    EXPECT_EQ((std::vector<uint64_t>{20u, 30u, 40u}), tied_ids);
 }
 
 // ---------------------------------------------------------------------------

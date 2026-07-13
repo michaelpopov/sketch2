@@ -1,6 +1,7 @@
 // Unit tests for binary data-file layout helpers.
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -129,6 +130,95 @@ TEST_F(DataFileLayoutTest, ComputeDataRecordLayoutAlignsOddSizedI16NormSlot) {
     EXPECT_EQ(cos_layout.vector_size, l2_layout.vector_size);
     EXPECT_EQ(cos_layout.norm_offset, l2_layout.norm_offset);
     EXPECT_EQ(cos_layout.stride, l2_layout.stride);
+}
+
+TEST_F(DataFileLayoutTest, F8HeadersKeepTheAppendOnlyTypeCodesAndOddDimensionLayout) {
+    constexpr uint16_t kDim = 5;
+
+    const auto dot_layout = compute_data_record_layout(DataType::f8, kDim, false);
+    EXPECT_EQ(1u, data_type_size(DataType::f8));
+    EXPECT_EQ(5u, dot_layout.vector_size);
+    EXPECT_EQ(8u, dot_layout.norm_offset);
+    EXPECT_EQ(32u, dot_layout.stride);
+
+    const auto norm_layout = compute_data_record_layout(DataType::f8, kDim, true);
+    EXPECT_EQ(5u, norm_layout.vector_size);
+    EXPECT_EQ(8u, norm_layout.norm_offset);
+    EXPECT_EQ(32u, norm_layout.stride);
+
+    const auto dot_header = make_data_header(10, 12, 10, 3, 0, DataType::f8, kDim);
+    EXPECT_EQ(3u, dot_header.type);
+    EXPECT_EQ(dot_layout.stride, dot_header.vector_stride);
+    EXPECT_FALSE(data_file_has_norms(dot_header));
+
+    const auto l2_header = make_data_header(
+        10, 12, 10, 3, 0, DataType::f8, kDim, data_file_norm_flags_for_dist(DistFunc::L2));
+    EXPECT_EQ(3u, l2_header.type);
+    EXPECT_EQ(norm_layout.stride, l2_header.vector_stride);
+    EXPECT_TRUE(data_file_has_squared_norms(l2_header));
+
+    // Existing on-disk codes are append-only and remain readable after f8=3.
+    EXPECT_EQ(0u, make_data_header(0, 0, 0, 0, 0, DataType::f16, kDim).type);
+    EXPECT_EQ(1u, make_data_header(0, 0, 0, 0, 0, DataType::f32, kDim).type);
+    EXPECT_EQ(2u, make_data_header(0, 0, 0, 0, 0, DataType::i16, kDim).type);
+    EXPECT_EQ(DataType::f16, data_type_from_int(0));
+    EXPECT_EQ(DataType::f32, data_type_from_int(1));
+    EXPECT_EQ(DataType::i16, data_type_from_int(2));
+    EXPECT_EQ(DataType::f8, data_type_from_int(3));
+}
+
+TEST_F(DataFileLayoutTest, F8NormedRecordsCrossTheAlignmentBoundaryAtDim29) {
+    constexpr uint16_t kDim = 29;
+    const auto dot_layout = compute_data_record_layout(DataType::f8, kDim, false);
+    EXPECT_EQ(29u, dot_layout.vector_size);
+    EXPECT_EQ(32u, dot_layout.norm_offset);
+    EXPECT_EQ(32u, dot_layout.stride);
+
+    const auto norm_layout = compute_data_record_layout(DataType::f8, kDim, true);
+    EXPECT_EQ(29u, norm_layout.vector_size);
+    EXPECT_EQ(32u, norm_layout.norm_offset);
+    EXPECT_EQ(64u, norm_layout.stride);
+
+    const std::vector<uint8_t> first(kDim, 0x3c);
+    const std::vector<uint8_t> second(kDim, 0x40);
+    const float first_norm = 29.0f;
+    const float second_norm = 116.0f;
+
+    FILE* f = fopen(path_.c_str(), "wb");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(0, write_data_record(f, first.data(), norm_layout, &first_norm, "ctx").code());
+    ASSERT_EQ(0, write_data_record(f, second.data(), norm_layout, &second_norm, "ctx").code());
+    fclose(f);
+
+    // Reopen the raw records and verify the second payload starts after the
+    // complete 64-byte first record, not in its inline norm or padding.
+    std::ifstream in(path_, std::ios::binary);
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    ASSERT_EQ(2u * norm_layout.stride, bytes.size());
+    EXPECT_TRUE(std::equal(first.begin(), first.end(), bytes.begin()));
+    EXPECT_TRUE(std::equal(second.begin(), second.end(), bytes.begin() + norm_layout.stride));
+
+    for (size_t record_offset : {size_t{0}, norm_layout.stride}) {
+        for (size_t i = record_offset + norm_layout.vector_size;
+             i < record_offset + norm_layout.norm_offset;
+             ++i) {
+            EXPECT_EQ(0u, bytes[i]);
+        }
+        for (size_t i = record_offset + norm_layout.norm_offset + sizeof(float);
+             i < record_offset + norm_layout.stride;
+             ++i) {
+            EXPECT_EQ(0u, bytes[i]);
+        }
+    }
+
+    float persisted_first_norm = 0.0f;
+    float persisted_second_norm = 0.0f;
+    std::memcpy(&persisted_first_norm, bytes.data() + norm_layout.norm_offset, sizeof(persisted_first_norm));
+    std::memcpy(&persisted_second_norm,
+        bytes.data() + norm_layout.stride + norm_layout.norm_offset,
+        sizeof(persisted_second_norm));
+    EXPECT_FLOAT_EQ(first_norm, persisted_first_norm);
+    EXPECT_FLOAT_EQ(second_norm, persisted_second_norm);
 }
 
 TEST_F(DataFileLayoutTest, ComputeMetadataLayoutAlignsIdsTrailerOffsetToRegionBoundary) {
@@ -288,6 +378,34 @@ TEST_F(DataFileLayoutTest, WriteDataRecordStoresInlineNormAndPadding) {
     for (size_t i = layout.vector_size; i < layout.norm_offset; ++i) {
         EXPECT_EQ(0u, bytes[i]);
     }
+    for (size_t i = layout.norm_offset + sizeof(float); i < bytes.size(); ++i) {
+        EXPECT_EQ(0u, bytes[i]);
+    }
+}
+
+TEST_F(DataFileLayoutTest, WriteF8RecordPreservesBytesAndPadsOddDimensionNormSlot) {
+    const auto layout = compute_data_record_layout(DataType::f8, 5, true);
+    const std::vector<uint8_t> values = {0xcf, 0xac, 0x2c, 0x3c, 0x4f};
+    const float norm = 123.25f;
+
+    FILE* f = fopen(path_.c_str(), "wb");
+    ASSERT_NE(nullptr, f);
+    ASSERT_EQ(0, write_data_record(f, values.data(), layout, &norm, "ctx").code());
+    fclose(f);
+
+    std::ifstream in(path_, std::ios::binary);
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    ASSERT_EQ(layout.stride, bytes.size());
+    EXPECT_TRUE(std::equal(values.begin(), values.end(), bytes.begin()));
+
+    for (size_t i = layout.vector_size; i < layout.norm_offset; ++i) {
+        EXPECT_EQ(0u, bytes[i]);
+    }
+
+    float persisted_norm = 0.0f;
+    std::memcpy(&persisted_norm, bytes.data() + layout.norm_offset, sizeof(persisted_norm));
+    EXPECT_FLOAT_EQ(norm, persisted_norm);
+
     for (size_t i = layout.norm_offset + sizeof(float); i < bytes.size(); ++i) {
         EXPECT_EQ(0u, bytes[i]);
     }

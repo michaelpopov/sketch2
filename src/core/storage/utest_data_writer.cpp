@@ -1,6 +1,7 @@
 // Unit tests for writing binary data files from textual input.
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -15,11 +16,14 @@
 #include "core/storage/data_writer.h"
 #include "core/storage/data_reader.h"
 #include "core/storage/dataset_writer.h"
+#include "core/utils/utest_float8_helpers.h"
 #include "utest_tmp_dir.h"
 #include <filesystem>
 #include <limits>
 
 using namespace sketch2;
+using sketch2::test::f8_ordinal_bytes;
+using sketch2::test::reference_f8_squared_norm;
 namespace fs = std::filesystem;
 
 namespace {
@@ -343,6 +347,11 @@ TEST_F(DataWriterTest, HeaderTypeI16) {
     EXPECT_EQ(data_type_to_int(DataType::i16), read_header().type);
 }
 
+TEST_F(DataWriterTest, HeaderTypeF8IsTheAbsoluteOnDiskCodeThree) {
+    ASSERT_EQ(0, run(1, 0, DataType::f8, 5).code());
+    EXPECT_EQ(3u, read_header().type);
+}
+
 TEST_F(DataWriterTest, HeaderCosineFlagIsSetWhenRequested) {
     ASSERT_EQ(0, run(3, 0, DataType::f32, 4, 0, DistFunc::COS).code());
     const auto hdr = read_header();
@@ -459,6 +468,37 @@ TEST_F(DataWriterTest, BinaryInputVectorDataIsCorrect) {
     }
 }
 
+TEST_F(DataWriterTest, F8TextAndBinaryInputsPreserveOddDimensionPayloadBytes) {
+    constexpr size_t kCount = 2;
+    constexpr size_t kDim = 5;
+    constexpr size_t kMinId = 700;
+    const auto layout = compute_data_record_layout(DataType::f8, kDim, false);
+
+    ASSERT_EQ(0, run(kCount, kMinId, DataType::f8, kDim).code());
+    const DataFileHeader text_header = read_header();
+    EXPECT_EQ(3u, text_header.type);
+    EXPECT_FALSE(data_file_has_norms(text_header));
+    EXPECT_EQ(layout.stride, text_header.vector_stride);
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        const std::vector<uint8_t> expected = f8_ordinal_bytes(ordinal, kDim);
+        ASSERT_EQ(kDim, expected.size());
+        const std::vector<uint8_t> record = read_record_bytes(ordinal);
+        ASSERT_EQ(static_cast<size_t>(text_header.vector_stride), record.size());
+        EXPECT_TRUE(std::equal(expected.begin(), expected.end(), record.begin()));
+    }
+
+    ASSERT_EQ(0, run_binary(kCount, kMinId, DataType::f8, kDim).code());
+    const DataFileHeader binary_header = read_header();
+    EXPECT_EQ(3u, binary_header.type);
+    EXPECT_EQ(layout.stride, binary_header.vector_stride);
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        const std::vector<uint8_t> expected = f8_ordinal_bytes(ordinal, kDim);
+        const std::vector<uint8_t> record = read_record_bytes(ordinal);
+        ASSERT_EQ(static_cast<size_t>(binary_header.vector_stride), record.size());
+        EXPECT_TRUE(std::equal(expected.begin(), expected.end(), record.begin()));
+    }
+}
+
 TEST_F(DataWriterTest, DotOutputDoesNotGrowBeyondNormalStridePadding) {
     ASSERT_EQ(0, run(2, 0, DataType::f32, 8, 0, DistFunc::DOT).code());
     const auto hdr = read_header();
@@ -531,6 +571,64 @@ TEST_F(DataWriterTest, L2ValuesAreWrittenInlineWithVectorRecords) {
     float persisted_norm1 = 0.0f;
     std::memcpy(&persisted_norm1, record1.data() + record_layout.norm_offset, sizeof(persisted_norm1));
     EXPECT_NEAR(4.0f * 1.1f * 1.1f, persisted_norm1, 1e-6f);
+}
+
+TEST_F(DataWriterTest, F8StoredNormsUseDecodedPayloadsAndDotOmitsNorms) {
+    constexpr size_t kCount = 2;
+    constexpr size_t kDim = 29;
+
+    ASSERT_EQ(0, run(kCount, 0, DataType::f8, kDim, 0, DistFunc::DOT).code());
+    const DataFileHeader dot_header = read_header();
+    EXPECT_EQ(3u, dot_header.type);
+    EXPECT_FALSE(data_file_has_norms(dot_header));
+    EXPECT_EQ(32u, dot_header.vector_stride);
+
+    ASSERT_EQ(0, run(kCount, 0, DataType::f8, kDim, 0, DistFunc::L2).code());
+    const DataFileHeader l2_header = read_header();
+    ASSERT_TRUE(data_file_has_squared_norms(l2_header));
+    const auto l2_layout = compute_data_record_layout(DataType::f8, kDim, true);
+    EXPECT_EQ(29u, l2_layout.vector_size);
+    EXPECT_EQ(32u, l2_layout.norm_offset);
+    EXPECT_EQ(64u, l2_header.vector_stride);
+    const auto l2_norms = read_inline_norms(kCount);
+    ASSERT_EQ(kCount, l2_norms.size());
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        const std::vector<uint8_t> expected_bytes = f8_ordinal_bytes(ordinal, kDim);
+        const double expected = reference_f8_squared_norm(expected_bytes);
+        EXPECT_NEAR(static_cast<float>(expected), l2_norms[ordinal], 1e-5f);
+
+        const std::vector<uint8_t> record = read_record_bytes(ordinal);
+        ASSERT_EQ(static_cast<size_t>(l2_header.vector_stride), record.size());
+        EXPECT_TRUE(std::equal(expected_bytes.begin(), expected_bytes.end(), record.begin()));
+        for (size_t i = l2_layout.vector_size; i < l2_layout.norm_offset; ++i) {
+            EXPECT_EQ(0u, record[i]);
+        }
+        for (size_t i = l2_layout.norm_offset + sizeof(float); i < record.size(); ++i) {
+            EXPECT_EQ(0u, record[i]);
+        }
+    }
+
+    DataReader l2_reopened;
+    ASSERT_EQ(0, l2_reopened.init(output_path_).code());
+    ASSERT_TRUE(l2_reopened.has_matching_stored_norms(DistFunc::L2));
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        const std::vector<uint8_t> expected_bytes = f8_ordinal_bytes(ordinal, kDim);
+        EXPECT_TRUE(std::equal(expected_bytes.begin(), expected_bytes.end(), l2_reopened.at(ordinal)));
+        EXPECT_NEAR(
+            static_cast<float>(reference_f8_squared_norm(expected_bytes)), l2_reopened.get_norm(ordinal), 1e-5f);
+    }
+
+    ASSERT_EQ(0, run(kCount, 0, DataType::f8, kDim, 0, DistFunc::COS).code());
+    const DataFileHeader cos_header = read_header();
+    ASSERT_TRUE(data_file_has_cosine_inv_norms(cos_header));
+    EXPECT_EQ(64u, cos_header.vector_stride);
+    const auto cos_norms = read_inline_norms(kCount);
+    ASSERT_EQ(kCount, cos_norms.size());
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        const double norm_sq = reference_f8_squared_norm(f8_ordinal_bytes(ordinal, kDim));
+        const float expected = static_cast<float>(1.0 / std::sqrt(norm_sq));
+        EXPECT_NEAR(expected, cos_norms[ordinal], 1e-6f);
+    }
 }
 
 TEST_F(DataWriterTest, UnsortedInputIsWrittenInSortedIdOrder) {

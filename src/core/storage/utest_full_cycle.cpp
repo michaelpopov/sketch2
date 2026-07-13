@@ -1,9 +1,12 @@
 // End-to-end tests covering the full storage write/read/merge flow.
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <unistd.h>
 #include <vector>
 #include "core/storage/input_generator.h"
@@ -11,9 +14,12 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/dataset_node.h"
 #include "core/storage/data_reader.h"
+#include "core/utils/utest_float8_helpers.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
+using sketch2::test::f8_ordinal_bytes;
+using sketch2::test::reference_f8_squared_norm;
 namespace fs = std::filesystem;
 
 class DatasetFullCycleTest : public ::testing::Test {
@@ -270,6 +276,83 @@ TEST_F(DatasetFullCycleTest, FullCycleI16WithOverrideAndDelete) {
     const int16_t* v5 = reinterpret_cast<const int16_t*>(r->get(5));
     ASSERT_NE(nullptr, v5);
     EXPECT_EQ(5, v5[0]); // untouched value
+}
+
+TEST_F(DatasetFullCycleTest, FullCycleF8CreateUpdateDeleteMergeReopenAndLookup) {
+    constexpr uint64_t kMinId = 1000;
+    constexpr size_t kDim = 5;
+    const std::string dir = make_dir("f8");
+    DatasetNode ds;
+    ASSERT_EQ(0, ds.init_for_test({dir}, 100, DataType::f8, kDim, DistFunc::L2).code());
+
+    // Base ordinals are range-relative. The update starts a new f8 sequence,
+    // so id 1002 changes from ordinal 2 to ordinal 0 without relying on id order.
+    write_generated(seq_cfg(6, kMinId, DataType::f8, kDim));
+    ASSERT_EQ(0, ds.store(input_path_).code());
+    write_generated(seq_cfg(1, kMinId + 2, DataType::f8, kDim));
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    ManualInputGenerator tombstone;
+    tombstone.type = DataType::f8;
+    tombstone.dim = kDim;
+    tombstone.deleted(kMinId + 3);
+    write_manual(tombstone);
+    ASSERT_EQ(0, ds.store(input_path_).code());
+
+    const std::string data_path = dir + "/10.data";
+    const std::string delta_path = dir + "/10.delta";
+    const std::vector<uint8_t> expected_update = f8_ordinal_bytes(0, kDim);
+    ASSERT_TRUE(fs::exists(data_path));
+    ASSERT_TRUE(fs::exists(delta_path));
+
+    // Check the attached overlay before compaction: updates replace base bytes,
+    // tombstones mask base rows, and the delta keeps its own L2 norm.
+    {
+        DataReader delta;
+        ASSERT_EQ(0, delta.init(delta_path).code());
+        ASSERT_TRUE(delta.has_matching_stored_norms(DistFunc::L2));
+        ASSERT_EQ(kMinId + 2, delta.id(0));
+        EXPECT_NEAR(static_cast<float>(reference_f8_squared_norm(expected_update)), delta.get_norm(0), 1e-5f);
+
+        auto attached_delta = std::make_unique<DataReader>();
+        ASSERT_EQ(0, attached_delta->init(delta_path).code());
+        DataReader live;
+        ASSERT_EQ(0, live.init(data_path, std::move(attached_delta)).code());
+        ASSERT_TRUE(live.has_matching_stored_norms(DistFunc::L2));
+        const uint8_t* live_updated = live.get(kMinId + 2);
+        ASSERT_NE(nullptr, live_updated);
+        EXPECT_TRUE(std::equal(expected_update.begin(), expected_update.end(), live_updated));
+        EXPECT_EQ(nullptr, live.get(kMinId + 3));
+    }
+
+    ASSERT_EQ(0, ds.merge().code());
+    EXPECT_FALSE(fs::exists(delta_path));
+    const DataFileHeader hdr = read_header(data_path);
+    EXPECT_EQ(3u, hdr.type);
+    EXPECT_TRUE(data_file_has_squared_norms(hdr));
+    EXPECT_EQ(compute_data_record_layout(DataType::f8, kDim, true).stride, hdr.vector_stride);
+
+    DataReader reopened;
+    ASSERT_EQ(0, reopened.init(data_path).code());
+    ASSERT_TRUE(reopened.has_matching_stored_norms(DistFunc::L2));
+    EXPECT_EQ(5u, reopened.count());
+    EXPECT_EQ(nullptr, reopened.get(kMinId + 3));
+    EXPECT_TRUE(reopened.check_consistency());
+
+    ASSERT_EQ(kMinId + 2, reopened.id(2));
+    const uint8_t* updated = reopened.get(kMinId + 2);
+    ASSERT_NE(nullptr, updated);
+    EXPECT_TRUE(std::equal(expected_update.begin(), expected_update.end(), updated));
+    EXPECT_NEAR(static_cast<float>(reference_f8_squared_norm(expected_update)), reopened.get_norm(2), 1e-5f);
+
+    // DatasetNode lookup exercises the post-merge reader cache/query surface.
+    auto [looked_up, lookup_ret] = ds.get_vector(kMinId + 2);
+    ASSERT_EQ(0, lookup_ret.code());
+    ASSERT_NE(nullptr, looked_up);
+    EXPECT_TRUE(std::equal(expected_update.begin(), expected_update.end(), looked_up));
+    auto [deleted, deleted_ret] = ds.get_vector(kMinId + 3);
+    EXPECT_EQ(0, deleted_ret.code());
+    EXPECT_EQ(nullptr, deleted);
 }
 
 TEST_F(DatasetFullCycleTest, DenseRangeStoredWithRoaringIdsTrailer) {

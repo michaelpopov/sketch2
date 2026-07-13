@@ -19,13 +19,12 @@
 #include "core/storage/data_reader.h"
 #include "core/bitset/roaring_ids.h"
 #include "core/bitset/utest_roaring_ids_helpers.h"
+#include "core/utils/utest_float8_helpers.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
-
-namespace {
-
-} // namespace
+using sketch2::test::f8_ordinal_bytes;
+using sketch2::test::reference_f8_squared_norm;
 
 class DataReaderTest : public ::testing::Test {
 protected:
@@ -550,6 +549,44 @@ TEST_F(DataReaderTest, TypeI16) {
     EXPECT_EQ(DataType::i16, r.type());
 }
 
+TEST_F(DataReaderTest, F8BaseDataReopensWithOneByteOddDimensionPayloads) {
+    constexpr size_t kCount = 3;
+    constexpr size_t kMinId = 1000;
+    constexpr size_t kDim = 5;
+    generate(kCount, kMinId, DataType::f8, kDim);
+
+    const DataFileHeader hdr = read_data_header();
+    EXPECT_EQ(3u, hdr.type);
+    EXPECT_EQ(compute_data_record_layout(DataType::f8, kDim, false).stride, hdr.vector_stride);
+
+    DataReader reader;
+    ASSERT_EQ(0, reader.init(data_path_).code());
+    EXPECT_EQ(DataType::f8, reader.type());
+    EXPECT_EQ(kDim, reader.dim());
+    EXPECT_EQ(kDim, reader.size());
+    EXPECT_EQ(kCount, reader.count());
+    EXPECT_EQ(nullptr, reader.get(kMinId - 1));
+    EXPECT_EQ(nullptr, reader.get(kMinId + kCount));
+
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        const std::vector<uint8_t> expected = f8_ordinal_bytes(ordinal, kDim);
+        ASSERT_EQ(kDim, expected.size());
+        const uint8_t* by_id = reader.get(kMinId + ordinal);
+        ASSERT_NE(nullptr, by_id);
+        EXPECT_TRUE(std::equal(expected.begin(), expected.end(), by_id));
+        EXPECT_TRUE(std::equal(expected.begin(), expected.end(), reader.at(ordinal)));
+    }
+
+    DataReader reopened;
+    ASSERT_EQ(0, reopened.init(data_path_).code());
+    for (size_t ordinal = 0; ordinal < kCount; ++ordinal) {
+        const std::vector<uint8_t> expected = f8_ordinal_bytes(ordinal, kDim);
+        const uint8_t* by_id = reopened.get(kMinId + ordinal);
+        ASSERT_NE(nullptr, by_id);
+        EXPECT_TRUE(std::equal(expected.begin(), expected.end(), by_id));
+    }
+}
+
 TEST_F(DataReaderTest, DimIsCorrect) {
     generate(1, 0, DataType::f32, 64);
     DataReader r;
@@ -624,6 +661,37 @@ TEST_F(DataReaderTest, ReadsL2NormValuesFromInlineRecords) {
     auto it = r.base_begin();
     ASSERT_FALSE(it.eof());
     EXPECT_NEAR(static_cast<double>(r.get_norm(0)), static_cast<double>(it.get_norm()), 1e-6);
+}
+
+TEST_F(DataReaderTest, F8StoredNormsAreComputedFromDecodedBytesAfterReopen) {
+    constexpr size_t kCount = 2;
+    constexpr size_t kDim = 5;
+    const GeneratorConfig cfg{PatternType::Sequential, kCount, 50, DataType::f8, kDim, 1000};
+    ASSERT_EQ(0, generate_input_file(input_path_, cfg).code());
+
+    DataWriter writer;
+    ASSERT_EQ(0, writer.exec_for_testing(input_path_, data_path_, 50, 0, 0, DistFunc::L2).code());
+    {
+        DataReader reader;
+        ASSERT_EQ(0, reader.init(data_path_).code());
+        ASSERT_TRUE(reader.has_matching_stored_norms(DistFunc::L2));
+        for (size_t i = 0; i < kCount; ++i) {
+            const uint8_t* data = reader.at(i);
+            const double expected = reference_f8_squared_norm(data, kDim);
+            EXPECT_NEAR(static_cast<float>(expected), reader.get_norm(i), 1e-5f);
+        }
+    }
+
+    ASSERT_EQ(0, writer.exec_for_testing(input_path_, data_path_, 50, 0, 0, DistFunc::COS).code());
+    DataReader reopened;
+    ASSERT_EQ(0, reopened.init(data_path_).code());
+    ASSERT_TRUE(reopened.has_matching_stored_norms(DistFunc::COS));
+    for (size_t i = 0; i < kCount; ++i) {
+        const uint8_t* data = reopened.at(i);
+        const double norm_sq = reference_f8_squared_norm(data, kDim);
+        const float expected = static_cast<float>(1.0 / std::sqrt(norm_sq));
+        EXPECT_NEAR(expected, reopened.get_norm(i), 1e-6f);
+    }
 }
 
 TEST_F(DataReaderTest, WriteRawSupportsInlineNormsForI16) {

@@ -12,6 +12,7 @@
 
 #include "core/compute/compute_value_helpers.h"
 #include "core/utils/shared_types.h"
+#include "core/utils/utest_float8_helpers.h"
 
 namespace sketch2 {
 namespace test {
@@ -84,63 +85,6 @@ double reference_cosine_distance(const T* a, const T* b, size_t dim) {
     const double dot = reference_dot(a, b, dim);
     const double norm_a = reference_squared_norm(a, dim);
     const double norm_b = reference_squared_norm(b, dim);
-
-    if (norm_a == 0.0 && norm_b == 0.0) {
-        return 0.0;
-    }
-    if (norm_a == 0.0 || norm_b == 0.0) {
-        return 1.0;
-    }
-
-    const double cosine = std::clamp(dot / std::sqrt(norm_a * norm_b), -1.0, 1.0);
-    return 1.0 - cosine;
-}
-
-// f8 raw buffers hold E5M2 bytes, not assumed live float8 objects. These
-// references intentionally decode every byte through the canonical float8
-// value type and accumulate only in double.
-inline double decode_f8(uint8_t bits) {
-    return static_cast<double>(static_cast<float>(float8::from_bits(bits)));
-}
-
-inline double reference_f8_dot(const uint8_t* a, const uint8_t* b, size_t dim) {
-    double dot = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        dot += decode_f8(a[i]) * decode_f8(b[i]);
-    }
-    return dot;
-}
-
-inline double reference_f8_dot_abs_sum(const uint8_t* a, const uint8_t* b, size_t dim) {
-    double sum = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        sum += std::abs(decode_f8(a[i]) * decode_f8(b[i]));
-    }
-    return sum;
-}
-
-inline double reference_f8_l2(const uint8_t* a, const uint8_t* b, size_t dim) {
-    double sum = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        const double d = decode_f8(a[i]) - decode_f8(b[i]);
-        sum += d * d;
-    }
-    return sum;
-}
-
-inline double reference_f8_squared_norm(const uint8_t* a, size_t dim) {
-    double norm = 0.0;
-    for (size_t i = 0; i < dim; ++i) {
-        const double value = decode_f8(a[i]);
-        norm += value * value;
-    }
-    return norm;
-}
-
-inline double reference_f8_cosine_distance(const uint8_t* a, const uint8_t* b, size_t dim) {
-    const double dot = reference_f8_dot(a, b, dim);
-    const double norm_a = reference_f8_squared_norm(a, dim);
-    const double norm_b = reference_f8_squared_norm(b, dim);
 
     if (norm_a == 0.0 && norm_b == 0.0) {
         return 0.0;
