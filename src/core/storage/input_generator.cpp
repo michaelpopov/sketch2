@@ -125,22 +125,33 @@ void fill_f8_ordinal_vector(uint64_t ordinal, size_t dim, std::vector<float8>& o
     (void)filled;
 }
 
-// f32/f16 retain the deterministic cosine_demo_vector() values used by the
-// Python helpers. f8 uses the bounded base-72 mapping below instead.
+// Shared bounded test payload. f8 callers use the range-relative base-72
+// mapping; other callers get small multidimensional values that are exactly
+// representable by f16 and i16. The same formula is mirrored by
+// bounded_demo_vector() in pytest/sketch2_test_vectors.py.
 template <typename T>
-inline void fill_cos_compatible_vector(uint64_t id, size_t dim, std::vector<T>& out) {
+inline void fill_bounded_demo_vector(uint64_t id, size_t dim, std::vector<T>& out) {
     if constexpr (std::is_same_v<T, float8>) {
         // f8 callers pass the range-relative ordinal here, not an absolute id,
         // so large min_id values do not consume codebook capacity.
         fill_f8_ordinal_vector(id, dim, out);
     } else {
-        const int64_t sid = static_cast<int64_t>(id);
         out.resize(dim);
-        out[0] = static_cast<T>((sid % 17) + 1);
-        out[1] = static_cast<T>(((sid * 3) % 11) - 5);
-        out[2] = static_cast<T>(((sid * 5) % 7) - 3);
+        if (dim == 0) {
+            return;
+        }
+        out[0] = static_cast<T>(static_cast<int64_t>(id % 17U) + 1);
+        if (dim == 1) {
+            return;
+        }
+        out[1] = static_cast<T>(static_cast<int64_t>(((id % 11U) * 3U) % 11U) - 5);
+        if (dim == 2) {
+            return;
+        }
+        out[2] = static_cast<T>(static_cast<int64_t>(((id % 7U) * 5U) % 7U) - 3);
         for (size_t index = 3; index < dim; ++index) {
-            out[index] = static_cast<T>(((sid + static_cast<int64_t>(index)) % 5) - 2);
+            const uint64_t component = ((id % 5U) + (index % 5U)) % 5U;
+            out[index] = static_cast<T>(static_cast<int64_t>(component) - 2);
         }
     }
 }
@@ -248,14 +259,10 @@ void write_binary_sequential_range(uint8_t* records_base, const GeneratorConfig&
         if constexpr (std::is_same_v<T, float>) {
             const float value = static_cast<float>(id) + 0.1f;
             std::fill(payload.begin(), payload.end(), value);
-        } else if constexpr (std::is_same_v<T, float16>) {
-            const float16 value = static_cast<float16>(static_cast<float>(id) + 0.1f);
-            std::fill(payload.begin(), payload.end(), value);
+        } else if constexpr (std::is_same_v<T, float16> || std::is_same_v<T, int16_t>) {
+            fill_bounded_demo_vector(id, config.dim, payload);
         } else if constexpr (std::is_same_v<T, float8>) {
             fill_f8_ordinal_vector(static_cast<uint64_t>(i), config.dim, payload);
-        } else {
-            const T value = static_cast<T>(id);
-            std::fill(payload.begin(), payload.end(), value);
         }
         std::memcpy(record + sizeof(id), payload.data(), payload.size() * sizeof(T));
     }
@@ -531,7 +538,8 @@ static Ret write_binary_record(FILE* f, uint64_t id, const T* value, size_t dim,
     return Ret(0);
 }
 
-// f32/f16/i16 write predictable repeated scalar values. f8 instead writes a
+// f32 keeps its historical repeated scalar. f16 and i16 use the shared bounded
+// multidimensional payload so large IDs cannot overflow or narrow; f8 uses a
 // bounded range-relative base-72 vector, with tombstones skipped by its live
 // ordinal sequence.
 static Ret generate_sequential_input_file(const std::string& path, const GeneratorConfig& config) {
@@ -543,7 +551,9 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
 
     fprintf(f, "%s,%zu\n", data_type_to_string(config.type), config.dim);
 
+    std::vector<float16> f16_payload;
     std::vector<float8> f8_payload;
+    std::vector<int16_t> i16_payload;
     uint64_t live_ordinal = 0;
     for (size_t i = 0; i < config.count; ++i) {
         uint64_t id= config.min_id + i;
@@ -557,19 +567,15 @@ static Ret generate_sequential_input_file(const std::string& path, const Generat
             float value = static_cast<float>(id) + 0.1;
             print_float_line(f, id, &value, config.dim, false);
         } else if (config.type == DataType::f16) {
-            const float value_f32 = static_cast<float>(id) + 0.1f;
-            // Clamp to the maximum finite f16 value so large ids don't overflow
-            // to Inf and break the text loader.
-            const float clamped = std::min(value_f32, kFloat16Max);
-            const float16 value = static_cast<float16>(clamped);
-            print_float_line(f, id, &value, config.dim, false);
+            fill_bounded_demo_vector(id, config.dim, f16_payload);
+            print_float_line(f, id, f16_payload.data(), config.dim, true);
         } else if (config.type == DataType::f8) {
             fill_f8_ordinal_vector(live_ordinal, config.dim, f8_payload);
             print_float8_line(f, id, f8_payload.data(), config.dim, true);
             ++live_ordinal;
         } else if (config.type == DataType::i16) {
-            int16_t value = static_cast<int16_t>(id);
-            print_int_line(f, id, &value, config.dim, false);
+            fill_bounded_demo_vector(id, config.dim, i16_payload);
+            print_int_line(f, id, i16_payload.data(), config.dim, true);
         } else {
             return Ret("Unsupported data type");
         }
@@ -662,13 +668,13 @@ static Ret generate_cos_compatible_input_file(const std::string& path, const Gen
     for (size_t i = 0; i < config.count; ++i) {
         const uint64_t id = config.min_id + i;
         if (config.type == DataType::f32) {
-            fill_cos_compatible_vector(id, config.dim, buf_f32);
+            fill_bounded_demo_vector(id, config.dim, buf_f32);
             print_float_line(f, id, buf_f32.data(), config.dim, true);
         } else if (config.type == DataType::f16) {
-            fill_cos_compatible_vector(id, config.dim, buf_f16);
+            fill_bounded_demo_vector(id, config.dim, buf_f16);
             print_float_line(f, id, buf_f16.data(), config.dim, true);
         } else if (config.type == DataType::f8) {
-            fill_cos_compatible_vector(static_cast<uint64_t>(i), config.dim, buf_f8);
+            fill_bounded_demo_vector(static_cast<uint64_t>(i), config.dim, buf_f8);
             print_float8_line(f, id, buf_f8.data(), config.dim, true);
         } else {
             return Ret("CosCompatible pattern does not support this data type");
@@ -678,9 +684,9 @@ static Ret generate_cos_compatible_input_file(const std::string& path, const Gen
     return Ret(0);
 }
 
-// f32/f16/i16 use the historical positive scalar payload for easy DOT ranking.
-// f8 deliberately reuses the bounded sequential ordinal mapping instead; its
-// scores are not defined to be monotonic by id.
+// f32 retains its historical positive scalar payload. f16/i16 use the bounded
+// multidimensional sequential payload, and f8 reuses its bounded ordinal
+// mapping; those scores are not defined to be monotonic by id.
 static Ret generate_dot_compatible_input_file(const std::string& path, const GeneratorConfig& config) {
     return generate_sequential_input_file(path, config);
 }
@@ -722,7 +728,8 @@ static Ret generate_perf_test_input_file(const std::string& path, const Generato
 }
 
 // Writes a text header followed by binary records made of uint64_t ids and
-// packed payloads. f32/f16/i16 use repeated scalars; f8 uses ordinal vectors.
+// packed payloads. f32 uses repeated scalars; f16/i16 use bounded vectors and
+// f8 uses ordinal vectors.
 static Ret generate_sequential_input_file_binary(const std::string& path, const GeneratorConfig& config) {
     return generate_sequential_input_file_binary_mmap(path, config);
 }
@@ -748,13 +755,13 @@ static Ret generate_cos_compatible_input_file_binary(const std::string& path, co
     for (size_t i = 0; i < config.count; ++i) {
         const uint64_t id = config.min_id + i;
         if (config.type == DataType::f32) {
-            fill_cos_compatible_vector(id, config.dim, buf_f32);
+            fill_bounded_demo_vector(id, config.dim, buf_f32);
             CHECK(write_binary_record(f, id, buf_f32.data(), config.dim, true));
         } else if (config.type == DataType::f16) {
-            fill_cos_compatible_vector(id, config.dim, buf_f16);
+            fill_bounded_demo_vector(id, config.dim, buf_f16);
             CHECK(write_binary_record(f, id, buf_f16.data(), config.dim, true));
         } else if (config.type == DataType::f8) {
-            fill_cos_compatible_vector(static_cast<uint64_t>(i), config.dim, buf_f8);
+            fill_bounded_demo_vector(static_cast<uint64_t>(i), config.dim, buf_f8);
             CHECK(write_binary_record(f, id, buf_f8.data(), config.dim, true));
         } else {
             return Ret("CosCompatible pattern does not support this data type");

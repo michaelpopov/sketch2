@@ -275,7 +275,7 @@ TEST_F(DatasetFullCycleTest, FullCycleI16WithOverrideAndDelete) {
 
     const int16_t* v5 = reinterpret_cast<const int16_t*>(r->get(5));
     ASSERT_NE(nullptr, v5);
-    EXPECT_EQ(5, v5[0]); // untouched value
+    EXPECT_EQ(6, v5[0]); // untouched bounded sequential payload
 }
 
 TEST_F(DatasetFullCycleTest, FullCycleF8CreateUpdateDeleteMergeReopenAndLookup) {

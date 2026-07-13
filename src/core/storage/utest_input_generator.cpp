@@ -315,15 +315,13 @@ TEST_F(InputGeneratorTest, HeaderLineF16) {
     EXPECT_EQ("f16,64", lines[0]);
 }
 
-TEST_F(InputGeneratorTest, F16SequentialTextValueIsIdPlusPointOneWhenSupported) {
-
-
+TEST_F(InputGeneratorTest, F16SequentialTextUsesBoundedMultidimensionalPayload) {
     GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f16, 4, 1000};
     ASSERT_EQ(0, generate_input_file(path_, cfg).code());
 
     auto lines = read_lines();
     ASSERT_EQ(2u, lines.size());
-    EXPECT_EQ("7 : [ 7.10, 7.10, 7.10, 7.10 ]", lines[1]);
+    EXPECT_EQ("7 : [ 8.00, 5.00, -3.00, -2.00 ]", lines[1]);
 }
 
 TEST_F(InputGeneratorTest, LineCount) {
@@ -428,12 +426,12 @@ TEST_F(InputGeneratorTest, HeaderLineI16) {
     EXPECT_EQ("i16,4", lines[0]);
 }
 
-TEST_F(InputGeneratorTest, I16ValueIsId) {
+TEST_F(InputGeneratorTest, I16SequentialTextUsesBoundedMultidimensionalPayload) {
     GeneratorConfig cfg{PatternType::Sequential, 1, 9, DataType::i16, 4, 1000};
     generate_input_file(path_, cfg);
     auto lines = read_lines();
     ASSERT_EQ(2u, lines.size());
-    EXPECT_EQ("9 : [ 9, 9, 9, 9 ]", lines[1]);
+    EXPECT_EQ("9 : [ 10, 0, 0, 0 ]", lines[1]);
 }
 
 TEST_F(InputGeneratorTest, I16WritesExactlyDimValuesPerVector) {
@@ -442,9 +440,7 @@ TEST_F(InputGeneratorTest, I16WritesExactlyDimValuesPerVector) {
     generate_input_file(path_, cfg);
     auto lines = read_lines();
     ASSERT_EQ(2u, lines.size());
-    // Each value is printed as the id "5"; count occurrences after "[ "
-    // Line: "5 : [ 5, 5, 5, 5 ]" — the id prefix "5 " won't match standalone "5,"
-    // Count ", " separators: should be dim-1
+    // The bounded payload still emits exactly one value per dimension.
     const std::string sep = ", ";
     const std::string& line = lines[1];
     size_t count = 0;
@@ -604,13 +600,14 @@ TEST_F(InputGeneratorTest, BinarySequentialLargeFilePreservesChunkBoundaryRecord
 
         ASSERT_TRUE(in.good());
         EXPECT_EQ(expected_id, id);
-        const std::array<int16_t, 4> expected_vec {
-            static_cast<int16_t>(expected_id),
-            static_cast<int16_t>(expected_id),
-            static_cast<int16_t>(expected_id),
-            static_cast<int16_t>(expected_id),
-        };
-        EXPECT_EQ(expected_vec, vec);
+        EXPECT_GE(vec[0], 1);
+        EXPECT_LE(vec[0], 17);
+        EXPECT_GE(vec[1], -5);
+        EXPECT_LE(vec[1], 5);
+        EXPECT_GE(vec[2], -3);
+        EXPECT_LE(vec[2], 3);
+        EXPECT_GE(vec[3], -2);
+        EXPECT_LE(vec[3], 2);
     };
 
     expect_record(0, kMinId);
@@ -660,9 +657,7 @@ TEST_F(InputGeneratorTest, BinarySequentialLargeF32FilePreservesChunkBoundaryRec
     expect_record(kCount - 1, kMinId + kCount - 1);
 }
 
-TEST_F(InputGeneratorTest, BinarySequentialF16WritesIdAndVectorPayloadWhenSupported) {
-
-
+TEST_F(InputGeneratorTest, BinarySequentialF16WritesBoundedVectorPayload) {
     GeneratorConfig cfg{PatternType::Sequential, 1, 7, DataType::f16, 4, 1000, 0, true};
     ASSERT_EQ(0, generate_input_file(path_, cfg).code());
 
@@ -678,9 +673,66 @@ TEST_F(InputGeneratorTest, BinarySequentialF16WritesIdAndVectorPayloadWhenSuppor
 
     ASSERT_TRUE(in.good());
     EXPECT_EQ(7u, id);
-    const float expected = static_cast<float>(static_cast<float16>(7.1f));
-    EXPECT_FLOAT_EQ(expected, static_cast<float>(vec[0]));
-    EXPECT_FLOAT_EQ(expected, static_cast<float>(vec[3]));
+    const std::array<float, 4> expected {8.0f, 5.0f, -3.0f, -2.0f};
+    for (size_t index = 0; index < expected.size(); ++index) {
+        EXPECT_FLOAT_EQ(expected[index], static_cast<float>(vec[index]));
+    }
+}
+
+TEST_F(InputGeneratorTest, BinarySequentialF16StaysFinitePastScalarLimit) {
+    GeneratorConfig cfg{PatternType::Sequential, 2, 65520, DataType::f16, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    std::ifstream in(path_, std::ios::binary);
+    std::string header;
+    std::getline(in, header);
+    ASSERT_EQ("f16,4,bin", header);
+
+    uint64_t first_id = 0;
+    std::array<float16, 4> first_vec {};
+    uint64_t second_id = 0;
+    std::array<float16, 4> second_vec {};
+    in.read(reinterpret_cast<char*>(&first_id), sizeof(first_id));
+    in.read(reinterpret_cast<char*>(first_vec.data()), sizeof(first_vec));
+    in.read(reinterpret_cast<char*>(&second_id), sizeof(second_id));
+    in.read(reinterpret_cast<char*>(second_vec.data()), sizeof(second_vec));
+
+    ASSERT_TRUE(in.good());
+    EXPECT_EQ(65520u, first_id);
+    EXPECT_EQ(65521u, second_id);
+    const std::array<float, 4> expected_first {3.0f, -4.0f, -3.0f, 1.0f};
+    const std::array<float, 4> expected_second {4.0f, -1.0f, 2.0f, 2.0f};
+    for (size_t index = 0; index < expected_first.size(); ++index) {
+        EXPECT_TRUE(std::isfinite(static_cast<float>(first_vec[index])));
+        EXPECT_TRUE(std::isfinite(static_cast<float>(second_vec[index])));
+        EXPECT_FLOAT_EQ(expected_first[index], static_cast<float>(first_vec[index]));
+        EXPECT_FLOAT_EQ(expected_second[index], static_cast<float>(second_vec[index]));
+    }
+}
+
+TEST_F(InputGeneratorTest, BinarySequentialI16AvoidsNarrowingPastInt16Limit) {
+    GeneratorConfig cfg{PatternType::Sequential, 2, 32768, DataType::i16, 4, 1000, 0, true};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    std::ifstream in(path_, std::ios::binary);
+    std::string header;
+    std::getline(in, header);
+    ASSERT_EQ("i16,4,bin", header);
+
+    uint64_t first_id = 0;
+    std::array<int16_t, 4> first_vec {};
+    uint64_t second_id = 0;
+    std::array<int16_t, 4> second_vec {};
+    in.read(reinterpret_cast<char*>(&first_id), sizeof(first_id));
+    in.read(reinterpret_cast<char*>(first_vec.data()), sizeof(first_vec));
+    in.read(reinterpret_cast<char*>(&second_id), sizeof(second_id));
+    in.read(reinterpret_cast<char*>(second_vec.data()), sizeof(second_vec));
+
+    ASSERT_TRUE(in.good());
+    EXPECT_EQ(32768u, first_id);
+    EXPECT_EQ(32769u, second_id);
+    EXPECT_EQ((std::array<int16_t, 4> {10, 3, 2, -1}), first_vec);
+    EXPECT_EQ((std::array<int16_t, 4> {11, -5, 0, 0}), second_vec);
 }
 
 TEST_F(InputGeneratorTest, BinaryDetailedWritesPerDimensionVariation) {

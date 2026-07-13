@@ -419,18 +419,21 @@ TEST_F(InputReaderTest, F32DataValuesAreIdPlusPointOne) {
     }
 }
 
-TEST_F(InputReaderTest, I16DataValuesAreId) {
-    // generator writes id for each dimension
+TEST_F(InputReaderTest, I16DataUsesBoundedMultidimensionalValues) {
     generate_input_file(path_, cfg(3, 5, DataType::i16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
     std::vector<uint8_t> buf(r.size());
+    const std::array<std::array<int16_t, 4>, 3> expected {{
+        {{6, -1, 1, 1}},
+        {{7, 2, -1, 2}},
+        {{8, 5, -3, -2}},
+    }};
     for (size_t i = 0; i < 3; ++i) {
         EXPECT_EQ(0, r.data(i, buf.data(), buf.size()).code());
         const int16_t* v = reinterpret_cast<const int16_t*>(buf.data());
-        int16_t expected = static_cast<int16_t>(5 + i);
         for (size_t d = 0; d < 4; ++d) {
-            EXPECT_EQ(expected, v[d]) << "vector " << i << " dim " << d;
+            EXPECT_EQ(expected[i][d], v[d]) << "vector " << i << " dim " << d;
         }
     }
 }

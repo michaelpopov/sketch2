@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
@@ -893,16 +894,20 @@ TEST_F(DataReaderTest, AtF32VectorDataIsCorrect) {
     }
 }
 
-TEST_F(DataReaderTest, AtI16VectorDataIsCorrect) {
+TEST_F(DataReaderTest, AtI16VectorDataUsesBoundedMultidimensionalValues) {
     const size_t count = 3, min_id = 5, dim = 4;
     generate(count, min_id, DataType::i16, dim);
     DataReader r;
     EXPECT_EQ(0, r.init(data_path_).code());
+    const std::array<std::array<int16_t, 4>, 3> expected {{
+        {{6, -1, 1, 1}},
+        {{7, 2, -1, 2}},
+        {{8, 5, -3, -2}},
+    }};
     for (size_t i = 0; i < count; ++i) {
         const int16_t* v = reinterpret_cast<const int16_t*>(r.at(i));
-        int16_t expected = static_cast<int16_t>(min_id + i);
         for (size_t d = 0; d < dim; ++d)
-            EXPECT_EQ(expected, v[d]) << "vector " << i << " dim " << d;
+            EXPECT_EQ(expected[i][d], v[d]) << "vector " << i << " dim " << d;
     }
 }
 
@@ -1178,9 +1183,9 @@ TEST_F(DataReaderTest, UpdatedValueComesFromDelta) {
     ASSERT_NE(nullptr, v11);
     ASSERT_NE(nullptr, v12);
 
-    EXPECT_EQ(10, v10[0]); // untouched
+    EXPECT_EQ(11, v10[0]); // untouched bounded sequential payload
     EXPECT_EQ(0, v11[0]);  // updated from detailed delta first vector
-    EXPECT_EQ(12, v12[0]); // untouched
+    EXPECT_EQ(13, v12[0]); // untouched bounded sequential payload
 }
 
 TEST_F(DataReaderTest, DeltaIteratorSkipsDeletedAndAppendsUpdatedFromDelta) {

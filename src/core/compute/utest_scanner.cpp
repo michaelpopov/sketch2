@@ -629,7 +629,7 @@ TEST_F(ScannerTest, FindF16Works) {
     std::vector<uint64_t> result;
     ASSERT_EQ(0, find_ids(s, *reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(2u, result[0]);
+    EXPECT_EQ(1u, result[0]);
 }
 
 TEST_F(ScannerTest, FindF16WorksWithHighway) {
@@ -640,7 +640,7 @@ TEST_F(ScannerTest, FindF16WorksWithHighway) {
     std::vector<uint64_t> result;
     ASSERT_EQ(0, find_ids(s, *reader, 1, q.data(), result).code());
     ASSERT_EQ(1u, result.size());
-    EXPECT_EQ(2u, result[0]);
+    EXPECT_EQ(1u, result[0]);
 }
 
 TEST_F(ScannerTest, FindF16CosWorksWithHighway) {

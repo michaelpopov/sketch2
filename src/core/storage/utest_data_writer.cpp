@@ -545,8 +545,8 @@ TEST_F(DataWriterTest, CosineValuesAreWrittenInlineForI16Records) {
 
     const auto norms = read_inline_norms(hdr.count);
     ASSERT_EQ(2u, norms.size());
-    EXPECT_FLOAT_EQ(0.0f, norms[0]);
-    EXPECT_NEAR(1.0f / std::sqrt(4.0f), norms[1], 1e-6f);
+    EXPECT_NEAR(1.0f / 6.0f, norms[0], 1e-6f);
+    EXPECT_NEAR(1.0f / 4.0f, norms[1], 1e-6f);
 }
 
 TEST_F(DataWriterTest, L2ValuesAreWrittenInlineWithVectorRecords) {
