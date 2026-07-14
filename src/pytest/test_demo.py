@@ -13,6 +13,7 @@ from demo import (
     decoded_knn_reference,
     demo_query_values,
     demo_query_scalar,
+    l2_score_with_stored_norm,
     metric_score,
     native_demo_vector,
     parse_args,
@@ -48,6 +49,43 @@ class DemoQueryScalarTest(unittest.TestCase):
 
     def test_i16_l2_query_stays_in_the_bounded_scoring_range(self) -> None:
         self.assertEqual([500, 500, 500, 500], demo_query_values(10_000_000, 4, "i16", "L2"))
+
+
+class DemoL2OracleTest(unittest.TestCase):
+    def test_f32_l2_oracle_models_the_persisted_float_norm(self) -> None:
+        query = demo_query_values(100, 4, "f32", "L2")
+        vector = native_demo_vector(63, 0, 4, "f32", "L2")
+
+        scalar_score = metric_score(query, vector, "L2")
+        stored_norm_score = l2_score_with_stored_norm(query, vector)
+
+        self.assertEqual(0.060517081059515476, scalar_score)
+        self.assertEqual(0.06074046972207725, stored_norm_score)
+        self.assertNotEqual(scalar_score, stored_norm_score)
+
+    def test_f32_l2_score_bound_accepts_the_scanner_float_score(self) -> None:
+        query = demo_query_values(100, 4, "f32", "L2")
+        reference = decoded_knn_reference(
+            count=100,
+            from_id=0,
+            dim=4,
+            type_name="f32",
+            dist_func="L2",
+            query=query,
+            k=1,
+        )
+        scanner_score = 0.06074047088623047
+
+        self.assertGreaterEqual(
+            reference.l2_score_tolerance_for_id(63),
+            abs(scanner_score - reference.score_for_id(63)),
+        )
+        assert_sqlite_rows_match_decoded_reference(
+            [(63, scanner_score)],
+            reference=reference,
+            dist_func="L2",
+            k=1,
+        )
 
 
 class DemoFloat8SupportTest(unittest.TestCase):
@@ -138,6 +176,7 @@ class DemoFloat8SupportTest(unittest.TestCase):
                 query,
                 native_demo_vector(item_id, from_id, dim, "f8", "L2"),
                 "L2",
+                type_name="f8",
             )
 
         near_id = 1071
@@ -160,7 +199,7 @@ class DemoFloat8SupportTest(unittest.TestCase):
                 k=k,
             )
 
-    def test_small_f8_demo_path_uses_decoded_scores(self) -> None:
+    def test_small_f8_demo_path_matches_sketch2_scores(self) -> None:
         library = find_library()
         run_demo(
             count=4,
@@ -225,6 +264,34 @@ class DemoBoundedNativePayloadTest(unittest.TestCase):
                     sketch2_lib=library,
                     extension_lib=library,
                 )
+
+    def test_i16_cos_demo_uses_the_native_bounded_payload(self) -> None:
+        library = find_library()
+        run_demo(
+            count=100,
+            dim=4,
+            k=10,
+            range_size=16,
+            type_name="i16",
+            keep=False,
+            dist_func="COS",
+            sketch2_lib=library,
+            extension_lib=library,
+        )
+
+    def test_f32_l2_demo_accepts_float_backed_stored_norm_scores(self) -> None:
+        library = find_library()
+        run_demo(
+            count=100,
+            dim=4,
+            k=10,
+            range_size=16,
+            type_name="f32",
+            keep=False,
+            dist_func="L2",
+            sketch2_lib=library,
+            extension_lib=library,
+        )
 
 
 if __name__ == "__main__":

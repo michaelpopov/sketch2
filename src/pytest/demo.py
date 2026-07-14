@@ -10,6 +10,7 @@ import math
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -38,6 +39,13 @@ from sketch2_wrapper import Sketch2
 # avoids cancellation at the largest supported dimension while still producing
 # a nontrivial deterministic ranking against the bounded native test payload.
 I16_L2_QUERY_LIMIT = 500
+
+# Highway accumulates floating-point query norms and dot products in f32 lanes.
+# These constants bound the remaining error after the persisted vector norm has
+# been modelled exactly below.
+_F32_UNIT_ROUNDOFF = 2.0 ** -24
+_F32_MIN_NORMAL = 2.0 ** -126
+_F32_MIN_SUBNORMAL = 2.0 ** -149
 
 
 def log_step(message: str) -> None:
@@ -117,14 +125,84 @@ def demo_query_values(count: int, dim: int, type_name: str, dist_func: str) -> l
     return [quantize_value(type_name, float(query_value))] * dim
 
 
+def _round_to_f32(value: float) -> float:
+    return float(quantize_value("f32", value))
+
+
+def _f32_ulp(value: float) -> float:
+    """Return a conservative spacing for a finite f32 value."""
+    magnitude = abs(value)
+    if magnitude < _F32_MIN_NORMAL:
+        return _F32_MIN_SUBNORMAL
+    if not math.isfinite(magnitude):
+        return math.inf
+    return math.ldexp(1.0, math.floor(math.log2(magnitude)) - 23)
+
+
+def l2_score_with_stored_norm(
+    query: list[float | int],
+    vector: list[float | int],
+) -> float:
+    """Mirror L2's float-backed persisted vector norm before scanner scoring."""
+    stored_vector_norm_sq = _round_to_f32(
+        sum(float(value) * float(value) for value in vector))
+    query_norm_sq = sum(float(value) * float(value) for value in query)
+    dot = dot_distance(query, vector)
+    return max(0.0, stored_vector_norm_sq + query_norm_sq - 2.0 * dot)
+
+
+def l2_simd_score_error_bound(
+    query: list[float | int],
+    vector: list[float | int],
+    expected_score: float,
+    type_name: str,
+) -> float:
+    """Bound L2 score drift from f32 SIMD query-norm and dot accumulation.
+
+    The writer calculates a vector norm in scalar double and persists its f32
+    narrowing, which `l2_score_with_stored_norm()` reproduces exactly.  The
+    scanner then accumulates the query norm and dot product in f32 lanes for
+    f32/f16/f8 values.  A conservative gamma(2n) bound covers those FMA and
+    reduction roundings; the final term covers the local f32 result score.
+    """
+    if type_name == "i16":
+        # i16 query norms and dots use widened integer accumulation. Only the
+        # scanner's final local f32 score can differ from this double oracle.
+        return _f32_ulp(expected_score)
+    if type_name not in ("f32", "f16", "f8"):
+        raise ValueError(f"unsupported type: {type_name}")
+    if len(query) != len(vector):
+        raise ValueError("query and vector dimensions must match")
+
+    rounding_steps = max(1, 2 * len(query))
+    scaled_unit_roundoff = rounding_steps * _F32_UNIT_ROUNDOFF
+    if scaled_unit_roundoff >= 1.0:
+        return math.inf
+    gamma = scaled_unit_roundoff / (1.0 - scaled_unit_roundoff)
+    query_norm_sq = sum(float(value) * float(value) for value in query)
+    dot_magnitude = sum(abs(float(left) * float(right)) for left, right in zip(query, vector))
+    simd_error = gamma * (query_norm_sq + 2.0 * dot_magnitude)
+
+    stored_vector_norm_sq = _round_to_f32(
+        sum(float(value) * float(value) for value in vector))
+    final_expression_magnitude = (
+        abs(stored_vector_norm_sq) + abs(query_norm_sq) + 2.0 * dot_magnitude)
+    double_roundoff = 4.0 * sys.float_info.epsilon * final_expression_magnitude
+    return simd_error + double_roundoff + _f32_ulp(expected_score)
+
+
 def metric_score(
     query: list[float | int],
     vector: list[float | int],
     dist_func: str,
+    *,
+    type_name: str | None = None,
 ) -> float:
     if dist_func == "DOT":
         return dot_distance(query, vector)
     if dist_func == "L2":
+        if type_name is not None:
+            return l2_score_with_stored_norm(query, vector)
         return l2_distance_sq(query, vector)
     if dist_func == "COS":
         return cosine_distance(
@@ -132,9 +210,15 @@ def metric_score(
     raise ValueError(f"unsupported distance function: {dist_func}")
 
 
+# This independent decoded oracle is kept for focused tests. The end-to-end
+# demo compares the two public query surfaces through Sketch2.knn_items().
 @dataclass(frozen=True)
 class DecodedKnnReference:
     from_id: int
+    dim: int
+    type_name: str
+    dist_func: str
+    query: tuple[float | int, ...]
     cutoff_score: float
     strictly_better_ids: frozenset[int]
     diagnostic_ids: tuple[int, ...]
@@ -148,6 +232,11 @@ class DecodedKnnReference:
 
     def is_cutoff_tie(self, item_id: int) -> bool:
         return self.score_for_id(item_id) == self.cutoff_score
+
+    def l2_score_tolerance_for_id(self, item_id: int) -> float:
+        vector = native_demo_vector(item_id, self.from_id, self.dim, self.type_name, self.dist_func)
+        return l2_simd_score_error_bound(
+            list(self.query), vector, self.score_for_id(item_id), self.type_name)
 
 
 def decoded_knn_reference(
@@ -174,7 +263,7 @@ def decoded_knn_reference(
     def scored_items():
         for item_id in range(from_id, from_id + count):
             vector = native_demo_vector(item_id, from_id, dim, type_name, dist_func)
-            score = metric_score(query, vector, dist_func)
+            score = metric_score(query, vector, dist_func, type_name=type_name)
             scores_by_offset.append(score)
             yield score, item_id
 
@@ -200,6 +289,10 @@ def decoded_knn_reference(
 
     return DecodedKnnReference(
         from_id=from_id,
+        dim=dim,
+        type_name=type_name,
+        dist_func=dist_func,
+        query=tuple(query),
         cutoff_score=cutoff_score,
         strictly_better_ids=strictly_better_ids,
         diagnostic_ids=tuple(item_id for _, item_id in selected),
@@ -229,6 +322,7 @@ def assert_sqlite_rows_match_decoded_reference(
             f"SQLite omitted IDs strictly better than the cutoff: {sorted(missing_strict_ids)}")
 
     previous_score: float | None = None
+    previous_tolerance = 0.0
     for item_id, actual_score in rows:
         if not reference.contains_id(item_id):
             raise AssertionError(
@@ -240,16 +334,34 @@ def assert_sqlite_rows_match_decoded_reference(
             raise AssertionError(
                 f"SQLite returned ID {item_id} outside the decoded top-k cutoff tie set")
 
-        if not math.isclose(actual_score, expected_score, rel_tol=1e-5, abs_tol=1e-5):
+        score_tolerance = 1e-5
+        if dist_func == "L2":
+            score_tolerance = reference.l2_score_tolerance_for_id(item_id)
+            if abs(actual_score - expected_score) > score_tolerance:
+                raise AssertionError(
+                    f"SQLite score for ID {item_id} was {actual_score}, expected {expected_score} "
+                    f"within {score_tolerance}")
+        elif not math.isclose(actual_score, expected_score, rel_tol=1e-5, abs_tol=1e-5):
             raise AssertionError(
                 f"SQLite score for ID {item_id} was {actual_score}, expected {expected_score}")
 
         if previous_score is not None:
             if dist_func == "DOT" and actual_score > previous_score + 1e-5:
                 raise AssertionError("SQLite DOT rows are not descending by score")
-            if dist_func != "DOT" and actual_score + 1e-5 < previous_score:
+            if dist_func != "DOT" and actual_score + score_tolerance + previous_tolerance < previous_score:
                 raise AssertionError("SQLite distance rows are not ascending by score")
         previous_score = actual_score
+        previous_tolerance = score_tolerance
+
+
+def assert_sqlite_rows_match_sketch2(
+    rows: list[tuple[int, float]],
+    expected_rows: list[tuple[int, float]],
+) -> None:
+    """Check that SQLite exposes the same KNN IDs and scores as Sketch2."""
+    if rows != expected_rows:
+        raise AssertionError(
+            f"SQLite KNN rows differ from Sketch2: SQLite={rows}, Sketch2={expected_rows}")
 
 
 def sqlite_knn(
@@ -329,28 +441,16 @@ def run_demo(
 
             query_values = demo_query_values(count, dim, type_name, dist_func)
             query_vec = fmt_typed_vector(query_values, type_name)
-            log_step("computing decoded-vector top-k scores and tie boundary for comparison")
-            reference = decoded_knn_reference(
-                count=count,
-                from_id=from_id,
-                dim=dim,
-                type_name=type_name,
-                dist_func=dist_func,
-                query=query_values,
-                k=k,
-            )
+            log_step("computing expected KNN IDs and scores through Sketch2 for comparison")
+            expected_rows = ps.knn_items(query_vec, k)
 
             log_step("closing the Sketch2 writer handle before opening the SQLite reader")
             ps.close()
             actual_rows, query_time = sqlite_knn(
                 dataset_ini, extension_path, query_vec, k, dist_func)
-            assert_sqlite_rows_match_decoded_reference(
-                actual_rows,
-                reference=reference,
-                dist_func=dist_func,
-                k=k,
-            )
+            assert_sqlite_rows_match_sketch2(actual_rows, expected_rows)
             actual = [item_id for item_id, _ in actual_rows]
+            expected = [item_id for item_id, _ in expected_rows]
 
             print(f"generate input time: {generate_time:.3f}s")
             print(f"load data time: {load_time:.3f}s")
@@ -360,8 +460,7 @@ def run_demo(
             print(f"dist_func={dist_func}")
             print(f"k={k}")
             print(f"actual   = {actual}")
-            print(f"expected = {list(reference.diagnostic_ids)}")
-            print(f"cutoff_score={reference.cutoff_score:.9g}")
+            print(f"expected = {expected}")
 
             print("SQLite KNN check passed")
             log_step(f"dropping dataset '{dataset_name}'")

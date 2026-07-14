@@ -78,7 +78,7 @@ bool f8_uses_ordinal_mapping(PatternType pattern_type) {
 
 size_t f8_ordinal_item_count(const GeneratorConfig& config) {
     // CosCompatible intentionally has no tombstone mode, matching the existing
-    // f32/f16 implementation, so every requested item receives an ordinal.
+    // f32/f16/i16 implementation, so every requested item receives an ordinal.
     if (config.pattern_type == PatternType::CosCompatible) {
         return config.count;
     }
@@ -647,13 +647,9 @@ static Ret generate_detailed_input_file(const std::string& path, const Generator
     return Ret(0);
 }
 
-// f32/f16 write cosine_demo_vector()-compatible values; f8 uses the bounded
-// codebook mapping so it remains finite and grid-exact.
+// f32/f16/i16 write cosine_demo_vector()-compatible bounded values; f8 uses
+// the bounded codebook mapping so it remains finite and grid-exact.
 static Ret generate_cos_compatible_input_file(const std::string& path, const GeneratorConfig& config) {
-    if (config.type == DataType::i16) {
-        return Ret("CosCompatible pattern does not support i16");
-    }
-
     FILE* f = fopen(path.c_str(), "w");
     if (!f) {
         return Ret("Failed to open file for writing: " + path);
@@ -665,6 +661,7 @@ static Ret generate_cos_compatible_input_file(const std::string& path, const Gen
     std::vector<float> buf_f32;
     std::vector<float16> buf_f16;
     std::vector<float8> buf_f8;
+    std::vector<int16_t> buf_i16;
     for (size_t i = 0; i < config.count; ++i) {
         const uint64_t id = config.min_id + i;
         if (config.type == DataType::f32) {
@@ -676,6 +673,9 @@ static Ret generate_cos_compatible_input_file(const std::string& path, const Gen
         } else if (config.type == DataType::f8) {
             fill_bounded_demo_vector(static_cast<uint64_t>(i), config.dim, buf_f8);
             print_float8_line(f, id, buf_f8.data(), config.dim, true);
+        } else if (config.type == DataType::i16) {
+            fill_bounded_demo_vector(id, config.dim, buf_i16);
+            print_int_line(f, id, buf_i16.data(), config.dim, true);
         } else {
             return Ret("CosCompatible pattern does not support this data type");
         }
@@ -735,12 +735,8 @@ static Ret generate_sequential_input_file_binary(const std::string& path, const 
 }
 
 // Binary counterpart of the cosine-compatible generator, including f8's
-// bounded codebook mapping.
+// bounded codebook mapping and i16's bounded integer payload.
 static Ret generate_cos_compatible_input_file_binary(const std::string& path, const GeneratorConfig& config) {
-    if (config.type == DataType::i16) {
-        return Ret("CosCompatible pattern does not support i16");
-    }
-
     FILE* f = fopen(path.c_str(), "wb");
     if (!f) {
         return Ret("Failed to open file for writing: " + path);
@@ -752,6 +748,7 @@ static Ret generate_cos_compatible_input_file_binary(const std::string& path, co
     std::vector<float> buf_f32;
     std::vector<float16> buf_f16;
     std::vector<float8> buf_f8;
+    std::vector<int16_t> buf_i16;
     for (size_t i = 0; i < config.count; ++i) {
         const uint64_t id = config.min_id + i;
         if (config.type == DataType::f32) {
@@ -763,6 +760,9 @@ static Ret generate_cos_compatible_input_file_binary(const std::string& path, co
         } else if (config.type == DataType::f8) {
             fill_bounded_demo_vector(static_cast<uint64_t>(i), config.dim, buf_f8);
             CHECK(write_binary_record(f, id, buf_f8.data(), config.dim, true));
+        } else if (config.type == DataType::i16) {
+            fill_bounded_demo_vector(id, config.dim, buf_i16);
+            CHECK(write_binary_record(f, id, buf_i16.data(), config.dim, true));
         } else {
             return Ret("CosCompatible pattern does not support this data type");
         }

@@ -735,6 +735,40 @@ TEST_F(InputGeneratorTest, BinarySequentialI16AvoidsNarrowingPastInt16Limit) {
     EXPECT_EQ((std::array<int16_t, 4> {11, -5, 0, 0}), second_vec);
 }
 
+TEST_F(InputGeneratorTest, CosCompatibleI16WritesBoundedPayloadInTextAndBinary) {
+    GeneratorConfig cfg {PatternType::CosCompatible, 2, 7, DataType::i16, 4, 1000};
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    const auto lines = read_lines();
+    ASSERT_EQ(3U, lines.size());
+    EXPECT_EQ("i16,4", lines[0]);
+    EXPECT_EQ("7 : [ 8, 5, -3, -2 ]", lines[1]);
+    EXPECT_EQ("8 : [ 9, -3, 2, -1 ]", lines[2]);
+
+    cfg.binary = true;
+    ASSERT_EQ(0, generate_input_file(path_, cfg).code());
+
+    std::ifstream in(path_, std::ios::binary);
+    std::string header;
+    std::getline(in, header);
+    ASSERT_EQ("i16,4,bin", header);
+
+    uint64_t first_id = 0;
+    std::array<int16_t, 4> first_vec {};
+    uint64_t second_id = 0;
+    std::array<int16_t, 4> second_vec {};
+    in.read(reinterpret_cast<char*>(&first_id), sizeof(first_id));
+    in.read(reinterpret_cast<char*>(first_vec.data()), sizeof(first_vec));
+    in.read(reinterpret_cast<char*>(&second_id), sizeof(second_id));
+    in.read(reinterpret_cast<char*>(second_vec.data()), sizeof(second_vec));
+
+    ASSERT_TRUE(in.good());
+    EXPECT_EQ(7U, first_id);
+    EXPECT_EQ(8U, second_id);
+    EXPECT_EQ((std::array<int16_t, 4> {8, 5, -3, -2}), first_vec);
+    EXPECT_EQ((std::array<int16_t, 4> {9, -3, 2, -1}), second_vec);
+}
+
 TEST_F(InputGeneratorTest, BinaryDetailedWritesPerDimensionVariation) {
     GeneratorConfig cfg{PatternType::Detailed, 2, 20, DataType::i16, 4, 1000, 0, true};
     ASSERT_EQ(0, generate_input_file(path_, cfg).code());
