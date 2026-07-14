@@ -3,15 +3,14 @@
 #pragma once
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <type_traits>
+#include <stdexcept>
 #include <vector>
 
 #include "core/compute/compute_value_helpers.h"
+#include "core/utils/checked_arithmetic.h"
 #include "core/utils/shared_types.h"
 #include "core/utils/utest_float8_helpers.h"
 
@@ -20,33 +19,37 @@ namespace test {
 
 template <typename T>
 struct TestBuffer {
-    std::vector<uint8_t> storage;
+    std::vector<T> storage;
     T* ptr = nullptr;
 };
 
 template <typename T>
 TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
-    TestBuffer<T> out;
-    const size_t data_bytes = dim * sizeof(T);
-    out.storage.resize(data_bytes + 64 + misalign_bytes);
+    constexpr size_t kAlignment = 32;
+    static_assert(kAlignment % sizeof(T) == 0);
 
-    // Keep the actual address calculation in pointer form so GCC can retain
-    // the backing allocation's object-size information.
-    void* aligned = out.storage.data();
-    size_t available = out.storage.size();
-    auto* const aligned_bytes = static_cast<uint8_t*>(
-        std::align(32U, data_bytes + misalign_bytes, aligned, available));
-    assert(aligned_bytes != nullptr);
-    assert(misalign_bytes % alignof(T) == 0);
-    out.ptr = reinterpret_cast<T*>(aligned_bytes + misalign_bytes);
-    // f8 is deliberately represented as raw bytes in production buffers.  The
-    // typed test fixture, however, writes float8 objects through this pointer,
-    // so explicitly begin their lifetime in the byte backing store.
-    if constexpr (std::is_same_v<T, float8>) {
-        for (size_t i = 0; i < dim; ++i) {
-            std::construct_at(out.ptr + i);
-        }
+    if (misalign_bytes % sizeof(T) != 0) {
+        throw std::invalid_argument("test buffer misalignment must preserve element alignment");
     }
+
+    const size_t misalign_elements = misalign_bytes / sizeof(T);
+    size_t storage_elements = 0;
+    if (add_overflows(dim, kAlignment / sizeof(T), &storage_elements) ||
+            add_overflows(storage_elements, misalign_elements, &storage_elements)) {
+        throw std::length_error("test buffer size overflow");
+    }
+
+    TestBuffer<T> out;
+    out.storage.resize(storage_elements);
+
+    // Keep the pointer derived from the typed allocation so the compiler can
+    // retain both object lifetime and bounds information through optimization.
+    const uintptr_t address = reinterpret_cast<uintptr_t>(out.storage.data());
+    const size_t align_bytes = (kAlignment - address % kAlignment) % kAlignment;
+    if (align_bytes % sizeof(T) != 0) {
+        throw std::logic_error("test buffer element size is incompatible with alignment");
+    }
+    out.ptr = out.storage.data() + align_bytes / sizeof(T) + misalign_elements;
     return out;
 }
 

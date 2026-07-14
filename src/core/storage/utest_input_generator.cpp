@@ -985,7 +985,16 @@ TEST_F(InputGeneratorTest, F8SequentialTextAndBinaryAreLosslessBase72Parity) {
         }
         text_vectors.push_back(payload);
     }
-    const std::set<std::vector<uint8_t>> unique_vectors(text_vectors.begin(), text_vectors.end());
+    // Pack each four-byte payload into an integer for the uniqueness check.
+    // This avoids libstdc++'s memcmp-based vector ordering, which GCC 13 can
+    // incorrectly diagnose as an oversized read under -O3.
+    std::set<uint32_t> unique_vectors;
+    for (const auto& payload : text_vectors) {
+        ASSERT_EQ(sizeof(uint32_t), payload.size());
+        uint32_t bits = 0;
+        std::memcpy(&bits, payload.data(), sizeof(bits));
+        unique_vectors.insert(bits);
+    }
     EXPECT_EQ(kCount, unique_vectors.size());
     // This entry would be rendered as 0.06 by the presentation helper; its
     // presence proves generator text uses the lossless %.9g path.
