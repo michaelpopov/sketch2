@@ -18,6 +18,7 @@ from sketch2_test_vectors import (
     f8_decode_bits,
     f8_encode_bits,
     f8_encode_parts,
+    f16_bits_to_f8_rne,
     f8_ordinal_bytes,
     f8_ordinal_fits,
     f8_ordinal_vector,
@@ -103,6 +104,41 @@ class Float8FixtureParityTest(unittest.TestCase):
                 self.assertEqual(f8_bits, try_encode_f8(input_value), row["f32_bits_hex"])
             else:
                 self.assertIsNone(try_encode_f8(input_value), row["f32_bits_hex"])
+
+    def test_exhaustive_f16_second_stage_matches_quotient_remainder_reference(self) -> None:
+        f16_inf_count = 0
+        f16_nan_count = 0
+        f8_inf_count = 0
+        f8_nan_count = 0
+
+        for f16_bits in range(1 << 16):
+            quotient, remainder = divmod(f16_bits, 1 << 8)
+            if remainder > 0x80 or (remainder == 0x80 and quotient & 1):
+                quotient += 1
+            expected = quotient & 0xFF
+            actual = f16_bits_to_f8_rne(f16_bits)
+
+            f16_exponent = (f16_bits >> 10) & 0x1F
+            f16_fraction = f16_bits & 0x03FF
+            f8_exponent = (actual >> 2) & 0x1F
+            f8_fraction = actual & 0x03
+            if f16_exponent == 0x1F:
+                if f16_fraction == 0:
+                    f16_inf_count += 1
+                else:
+                    f16_nan_count += 1
+            if f8_exponent == 0x1F:
+                if f8_fraction == 0:
+                    f8_inf_count += 1
+                else:
+                    f8_nan_count += 1
+
+            self.assertEqual(expected, actual, f"f16 bits 0x{f16_bits:04x}")
+
+        self.assertEqual(2, f16_inf_count)
+        self.assertEqual(2046, f16_nan_count)
+        self.assertGreater(f8_inf_count, 0)
+        self.assertGreater(f8_nan_count, 0)
 
     def test_f32_first_boundary_differs_from_direct_binary64_to_f16(self) -> None:
         # One binary64 ULP above the exact f16 midpoint rounds back to that

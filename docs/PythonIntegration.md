@@ -174,7 +174,10 @@ Creates a dataset and opens it on the current handle.
 Arguments:
 
 - `name`: dataset name
-- `type_name`: vector element type, such as `f32`, `f16`, or `i16`
+- `type_name`: vector element type, such as `f32`, `f16`, `i16`, or permanent
+  E5M2 `f8` (largest finite value `57344`). Python rounds an f8 source value to
+  `f32` before the native
+  f32-to-f16-to-f8 round-to-nearest, ties-to-even conversion.
 - `dim`: vector dimension
 - `range_size`: id-range partition size
 - `dist_func`: score function, such as `dot`, `l2`, or `cos`

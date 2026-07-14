@@ -7,6 +7,7 @@ A long-running soak that exercises creation, staged mutations, and reads on a Sk
 2. `initializer.py` — creates a fresh temp DB root, writes `config.ini`, creates the dataset, and loads the initial vector set.
 3. `writer.py` — performs rolling deletes/updates/inserts to keep steady write pressure.
 4. `reader.py` — issues repeated KNN scans to keep steady read pressure.
+5. `test_smoke_f8.py` — focused coverage of the f8 numeric-text and nonempty-KNN smoke contract.
 
 ## Driver
 - Exports the smoke-test environment (dataset name, dims, counts, sleep/repeat counts, etc.) and resets `SKETCH2_CONFIG` to the temp DB it creates.
@@ -38,7 +39,12 @@ A long-running soak that exercises creation, staged mutations, and reads on a Sk
 - `SIMPLE_SMOKE_TEST_REPEAT` — reader iteration count; writer runs about half.
 - `SIMPLE_SMOKE_TEST_READERS` — number of reader processes.
 - `SIMPLE_SMOKE_TEST_K` — KNN result size.
-- `SIMPLE_SMOKE_TEST_TYPE` — vector type (e.g., `f16`).
+- `SIMPLE_SMOKE_TEST_TYPE` — vector type: `f32`, `f16`, `i16`, or permanent
+  E5M2 `f8` (e.g., `f8`).  For `f8`, this harness uses the same deterministic
+  two-decimal numeric-text pattern as the other types, which takes the checked
+  native numeric conversion path.  It only requires KNN to return a nonempty
+  result; it does not use the 72-value codebook or capacity validation, and it
+  does not assert decoded-score or rank-oracle expectations.
 - `SIMPLE_SMOKE_TEST_DIST` — score metric (e.g., `l2`).
 - `SIMPLE_SMOKE_TEST_RANGE_SIZE` — range size for dataset creation.
 - `SIMPLE_SMOKE_TEST_LOG_LEVEL` — log level written to `config.ini`.

@@ -70,6 +70,14 @@ Vector text supports:
 
 For `i16` datasets, use integer values.
 
+For `f8`, the dataset type is permanently E5M2 (the high-byte alias of `f16`)
+with largest finite value `57344`, and is stored in data headers as type code
+`3`.  SQL query text follows the
+checked numeric path: Python-originated values are first rounded to `f32`, then
+all sources round `f32 -> f16 -> f8` with round-to-nearest, ties-to-even.  NaN,
+infinities, and finite E5M2 overflow are rejected.  This is distinct from a
+binary input file, whose raw E5M2 bytes are stored as trusted code bytes.
+
 ## Basic Queries
 
 ```sql
@@ -209,7 +217,7 @@ Important keys:
 - `range_size`: id-range sharding size
 - `data_merge_ratio`: merge compaction threshold, default `2`
 - `dim`: vector dimension (`4..4096`)
-- `type`: `f32`, `f16`, `i16`
+- `type`: `f32`, `f16`, `i16`, `f8` (permanent E5M2; data-header code `3`)
 - `dist_func`: `l1`, `l2`, `cos`
 
 ## Runtime Environment Variables

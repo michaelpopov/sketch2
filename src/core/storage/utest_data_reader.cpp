@@ -147,7 +147,7 @@ protected:
     }
 
     // Write a minimal valid binary data file with vector bytes and Roaring id trailer.
-    // type_field: 0=f16, 1=f32, 2=i16  (matches DataWriter encoding)
+    // type_field: 0=f16, 1=f32, 2=i16, 3=f8 (matches DataWriter encoding)
     void write_raw(DataType type_field, uint16_t dim, uint64_t min_id,
                    const std::vector<std::vector<uint8_t>>& vecs,
                    uint32_t norm_flags = 0,

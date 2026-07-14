@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include "core/compute/compute_value_helpers.h"
@@ -38,6 +39,14 @@ TestBuffer<T> make_buffer(size_t dim, size_t misalign_bytes) {
     assert(aligned_bytes != nullptr);
     assert(misalign_bytes % alignof(T) == 0);
     out.ptr = reinterpret_cast<T*>(aligned_bytes + misalign_bytes);
+    // f8 is deliberately represented as raw bytes in production buffers.  The
+    // typed test fixture, however, writes float8 objects through this pointer,
+    // so explicitly begin their lifetime in the byte backing store.
+    if constexpr (std::is_same_v<T, float8>) {
+        for (size_t i = 0; i < dim; ++i) {
+            std::construct_at(out.ptr + i);
+        }
+    }
     return out;
 }
 

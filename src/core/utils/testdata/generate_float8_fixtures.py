@@ -69,8 +69,11 @@ def f32_to_f16_bits_reference(bits: int) -> int:
 
 
 def f16_to_f8_bits_reference(f16_bits: int) -> int:
-    """Normative second RNE stage, expressed independently in Python ints."""
-    return (f16_bits + 0x7F + ((f16_bits >> 8) & 1)) >> 8 & 0xFF
+    """Independent quotient/remainder RNE reference for the second stage."""
+    quotient, remainder = divmod(f16_bits, 1 << 8)
+    if remainder > 0x80 or (remainder == 0x80 and quotient & 1):
+        quotient += 1
+    return quotient & 0xFF
 
 
 def f16_to_f32_bits_reference(f16_bits: int) -> int:

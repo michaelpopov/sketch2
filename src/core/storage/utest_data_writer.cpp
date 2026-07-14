@@ -499,6 +499,43 @@ TEST_F(DataWriterTest, F8TextAndBinaryInputsPreserveOddDimensionPayloadBytes) {
     }
 }
 
+TEST_F(DataWriterTest, F8TrustedBinaryNonfiniteBytesPersistAndReopen) {
+    constexpr uint64_t kId = 77;
+    const std::vector<uint8_t> expected {0x7c, 0xfc, 0x7d, 0xfd, 0x3c};
+
+    {
+        std::ofstream input(input_path_, std::ios::binary);
+        ASSERT_TRUE(input.is_open());
+        input << "f8,5,bin\n";
+        input.write(reinterpret_cast<const char*>(&kId), sizeof(kId));
+        input.write(reinterpret_cast<const char*>(expected.data()),
+            static_cast<std::streamsize>(expected.size()));
+    }
+
+    DataWriter writer;
+    ASSERT_EQ(0, writer.exec_for_testing(input_path_, output_path_, 0, 0, 0, DistFunc::DOT).code());
+    EXPECT_EQ(3u, read_header().type);
+
+    const auto expect_persisted_payload = [&](DataReader& reader) {
+        ASSERT_EQ(DataType::f8, reader.type());
+        ASSERT_EQ(1u, reader.count());
+        const uint8_t* payload = reader.get(kId);
+        ASSERT_NE(nullptr, payload);
+        EXPECT_TRUE(std::equal(expected.begin(), expected.end(), payload));
+    };
+
+    {
+        DataReader reader;
+        ASSERT_EQ(0, reader.init(output_path_).code());
+        expect_persisted_payload(reader);
+    }
+    {
+        DataReader reopened;
+        ASSERT_EQ(0, reopened.init(output_path_).code());
+        expect_persisted_payload(reopened);
+    }
+}
+
 TEST_F(DataWriterTest, DotOutputDoesNotGrowBeyondNormalStridePadding) {
     ASSERT_EQ(0, run(2, 0, DataType::f32, 8, 0, DistFunc::DOT).code());
     const auto hdr = read_header();

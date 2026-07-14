@@ -62,6 +62,13 @@ def f8_decode_bits(bits: int) -> float:
     return struct.unpack("<e", struct.pack("<H", bits << 8))[0]
 
 
+def f16_bits_to_f8_rne(f16_bits: int) -> int:
+    """Apply the normative unchecked f16-bit-pattern to E5M2 RNE stage."""
+    if not 0 <= f16_bits <= 0xFFFF:
+        raise ValueError(f"f16 bits out of range: {f16_bits}")
+    return ((f16_bits + 0x7F + ((f16_bits >> 8) & 1)) >> 8) & 0xFF
+
+
 def f8_encode_parts(value: float) -> tuple[float, int, int]:
     """Return the normative f32 value, f16 bits, and f8 byte for a value.
 
@@ -75,8 +82,7 @@ def f8_encode_parts(value: float) -> tuple[float, int, int]:
         h = struct.unpack("<H", struct.pack("<e", v32))[0]
     except (OverflowError, struct.error) as exc:
         raise OverflowError(f"value cannot be represented at the f32/f16 boundary: {value}") from exc
-    r = (h + 0x7F + ((h >> 8) & 1)) >> 8
-    return v32, h, r & 0xFF
+    return v32, h, f16_bits_to_f8_rne(h)
 
 
 def f8_encode_bits(value: float) -> int:

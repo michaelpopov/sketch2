@@ -199,8 +199,12 @@ bool has_tag(const EncodeRow& row, std::string_view tag) {
 }
 
 uint8_t f16_bits_to_f8_reference(uint16_t f16_bits) {
-    return static_cast<uint8_t>(
-        (static_cast<uint32_t>(f16_bits) + 0x7fU + ((f16_bits >> 8) & 1U)) >> 8);
+    constexpr uint32_t kDivisor = 1U << 8;
+    const uint32_t quotient = static_cast<uint32_t>(f16_bits) / kDivisor;
+    const uint32_t remainder = static_cast<uint32_t>(f16_bits) % kDivisor;
+    const uint32_t rounded = quotient + static_cast<uint32_t>(
+        remainder > kDivisor / 2 || (remainder == kDivisor / 2 && (quotient & 1U) != 0));
+    return static_cast<uint8_t>(rounded);
 }
 
 void require_encode_sentinel(
@@ -635,6 +639,49 @@ TEST(float8, encode_fixture_matches_both_rne_stages) {
     }
 }
 
+TEST(float8, exhaustive_f16_second_stage_matches_independent_rne_reference) {
+    size_t f16_inf_count = 0;
+    size_t f16_nan_count = 0;
+    size_t f8_inf_count = 0;
+    size_t f8_nan_count = 0;
+
+    for (uint32_t raw_bits = 0; raw_bits <= std::numeric_limits<uint16_t>::max(); ++raw_bits) {
+        const uint16_t f16_bits = static_cast<uint16_t>(raw_bits);
+        const uint8_t expected = f16_bits_to_f8_reference(f16_bits);
+        const uint8_t actual = f16_bits_to_float8_rne(f16_bits);
+        const uint16_t f16_exponent = static_cast<uint16_t>((f16_bits >> 10) & 0x1fU);
+        const uint16_t f16_fraction = static_cast<uint16_t>(f16_bits & 0x03ffU);
+        const uint8_t f8_exponent = static_cast<uint8_t>((actual >> 2) & 0x1fU);
+        const uint8_t f8_fraction = static_cast<uint8_t>(actual & 0x03U);
+
+        if (f16_exponent == 0x1fU) {
+            if (f16_fraction == 0) {
+                ++f16_inf_count;
+            } else {
+                ++f16_nan_count;
+            }
+        }
+        if (f8_exponent == 0x1fU) {
+            if (f8_fraction == 0) {
+                ++f8_inf_count;
+            } else {
+                ++f8_nan_count;
+            }
+        }
+
+        SCOPED_TRACE("f16=" + hex_bits(f16_bits, 4));
+        EXPECT_EQ(expected, actual);
+    }
+
+    // The sweep intentionally includes all f16 classes, including the two
+    // infinities and every NaN payload.  Its outputs likewise cover both f8
+    // infinity and NaN encodings rather than testing finite values only.
+    EXPECT_EQ(2u, f16_inf_count);
+    EXPECT_EQ(2046u, f16_nan_count);
+    EXPECT_GT(f8_inf_count, 0u);
+    EXPECT_GT(f8_nan_count, 0u);
+}
+
 TEST(float8, conversion_is_independent_of_ambient_rounding_mode) {
     RoundingModeRestore restore;
     ASSERT_TRUE(restore.valid());
@@ -682,6 +729,13 @@ TEST(float8, checked_encode_rejects_nonfinite_and_finite_overflow) {
     EXPECT_EQ(0x55, output.to_bits());
     EXPECT_FALSE(try_encode_float8(-std::numeric_limits<float>::infinity(), output));
     EXPECT_EQ(0x55, output.to_bits());
+
+    // Checked conversion rejects only a non-finite encoded result, not every
+    // finite source value above kFloat8Max.
+    EXPECT_TRUE(try_encode_float8(60000.0f, output));
+    EXPECT_EQ(0x7b, output.to_bits());
+    EXPECT_TRUE(try_encode_float8(-60000.0f, output));
+    EXPECT_EQ(0xfb, output.to_bits());
 
     EXPECT_TRUE(try_encode_float8(kFloat8Max, output));
     EXPECT_EQ(0x7b, output.to_bits());

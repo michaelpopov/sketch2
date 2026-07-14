@@ -475,6 +475,27 @@ TEST(string_utils, parse_vector_spaces_f8_writes_raw_encoded_bytes) {
     EXPECT_EQ(expected, out);
 }
 
+TEST(string_utils, f8_checked_numeric_ingest_accepts_finite_values_that_round_to_max) {
+    const std::array<uint8_t, 2> expected {0x7b, 0xfb};
+
+    std::array<uint8_t, 2> comma_out {};
+    ASSERT_EQ(0, parse_vector(
+        comma_out.data(), comma_out.size(), DataType::f8, comma_out.size(), "60000, -60000").code());
+    EXPECT_EQ(expected, comma_out);
+
+    std::array<uint8_t, 2> spaces_out {};
+    ASSERT_EQ(0, parse_vector_spaces(
+        spaces_out.data(), spaces_out.size(), DataType::f8, spaces_out.size(), "60000 -60000").code());
+    EXPECT_EQ(expected, spaces_out);
+
+    const std::array<float, 2> query {60000.0f, -60000.0f};
+    std::array<uint8_t, 2> query_out {};
+    ASSERT_EQ(0, convert_vector(
+        query_out.data(), query_out.size(), DataType::f8,
+        query.size(), query.data(), query.size()).code());
+    EXPECT_EQ(expected, query_out);
+}
+
 TEST(string_utils, parse_vector_f8_rejects_checked_ingest_errors) {
     std::array<uint8_t, 2> out {};
 
