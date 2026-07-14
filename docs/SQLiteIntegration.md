@@ -91,7 +91,8 @@ Important fields:
 - `dirs`: data directories
 - `range_size`: id-range partition size
 - `dim`: vector dimension
-- `type`: `f32`, `f16`, or `i16`
+- `type`: `f32`, `f16`, `i16`, or permanent E5M2 `f8` (data-header code `3`,
+  largest finite value `57344`)
 - `dist_func`: `dot`, `l2`, or `cos`
 
 ## Loading The Extension

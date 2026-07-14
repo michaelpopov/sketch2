@@ -200,7 +200,10 @@ Ret InputReader::init_(const std::string& path) {
         return fail("Invalid header: dimension out of range");
     }
 
-    if (size() < sizeof(uint64_t)) {
+    // Record ids are parsed independently from the vector payload.  f8 has
+    // one-byte elements, so valid minimum-dimension vectors can be shorter
+    // than a uint64_t and must not be rejected by this legacy size check.
+    if (size() == 0) {
         return fail("Invalid header: vector data size is too small");
     }
 

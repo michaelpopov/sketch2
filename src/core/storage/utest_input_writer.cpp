@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <limits>
@@ -13,8 +14,10 @@
 #include "core/storage/input_reader.h"
 #include "core/storage/input_writer.h"
 #include "core/utest_tmp_dir.h"
+#include "core/utils/utest_float8_helpers.h"
 
 using namespace sketch2;
+using sketch2::test::f8_payload_text;
 
 namespace {
 
@@ -337,6 +340,39 @@ TEST_F(InputWriterTest, F16TypeRoundTrips) {
     EXPECT_FALSE(reader.is_no_data(0));
     EXPECT_TRUE(reader.is_no_data(1));
     EXPECT_FALSE(reader.is_no_data(2));
+}
+
+TEST_F(InputWriterTest, F8RoundTripsCodebookBytesAndIndexedTombstone) {
+    const std::vector<uint8_t> expected = {0xcf, 0xac, 0x2c, 0x3c, 0x4f};
+
+    InputWriter writer;
+    ASSERT_EQ(0, writer.init(DataType::f8, expected.size(), path_).code());
+    ASSERT_EQ(0, writer.write_vector(100, f8_payload_text(expected).c_str()).code());
+    ASSERT_EQ(0, writer.write_deleted(101).code());
+    ASSERT_EQ(0, writer.close_file().code());
+
+    InputReader reader;
+    ASSERT_EQ(0, reader.init(path_).code());
+    EXPECT_TRUE(reader.is_binary());
+    EXPECT_EQ(DataType::f8, reader.type());
+    EXPECT_EQ(expected.size(), reader.dim());
+    EXPECT_EQ(expected.size(), reader.size());
+    ASSERT_EQ(2u, reader.count());
+    EXPECT_EQ(100u, reader.id(0));
+    EXPECT_EQ(101u, reader.id(1));
+    EXPECT_FALSE(reader.is_no_data(0));
+    EXPECT_TRUE(reader.is_no_data(1));
+
+    const uint8_t* raw = nullptr;
+    ASSERT_EQ(0, reader.raw_data(0, &raw).code());
+    ASSERT_NE(nullptr, raw);
+    EXPECT_TRUE(std::equal(expected.begin(), expected.end(), raw));
+
+    std::vector<uint8_t> copied(reader.size());
+    ASSERT_EQ(0, reader.data(0, copied.data(), copied.size()).code());
+    EXPECT_EQ(expected, copied);
+    EXPECT_NE(0, reader.raw_data(1, &raw).code());
+    EXPECT_NE(0, reader.data(1, copied.data(), copied.size()).code());
 }
 
 TEST_F(InputWriterTest, InitRejectsDoubleInit) {

@@ -8,9 +8,15 @@ set_target_properties(utils PROPERTIES OUTPUT_NAME "utils")
 target_link_libraries(utils PUBLIC sketch_compile_options Threads::Threads)
 target_link_libraries(utils PRIVATE sketch_warnings)
 
-add_executable(utest_utils utest_main.cpp utest_crc.cpp utest_ini_reader.cpp utest_string_utils.cpp utest_file_lock.cpp utest_log.cpp utest_singleton.cpp utest_update_notifier.cpp utest_mapped_region.cpp utest_high_perf_heap.cpp utest_shared_types.cpp utest_checked_arithmetic.cpp)
+add_executable(utest_utils utest_main.cpp utest_crc.cpp utest_ini_reader.cpp utest_string_utils.cpp utest_file_lock.cpp utest_log.cpp utest_singleton.cpp utest_update_notifier.cpp utest_mapped_region.cpp utest_high_perf_heap.cpp utest_shared_types.cpp utest_checked_arithmetic.cpp utest_float8.cpp)
 target_link_libraries(utest_utils PRIVATE utils GTest::gtest Threads::Threads sketch_warnings)
+target_compile_definitions(utest_utils PRIVATE SKETCH2_UTILS_TESTDATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/testdata")
 add_test(NAME utest_utils COMMAND utest_utils)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(
+  NAME check_float8_fixtures
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/testdata/generate_float8_fixtures.py --check)
 
 # Keep thread-pool tests available for focused runs, but do not include them in
 # the routine utils test target because they add noticeable latency.

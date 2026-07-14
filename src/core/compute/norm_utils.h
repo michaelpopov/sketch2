@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "utils/float8.h"
 #include "utils/shared_types.h"
 
 #include <cmath>
@@ -22,6 +23,15 @@ inline double sum_squares(const uint8_t* data, size_t dim) {
     return norm_sq;
 }
 
+inline double sum_squares_f8(const uint8_t* data, size_t dim) {
+    double norm_sq = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double value = static_cast<double>(static_cast<float>(float8::from_bits(data[i])));
+        norm_sq += value * value;
+    }
+    return norm_sq;
+}
+
 inline double compute_norm_sq(const uint8_t* data, DataType type, size_t dim, const char* context) {
     switch (type) {
         case DataType::f32:
@@ -30,6 +40,8 @@ inline double compute_norm_sq(const uint8_t* data, DataType type, size_t dim, co
             return sum_squares<float16>(data, dim);
         case DataType::i16:
             return sum_squares<int16_t>(data, dim);
+        case DataType::f8:
+            return sum_squares_f8(data, dim);
         default:
             throw std::runtime_error(std::string(context) + ": unsupported data type");
     }

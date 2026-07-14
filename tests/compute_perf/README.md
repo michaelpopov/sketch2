@@ -66,7 +66,13 @@ These modules ensure consistency between the initializer and the runner.
 
 - **Vector Generation (`sketch2_test_vectors.py`)**:
     - `cosine_demo_vector`: Generates vectors optimized for cosine similarity (period 6545).
-    - `quantize_value`/`quantize_values`: Ensures consistent floating-point behavior across different data types (`f32`, `f16`, `i16`).
+    - `quantize_value`/`quantize_values`: Ensures consistent floating-point behavior across different data types (`f32`, `f16`, `i16`, `f8`).
+      For `f8`, Python first rounds the source to `f32` and then applies
+      f32-to-f16-to-E5M2 round-to-nearest, ties-to-even conversion.
+    - E5M2 corpus values come from the bounded, grid-exact 72-value codebook;
+      generators validate base-72 capacity.  Benchmark and test score checks
+      use decoded score oracles, never an assumption that ids are monotonic by
+      score.
 - **Query Generation (`common.py`)**:
     - Uses `cosine_demo_query` for cosine datasets and `generic_demo_query` for DOT/L2 datasets.
 - **Configuration**: `load_config` parses environment variables into a `PerfConfig` dataclass, ensuring type safety and providing defaults.
@@ -86,7 +92,7 @@ The harness is configured via environment variables.
 | `COMPUTE_PERF_TEST_COUNT` | Number of vectors to generate. | `100000` |
 | `COMPUTE_PERF_TEST_REPEAT` | Number of query iterations per run. | `10` |
 | `COMPUTE_PERF_TEST_K` | Number of nearest neighbors to find. | `20` |
-| `COMPUTE_PERF_TEST_TYPE` | Data type of vectors (`f32`, `f16`, `i16`). | `f32` |
+| `COMPUTE_PERF_TEST_TYPE` | Data type of vectors (`f32`, `f16`, `i16`, `f8` E5M2). | `f32` |
 | `COMPUTE_PERF_TEST_DIST` | Comma-separated list of score functions. | `cos,l2,dot` |
 | `COMPUTE_PERF_TEST_RANGE_SIZE` | Dataset range size used at creation time. | `10000` |
 | `COMPUTE_PERF_RUNTIME_LABEL` | Runtime label shown in the final summary tables. The driver sets this to `highway`. | `highway` |

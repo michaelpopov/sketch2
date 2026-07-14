@@ -46,3 +46,6 @@ graphify-out/
 # Python cache
 __pycache__/
 *.py[cod]
+
+src/dev-docs
+

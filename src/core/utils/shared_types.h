@@ -16,6 +16,7 @@ enum class DataType {
     f16,
     f32,
     i16,
+    f8,
 };
 
 enum class DistFunc {
@@ -35,6 +36,7 @@ inline const char* data_type_to_string(DataType type) {
         case DataType::f16: return "f16";
         case DataType::f32: return "f32";
         case DataType::i16: return "i16";
+        case DataType::f8: return "f8";
         default: return "unknown";
     }
 }
@@ -44,6 +46,7 @@ inline size_t data_type_size(DataType type) {
         case DataType::f16: return 2;
         case DataType::f32: return 4;
         case DataType::i16: return 2;
+        case DataType::f8: return 1;
         default: return 0;
     }
 }
@@ -54,6 +57,7 @@ inline DataType data_type_from_int(int t)
         case 0: return DataType::f16;
         case 1: return DataType::f32;
         case 2: return DataType::i16;
+        case 3: return DataType::f8;
         default: throw std::runtime_error("Invalid data type number.");
     }
 }
@@ -62,6 +66,7 @@ inline DataType data_type_from_string(const std::string &type_str) {
     if (type_str == "f32") return DataType::f32;
     if (type_str == "f16") return DataType::f16;
     if (type_str == "i16") return DataType::i16;
+    if (type_str == "f8") return DataType::f8;
     throw std::runtime_error("Invalid data type string.");
 }
 
@@ -72,6 +77,7 @@ inline int data_type_to_int(DataType type)
         case DataType::f16: return 0;
         case DataType::f32: return 1;
         case DataType::i16: return 2;
+        case DataType::f8: return 3;
         default: throw std::runtime_error("Invalid data type.");
     }
 }

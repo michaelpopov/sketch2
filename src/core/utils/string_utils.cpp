@@ -1,6 +1,7 @@
 // Implements parsing and formatting helpers for textual vector values.
 
 #include "string_utils.h"
+#include "float8.h"
 #include "../../third-party/fast_float/fast_float.h"
 #include <cmath>
 #include <cstdio>
@@ -126,6 +127,28 @@ Ret parse_vector(uint8_t* buf, size_t size, DataType type, uint16_t dim, const c
             line = next;
             while (line < end && (*line == ',' || *line == ' ')) ++line;
         }
+    } else if (type == DataType::f8) {
+        uint8_t* out = buf;
+        if (size < dim * sizeof(*out)) {
+            return Ret("InputReader::data: invalid input buffer size");
+        }
+        for (size_t d = 0; d < dim; ++d) {
+            if (line >= end) {
+                return Ret("InputReader::data: truncated vector payload");
+            }
+            const char* next;
+            float f;
+            if (!parse_float_token(line, end, f, next)) {
+                return Ret("InputReader::data: invalid f8 token");
+            }
+            float8 encoded;
+            if (!try_encode_float8(f, encoded)) {
+                return Ret("InputReader::data: non-finite f8 token");
+            }
+            out[d] = encoded.to_bits();
+            line = next;
+            while (line < end && (*line == ',' || *line == ' ')) ++line;
+        }
     } else {
         return Ret("Unsupported dataset type");
     }
@@ -213,6 +236,28 @@ Ret parse_vector_spaces(uint8_t* buf, size_t size, DataType type, uint16_t dim, 
             line = next;
             while (line < end && *line == ' ') ++line;
         }
+    } else if (type == DataType::f8) {
+        uint8_t* out = buf;
+        if (size < dim * sizeof(*out)) {
+            return Ret("InputReader::data: invalid input buffer size");
+        }
+        for (size_t d = 0; d < dim; ++d) {
+            if (line >= end) {
+                return Ret("InputReader::data: truncated vector payload");
+            }
+            const char* next;
+            float f;
+            if (!parse_float_token(line, end, f, next)) {
+                return Ret("InputReader::data: invalid f8 token");
+            }
+            float8 encoded;
+            if (!try_encode_float8(f, encoded)) {
+                return Ret("InputReader::data: non-finite f8 token");
+            }
+            out[d] = encoded.to_bits();
+            line = next;
+            while (line < end && *line == ' ') ++line;
+        }
     } else {
         return Ret("Unsupported dataset type");
     }
@@ -264,6 +309,17 @@ Ret convert_vector(
                 if (!std::isfinite(static_cast<double>(out[i]))) {
                     return Ret("Query vector contains non-finite f16 value");
                 }
+            }
+            break;
+        }
+        case DataType::f8: {
+            uint8_t* out = buf;
+            for (size_t i = 0; i < dim_size; ++i) {
+                float8 encoded;
+                if (!try_encode_float8(vec[i], encoded)) {
+                    return Ret("Query vector contains non-finite f8 value");
+                }
+                out[i] = encoded.to_bits();
             }
             break;
         }
@@ -384,6 +440,9 @@ Ret print_vector(const uint8_t* vec_data, DataType type, uint16_t dim, char* buf
         } else if (type == DataType::f16) {
             const float16* p = reinterpret_cast<const float16*>(vec_data);
             n = snprintf(buf + used, buf_size - used, fmt, sep, static_cast<float>(p[i]));
+        } else if (type == DataType::f8) {
+            const float value = float8::from_bits(vec_data[i]);
+            n = snprintf(buf + used, buf_size - used, fmt, sep, value);
         } else if (type == DataType::i16) {
             const int16_t* p = reinterpret_cast<const int16_t*>(vec_data);
             n = snprintf(buf + used, buf_size - used, "%s%d", sep, static_cast<int>(p[i]));

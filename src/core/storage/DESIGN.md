@@ -19,8 +19,28 @@ f32,128\n
 f32,128,bin\n
 f32,128,binind\n
 
-Supported data types: f32, f16, i16
+Supported data types: f32, f16, i16, f8
 Supported dimensions range: 4 .. 4096
+
+Float8 (`f8`) format
+-------------------------
+`f8` is permanently E5M2, stored as one byte per vector component.  The byte
+is the high byte of its `f16` alias, and its largest finite value is `57344`.
+The data-file header uses the stable, append-only type mapping `f16=0`,
+`f32=1`, `i16=2`, `f8=3`; existing codes must not be renumbered.
+
+Numeric text and C API conversion are checked: source non-finite values and
+finite values whose rounded E5M2 encoding is non-finite are rejected.  Thus,
+for example, `60000` is accepted and quantized to finite `57344`, while
+`61424` rounds to Inf and is rejected.  Conversion follows f32-to-f16-to-f8
+round-to-nearest, ties-to-even.  In Python, the source value is rounded to f32
+first before those two stages.  By contrast, binary and indexed-binary `f8`
+payloads are raw persisted bytes; they are trusted code bytes, including any
+non-finite E5M2 encodings.
+
+The regular vector printer's two decimal places are presentation-only.  The
+generator and lossless round-trip paths use `%.9g` (`digits == 0`) so printed
+values can be reparsed without changing a stored `f8` byte.
 
 Text format consists of id and vector value delimited by colon ':'
 id : value
@@ -86,6 +106,12 @@ InputGenerator
 -------------------------
 For development and testing purposes we need datasets. There is a dataset generator that writes
 files in input data format. It can be configured to write files with different patterns.
+
+For `f8`, synthetic numeric patterns use the shared 72-value, grid-exact E5M2
+codebook rather than `id + 0.1`.  Sequential, dot, and cosine patterns validate
+their base-72 capacity before emitting data.  Because quantized values need not
+increase with id, ranking assertions compare decoded score oracles instead of
+assuming that ids are monotonic by score.
 
 
 InputReader

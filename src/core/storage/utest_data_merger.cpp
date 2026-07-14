@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -14,12 +15,16 @@
 #include "core/storage/data_file_layout.h"
 #include "core/storage/data_merger.h"
 #include "core/storage/data_reader.h"
+#include "core/storage/data_writer.h"
 #include "core/storage/input_reader.h"
 #include "core/bitset/roaring_ids.h"
 #include "core/bitset/utest_roaring_ids_helpers.h"
+#include "core/utils/utest_float8_helpers.h"
 #include "utest_tmp_dir.h"
 
 using namespace sketch2;
+using sketch2::test::f8_payload_text;
+using sketch2::test::reference_f8_squared_norm;
 namespace fs = std::filesystem;
 
 class DataMergerTest : public ::testing::Test {
@@ -256,6 +261,19 @@ protected:
         ASSERT_FALSE(out.fail());
     }
 };
+
+TEST(norm_utils, float8_raw_bytes_accumulate_squared_norm_in_double) {
+    // f8 raw storage remains a byte array: +/-1, signed zeros, +/-minimum
+    // subnormal, and moderate normal values +3 and -6.
+    const std::array<uint8_t, 8> raw {
+        0x3c, 0xbc, 0x00, 0x80, 0x01, 0x81, 0x42, 0xc6,
+    };
+    const double expected = 47.0 + std::ldexp(1.0, -31);
+
+    EXPECT_DOUBLE_EQ(expected, compute_norm_sq(raw.data(), DataType::f8, raw.size(), "test"));
+    EXPECT_DOUBLE_EQ(expected, compute_squared_norm(raw.data(), DataType::f8, raw.size()));
+    EXPECT_DOUBLE_EQ(1.0 / std::sqrt(expected), inverse_norm(raw.data(), DataType::f8, raw.size()));
+}
 
 TEST_F(DataMergerTest, MergeDataFileMergesOverrideInsertAndDeletes) {
     const std::string source_path = p("source.data");
@@ -746,6 +764,128 @@ TEST_F(DataMergerTest, WriteI16FileSupportsInlineNorms) {
     EXPECT_GT(reader.stride(), reader.size());
     EXPECT_FLOAT_EQ(36.0f, reader.get_norm(0));
     EXPECT_FLOAT_EQ(64.0f, reader.get_norm(1));
+}
+
+TEST_F(DataMergerTest, MergeDataFileF8PreservesPayloadUpdatesDeletesAndL2Norms) {
+    const std::vector<uint8_t> source_a = {0xcf, 0xce, 0xcd, 0xcc, 0xcb};
+    const std::vector<uint8_t> source_b = {0xac, 0xad, 0xae, 0xaf, 0x2c};
+    const std::vector<uint8_t> source_c = {0x3c, 0x40, 0x42, 0x44, 0x46};
+    const std::vector<uint8_t> updated_b = {0x4f, 0x4e, 0x4d, 0x4c, 0x4b};
+    const std::vector<uint8_t> inserted = {0xbc, 0xb8, 0xb4, 0xb0, 0xac};
+    const std::string source_input = p("source_f8.txt");
+    const std::string updater_input = p("updater_f8.txt");
+    const std::string source_path = p("source_f8_l2.data");
+    const std::string updater_path = p("updater_f8_l2.data");
+    const std::string out_path = p("merged_f8_l2.data");
+
+    write_input_file(
+        source_input,
+        "f8,5\n"
+        "10 : [ " + f8_payload_text(source_a) + " ]\n"
+        "11 : [ " + f8_payload_text(source_b) + " ]\n"
+        "13 : [ " + f8_payload_text(source_c) + " ]\n");
+    write_input_file(
+        updater_input,
+        "f8,5\n"
+        "10 : []\n"
+        "11 : [ " + f8_payload_text(updated_b) + " ]\n"
+        "12 : [ " + f8_payload_text(inserted) + " ]\n");
+
+    DataWriter writer;
+    ASSERT_EQ(0, writer.exec_for_testing(source_input, source_path, 0, 0, 0, DistFunc::L2).code());
+    ASSERT_EQ(0, writer.exec_for_testing(updater_input, updater_path, 0, 0, 0, DistFunc::L2).code());
+
+    DataReader source_reader;
+    DataReader updater_reader;
+    DataReader merged;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_data_file(source_reader, updater_reader, out_path).code());
+    ASSERT_EQ(0, merged.init(out_path).code());
+    const DataFileHeader hdr = read_header(out_path);
+    EXPECT_EQ(3u, hdr.type);
+    ASSERT_TRUE(merged.has_matching_stored_norms(DistFunc::L2));
+    ASSERT_EQ(3u, merged.count());
+    EXPECT_EQ(nullptr, merged.get(10));
+
+    const std::vector<std::pair<uint64_t, std::vector<uint8_t>>> expected = {
+        {11, updated_b}, {12, inserted}, {13, source_c}};
+    for (size_t i = 0; i < expected.size(); ++i) {
+        const uint8_t* payload = merged.get(expected[i].first);
+        ASSERT_NE(nullptr, payload);
+        EXPECT_TRUE(std::equal(expected[i].second.begin(), expected[i].second.end(), payload));
+        EXPECT_NEAR(static_cast<float>(reference_f8_squared_norm(expected[i].second)), merged.get_norm(i), 1e-5f);
+    }
+
+    DataReader reopened;
+    ASSERT_EQ(0, reopened.init(out_path).code());
+    ASSERT_TRUE(reopened.has_matching_stored_norms(DistFunc::L2));
+    for (const auto& [id, bytes] : expected) {
+        const uint8_t* payload = reopened.get(id);
+        ASSERT_NE(nullptr, payload);
+        EXPECT_TRUE(std::equal(bytes.begin(), bytes.end(), payload));
+    }
+}
+
+TEST_F(DataMergerTest, MergeDeltaFileF8PreservesTombstonesPayloadsAndCosineNorms) {
+    const std::vector<uint8_t> source_two = {0x3c, 0x3c, 0x3c, 0x3c, 0x3c};
+    const std::vector<uint8_t> source_four = {0x40, 0x40, 0x40, 0x40, 0x40};
+    const std::vector<uint8_t> resurrected_one = {0x44, 0x42, 0x40, 0x3c, 0x2c};
+    const std::vector<uint8_t> updated_four = {0xcf, 0xce, 0xcd, 0xcc, 0xcb};
+    const std::vector<uint8_t> inserted_six = {0x4f, 0x4e, 0x4d, 0x4c, 0x4b};
+    const std::string source_input = p("source_f8_delta.txt");
+    const std::string updater_input = p("updater_f8_delta.txt");
+    const std::string source_path = p("source_f8_cos.delta");
+    const std::string updater_path = p("updater_f8_cos.delta");
+    const std::string out_path = p("merged_f8_cos.delta");
+
+    write_input_file(
+        source_input,
+        "f8,5\n"
+        "1 : []\n"
+        "2 : [ " + f8_payload_text(source_two) + " ]\n"
+        "4 : [ " + f8_payload_text(source_four) + " ]\n");
+    write_input_file(
+        updater_input,
+        "f8,5\n"
+        "1 : [ " + f8_payload_text(resurrected_one) + " ]\n"
+        "2 : []\n"
+        "4 : [ " + f8_payload_text(updated_four) + " ]\n"
+        "6 : [ " + f8_payload_text(inserted_six) + " ]\n"
+        "7 : []\n");
+
+    DataWriter writer;
+    ASSERT_EQ(0, writer.exec_for_testing(source_input, source_path, 0, 0, 0, DistFunc::COS).code());
+    ASSERT_EQ(0, writer.exec_for_testing(updater_input, updater_path, 0, 0, 0, DistFunc::COS).code());
+
+    DataReader source_reader;
+    DataReader updater_reader;
+    DataReader merged;
+    ASSERT_EQ(0, source_reader.init(source_path).code());
+    ASSERT_EQ(0, updater_reader.init(updater_path).code());
+
+    DataMerger merger;
+    ASSERT_EQ(0, merger.merge_delta_file(source_reader, updater_reader, out_path).code());
+    ASSERT_EQ(0, merged.init(out_path).code());
+    EXPECT_EQ(3u, read_header(out_path).type);
+    ASSERT_TRUE(merged.has_matching_stored_norms(DistFunc::COS));
+    ASSERT_EQ(3u, merged.count());
+    ASSERT_EQ(2u, merged.deleted_count());
+    EXPECT_EQ(2u, merged.deleted_id(0));
+    EXPECT_EQ(7u, merged.deleted_id(1));
+
+    const std::vector<std::pair<uint64_t, std::vector<uint8_t>>> expected = {
+        {1, resurrected_one}, {4, updated_four}, {6, inserted_six}};
+    for (size_t i = 0; i < expected.size(); ++i) {
+        const uint8_t* payload = merged.get(expected[i].first);
+        ASSERT_NE(nullptr, payload);
+        EXPECT_TRUE(std::equal(expected[i].second.begin(), expected[i].second.end(), payload));
+        const float expected_inv_norm = static_cast<float>(
+            1.0 / std::sqrt(reference_f8_squared_norm(expected[i].second)));
+        EXPECT_NEAR(expected_inv_norm, merged.get_norm(i), 1e-6f);
+    }
 }
 
 TEST_F(DataMergerTest, MergeDataFileFromInputViewRejectsIncompatibleDim) {

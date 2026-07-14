@@ -21,11 +21,20 @@ Sketch2api supports the following functions:
                 name string - used as a <name>.ini file, a <name>.lock file, and a <db_root>/name
                   data directory. Ini file has "dataset" section for values.
                 dim int - value written into ini file, validate it's positive
-                type string - value written into ini file, validate it's one of "f16", "f32", "i16",
+                type string - value written into ini file, validate it's one of "f16", "f32", "i16", "f8",
                   check "f16" is acceptable on the platform
                 range int - value written into ini file, validate it's more than 10
                 Ini file also gets a string value "dirs" with path to data directory.
     Result: 0 success, -1 failure, handler has error code and error message set
+
+    `f8` is the permanent one-byte E5M2 dataset type (the high-byte alias of
+    `f16`) with largest finite value `57344`; its on-disk data-header code is
+    `3`, while existing codes remain `f16=0`, `f32=1`, and `i16=2`.  Numeric
+    vector strings use checked
+    f32-to-f16-to-f8 round-to-nearest, ties-to-even conversion and reject
+    non-finite or overflowing values.  Raw binary data-file bytes are trusted
+    E5M2 codes instead.  Python callers must first round binary64 input to
+    f32 before this conversion.
 
 4. drop
     Functionality:  closes open dataset and releases all its resources
@@ -83,6 +92,11 @@ Sketch2api supports the following functions:
     Functionality: gets vector value stored on the handler
     Arguments:  handler
     Result: string with vector
+
+    The ordinary returned and printed vector text has two decimal places for
+    presentation.  It is not a lossless f8 serialization; generator and
+    round-trip fixtures use the `%.9g` (`digits == 0`) format when they need to
+    parse back to the identical byte.
 
 15. gid
     Functionality: gets vector id by vector value

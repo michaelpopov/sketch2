@@ -8,6 +8,7 @@
 - `file_lock.h`: Filesystem lock helper declarations.
 - `file_path_lock.cpp`: In-process file-path lock implementation with realpath aliasing.
 - `file_path_lock.h`: FilePathLock declarations for tracking exclusively held file paths.
+- `float8.h`: E5M2 float8 representation, checked conversion, and the shared bounded test-data codebook.
 - `high_perf_heap.h`: Vector-backed heap with fused root-replacement operations for hot paths.
 - `ini_reader.cpp`: Minimal INI parser implementation for dataset config files.
 - `ini_reader.h`: INI reader interface.
@@ -23,6 +24,10 @@
 - `string_utils.cpp`: Parsing and formatting helpers for textual vectors.
 - `string_utils.h`: Declarations for textual vector parsing and formatting.
 - `thread_pool.h`: Header-only fixed-size thread pool for utility and test parallelism.
+- `testdata/README.md`: Provenance and regeneration instructions for the cross-language float8 fixtures.
+- `testdata/float8_decode_v1.csv`: Exhaustive float8 decode fixture shared by C++ and Python tests.
+- `testdata/float8_encode_v1.csv`: f32-to-f16-to-f8 rounding fixture shared by C++ and Python tests.
+- `testdata/generate_float8_fixtures.py`: Deterministic generator and checker for the float8 fixtures.
 - `timer.h`: Stack-scoped elapsed-time helper for tests and utilities.
 - `update_notifier.cpp`: File-backed update counter implementation for cross-process cache invalidation.
 - `update_notifier.h`: Update notifier interface used by storage reader/writer paths.
@@ -36,4 +41,7 @@
 - `utest_singleton.cpp`: Unit tests for config-driven singleton initialization helpers.
 - `utest_string_utils.cpp`: Unit tests for textual vector parsing and printing.
 - `utest_thread_pool.cpp`: Unit tests for thread-pool submission and shutdown behavior.
+- `utest_float8.cpp`: Unit tests for E5M2 encoding, decoding, and codebook behavior.
+- `utest_float8_helpers.h`: Shared decoded-float8 reference helpers for storage and compute tests.
+- `utest_shared_types.cpp`: Unit tests for stable data-type strings, sizes, and on-disk numeric codes.
 - `utest_update_notifier.cpp`: Unit tests for notifier update/checker behavior and counter persistence.

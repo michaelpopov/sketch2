@@ -1,6 +1,7 @@
 // Unit tests for textual vector parsing and formatting helpers.
 
 #include "string_utils.h"
+#include "float8.h"
 
 #include <array>
 #include <cmath>
@@ -8,6 +9,8 @@
 #include <cstring>
 #include <fstream>
 #include <filesystem>
+#include <limits>
+#include <string>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -197,9 +200,10 @@ TEST(string_utils, print_vector_buffer_too_small_fails) {
     EXPECT_NE(0, ret.code());
 }
 
-TEST(string_utils, data_type_from_int_invalid_values_throw) {
+TEST(string_utils, data_type_from_int_f8_and_invalid_values) {
     EXPECT_THROW(data_type_from_int(-1), std::runtime_error);
-    EXPECT_THROW(data_type_from_int(3), std::runtime_error);
+    EXPECT_EQ(DataType::f8, data_type_from_int(3));
+    EXPECT_THROW(data_type_from_int(4), std::runtime_error);
     EXPECT_THROW(data_type_from_int(99), std::runtime_error);
 }
 
@@ -264,10 +268,14 @@ TEST(string_utils, parse_vector_dist_func_invalid_string_throws) {
 
 TEST(string_utils, parse_vector_data_type_roundtrip) {
     EXPECT_EQ(DataType::f32, data_type_from_string("f32"));
+    EXPECT_EQ(DataType::f16, data_type_from_string("f16"));
     EXPECT_EQ(DataType::i16, data_type_from_string("i16"));
+    EXPECT_EQ(DataType::f8, data_type_from_string("f8"));
     EXPECT_THROW(data_type_from_string("bad"), std::runtime_error);
     EXPECT_STREQ("f32", data_type_to_string(DataType::f32));
+    EXPECT_STREQ("f16", data_type_to_string(DataType::f16));
     EXPECT_STREQ("i16", data_type_to_string(DataType::i16));
+    EXPECT_STREQ("f8", data_type_to_string(DataType::f8));
 }
 
 TEST(string_utils, parse_vector_spaces_f32_success) {
@@ -439,6 +447,199 @@ TEST(string_utils, convert_vector_i16_non_integral_fails) {
         input.size(), input.data(), input.size());
     EXPECT_NE(0, ret.code());
     EXPECT_EQ("Query vector contains non-integral i16 value", ret.message());
+}
+
+TEST(string_utils, parse_vector_f8_comma_delimited_writes_raw_encoded_bytes) {
+    std::array<uint8_t, 7> out {};
+    const Ret ret = parse_vector(
+        out.data(), out.size(), DataType::f8, out.size(),
+        "0, -0, 1, -1, 1.52587890625e-5, -1.52587890625e-5, 57344");
+    ASSERT_EQ(0, ret.code()) << ret.message();
+
+    const std::array<uint8_t, 7> expected {
+        0x00, 0x80, 0x3c, 0xbc, 0x01, 0x81, 0x7b,
+    };
+    EXPECT_EQ(expected, out);
+}
+
+TEST(string_utils, parse_vector_spaces_f8_writes_raw_encoded_bytes) {
+    std::array<uint8_t, 7> out {};
+    const Ret ret = parse_vector_spaces(
+        out.data(), out.size(), DataType::f8, out.size(),
+        "-57344 -1 -6.103515625e-5 0 1.52587890625e-5 1 57344");
+    ASSERT_EQ(0, ret.code()) << ret.message();
+
+    const std::array<uint8_t, 7> expected {
+        0xfb, 0xbc, 0x84, 0x00, 0x01, 0x3c, 0x7b,
+    };
+    EXPECT_EQ(expected, out);
+}
+
+TEST(string_utils, f8_checked_numeric_ingest_accepts_finite_values_that_round_to_max) {
+    const std::array<uint8_t, 2> expected {0x7b, 0xfb};
+
+    std::array<uint8_t, 2> comma_out {};
+    ASSERT_EQ(0, parse_vector(
+        comma_out.data(), comma_out.size(), DataType::f8, comma_out.size(), "60000, -60000").code());
+    EXPECT_EQ(expected, comma_out);
+
+    std::array<uint8_t, 2> spaces_out {};
+    ASSERT_EQ(0, parse_vector_spaces(
+        spaces_out.data(), spaces_out.size(), DataType::f8, spaces_out.size(), "60000 -60000").code());
+    EXPECT_EQ(expected, spaces_out);
+
+    const std::array<float, 2> query {60000.0f, -60000.0f};
+    std::array<uint8_t, 2> query_out {};
+    ASSERT_EQ(0, convert_vector(
+        query_out.data(), query_out.size(), DataType::f8,
+        query.size(), query.data(), query.size()).code());
+    EXPECT_EQ(expected, query_out);
+}
+
+TEST(string_utils, parse_vector_f8_rejects_checked_ingest_errors) {
+    std::array<uint8_t, 2> out {};
+
+    for (const char* token : {"nan", "inf", "-inf", "61424", "-61424"}) {
+        const Ret ret = parse_vector(out.data(), out.size(), DataType::f8, 1, token);
+        EXPECT_NE(0, ret.code()) << token;
+        EXPECT_EQ("InputReader::data: non-finite f8 token", ret.message()) << token;
+    }
+
+    const Ret truncated = parse_vector(out.data(), out.size(), DataType::f8, 2, "1");
+    EXPECT_NE(0, truncated.code());
+    EXPECT_EQ("InputReader::data: truncated vector payload", truncated.message());
+
+    const Ret malformed = parse_vector(out.data(), out.size(), DataType::f8, 2, "1, nope");
+    EXPECT_NE(0, malformed.code());
+    EXPECT_EQ("InputReader::data: invalid f8 token", malformed.message());
+
+    const Ret extra = parse_vector(out.data(), out.size(), DataType::f8, 1, "1, 2");
+    EXPECT_NE(0, extra.code());
+    EXPECT_EQ("InputReader::data: extra tokens in vector payload", extra.message());
+
+    const Ret too_small = parse_vector(out.data(), 1, DataType::f8, 2, "1, 2");
+    EXPECT_NE(0, too_small.code());
+    EXPECT_EQ("InputReader::data: invalid input buffer size", too_small.message());
+}
+
+TEST(string_utils, parse_vector_spaces_f8_rejects_checked_ingest_errors) {
+    std::array<uint8_t, 2> out {};
+
+    const Ret overflow = parse_vector_spaces(out.data(), out.size(), DataType::f8, 2, "1 61424");
+    EXPECT_NE(0, overflow.code());
+    EXPECT_EQ("InputReader::data: non-finite f8 token", overflow.message());
+
+    for (const char* token : {"nan", "inf", "-inf"}) {
+        const Ret nonfinite = parse_vector_spaces(out.data(), out.size(), DataType::f8, 1, token);
+        EXPECT_NE(0, nonfinite.code()) << token;
+        EXPECT_EQ("InputReader::data: non-finite f8 token", nonfinite.message()) << token;
+    }
+
+    const Ret truncated = parse_vector_spaces(out.data(), out.size(), DataType::f8, 2, "1");
+    EXPECT_NE(0, truncated.code());
+    EXPECT_EQ("InputReader::data: truncated vector payload", truncated.message());
+
+    const Ret malformed = parse_vector_spaces(out.data(), out.size(), DataType::f8, 2, "1 nope");
+    EXPECT_NE(0, malformed.code());
+    EXPECT_EQ("InputReader::data: invalid f8 token", malformed.message());
+
+    const Ret extra = parse_vector_spaces(out.data(), out.size(), DataType::f8, 1, "1 2");
+    EXPECT_NE(0, extra.code());
+    EXPECT_EQ("InputReader::data: extra tokens in vector payload", extra.message());
+
+    const Ret too_small = parse_vector_spaces(out.data(), 1, DataType::f8, 2, "1 2");
+    EXPECT_NE(0, too_small.code());
+    EXPECT_EQ("InputReader::data: invalid input buffer size", too_small.message());
+}
+
+TEST(string_utils, convert_vector_f8_writes_checked_raw_encoded_bytes) {
+    const std::array<float, 7> input {
+        0.0f,
+        -0.0f,
+        1.0f,
+        -1.0f,
+        std::ldexp(1.0f, -16),
+        -std::ldexp(1.0f, -16),
+        kFloat8Max,
+    };
+    std::array<uint8_t, 7> out {};
+
+    const Ret ret = convert_vector(
+        out.data(), out.size(), DataType::f8, input.size(), input.data(), input.size());
+    ASSERT_EQ(0, ret.code()) << ret.message();
+
+    const std::array<uint8_t, 7> expected {
+        0x00, 0x80, 0x3c, 0xbc, 0x01, 0x81, 0x7b,
+    };
+    EXPECT_EQ(expected, out);
+}
+
+TEST(string_utils, convert_vector_f8_rejects_nonfinite_and_overflow_inputs) {
+    std::array<uint8_t, 1> out {};
+    for (const float input : {
+             std::numeric_limits<float>::quiet_NaN(),
+             std::numeric_limits<float>::infinity(),
+             -std::numeric_limits<float>::infinity(),
+             61424.0f,
+             -61424.0f,
+         }) {
+        const Ret ret = convert_vector(out.data(), out.size(), DataType::f8, 1, &input, 1);
+        EXPECT_NE(0, ret.code());
+        EXPECT_EQ("Query vector contains non-finite f8 value", ret.message());
+    }
+
+    const std::array<float, 2> input {1.0f, 2.0f};
+    const Ret too_small = convert_vector(
+        out.data(), out.size(), DataType::f8, input.size(), input.data(), input.size());
+    EXPECT_NE(0, too_small.code());
+    EXPECT_EQ("convert_vector: invalid output buffer size", too_small.message());
+}
+
+TEST(string_utils, print_vector_f8_lossless_format_round_trips_all_finite_bytes) {
+    for (unsigned int bits = 0; bits <= std::numeric_limits<uint8_t>::max(); ++bits) {
+        if ((bits & 0x7fU) >= 0x7cU) {
+            continue;
+        }
+
+        const std::array<uint8_t, 1> raw {static_cast<uint8_t>(bits)};
+        char printed[64] {};
+        const Ret print_ret = print_vector(
+            raw.data(), DataType::f8, raw.size(), printed, sizeof(printed), 0);
+        ASSERT_EQ(0, print_ret.code()) << print_ret.message();
+
+        const size_t printed_size = std::strlen(printed);
+        ASSERT_GE(printed_size, 4u);
+        const std::string payload(printed + 2, printed_size - 4);
+
+        std::array<uint8_t, 1> reparsed {};
+        const Ret parse_ret = parse_vector(
+            reparsed.data(), reparsed.size(), DataType::f8, reparsed.size(), payload.c_str());
+        ASSERT_EQ(0, parse_ret.code()) << parse_ret.message();
+        EXPECT_EQ(raw[0], reparsed[0]) << "f8 bits=" << bits << ", printed=" << printed;
+    }
+}
+
+TEST(string_utils, print_vector_f8_default_precision_is_presentation_only) {
+    const std::array<uint8_t, 1> raw {0x01};
+    char printed[64] {};
+    const Ret print_ret = print_vector(raw.data(), DataType::f8, raw.size(), printed, sizeof(printed));
+    ASSERT_EQ(0, print_ret.code()) << print_ret.message();
+    EXPECT_STREQ("[ 0.00 ]", printed);
+
+    std::array<uint8_t, 1> reparsed {};
+    const Ret parse_ret = parse_vector(reparsed.data(), reparsed.size(), DataType::f8, reparsed.size(), "0.00");
+    ASSERT_EQ(0, parse_ret.code()) << parse_ret.message();
+    EXPECT_EQ(0x00, reparsed[0]);
+    EXPECT_NE(raw[0], reparsed[0]);
+}
+
+TEST(string_utils, print_vector_f8_accepts_trusted_raw_nonfinite_bytes) {
+    const std::array<uint8_t, 4> raw {0x7c, 0xfc, 0x7d, 0xfd};
+    char printed[128] {};
+    const Ret ret = print_vector(raw.data(), DataType::f8, raw.size(), printed, sizeof(printed), 0);
+    ASSERT_EQ(0, ret.code()) << ret.message();
+    EXPECT_NE(nullptr, std::strstr(printed, "inf"));
+    EXPECT_NE(nullptr, std::strstr(printed, "nan"));
 }
 
 // ── load_vector ─────────────────────────────────────────────────────────────

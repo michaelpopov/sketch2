@@ -226,6 +226,7 @@ Supported vector element types today:
 - `f32`
 - `f16`
 - `i16`
+- `f8` (E5M2, one byte, stable type code `3`)
 
 ## Compute Path Selection
 

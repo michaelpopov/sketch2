@@ -59,8 +59,9 @@ The project emphasizes:
 - hardware specialization inside the native compute layer
 - integration with existing systems
 
-It currently targets Linux and supports `f32`, `f16`, and `i16` vector data
-with `dot`, `l2`, and `cos` distance functions.
+It currently targets Linux and supports `f32`, `f16`, `i16`, and E5M2 `f8`
+vector data with `dot`, `l2`, and `cos` distance functions.  `f8` is a stable
+one-byte high-byte `f16` alias with persistent type code `3`.
 
 ## Documentation
 

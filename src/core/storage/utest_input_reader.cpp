@@ -2,15 +2,19 @@
 
 #include <gtest/gtest.h>
 #include <array>
+#include <algorithm>
 #include <fstream>
 #include <limits>
 #include <cstdio>
 #include <unistd.h>
+#include <vector>
 #include "core/storage/input_generator.h"
 #include "core/storage/input_reader.h"
 #include "utest_tmp_dir.h"
+#include "core/utils/utest_float8_helpers.h"
 
 using namespace sketch2;
+using sketch2::test::f8_payload_text;
 
 TEST(LinesInfoTest, StoresU32OffsetsWhenConfigured) {
     LinesInfo lines;
@@ -236,6 +240,57 @@ TEST_F(InputReaderTest, TypeI16) {
     EXPECT_EQ(DataType::i16, r.type());
 }
 
+TEST_F(InputReaderTest, F8TextAndBinaryInputsPreserveRepresentativeCodebookBytes) {
+    const std::vector<uint8_t> expected = {0xcf, 0xac, 0x2c, 0x3c, 0x4f};
+
+    {
+        write_raw(
+            "f8,5\n"
+            "42 : [ " + f8_payload_text(expected) + " ]\n"
+            "43 : []\n");
+
+        InputReader text_reader;
+        ASSERT_EQ(0, text_reader.init(path_).code());
+        EXPECT_FALSE(text_reader.is_binary());
+        EXPECT_EQ(DataType::f8, text_reader.type());
+        EXPECT_EQ(5u, text_reader.dim());
+        EXPECT_EQ(expected.size(), text_reader.size());
+        ASSERT_EQ(2u, text_reader.count());
+        EXPECT_EQ(42u, text_reader.id(0));
+        EXPECT_EQ(43u, text_reader.id(1));
+        EXPECT_FALSE(text_reader.is_no_data(0));
+        EXPECT_TRUE(text_reader.is_no_data(1));
+
+        std::vector<uint8_t> parsed(text_reader.size());
+        ASSERT_EQ(0, text_reader.data(0, parsed.data(), parsed.size()).code());
+        EXPECT_EQ(expected, parsed);
+        EXPECT_NE(0, text_reader.data(1, parsed.data(), parsed.size()).code());
+    }
+
+    {
+        std::ofstream binary(path_, std::ios::binary);
+        ASSERT_TRUE(binary.is_open());
+        binary << "f8,5,bin\n";
+        const uint64_t id = 77;
+        binary.write(reinterpret_cast<const char*>(&id), sizeof(id));
+        binary.write(reinterpret_cast<const char*>(expected.data()), expected.size());
+        binary.close();
+
+        InputReader binary_reader;
+        ASSERT_EQ(0, binary_reader.init(path_).code());
+        EXPECT_TRUE(binary_reader.is_binary());
+        EXPECT_EQ(DataType::f8, binary_reader.type());
+        EXPECT_EQ(expected.size(), binary_reader.size());
+        ASSERT_EQ(1u, binary_reader.count());
+        EXPECT_EQ(77u, binary_reader.id(0));
+
+        const uint8_t* raw = nullptr;
+        ASSERT_EQ(0, binary_reader.raw_data(0, &raw).code());
+        ASSERT_NE(nullptr, raw);
+        EXPECT_TRUE(std::equal(expected.begin(), expected.end(), raw));
+    }
+}
+
 TEST_F(InputReaderTest, BinaryHeaderIsAccepted) {
     GeneratorConfig gen {PatternType::Sequential, 2, 7, DataType::f32, 4, 1000, 0, true};
     ASSERT_EQ(0, generate_input_file(path_, gen).code());
@@ -301,6 +356,43 @@ TEST_F(InputReaderTest, SizeI16) {
     EXPECT_EQ(4u * sizeof(uint16_t), r.size());
 }
 
+TEST_F(InputReaderTest, F8MinimumDimensionUsesOneByteElements) {
+    const std::vector<uint8_t> expected = {0xcf, 0xac, 0x2c, 0x4f};
+    write_raw("f8,4\n9 : [ " + f8_payload_text(expected) + " ]\n");
+
+    InputReader reader;
+    ASSERT_EQ(0, reader.init(path_).code());
+    EXPECT_EQ(DataType::f8, reader.type());
+    EXPECT_EQ(4u, reader.size());
+    std::vector<uint8_t> parsed(reader.size());
+    ASSERT_EQ(0, reader.data(0, parsed.data(), parsed.size()).code());
+    EXPECT_EQ(expected, parsed);
+}
+
+TEST_F(InputReaderTest, F8OneByteTextAndBinaryPayloadBoundariesAreValidated) {
+    write_raw("f8,5\n7 : [ 1, 1, 1, 1 ]\n");
+    {
+        InputReader text_reader;
+        ASSERT_EQ(0, text_reader.init(path_).code());
+        std::vector<uint8_t> parsed(text_reader.size());
+        EXPECT_NE(0, text_reader.data(0, parsed.data(), parsed.size()).code());
+    }
+
+    std::ofstream binary(path_, std::ios::binary);
+    ASSERT_TRUE(binary.is_open());
+    binary << "f8,5,bin\n";
+    const uint64_t id = 8;
+    const std::array<uint8_t, 4> truncated = {0x3c, 0x40, 0x42, 0x44};
+    binary.write(reinterpret_cast<const char*>(&id), sizeof(id));
+    binary.write(reinterpret_cast<const char*>(truncated.data()), truncated.size());
+    binary.close();
+
+    InputReader binary_reader;
+    const Ret ret = binary_reader.init(path_);
+    EXPECT_NE(0, ret.code());
+    EXPECT_EQ("Invalid binary payload size", ret.message());
+}
+
 // --- data() ---
 
 TEST_F(InputReaderTest, DataReturnsSuccess) {
@@ -327,18 +419,21 @@ TEST_F(InputReaderTest, F32DataValuesAreIdPlusPointOne) {
     }
 }
 
-TEST_F(InputReaderTest, I16DataValuesAreId) {
-    // generator writes id for each dimension
+TEST_F(InputReaderTest, I16DataUsesBoundedMultidimensionalValues) {
     generate_input_file(path_, cfg(3, 5, DataType::i16, 4));
     InputReader r;
     EXPECT_EQ(0, r.init(path_).code());
     std::vector<uint8_t> buf(r.size());
+    const std::array<std::array<int16_t, 4>, 3> expected {{
+        {{6, -1, 1, 1}},
+        {{7, 2, -1, 2}},
+        {{8, 5, -3, -2}},
+    }};
     for (size_t i = 0; i < 3; ++i) {
         EXPECT_EQ(0, r.data(i, buf.data(), buf.size()).code());
         const int16_t* v = reinterpret_cast<const int16_t*>(buf.data());
-        int16_t expected = static_cast<int16_t>(5 + i);
         for (size_t d = 0; d < 4; ++d) {
-            EXPECT_EQ(expected, v[d]) << "vector " << i << " dim " << d;
+            EXPECT_EQ(expected[i][d], v[d]) << "vector " << i << " dim " << d;
         }
     }
 }

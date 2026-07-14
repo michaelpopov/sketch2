@@ -7,10 +7,12 @@
 
 #include "sketch2api/sketch2.h"
 #include "core/bitset/bitset_filter_control.h"
+#include "utils/float8.h"
 #include "utils/singleton.h"
 #include "utils/shared_types.h"
 #include "core/bitset/utest_chunked_bits_helpers.h"
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -39,6 +41,16 @@ struct SqliteDbCloser {
 using SqliteDbPtr = std::unique_ptr<sqlite3, SqliteDbCloser>;
 
 constexpr const char* kScenarioEnv = "SKETCH2API_VLITE_COMPUTE_SCENARIO";
+
+template <size_t N>
+double decoded_f8_dot(const std::array<uint8_t, N>& left, const std::array<uint8_t, N>& right) {
+    double result = 0.0;
+    for (size_t index = 0; index < N; ++index) {
+        result += static_cast<double>(static_cast<float>(float8::from_bits(left[index]))) *
+            static_cast<double>(static_cast<float>(float8::from_bits(right[index])));
+    }
+    return result;
+}
 
 using test::ScopedPathCleanup;
 using test::unique_filter_name;
@@ -185,6 +197,33 @@ protected:
         std::ofstream out(root_ / filename);
         ASSERT_TRUE(out.is_open());
         out << content;
+    }
+
+    void expect_f8_dot_query_results(const std::string& query) {
+        // These decimals are exactly representable E5M2 grid points. Keep the
+        // byte forms beside the payload so scores come from decoded f8 values,
+        // not parser or display-rounding assumptions.
+        constexpr std::array<uint8_t, 4> query_bits = {0x3c, 0x3e, 0x40, 0x42};
+        constexpr std::array<uint8_t, 4> first_bits = {0x3c, 0x3e, 0x40, 0x42};
+        constexpr std::array<uint8_t, 4> second_bits = {0x40, 0x42, 0x44, 0x46};
+        write_input("f8,4\n"
+                    "10 : [ 1.0, 1.5, 2.0, 3.0 ]\n"
+                    "20 : [ 2.0, 3.0, 4.0, 6.0 ]\n");
+        create_dataset(DataType::f8, 4, 100, DistFunc::DOT);
+
+        SqliteDbPtr db = open_db_with_extension();
+        create_virtual_table(db.get());
+
+        const auto rows = query_results(db.get(),
+            "SELECT id, score FROM nn "
+            "WHERE query = '" + query + "' AND k = 2 "
+            "ORDER BY score DESC");
+
+        ASSERT_EQ(2u, rows.size());
+        EXPECT_EQ(20u, rows[0].first);
+        EXPECT_EQ(10u, rows[1].first);
+        EXPECT_NEAR(decoded_f8_dot(second_bits, query_bits), rows[0].second, 1e-6);
+        EXPECT_NEAR(decoded_f8_dot(first_bits, query_bits), rows[1].second, 1e-6);
     }
 
     void expect_query_error(sqlite3* db, const std::string& sql, const std::string& message_substr) {
@@ -381,6 +420,10 @@ TEST_F(VliteTest, SupportsF16Datasets) {
     EXPECT_EQ(10u, rows[1].first);
     EXPECT_NEAR(440.0, rows[0].second, 1e-6);
     EXPECT_NEAR(400.0, rows[1].second, 1e-6);
+}
+
+TEST_F(VliteTest, SupportsF8Datasets) {
+    expect_f8_dot_query_results("1.0, 1.5, 2.0, 3.0");
 }
 
 TEST_F(VliteTest, SupportsMatchOperator) {
@@ -705,6 +748,10 @@ TEST_F(VliteTest, SpaceDelimitedQueryWorksForF16Dataset) {
     EXPECT_NEAR(400.0, rows[1].second, 1e-6);
 }
 
+TEST_F(VliteTest, SpaceDelimitedQueryWorksForF8Dataset) {
+    expect_f8_dot_query_results("1.0 1.5 2.0 3.0");
+}
+
 TEST_F(VliteTest, SpaceDelimitedQueryWorksWithMatchOperator) {
     write_input("f32,4\n"
                 "10 : [ 100.0, 1.0, 0.0, 0.0 ]\n"
@@ -815,6 +862,12 @@ TEST_F(VliteTest, AtPrefixWorksWithF16Dataset) {
     EXPECT_EQ(10u, rows[1].first);
     EXPECT_NEAR(440.0, rows[0].second, 1e-6);
     EXPECT_NEAR(400.0, rows[1].second, 1e-6);
+}
+
+TEST_F(VliteTest, AtPrefixWorksWithF8Dataset) {
+    write_query_file("query.txt", "1.0, 1.5, 2.0, 3.0\n");
+    const std::string query_path = "@" + (root_ / "query.txt").string();
+    expect_f8_dot_query_results(query_path);
 }
 
 TEST_F(VliteTest, AtPrefixWorksWithMatchOperator) {

@@ -93,6 +93,18 @@ class Sketch2:
         ]
         self.lib.sk_knn.restype = c_int
 
+        self.lib.sk_knn_items.argtypes = [
+            c_void_p,
+            c_char_p,
+            c_uint,
+            c_void_p,
+            c_size_t,
+            POINTER(POINTER(c_uint64)),
+            POINTER(POINTER(c_double)),
+            POINTER(c_size_t),
+        ]
+        self.lib.sk_knn_items.restype = c_int
+
         self.lib.sk_merge_delta.argtypes = [c_void_p]
         self.lib.sk_merge_delta.restype = c_int
 
@@ -237,6 +249,35 @@ class Sketch2:
         finally:
             if ids:
                 self.lib.sk_free(ctypes.cast(ids, c_void_p))
+
+    def knn_items(self, vec: str, count: int) -> list[tuple[int, float]]:
+        """Run textual KNN and return the C API's ID/score pairs."""
+        if count < 1:
+            raise ValueError("count must be >= 1")
+
+        ids = POINTER(c_uint64)()
+        scores = POINTER(c_double)()
+        size = c_size_t()
+        self._check(
+            "sk_knn_items",
+            self.lib.sk_knn_items(
+                self.handle,
+                vec.encode("utf-8"),
+                c_uint(count),
+                None,
+                c_size_t(0),
+                ctypes.byref(ids),
+                ctypes.byref(scores),
+                ctypes.byref(size),
+            ),
+        )
+        try:
+            return [(int(ids[index]), float(scores[index])) for index in range(size.value)]
+        finally:
+            if ids:
+                self.lib.sk_free(ctypes.cast(ids, c_void_p))
+            if scores:
+                self.lib.sk_free(ctypes.cast(scores, c_void_p))
 
     def get(self, item_id: int) -> str:
         out = c_char_p()
